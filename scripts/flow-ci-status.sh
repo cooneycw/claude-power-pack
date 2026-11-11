@@ -58,6 +58,11 @@
 #                  the required pull_request lane.
 #   --wait [SECS]  Poll until the status is terminal or SECS elapse
 #                  (default 600, 15s interval). Without it, report once.
+#                  A wait that did NOT reach a terminal verdict never exits 0
+#                  (issue #1684): `unknown` exits 2 and an expired wait exits
+#                  5. A pipeline that is FOUND but whose status cannot be read
+#                  yet, and a listing that fails mid-wait, are polled to the
+#                  deadline rather than ending the wait.
 #   --exit-code    Exit 1 on failure/stalled; recorded unknown exits 2.
 #   --fallback-provider-probes  Permit labelled legacy probing ONLY when the
 #                  record cannot select lanes; valid records still win.
@@ -75,6 +80,10 @@
 #   FLOW_CI_PIPELINE: <number|->
 #   FLOW_CI_URL: <url|->
 #   FLOW_CI_WAIT: none | settled | expired (<N>s)   (issue #1262)
+#   FLOW_CI_RETRYABLE: <why>           (only beside `unknown`, issue #1684: the
+#                                       pipeline or listing could not be READ,
+#                                       which a later look may resolve; every
+#                                       other `unknown` is a final judgement)
 #   FLOW_CI_RUNS: <n> (<id>:<workflow>:<event>:<result>, ...)
 #                                      (GitHub Actions lane only, issue #1604:
 #                                       every run the verdict aggregated)
@@ -161,6 +170,12 @@ WAIT_SECS=0
 #: separates "the pipeline never registered in N seconds" from "one look found
 #: nothing", which printed identical output before.
 WAIT_STATE="none"
+#: Why an `unknown` is worth another look (issue #1684): set only when a
+#: pipeline was found with a status this helper cannot read, or a listing
+#: failed mid-wait. Empty beside every other `unknown` - no credentials, no
+#: provider, a zero-population Actions verdict - which no amount of polling
+#: resolves, so those still end a wait at once.
+RETRYABLE=""
 SECRET_NAME="${CPP_WOODPECKER_SECRET:-essent-ai}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
 WANT_EXIT_CODE=0
@@ -322,6 +337,9 @@ failure_origin() {
     fi
 }
 
+#: NEGATIVE-CONTROL: controls/flow-ci-status-wait
+#: A --wait must not end, exit 0, on a pipeline it found but could not read
+#: (issue #1684).
 #: NEGATIVE-CONTROL: controls/flow-ci-status-gha
 #: A red GitHub Actions run must surface whatever its list position, and a
 #: repo requiring only non-Woodpecker checks must not read not-found (#1604).
@@ -366,9 +384,24 @@ emit() {
             echo "FLOW_CI_STALLED_STEP: $step"
         done
     fi
+    [[ "$STATUS" == "unknown" && -n "$RETRYABLE" ]] && echo "FLOW_CI_RETRYABLE: $RETRYABLE"
     echo "FLOW_CI_STATUS: $STATUS"
     if [[ "$WANT_EXIT_CODE" -eq 1 && "$STATUS" == "failure" ]]; then
         exit 1
+    fi
+    # A wait that was asked for and did not reach a terminal verdict must not
+    # exit 0 (issue #1684): a lock-hold script read exit 0 as "the wait ended"
+    # and released a merge lock under a running pipeline. Single-shot reads
+    # keep their fail-open exit 0; only --wait makes the exit code a claim.
+    if [[ "$WAIT_SECS" -gt 0 ]]; then
+        if [[ "$WAIT_STATE" == expired* ]]; then
+            echo "flow-ci-status: the --wait window of ${WAIT_SECS}s expired with status '$STATUS' (exit 5)" >&2
+            exit 5
+        fi
+        if [[ "$STATUS" == "unknown" ]]; then
+            echo "flow-ci-status: the wait ended on 'unknown', not on a CI result (exit 2)" >&2
+            exit 2
+        fi
     fi
     exit 0
 }
@@ -602,7 +635,8 @@ wp_stall_check() {
             success)                 STATUS="success" ;;
             failure|error|killed)    STATUS="failure" ;;
             pending|blocked|created) STATUS="pending" ;;
-            *)                       STATUS="unknown" ;;
+            *)                       STATUS="unknown"
+                                     RETRYABLE="pipeline #$number found; detail status '$detail_state' is not one this helper reads" ;;
         esac
     fi
     if ! live="$(jq -er '[.workflows[] | select(.state == "running" or .state == "started")]
@@ -667,6 +701,7 @@ if [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "github-actions" && "$HAVE_JQ" -eq 1 &&
         PROVIDER="woodpecker"
         DEADLINE=$(( $(date +%s) + WAIT_SECS ))
         while :; do
+            RETRYABLE=""
             MATCHES="$(wp_api "/api/repos/$REPO_ID/pipelines?per_page=50" \
                 | jq -c --arg sha "$SHA" --arg ev "$PREFER_EVENT" --argjson strict "$STRICT_EVENT" \
                     '[.[] | select(.commit == $sha) | select($strict == 0 or $ev == "any" or .event == $ev)]
@@ -686,7 +721,8 @@ if [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "github-actions" && "$HAVE_JQ" -eq 1 &&
                     failure|error|killed)    STATUS="failure" ;;
                     running|started)         STATUS="running" ;;
                     pending|blocked|created) STATUS="pending" ;;
-                    *)                       STATUS="unknown" ;;
+                    *)                       STATUS="unknown"
+                                             RETRYABLE="pipeline #$PIPELINE found; status '$WP_STATE' is not one this helper reads" ;;
                 esac
             else
                 PIPELINE="-"; STATUS="not-found"
@@ -697,8 +733,11 @@ if [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "github-actions" && "$HAVE_JQ" -eq 1 &&
                 wp_stall_check "$PIPELINE" "$REPO_TIMEOUT_MIN"
             fi
 
-            # Terminal, or out of patience - and SAY which (issue #1262).
-            if [[ "$STATUS" == "success" || "$STATUS" == "failure" || "$STATUS" == "stalled" || "$STATUS" == "unknown" ]]; then
+            # Terminal, or out of patience - and SAY which (issue #1262). An
+            # `unknown` that only means "could not read it yet" is NOT terminal
+            # (issue #1684): it is polled like `pending`.
+            if [[ "$STATUS" == "success" || "$STATUS" == "failure" || "$STATUS" == "stalled" \
+                || ( "$STATUS" == "unknown" && -z "$RETRYABLE" ) ]]; then
                 [[ "$WAIT_SECS" -gt 0 ]] && WAIT_STATE="settled"
                 break
             fi
@@ -742,7 +781,9 @@ if [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "github-actions" ]] && command -v "$WPC
         # The canonical web URL needs the numeric repo id, which this lane does not have.
         URL="-"
         DEADLINE=$(( $(date +%s) + WAIT_SECS ))
+        WPCLI_RELIST_FAILED=0
         while :; do
+            RETRYABLE=""
             MATCHES=()
             while IFS='|' read -r number state commit event; do
                 [[ "$commit" == "$SHA" && ( "$PREFER_EVENT" == "any" || "$event" == "$PREFER_EVENT" ) ]] || continue
@@ -756,7 +797,15 @@ if [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "github-actions" ]] && command -v "$WPC
             done <<<"$WPCLI_ROWS"
 
             COUNT="${#MATCHES[@]}"
-            if [[ "$COUNT" -gt 0 ]]; then
+            if [[ "$WPCLI_RELIST_FAILED" -eq 1 ]]; then
+                # The re-listing failed mid-wait (issue #1684). This used to
+                # END the wait with `unknown` and exit 0 while the pipeline it
+                # had already found was still running. It says nothing about
+                # the pipeline, so the last PIPELINE stands and the next poll
+                # asks again.
+                STATUS="unknown"
+                RETRYABLE="the pipeline listing failed mid-wait"
+            elif [[ "$COUNT" -gt 0 ]]; then
                 IFS='|' read -r PIPELINE WP_STATE _ _ <<<"${MATCHES[0]}"
                 if [[ "$COUNT" -gt 1 ]]; then
                     echo "flow-ci-status: $COUNT pipelines share $SHA; reporting the '$PREFER_EVENT' one first:" >&2
@@ -770,14 +819,17 @@ if [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "github-actions" ]] && command -v "$WPC
                     failure|error|killed)    STATUS="failure" ;;
                     running|started)         STATUS="running" ;;
                     pending|blocked|created) STATUS="pending" ;;
-                    *)                       STATUS="unknown" ;;
+                    *)                       STATUS="unknown"
+                                             RETRYABLE="pipeline #$PIPELINE found; status '$WP_STATE' is not one this helper reads" ;;
                 esac
             else
                 PIPELINE="-"; STATUS="not-found"
             fi
 
-            # Terminal, or out of patience - and SAY which (issue #1262).
-            if [[ "$STATUS" == "success" || "$STATUS" == "failure" || "$STATUS" == "unknown" ]]; then
+            # Terminal, or out of patience - and SAY which (issue #1262); a
+            # retryable `unknown` is polled, not terminal (issue #1684).
+            if [[ "$STATUS" == "success" || "$STATUS" == "failure" \
+                || ( "$STATUS" == "unknown" && -z "$RETRYABLE" ) ]]; then
                 [[ "$WAIT_SECS" -gt 0 ]] && WAIT_STATE="settled"
                 break
             fi
@@ -788,9 +840,9 @@ if [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "github-actions" ]] && command -v "$WPC
                 --output 'go-template={{range .}}{{.Number}}|{{.Status}}|{{.Commit}}|{{.Event}}{{"\n"}}{{end}}' \
                 --limit 50 "$REPO" 2>/dev/null)"
             WPCLI_RC=$?
+            WPCLI_RELIST_FAILED=0
             if [[ "$WPCLI_RC" -ne 0 || -z "$(sed -n '/[^[:space:]]/p' <<<"$WPCLI_ROWS")" ]]; then
-                STATUS="unknown"
-                break
+                WPCLI_RELIST_FAILED=1
             fi
         done
 
@@ -1023,6 +1075,9 @@ if [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "woodpecker" && "$HAVE_JQ" -eq 1 ]] && 
         [[ "$(jq -r length <<<"$ALL_RUNS")" -gt 0 ]];
     }; then
         PROVIDER="github-actions"
+        # Every `unknown` on this lane is a final judgement (all runs skipped,
+        # a capped listing), never a not-yet-readable one (issue #1684).
+        RETRYABLE=""
         DEADLINE=$(( $(date +%s) + WAIT_SECS ))
         while :; do
             VERDICT="$(gha_verdict "$ALL_RUNS")"

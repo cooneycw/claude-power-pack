@@ -1,0 +1,38 @@
+{
+  "gate": "scripts/flow-ci-status.sh",
+  "invocation": [
+    "sh",
+    "controls/flow-ci-status-wait/run-case.sh",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^FLOW_CI_WAIT_CONTROL: polled$",
+  "good_signal": "^FLOW_CI_WAIT_CONTROL: first-look ",
+  "unavailable_signal": "^FLOW_CI_WAIT_CONTROL: unavailable",
+  "ci_deps_provided_by_invocation": [
+    "curl"
+  ],
+  "limits": "Checks the issue #1684 rule on the HTTP lane only: under --wait, a pipeline that is found with an empty status must be asked again rather than ending the wait. The stub listing answers the case's first status once and success afterwards; the bad case (empty first) must cost a second listing call and end green, the good case (success first) must end on the first look. The verdict is the stub's CALL COUNT plus the final FLOW_CI_STATUS, not the gate's exit code. Does not establish the woodpecker-cli lane (its empty-status and failed-relisting paths are in tests/test_flow_ci_status.py), the recorded-provider dispatcher in lib/cicd/flow.py (tests/test_flow_recorded_providers.py), the exit codes 2 and 5, the deadline itself (FLOW_CI_SLEEP=/bin/true, no clock is waited on), or that a real Woodpecker server ever lists a pipeline with an empty status - the incident's cause was read from the code, not reproduced. Anchor is the pre-change source at d79d0042a2daff328eb8c7f5607fdd7fe00d1b60; no network is used. These cases exercise backend evidence with CPP_FLOW_CI_BACKEND=probe.",
+  "cases": [
+    {
+      "name": "bad-empty-status-then-green",
+      "input": "cases/bad-empty-status-then-green",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-green-on-first-look",
+      "input": "cases/good-green-on-first-look",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "d79d0042a2daff328eb8c7f5607fdd7fe00d1b60",
+      "origin": "scripts/flow-ci-status.sh",
+      "path": "anchors/pre-1684-flow-ci-status.sh",
+      "sha256": "ff7c1c62ff203da2269b9ec339910f9d35fe79ad61bbbc3f3891ef6634299ab0"
+    }
+  ]
+}

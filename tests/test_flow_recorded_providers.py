@@ -428,3 +428,58 @@ exit 1
     assert code == 1
     assert counter.read_text().strip() == "2"
     assert "FLOW_CI_STATUS: failure" in capsys.readouterr().out
+
+
+def _recorded_backend(tmp_path: Path, monkeypatch, replies: list[str]):
+    """Recorded github-actions lane answered from canned stdout bodies."""
+    import subprocess
+
+    from lib.cicd import flow
+    record = tmp_path / ".claude/cicd.yml"
+    record.parent.mkdir()
+    record.write_text("pipeline:\n  providers: [github-actions]\n")
+    calls: list[str] = []
+    queue = list(replies)
+
+    def backend(script, argv, lane):
+        body = queue.pop(0) if len(queue) > 1 else queue[0]
+        calls.append(body)
+        return subprocess.CompletedProcess(argv, 0, stdout=(
+            "FLOW_CI_PROVIDER: github-actions\nFLOW_CI_REF: " + SHA + "\n" + body), stderr="")
+    monkeypatch.setattr(flow, "shell_status", backend)
+    monkeypatch.setattr(flow.time, "sleep", lambda seconds: None)
+    return flow, calls
+
+
+UNREADABLE = "FLOW_CI_PIPELINE: 4726\nFLOW_CI_RETRYABLE: pipeline #4726 found; status '' unreadable\nFLOW_CI_STATUS: unknown\n"
+
+
+def test_wait_polls_a_found_but_unreadable_pipeline(tmp_path: Path, monkeypatch, capsys):
+    """Issue #1684 on the recorded path: `unknown` ended the wait on the first look."""
+    flow, calls = _recorded_backend(tmp_path, monkeypatch, [UNREADABLE, "FLOW_CI_STATUS: success\n"])
+    assert flow.status_main("owned-backend", [SHA, "--path", str(tmp_path), "--wait", "30"]) == 0
+    assert len(calls) == 2
+    out = capsys.readouterr().out
+    assert "FLOW_CI_STATUS: success" in out and "FLOW_CI_WAIT: settled" in out
+
+
+def test_wait_does_not_poll_an_unknown_that_is_a_final_judgement(tmp_path: Path, monkeypatch, capsys):
+    """No RETRYABLE line: polling cannot resolve it, so the wait still ends at once."""
+    flow, calls = _recorded_backend(tmp_path, monkeypatch, ["FLOW_CI_STATUS: unknown\n"])
+    assert flow.status_main("owned-backend", [SHA, "--path", str(tmp_path), "--wait", "30"]) == 2
+    assert len(calls) == 1
+    assert "FLOW_CI_WAIT: settled" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("body,status", [(UNREADABLE, "unknown"), ("FLOW_CI_STATUS: running\n", "running"),
+                                         ("FLOW_CI_STATUS: not-found\n", "not-found")])
+def test_an_expired_wait_is_never_exit_0(tmp_path: Path, monkeypatch, capsys, body, status):
+    flow, calls = _recorded_backend(tmp_path, monkeypatch, [body])
+    clock = iter(range(0, 10_000, 10))
+    monkeypatch.setattr(flow.time, "monotonic", lambda: next(clock))
+    assert flow.status_main("owned-backend", [SHA, "--path", str(tmp_path), "--wait", "30"]) == 5
+    assert len(calls) > 1
+    captured = capsys.readouterr()
+    assert "FLOW_CI_WAIT: expired (30s)" in captured.out
+    assert f"FLOW_CI_STATUS: {status}" in captured.out
+    assert "expired" in captured.err

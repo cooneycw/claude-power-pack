@@ -1974,3 +1974,170 @@ def test_a_CAPPED_green_does_not_claim_nothing_ran(tmp_path):
                   env={"FLOW_CI_GH": str(gh), "WOODPECKER_API_TOKEN": "", "FLOW_CI_CURL": "/nonexistent/curl"})
     assert "nothing ran" not in result.stderr
     assert "hit its cap" in result.stderr
+
+
+# ── issue #1684: a --wait must not end, exit 0, on something it could not read ──
+
+
+def _write_sequenced_curl(tmp_path: Path, listings: list[list[dict]], counter: Path) -> Path:
+    """A curl whose pipeline LISTING changes per call; the last one repeats."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    body = [
+        "#!/usr/bin/env bash",
+        "cat >/dev/null 2>&1 || true",
+        'url="${@: -1}"',
+        'case "$url" in',
+        '*"/api/repos/lookup/"*) echo \'{"id": 17}\'; exit 0 ;;',
+        '*"pipelines?per_page"*)',
+        f'n=0; [[ -f "{counter}" ]] && n=$(cat "{counter}")',
+        f'echo $((n + 1)) > "{counter}"',
+        f"last={len(listings) - 1}",
+        '(( n > last )) && n=$last',
+        'case "$n" in',
+    ]
+    for index, listing in enumerate(listings):
+        body += [f"{index})", "cat <<'JSON'", json.dumps(listing), "JSON", ";;"]
+    body += ["esac", "exit 0 ;;", "esac", "echo '{}'", ""]
+    path = tmp_path / "curl"
+    path.write_text("\n".join(body), encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+def _write_sequenced_wpcli(tmp_path: Path, listings: list[str | None], counter: Path) -> Path:
+    """A woodpecker-cli whose `pipeline ls` changes per call; None = the call fails."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    body = [
+        "#!/usr/bin/env bash",
+        '[[ "$2" == "ls" ]] || exit 1',
+        f'n=0; [[ -f "{counter}" ]] && n=$(cat "{counter}")',
+        f'echo $((n + 1)) > "{counter}"',
+        f"last={len(listings) - 1}",
+        '(( n > last )) && n=$last',
+        'case "$n" in',
+    ]
+    for index, row in enumerate(listings):
+        body += [f"{index})", "exit 1 ;;" if row is None else f"echo '{row}' ;;"]
+    body += ["esac", ""]
+    path = tmp_path / "woodpecker-cli"
+    path.write_text("\n".join(body), encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+@requires_bash
+def test_a_FOUND_pipeline_with_an_EMPTY_status_is_polled_not_reported(tmp_path):
+    """The #1684 case: found, no readable status yet, then green. The wait used
+    to end on the first look with `unknown`, `settled` and exit 0."""
+    counter = tmp_path / "count"
+    curl = _write_sequenced_curl(
+        tmp_path, [[_pipeline(4726, SHA, "")], [_pipeline(4726, SHA, "success")]], counter)
+    result = _run(tmp_path, SHA, "--repo", "o/r", "--event", "push", "--wait", "30",
+                  env={"FLOW_CI_CURL": str(curl)})
+    m = _markers(result.stdout)
+    assert counter.read_text().strip() == "2", "the empty status must cost a second look"
+    assert m["FLOW_CI_STATUS"] == ["success"], result.stdout + result.stderr
+    assert m["FLOW_CI_WAIT"] == ["settled"]
+    assert "FLOW_CI_RETRYABLE" not in m
+    assert result.returncode == 0
+
+
+@requires_bash
+def test_an_unreadable_status_that_NEVER_resolves_expires_nonzero_and_says_so(tmp_path):
+    counter = tmp_path / "count"
+    curl = _write_sequenced_curl(tmp_path, [[_pipeline(4726, SHA, "")]], counter)
+    result = _run(tmp_path, SHA, "--repo", "o/r", "--event", "push", "--wait", "1",
+                  env={"FLOW_CI_CURL": str(curl)})
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_STATUS"] == ["unknown"], result.stdout + result.stderr
+    assert m["FLOW_CI_WAIT"] == ["expired (1s)"]
+    assert m["FLOW_CI_PIPELINE"] == ["4726"]
+    assert len(m["FLOW_CI_RETRYABLE"]) == 1
+    assert int(counter.read_text()) > 1, "it must have kept polling to the deadline"
+    assert result.returncode == 5
+    assert "expired" in result.stderr
+
+
+@requires_bash
+def test_a_single_shot_unreadable_status_keeps_its_fail_open_exit_and_names_itself(tmp_path):
+    """No --wait: the exit code makes no claim, so it stays 0 - but the reason
+    is on the contract, which is what the recorded dispatcher polls on."""
+    curl = _write_sequenced_curl(tmp_path, [[_pipeline(4726, SHA, "")]], tmp_path / "count")
+    result = _run(tmp_path, SHA, "--repo", "o/r", "--event", "push", env={"FLOW_CI_CURL": str(curl)})
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_STATUS"] == ["unknown"]
+    assert m["FLOW_CI_WAIT"] == ["none"]
+    assert len(m["FLOW_CI_RETRYABLE"]) == 1
+    assert result.returncode == 0
+
+
+@requires_bash
+def test_wpcli_a_FAILED_relisting_mid_wait_is_polled_through(tmp_path):
+    """The path the #1684 output matches: found running, the next listing
+    fails. That ended the wait with `unknown`, `FLOW_CI_WAIT: none`, exit 0."""
+    counter = tmp_path / "count"
+    wpcli = _write_sequenced_wpcli(
+        tmp_path, [f"4726|running|{SHA}|push", None, f"4726|success|{SHA}|push"], counter)
+    missing_curl = Path("/nonexistent/curl")
+    assert not missing_curl.exists()
+    result = _run(tmp_path, SHA, "--repo", "o/r", "--event", "push", "--wait", "30",
+                  env={"FLOW_CI_CURL": str(missing_curl), "FLOW_CI_WPCLI": str(wpcli)})
+    m = _markers(result.stdout)
+    assert counter.read_text().strip() == "3"
+    assert m["FLOW_CI_STATUS"] == ["success"], result.stdout + result.stderr
+    assert m["FLOW_CI_WAIT"] == ["settled"]
+    assert result.returncode == 0
+
+
+@requires_bash
+def test_wpcli_a_relisting_that_KEEPS_failing_expires_nonzero_and_keeps_the_pipeline(tmp_path):
+    counter = tmp_path / "count"
+    wpcli = _write_sequenced_wpcli(tmp_path, [f"4726|running|{SHA}|push", None], counter)
+    missing_curl = Path("/nonexistent/curl")
+    assert not missing_curl.exists()
+    result = _run(tmp_path, SHA, "--repo", "o/r", "--event", "push", "--wait", "1",
+                  env={"FLOW_CI_CURL": str(missing_curl), "FLOW_CI_WPCLI": str(wpcli)})
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_STATUS"] == ["unknown"], result.stdout + result.stderr
+    assert m["FLOW_CI_WAIT"] == ["expired (1s)"]
+    assert m["FLOW_CI_PIPELINE"] == ["4726"]
+    assert result.returncode == 5
+
+
+@requires_bash
+def test_wpcli_an_EMPTY_status_is_polled_too(tmp_path):
+    counter = tmp_path / "count"
+    wpcli = _write_sequenced_wpcli(
+        tmp_path, [f"4726||{SHA}|push", f"4726|failure|{SHA}|push"], counter)
+    missing_curl = Path("/nonexistent/curl")
+    assert not missing_curl.exists()
+    result = _run(tmp_path, SHA, "--repo", "o/r", "--event", "push", "--wait", "30",
+                  env={"FLOW_CI_CURL": str(missing_curl), "FLOW_CI_WPCLI": str(wpcli)})
+    assert _markers(result.stdout)["FLOW_CI_STATUS"] == ["failure"], result.stdout + result.stderr
+    assert counter.read_text().strip() == "2"
+
+
+@requires_bash
+def test_a_wait_that_EXPIRES_on_a_running_pipeline_is_not_exit_0(tmp_path):
+    curl = _write_sequenced_curl(tmp_path, [[_pipeline(4726, SHA, "pending")]], tmp_path / "count")
+    result = _run(tmp_path, SHA, "--repo", "o/r", "--event", "push", "--wait", "1",
+                  env={"FLOW_CI_CURL": str(curl)})
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_STATUS"] == ["pending"], result.stdout + result.stderr
+    assert m["FLOW_CI_WAIT"] == ["expired (1s)"]
+    assert result.returncode == 5
+
+
+@requires_bash
+def test_a_STRUCTURAL_unknown_under_wait_returns_at_once_and_nonzero(tmp_path):
+    """No lane can answer: polling cannot fix that, so it does not wait - but
+    a wait that was asked for must not report it as exit 0 either."""
+    missing_curl = Path("/nonexistent/curl")
+    assert not missing_curl.exists()
+    result = _run(tmp_path, SHA, "--repo", "o/r", "--event", "push", "--wait", "3000",
+                  env={"FLOW_CI_CURL": str(missing_curl), "WOODPECKER_API_TOKEN": "", "WOODPECKER_SERVER": ""})
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_STATUS"] == ["unknown"], result.stdout + result.stderr
+    assert m["FLOW_CI_WAIT"] == ["none"]
+    assert "FLOW_CI_RETRYABLE" not in m
+    assert result.returncode == 2
