@@ -185,7 +185,6 @@ def test_the_spec_set_is_present(name):
 
 def test_the_gate_is_in_the_instrument_census():
     """ADR 0008's bound applies: the verdict is consumed without re-derivation."""
-    adr = (ROOT / "docs" / "decisions" / "0008-instrument-negative-control-bound.md").read_text(
-        encoding="utf-8"
-    )
-    assert "`check-consolidation-ledger.py`" in adr
+    # The census is data beside the controls since #1671; the ADR keeps the rule.
+    census = (ROOT / "controls" / "census.md").read_text(encoding="utf-8")
+    assert "`check-consolidation-ledger.py`" in census

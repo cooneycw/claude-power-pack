@@ -558,6 +558,11 @@ def _source_stamp(root: Path) -> str:
 #: motivated to check it. Unreadable or unparseable reports UNKNOWN, never a
 #: bare numerator: "2 of 61" and "61 of 61" printing the identical string is the
 #: defect, and so is a denominator invented to fill the slot.
+#: SINCE #1671 THE TABLE IS DATA, `controls/census.md`, and the decision record
+#: keeps the rule. Both paths are named here only for the fallback below, used
+#: when the shared rule (and so its `resolve_adr`) cannot be loaded: the data
+#: file first, then the record, in the order that resolver uses.
+CENSUS_DATA = Path("controls/census.md")
 ADR_0008 = Path("docs/decisions/0008-instrument-negative-control-bound.md")
 ADR_ROW_RE = re.compile(r"^\|\s*\d+\s*\|", re.MULTILINE)
 
@@ -696,7 +701,8 @@ def instrument_census(root: Path) -> Census:
         if adr is None:
             return Census(whence=adr_name)
     else:
-        adr, adr_name = root / ADR_0008, str(ADR_0008)
+        fallback = CENSUS_DATA if (root / CENSUS_DATA).is_file() else ADR_0008
+        adr, adr_name = root / fallback, str(fallback)
     try:
         text = adr.read_text(encoding="utf-8")
     except OSError:

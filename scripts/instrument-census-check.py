@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 """Derive ADR 0008's census MEMBERSHIP from `scripts/` (issue #1060).
 
+WHERE THE CENSUS IS (issue #1671). It is `controls/census.md`, data beside the
+registered controls. It lived inside ADR 0008 until then, which made a decision
+record the most-edited file in the repository: 104 commits in 60 days, nearly
+all of them appending or amending a row. The ADR keeps the rule. A tree that
+still keeps its census inside the decision record (kyle) is read there, through
+the same `resolve_adr`; "the ADR" and "the document" below mean whichever file
+that resolves to.
+
 ADR 0008 enumerates the instruments whose verdicts are consumed without being
 re-derived - the ones its bound says need a committed negative control. That
 table is the denominator `check-negative-controls.py` prints its coverage
@@ -109,7 +117,7 @@ NON-FILE SUBJECTS ARE DECLARED IN THE DOCUMENT, not listed in here. Census rows
 name things with no file under `scripts/` for a marker to live in - `ruff`,
 `mypy`, `pytest`, `gitleaks`, `hadolint`, and the `lib.*` module entry points.
 (`make` was one until #1276 made `make <target>` a typed subject.) They are
-declared on an `instrument-census: external-subjects:` marker inside the ADR, so
+declared on an `instrument-census: external-subjects:` marker inside the census, so
 the declaration sits beside what it governs and travels with any tree this gate
 is pointed at.
 
@@ -147,15 +155,22 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-#: The census, relative to the tree being checked.
+#: The census, relative to the tree being checked (issue #1671). It is DATA
+#: beside the registered controls, not a section of the decision record: the ADR
+#: holds the rule, and adding an instrument edits this file instead of it.
+CENSUS_REL = "controls/census.md"
+
+#: Where the census lived until #1671, and where a repository that has not moved
+#: it still keeps it: inside the decision record itself.
 ADR_REL = "docs/decisions/0008-instrument-negative-control-bound.md"
 
 #: Where ANOTHER repository files the same decision (issue #1264). kyle files it
 #: at `docs/adr/0005-instrument-negative-control-enumeration.md`, so a single
 #: hardcoded path made its census `unknown` by construction - forever, and
-#: reported as a word in a line nobody reads. `ADR_REL` is tried first, so this
-#: repository's resolution cannot change; a candidate is accepted only when it is
-#: the ONLY match, because picking one of two documents is inventing a census.
+#: reported as a word in a line nobody reads. `CENSUS_REL` and then `ADR_REL` are
+#: tried first, so this repository's resolution cannot change; a candidate is
+#: accepted only when it is the ONLY match, because picking one of two documents
+#: is inventing a census.
 ADR_CANDIDATE_GLOBS = (
     "docs/decisions/*negative-control*.md",
     "docs/adr/*negative-control*.md",
@@ -168,18 +183,34 @@ def resolve_adr(root: Path) -> tuple[Path | None, str]:
     ONE resolver for every reader of the census (`check-negative-controls.py`,
     `verify-coverage-check.py` and this gate), so they cannot disagree about
     which document the census is. None is UNREAD, never an empty census.
+
+    THE ORDER IS THE DECISION (issue #1671): the data file, then the decision
+    record, then another repository's single matching record. The name is kept
+    because the readers import it; what it resolves is the census, wherever it
+    is kept.
+
+    A DATA FILE WINS OUTRIGHT, and that is a narrowing worth knowing about: in a
+    tree holding BOTH `controls/census.md` and census tables still inside its
+    decision record, the tables in the record are not read and nothing says so.
+    No tree is in that state today. The opposite half-move is loud: a record
+    whose tables were moved out, with no data file beside it, parses to 0 rows
+    and every reader refuses it as unread rather than as an empty census.
     """
+    data = root / CENSUS_REL
+    if data.is_file():
+        return data, CENSUS_REL
     default = root / ADR_REL
     if default.is_file():
         return default, ADR_REL
     matches = sorted({p for pattern in ADR_CANDIDATE_GLOBS for p in root.glob(pattern) if p.is_file()})
     if len(matches) == 1:
         return matches[0], str(matches[0].relative_to(root))
+    tried = f"neither {CENSUS_REL} nor {ADR_REL} exists"
     if not matches:
-        return None, f"{ADR_REL} does not exist and nothing matches {', '.join(ADR_CANDIDATE_GLOBS)}"
+        return None, f"{tried} and nothing matches {', '.join(ADR_CANDIDATE_GLOBS)}"
     names = ", ".join(str(m.relative_to(root)) for m in matches)
     return None, (
-        f"{ADR_REL} does not exist and {len(matches)} candidates match ({names}); "
+        f"{tried} and {len(matches)} candidates match ({names}); "
         f"refusing to pick one"
     )
 
@@ -436,7 +467,7 @@ SEPARATOR_RE = re.compile(r"^\|[\s:|-]+\|?\s*$")
 #:
 #:     <!-- instrument-census: external-subjects: ruff, mypy, pytest -->
 #:
-#: Read from the ADR rather than hardcoded here so the declaration lives beside
+#: Read from the census rather than hardcoded here so the declaration lives beside
 #: the table it describes. Several markers may appear; all are unioned.
 DECLARE_RE = re.compile(
     r"<!--\s*instrument-census:\s*external-subjects:\s*(.*?)\s*-->",
