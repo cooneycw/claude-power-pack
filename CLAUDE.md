@@ -34,7 +34,7 @@ these rules remain in [commands-reference.md](docs/commands-reference.md) and
 - `docs/skills/` - topic guidance loaded on demand.
 - `docs/reference/CLAUDE_CODE_BEST_PRACTICES_FULL.md` - full best-practices guide.
 - `docs/commands-reference.md` - command decisions, histories, and workflow detail.
-- `docs/scripts.md` - script inventory, one line per script; its population is derived from `scripts/` and gated by `make scripts-inventory-check`. Per-script behavioral history lives in `docs/scripts/<script>.md`, never in the index (#1672).
+- `docs/scripts.md` - script inventory, one line per script; its population is derived from `scripts/` and gated by `make scripts-inventory-check`. Per-script behavioral history lives in one file per script under `docs/scripts/`, never in the index (#1672).
 - `docs/decisions/0008-instrument-negative-control-bound.md` - the rule for when an instrument needs a committed negative control; it holds no census (#1671).
 - `controls/census.md` - the instrument census; its MEMBERSHIP is derived from `scripts/` and gated by `make instrument-census-check`, so a new instrument cannot arrive unenumerated. Add or change a row here, not in ADR 0008.
 - `.claude/verify-coverage.json` - how each script no build surface invokes is accounted for; its population is derived from `scripts/` and gated by `make verify-coverage-check`, so a new checker cannot arrive wired to nothing.
