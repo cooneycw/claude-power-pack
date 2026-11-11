@@ -112,16 +112,13 @@ def test_the_real_tree_is_clean_and_was_actually_read(capsys):
 
 
 @requires_git
-def test_a_tree_git_cannot_list_is_unknown_not_clean(tmp_path):
+def test_a_tree_git_cannot_list_is_unknown_not_clean(tmp_path, monkeypatch, capsys):
     """Outside any repository `git ls-files` fails; that is not a clean tree."""
     (tmp_path / "a.txt").write_text(PLAIN + ACCOUNT + "/x\n", encoding="utf-8")
-    proc = subprocess.run(
-        [sys.executable, str(ROOT / "scripts" / "check-host-account-paths.py"), "--root", str(tmp_path)],
-        capture_output=True, text=True, check=False,
-        env={"PATH": "/usr/bin:/bin", "GIT_CEILING_DIRECTORIES": str(tmp_path.parent)},
-    )
-    assert proc.returncode == 2, proc.stdout + proc.stderr
-    assert "UNKNOWN" in proc.stderr
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path.parent))
+    assert hap.tracked_files(tmp_path) is None, "precondition: git cannot list this directory"
+    assert hap.main(["--root", str(tmp_path)]) == 2
+    assert "UNKNOWN" in capsys.readouterr().err
 
 
 def _tiny_repo(tmp_path: Path) -> Path:
