@@ -269,8 +269,8 @@ def test_the_body_keeps_unread_sources_as_items_to_resolve() -> None:
 def test_a_repository_with_nothing_gets_a_short_list_not_an_error(tmp_path: Path) -> None:
     runner = Runner({"nit-store-resolve": (1, "NIT_STORE_STATUS: none - nothing\n"),
                      "--label evergreen": (0, "[]"), "--label follow-up": (0, "[]")})
-    items = mr.scan(runner, RESOLVER, tmp_path / "absent.jsonl", TODAY)
-    assert {i.state for i in items} == {"clear"}
+    items = mr.scan(runner, RESOLVER, tmp_path / "absent.jsonl", TODAY, tmp_path)
+    assert {i.state for i in items} == {"clear"} and len(items) == 5
     assert "- nothing was found due" in mr.render_body(items, TODAY)
 
 
