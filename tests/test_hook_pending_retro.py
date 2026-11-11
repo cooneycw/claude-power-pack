@@ -53,6 +53,9 @@ def _run(buffer: Path) -> subprocess.CompletedProcess:
             "PATH": os.environ.get("PATH", ""),
             # Isolate the retro half: helper/cache checks read the real HOME.
             "CPP_HOOK_SKIP_INSTALL_DRIFT": "1",
+            # And the CI-provider third (issue #1677), pinned in
+            # tests/test_ci_provider_advisory.py: it reads the cwd's project.
+            "CPP_HOOK_SKIP_CI_PROVIDER": "1",
         },
         stdin=subprocess.DEVNULL,
         capture_output=True,
@@ -217,6 +220,9 @@ def test_skip_env_suppresses_only_the_drift_half(tmp_path: Path):
             "CPP_FRICTION_LOG": str(buf),
             "PATH": os.environ.get("PATH", ""),
             "CPP_HOOK_SKIP_INSTALL_DRIFT": "1",
+            # And the CI-provider third (issue #1677), pinned in
+            # tests/test_ci_provider_advisory.py: it reads the cwd's project.
+            "CPP_HOOK_SKIP_CI_PROVIDER": "1",
         },
         stdin=subprocess.DEVNULL,
         capture_output=True,

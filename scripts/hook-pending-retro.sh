@@ -29,9 +29,13 @@
 #     `/plugin uninstall <family>@cpp`. Set CPP_HOOK_SKIP_INSTALL_DRIFT=1 to
 #     suppress just this half.
 #
-# Output: at most TWO advisory lines to stdout, shown at session open - the retro
-# line and the install-drift line, INDEPENDENT of each other (either can be
-# silent). Permission-prompt census records (bulk, auto-captured) are counted
+#   - whether the session's project has a recorded CI provider, reported by the
+#     sibling scripts/ci-provider-advisory.sh (issue #1677). Set
+#     CPP_HOOK_SKIP_CI_PROVIDER=1 to suppress just this third.
+#
+# Output: at most THREE advisory lines to stdout, shown at session open - the
+# retro line, the install-drift line and the CI-provider line, INDEPENDENT of
+# each other (any can be silent). Permission-prompt census records (bulk, auto-captured) are counted
 # separately from the actionable classes so the line is honest rather than
 # alarming. Exit 0 ALWAYS - absent files, parse hiccups, an absent or failing
 # install-drift.sh, or no-git all resolve to "silent, no error".
@@ -104,6 +108,25 @@ if [ -z "${CPP_HOOK_SKIP_INSTALL_DRIFT:-}" ]; then
       timeout 20 bash "$DRIFT_SCRIPT" --quiet 2>/dev/null || true
     else
       bash "$DRIFT_SCRIPT" --quiet 2>/dev/null || true
+    fi
+  fi
+fi
+
+# --- Advisory 3: this project has no recorded CI provider (issue #1677) ------
+# Independent of the other two. Since ADR 0012 an unrecorded provider stops
+# every merge (gh-pr-merge exit 13); session open is the moment to hear that,
+# not two seconds into a held merge lock. The sibling prints one line when the
+# session's project has no usable record and nothing otherwise - including
+# when it could not ask, so silence here is never a claim that one is recorded.
+# Set CPP_HOOK_SKIP_CI_PROVIDER=1 to suppress just this half.
+if [ -z "${CPP_HOOK_SKIP_CI_PROVIDER:-}" ]; then
+  SELF="$(readlink -f "$0" 2>/dev/null || printf '%s' "$0")"
+  CI_ADVISORY="$(dirname "$SELF")/ci-provider-advisory.sh"
+  if [ -f "$CI_ADVISORY" ]; then
+    if command -v timeout >/dev/null 2>&1; then
+      timeout 20 bash "$CI_ADVISORY" 2>/dev/null || true
+    else
+      bash "$CI_ADVISORY" 2>/dev/null || true
     fi
   fi
 fi

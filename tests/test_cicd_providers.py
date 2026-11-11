@@ -319,3 +319,118 @@ def test_writer_preserves_blank_lines_after_block_list(tmp_path: Path):
     path.write_text(before)
     record_providers(tmp_path, ["woodpecker"])
     assert path.read_text() == 'pipeline:\n  providers: ["woodpecker"]\n\n  branches: {pr: [test]}\n'
+
+
+# --- Issue #1677: a linked worktree and the main checkout's untracked record ---
+
+def _git(cwd: Path, *args: str) -> None:
+    import os
+    import subprocess
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    subprocess.run(["git", "-C", str(cwd), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                    "-c", "commit.gpgsign=false", *args], check=True, capture_output=True, env=env)
+
+
+def _repo_with_worktree(tmp_path: Path, *, ignore_claude: bool = True) -> tuple[Path, Path]:
+    main, linked = tmp_path / "main", tmp_path / "linked"
+    main.mkdir()
+    _git(main, "init", "-q")
+    (main / ".gitignore").write_text(".claude/\n" if ignore_claude else "")
+    _git(main, "add", ".gitignore")
+    _git(main, "commit", "-q", "-m", "init")
+    _git(main, "worktree", "add", "-q", str(linked), "-b", "work")
+    return main, linked
+
+
+def _record(root: Path, text: str = "pipeline:\n  providers: [woodpecker]\n") -> Path:
+    path = root / ".claude/cicd.yml"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(text)
+    return path
+
+
+requires_git = pytest.mark.skipif(__import__("shutil").which("git") is None, reason="requires git")
+
+
+@requires_git
+def test_linked_worktree_reads_untracked_main_checkout_record(tmp_path: Path):
+    """THE ISSUE'S RED CASE: a worktree with no record, a main checkout with one."""
+    from lib.cicd.providers import read_provider_record
+    main, linked = _repo_with_worktree(tmp_path)
+    assert read_provider_record(linked).providers == ()  # nothing recorded anywhere yet
+    _record(main)
+    record = read_provider_record(linked)
+    assert record.providers == ("woodpecker",)
+    assert str(main.resolve() / ".claude/cicd.yml") in record.source
+    assert "main-checkout record" in record.source
+
+
+@requires_git
+def test_tracked_main_record_is_never_borrowed(tmp_path: Path):
+    """A branch that deleted a TRACKED record must still read unknown."""
+    from lib.cicd.providers import read_provider_record
+    main, linked = _repo_with_worktree(tmp_path, ignore_claude=False)
+    _record(main)
+    _git(main, "add", ".claude/cicd.yml")
+    _git(main, "commit", "-q", "-m", "record")
+    record = read_provider_record(linked)  # `work` predates the record
+    assert record.providers == ()
+    assert "file missing" in record.source
+
+
+@requires_git
+def test_worktree_own_record_wins_over_main(tmp_path: Path):
+    from lib.cicd.providers import read_provider_record
+    main, linked = _repo_with_worktree(tmp_path)
+    _record(main)
+    _record(linked, "pipeline:\n  providers: [github-actions]\n")
+    record = read_provider_record(linked)
+    assert record.providers == ("github-actions",)
+    assert "main-checkout" not in record.source
+
+
+@requires_git
+def test_worktree_present_but_empty_record_does_not_fall_back(tmp_path: Path):
+    """Only a MISSING file borrows; a file that names no provider is an answer."""
+    from lib.cicd.providers import read_provider_record
+    main, linked = _repo_with_worktree(tmp_path)
+    _record(main)
+    _record(linked, "build: {}\n")
+    assert read_provider_record(linked).providers == ()
+
+
+@requires_git
+def test_subdirectory_and_main_checkout_never_borrow(tmp_path: Path):
+    from lib.cicd.providers import read_provider_record, shared_record_path
+    main, linked = _repo_with_worktree(tmp_path)
+    _record(main)
+    (linked / "sub").mkdir()
+    assert shared_record_path(linked / "sub") is None
+    assert read_provider_record(linked / "sub").providers == ()
+    assert shared_record_path(main) is None
+
+
+@requires_git
+def test_invalid_borrowed_record_fails_closed(tmp_path: Path):
+    from lib.cicd.providers import ProviderError, read_provider_record
+    main, linked = _repo_with_worktree(tmp_path)
+    _record(main, "pipeline:\n  providers: [unregistered-ci]\n")
+    with pytest.raises(ProviderError, match="unregistered"):
+        read_provider_record(linked)
+
+
+@requires_git
+def test_host_preflight_proceeds_from_a_linked_worktree(tmp_path: Path, capsys):
+    """The consumer that stopped kyle's merge (gh-pr-merge exit 13) reads the same record."""
+    from lib.cicd.flow import provider_lanes
+    main, linked = _repo_with_worktree(tmp_path)
+    with pytest.raises(ValueError, match="CI providers unknown"):
+        provider_lanes(linked)
+    _record(main)
+    assert provider_lanes(linked) == [("woodpecker", "woodpecker")]
+
+
+def test_remedy_says_where_the_record_must_live():
+    from lib.cicd.providers import REMEDY
+    assert "commit that file" in REMEDY
+    assert "main checkout" in REMEDY

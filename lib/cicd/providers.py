@@ -66,7 +66,12 @@ HOST_CHECKS = {
     "woodpecker-auth": HostCheckSpec("lib.cicd.host:check_woodpecker", ("woodpecker-cli",)),
 }
 
-REMEDY = "record pipeline.providers in .claude/cicd.yml with pipeline --providers NAME[,NAME] --record"
+# The record must reach every checkout that merges (issue #1677): commit it, or
+# - where the project git-ignores .claude/ - write it once in the MAIN checkout,
+# which `read_provider_record` shares with linked worktrees that lack their own.
+REMEDY = ("record pipeline.providers in .claude/cicd.yml with pipeline --providers NAME[,NAME] --record; "
+          "commit that file, or where .claude/ is git-ignored record it in the main checkout "
+          "(linked worktrees read an untracked main-checkout record)")
 
 
 def normalize_providers(pipeline: dict[str, Any]) -> list[str]:
@@ -148,14 +153,69 @@ def parse_config_mapping(text: str, source: str) -> dict[str, Any]:
     return data
 
 
-def read_provider_record(project: str | Path) -> ProviderRecord:
-    path = Path(project) / ".claude/cicd.yml"
+RECORD_PATH = ".claude/cicd.yml"
+
+
+def shared_record_path(project: str | Path) -> Path | None:
+    """The main checkout's UNTRACKED record, for a linked worktree that has none.
+
+    Issue #1677. A project that git-ignores `.claude/` keeps its record out of
+    every commit, so each new linked worktree started without one and the
+    writer had to be re-run per worktree. An untracked record is a fact about
+    the clone, not about a tree, so the main checkout's copy answers for its
+    linked worktrees.
+
+    DELIBERATELY NARROW - absent still means unknown (ADR 0012 decision 2):
+      - only for the top level of a LINKED worktree, never a subdirectory or
+        the main checkout itself;
+      - only when the main checkout's record is NOT tracked. A tracked record
+        already reaches every worktree through git, so a worktree that lacks
+        it sits on a branch that predates or deliberately deleted it, and
+        borrowing main's copy would hide that;
+      - any git failure answers None. An unanswerable question is not a yes.
+    """
+    import subprocess
+
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
+    def git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, timeout=10, env=env)
+
     try:
-        data = parse_config_mapping(path.read_text(), str(path))
+        here = Path(project).resolve()
+        top = git(here, "rev-parse", "--show-toplevel")
+        if top.returncode or Path(top.stdout.strip()).resolve() != here:
+            return None
+        from .host import main_checkout
+        main = main_checkout(here)
+        if main is None or main.resolve() == here:
+            return None
+        candidate = main / RECORD_PATH
+        if not candidate.is_file():
+            return None
+        # Exit 1 is git's "not tracked"; 0 is tracked; anything else is unknown.
+        tracked = git(main, "ls-files", "--error-unmatch", "--", RECORD_PATH)
+        return candidate if tracked.returncode == 1 else None
+    except (OSError, subprocess.SubprocessError, ValueError, ImportError):
+        return None
+
+
+def read_provider_record(project: str | Path) -> ProviderRecord:
+    path = Path(project) / RECORD_PATH
+    borrowed = False
+    try:
+        text = path.read_text()
     except FileNotFoundError:
-        return ProviderRecord((), f"{path}: file missing")
+        shared = shared_record_path(project)
+        if shared is None:
+            return ProviderRecord((), f"{path}: file missing")
+        try:
+            text, path, borrowed = shared.read_text(), shared, True
+        except OSError as exc:
+            raise ProviderError(f"could not read {shared}: {type(exc).__name__}") from exc
     except OSError as exc:
         raise ProviderError(f"could not read {path}: {type(exc).__name__}") from exc
+    data = parse_config_mapping(text, str(path))
     pipeline = data.get("pipeline", {})
     if pipeline is None:
         pipeline = {}
@@ -164,6 +224,8 @@ def read_provider_record(project: str | Path) -> ProviderRecord:
     selected = normalize_providers(pipeline)
     source = ("pipeline.providers" if "providers" in pipeline else
               "pipeline.provider" if "provider" in pipeline else "providers absent")
+    if borrowed:
+        source += " (untracked main-checkout record, shared with this linked worktree)"
     return ProviderRecord(tuple(selected), f"{path}: {source}")
 
 

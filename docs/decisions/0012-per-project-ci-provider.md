@@ -101,6 +101,23 @@ An audit at `46d99956` found that fact recorded nowhere anyone reads:
    guessing. Owner ruling: the silent default is how CPP's own record came to
    name the wrong provider.
 
+   **A linked worktree may read the main checkout's UNTRACKED record** (issue
+   #1677, owner-approved 2026-11-11). A project that git-ignores `.claude/`
+   keeps its record out of every commit, so each new worktree started without
+   one and the writer had to be re-run per worktree; on the 10.2.0 rollout that
+   stopped a wave's merges one worktree at a time. An untracked record is a
+   fact about the clone rather than about a tree, so when the top level of a
+   linked worktree has no `.claude/cicd.yml`, the reader uses the main
+   checkout's, and names that path as its source. This is not a default and
+   absent still means `unknown`: a TRACKED main record is never borrowed,
+   because git already delivers it to every worktree and a branch without it
+   either predates or deliberately deleted it; a worktree's own file, even one
+   naming no provider, is its answer; and any git failure answers `unknown`.
+   Pipeline GENERATION does not use the fallback - it writes files into the
+   tree it is run in and reads that tree's config. Reversal trigger: a project
+   that needs different providers per worktree while keeping the record
+   untracked; none exists today.
+
 3. **`/cpp:init` is host setup; Tier 4 becomes host-only CI checks.** It checks
    EVERY registered provider independently (GitHub Actions: `gh` installed and
    authenticated; Woodpecker: `woodpecker-cli` authenticated and the API token

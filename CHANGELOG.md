@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Behaviour changes you may notice
+
+- **Upgrading across 10.2.0: record your CI provider before the next merge.**
+  Since 10.2.0 `gh-pr-merge.sh` (exit 13) and `flow-ci-status.sh` (exit 2) stop
+  when a project has no `pipeline.providers` in `.claude/cicd.yml`. Record it
+  once with `python -m lib.cicd pipeline --path <project> --providers NAME[,NAME] --record`
+  and commit the file. Where the project git-ignores `.claude/`, record it in
+  the MAIN checkout: a linked worktree with no record of its own now reads the
+  main checkout's untracked record, so it no longer has to be repeated per
+  worktree. A tracked record is never borrowed. The SessionStart hook and
+  `/cpp:update` now name a project with no record before a merge is attempted
+  (`ci-provider-advisory.sh`; suppress the hook line with
+  `CPP_HOOK_SKIP_CI_PROVIDER=1`) (#1677).
+
 ## [10.2.0] - 2026-11-09
 
 Independent host-install capabilities, explicit project CI providers, guarded

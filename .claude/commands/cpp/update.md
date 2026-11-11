@@ -346,6 +346,31 @@ fi
 
 ---
 
+## Step 3.7: Recorded CI Provider Report (issue #1677)
+
+Since 10.2.0 a project with no recorded CI provider cannot merge through flow:
+`gh-pr-merge.sh` stops with exit 13. Say so now, by name, for the project this
+session is working in, rather than letting the first merge find out. Call the
+CHECKOUT copy, for the same reason as Step 3.6, and point it at the session's
+project directory (the directory this session reports as its cwd), not at
+`$CPP_DIR`:
+
+```bash
+"$CPP_DIR/scripts/ci-provider-advisory.sh" /path/to/session/project
+```
+
+- A `CPP CI: <project> has no recorded CI provider` line - report it verbatim and
+  carry it to Step 10. Do not stop the update and do not record a provider on the
+  user's behalf: which CI a project uses is the project's choice (ADR 0012).
+- No output - a provider is recorded, OR the check could not ask (not a git
+  checkout, no reader). Say nothing; never relay silence as "recorded".
+
+Sessions that were already running when the checkout was pulled do not see this
+step. Where a project git-ignores `.claude/`, one record in its main checkout
+covers every linked worktree.
+
+---
+
 ## Step 4: Update Dependencies
 
 CPP no longer ships in-repo MCP server venvs. The second-opinion server is an

@@ -1,0 +1,3 @@
+# The pre-ADR-0012 shape: a config that never names a provider.
+build:
+  required_targets: [lint, test]

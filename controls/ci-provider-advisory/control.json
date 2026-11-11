@@ -1,0 +1,36 @@
+{
+  "gate": "scripts/ci-provider-advisory.sh",
+  "invocation": [
+    "sh",
+    "controls/ci-provider-advisory/run-case.sh",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^CPP CI: \\S+ has no recorded CI provider \\(",
+  "good_signal": "^CI_PROVIDER_ADVISORY_CONTROL: silent$",
+  "unavailable_signal": "^CI_PROVIDER_ADVISORY_CONTROL: unavailable - ",
+  "limits": "Issue #1677. Covers ONE question: does the advisory speak when a project's config exists but records no provider, and stay silent when one is recorded. WHY IT IS REGISTERED: its silence is read at session start by a session that did not produce it and will not re-derive it (ADR 0008), and silence is also what it prints when it could not ask at all. THE ADAPTER THEREFORE CHECKS READER AVAILABILITY ON ITS OWN CHANNEL FIRST (an import of yaml and lib.cicd.cli with the same interpreter choice the gate makes) and reports unavailable rather than letting a host without PyYAML read every case as known-good. NOT COVERED HERE, AND WHERE IT IS: the linked-worktree fallback (a worktree with no record reading the main checkout's untracked record) lives in lib/cicd/providers.py and is pinned with its red cases in tests/test_cicd_providers.py - a case directory cannot carry a linked worktree. The plain 'no config file at all' input is pinned in tests/test_ci_provider_advisory.py and is deliberately NOT a case here: the constructed anchor catches it, because its blindness is specifically 'a file that exists is a record', so including it would report this control INERT for a reason unrelated to its subject. The staked-project scope rule (silent in a repository with neither pipeline files nor .claude/) and the always-exit-0 contract are pinned by the same tests. DISPATCH IS NOT MEASURED: whether a SessionStart hook is registered on a host is opt-in and outside any subprocess's reach.",
+  "cases": [
+    {
+      "name": "good-recorded",
+      "input": "cases/good-recorded",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-file-without-providers",
+      "input": "cases/bad-file-without-providers",
+      "expect": "BAD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/ci-provider-advisory.sh",
+      "path": "anchors/existence-is-not-a-record.sh",
+      "sha256": "450106eec50d3d2da96eeb9fd486fa5195605f8cf41ff4d0bcbc6dc060d623c6",
+      "why": "CONSTRUCTED rather than historical: the gate is new in the change that registers this control, so there is no pre-fix commit to vendor. It is the real gate with exactly one edit - a `.claude/cicd.yml` that EXISTS is taken as a recorded provider, without asking the reader. That is the inference ADR 0012 was written against and the state CPP's own repository was in: a config file present, naming no provider. On bad-file-without-providers it prints nothing and the adapter reports silent; on good-recorded it agrees with the gate."
+    }
+  ]
+}
