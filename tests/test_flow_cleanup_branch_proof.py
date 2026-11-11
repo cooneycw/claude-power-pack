@@ -204,6 +204,24 @@ def test_a_proven_branch_checked_out_in_a_worktree_is_kept(scratch, tmp_path):
     assert run() == {"issue-8-checked-out": "KEPT: checked out in a worktree"}
 
 
+def test_worktree_protection_reads_a_branch_name_literally(scratch, tmp_path):
+    """Branch names are data, not patterns. `$` and `.` are legal in a branch
+    name; read as a regular expression, `issue-10-$` never matches its own
+    worktree entry (so a checked-out branch is deleted) and `issue-11-a.b`
+    falsely protects `issue-11-axb` (counter-model review, third pass)."""
+    repo, stub_dir, branch, run = scratch
+    for name in ("issue-10-$", "issue-11-a.b", "issue-11-axb"):
+        tip = branch(name)
+        _git(repo, "config", f"branch.{name}.cpp-merged-head", tip)
+    _git(repo, "worktree", "add", "-q", str(tmp_path / "wt-dollar"), "issue-10-$")
+    _git(repo, "worktree", "add", "-q", str(tmp_path / "wt-dot"), "issue-11-a.b")
+    assert run() == {
+        "issue-10-$": "KEPT: checked out in a worktree",
+        "issue-11-a.b": "KEPT: checked out in a worktree",
+        "issue-11-axb": "DELETED: landed: merge-helper record",
+    }
+
+
 @pytest.mark.parametrize(
     "answer",
     ["fail", "empty", "garbage", "object"],

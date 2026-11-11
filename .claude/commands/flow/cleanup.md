@@ -135,9 +135,9 @@ show as `--merged`, so force-delete only a branch whose CURRENT tip is proven la
 
 ```bash
 REPO=$(git -C "$MAIN_REPO" remote get-url origin | sed -E 's#^(git@|https://)github\.com[:/]##; s#\.git$##')
-# Delete ONLY the proven commit: update-ref fails if the branch moved.
+# Delete ONLY the proven commit; update-ref fails if moved.
 delete_proven() {
-    if git -C "$MAIN_REPO" worktree list --porcelain | grep -qx "branch refs/heads/$1"; then
+    if git -C "$MAIN_REPO" worktree list --porcelain | grep -Fqx -- "branch refs/heads/$1"; then
         echo "KEPT: $1 (checked out in a worktree)"
     elif git -C "$MAIN_REPO" update-ref --no-deref -d "refs/heads/$1" "$2" 2>/dev/null; then
         git -C "$MAIN_REPO" config --remove-section "branch.$1" 2>/dev/null || true
@@ -147,7 +147,7 @@ delete_proven() {
     fi
 }
 for branch in $(git -C "$MAIN_REPO" branch --format='%(refname:short)' --list 'issue-*'); do
-    echo "$WORKTREE_BRANCHES" | grep -qx "$branch" && continue
+    echo "$WORKTREE_BRANCHES" | grep -Fqx -- "$branch" && continue
     REMOTE=$(git -C "$MAIN_REPO" config "branch.${branch}.remote" 2>/dev/null || echo "")
     MERGE_REF=$(git -C "$MAIN_REPO" config "branch.${branch}.merge" 2>/dev/null || echo "")
     [[ -n "$REMOTE" && -n "$MERGE_REF" ]] || continue
