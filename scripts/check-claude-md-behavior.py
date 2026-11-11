@@ -25,6 +25,15 @@ source exists, and the bytes match. An altered copy, a copy in a hand-curated
 skill, a copy whose source is gone, and policy pasted into a command body are
 all still reported, and an unverifiable copy fails closed.
 
+Command documents get a STRICTER form of the same method (issue #1669). A
+command document is trimmed by moving rationale to a linked reference, and the
+risk is a step moving with it. ``COMMAND_STEP_FIXTURES`` maps a command document
+to a fixture of its executable steps captured BEFORE its trim: every command
+line, verdict marker and exit-code rule. Each must still be found in the
+document ITSELF - docs/ does not count, because a step that only the reference
+carries is a step the run never reads. This is still a presence check: it does
+not establish which section a step sits in, nor the action attached to a marker.
+
 Usage:
     python3 scripts/check-claude-md-behavior.py
     python3 scripts/check-claude-md-behavior.py --root DIR
@@ -42,6 +51,11 @@ from pathlib import Path
 
 FIXTURE = Path("tests/fixtures/claude-md-obligations.fixture")
 FIXTURE_VERSION = 1
+#: Command document -> the fixture of its pre-trim executable steps (#1669).
+#: Add a line when a command document is trimmed against a word budget.
+COMMAND_STEP_FIXTURES = {
+    ".claude/commands/flow/auto.md": "tests/fixtures/flow-command-steps.fixture",
+}
 NORMATIVE_TABLE_MARKER = "| Knowledge in the completed spec | Durable home |"
 LIFECYCLE_REFERENCE = "knowledge-lifecycle.md"
 LIFECYCLE_BOUNDARY_FILES = frozenset(
@@ -248,6 +262,105 @@ def _search_corpus(root: Path, claude_source: str) -> str:
     return re.sub(r"\s+", " ", "\n".join(chunks)).casefold()
 
 
+def _fold(text: str) -> str:
+    return re.sub(r"\s+", " ", text).casefold()
+
+
+def _load_step_fixture(path: Path) -> tuple[list[tuple[str, str, str, int]], dict[str, str]]:
+    """(slug, needle, kind, count) steps and the retirements of a step fixture."""
+    obligations, retirements = _load_fixture(path)
+    raw = json.loads(path.read_text(encoding="utf-8"))["obligations"]
+    steps: list[tuple[str, str, str, int]] = []
+    for (slug, needle), entry in zip(obligations, raw):
+        kind = entry.get("kind", "text")
+        count = entry.get("count", 1)
+        if kind not in ("text", "bash-line"):
+            raise ValueError(f"{path}: step {slug!r} has unknown kind {kind!r}")
+        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+            raise ValueError(f"{path}: step {slug!r} needs a positive integer count")
+        steps.append((slug, needle, kind, count))
+    return steps, retirements
+
+
+def _command_line(text: str) -> str:
+    """Whitespace-normalised, CASE PRESERVED: `MAKE DEPLOY` is not `make deploy`."""
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _bash_lines(source: str) -> dict[str, int]:
+    """Non-comment lines of every ```bash block, with their counts."""
+    counts: dict[str, int] = {}
+    in_block, language = False, ""
+    for line in source.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            language = "" if in_block else stripped[3:].strip()
+            in_block = not in_block
+            continue
+        if in_block and language == "bash" and stripped and not stripped.startswith("#"):
+            key = _command_line(stripped)
+            counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def check_command_steps(root: Path) -> tuple[list[Finding], int]:
+    """Every pre-trim executable step is still in its command document (#1669).
+
+    Returns (findings, registered documents actually examined). A tree that has
+    neither the document nor its fixture is not examined and says so through
+    the count - the CLI refuses that, so the gate cannot report preservation
+    over nothing. Either one without the other is a finding.
+
+    WHAT THIS CAN SAY: a recorded command line is still a line of a bash block
+    at least as many times as before the trim, and a recorded marker or
+    exit-code rule is still in the text. WHAT IT CANNOT: that a step sits in
+    the right section, or that the ACTION attached to a marker (STOP, proceed)
+    is unchanged. Those stay with review - the #1669 counter-model review found
+    a dropped "re-gate" instruction this check was blind to.
+    """
+    findings: list[Finding] = []
+    examined = 0
+    for document, fixture in COMMAND_STEP_FIXTURES.items():
+        doc_path, fixture_path = root / document, root / fixture
+        if not doc_path.is_file() and not fixture_path.is_file():
+            continue
+        if not fixture_path.is_file():
+            findings.append(Finding("missing-step-fixture", f"{document}: expected {fixture}"))
+            continue
+        if not doc_path.is_file():
+            findings.append(Finding("missing-file", document))
+            continue
+        try:
+            steps, retirements = _load_step_fixture(fixture_path)
+        except ValueError as exc:
+            findings.append(Finding("invalid-fixture", str(exc)))
+            continue
+        if not steps:
+            findings.append(Finding("invalid-fixture", f"{fixture}: no steps to check"))
+            continue
+        examined += 1
+        source = doc_path.read_text(encoding="utf-8")
+        body, bash = _fold(source), _bash_lines(source)
+        for slug, needle, kind, count in steps:
+            if slug in retirements:
+                continue
+            if kind == "bash-line":
+                found = bash.get(_command_line(needle), 0)
+                if found < count:
+                    findings.append(
+                        Finding(
+                            "missing-step",
+                            f"{document}: {slug}: expected command line {needle!r} "
+                            f"{count} time(s) in bash blocks, found {found}",
+                        )
+                    )
+            elif _fold(needle) not in body:
+                findings.append(
+                    Finding("missing-step", f"{document}: {slug}: expected step text {needle!r}")
+                )
+    return findings, examined
+
+
 def check_tree(root: Path) -> list[Finding]:
     claude_path = root / "CLAUDE.md"
     if not claude_path.is_file():
@@ -287,6 +400,7 @@ def check_tree(root: Path) -> list[Finding]:
                 )
             if LIFECYCLE_REFERENCE in source and relative not in LIFECYCLE_BOUNDARY_FILES:
                 findings.append(Finding("non-boundary-lifecycle-pointer", relative))
+    findings.extend(check_command_steps(root)[0])
     return findings
 
 
@@ -301,8 +415,21 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     root = args.root.resolve()
     findings = check_tree(root)
+    examined = check_command_steps(root)[1]
+    if (root / "CLAUDE.md").is_file() and examined < len(COMMAND_STEP_FIXTURES):
+        # The gate must not report preservation over a registered document it
+        # never read (both the document and its fixture absent).
+        findings.append(
+            Finding(
+                "unexamined-command-steps",
+                f"{examined} of {len(COMMAND_STEP_FIXTURES)} registered command document(s) examined",
+            )
+        )
     if not findings:
-        print("claude-md-behavior: ok - obligations remain findable and lifecycle policy is local")
+        print(
+            "claude-md-behavior: ok - obligations remain findable, lifecycle policy is local, "
+            f"and {examined} trimmed command document(s) still carry their recorded step text"
+        )
         return 0
     print(f"claude-md-behavior: {len(findings)} finding(s)", file=sys.stderr)
     for finding in findings:

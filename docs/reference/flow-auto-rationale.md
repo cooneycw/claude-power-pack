@@ -1,0 +1,1934 @@
+# flow:auto rationale and history
+
+Why each rule in [`/flow:auto`](../../.claude/commands/flow/auto.md) exists, and
+the incident behind it. The command document holds the steps to execute; this
+reference holds the background (issue #1669). Nothing here is required reading
+for a run: every instruction a run needs is in the command document, and
+`make claude-md-behavior-check` fails if a recorded step leaves it.
+
+## How to read this
+
+Each section below carries the heading it had in the command document, and
+under it the passages that were moved out or condensed there, VERBATIM as they
+stood at `abce5ab5` (the last revision before the trim). A passage that was
+condensed appears here in full, so it may restate an instruction the command
+document still gives in fewer words. Where the two differ, the command document
+is the procedure and this is the history. Code blocks are reproduced with the
+comments they carried; the command document keeps the executable lines.
+
+Add new rationale here, under the step it explains, and keep the command
+document to the step itself. Its word budget is in
+`.claude/command-word-budgets.tsv`.
+
+
+## Arguments
+
+- `ISSUE` (required): GitHub issue number (e.g., `42`)
+- `PROJECT` (optional): target repo when the session cwd is not the repo the
+  issue belongs to (issue #578). Resolved like `/project:next`: an existing
+  directory path first, else `~/Projects/<PROJECT>`; must be a git checkout.
+  When the resolved target differs from the session repo (or the session cwd is
+  not in a git repo at all), Step 1 commits the run to the deterministic
+  `git worktree` lane end-to-end and Step 7 to the git cleanup fallback -
+  `EnterWorktree` operates on the session cwd's repo and cannot create the
+  worktree in another one.
+
+
+## Capability contract (issue #783)
+
+This is the unconstrained driver, and stating that is the point: the three
+delegated drivers (`/codex:auto`, `/qwen:auto`, `/gemma:auto`) each wrap their
+model in an IMPLEMENTATION-ONLY execution fence and none can reach a live
+source, so **research tickets and anything needing current information belong
+here**. Before #783 that was true but written down nowhere an orchestrator could
+read before assigning; it was discovered when a worker refused.
+
+In a `/flow:wave`, register with `--driver flow:auto` so the roster records which
+driver this role is actually running.
+
+This says nothing about *whether the work should be done* - that is the Step 3
+ELI5 gate, and it is unaffected. Capability and necessity are separate questions;
+this one is answerable before assignment, and that is its whole value.
+
+
+## Friction Capture (always-on)
+
+Throughout this run, record friction the moment it happens - do NOT wait for the
+end. The richest friction is on runs that fail partway, so capture must fire on
+every step, success OR failure, and before any STOP. Whenever you hit one of these,
+append a record via the fail-open capture helper (it never blocks the flow):
+
+The fourth class, **permission-prompt**, is NOT model-captured here: the model
+cannot tell an approved tool call from an auto-allowed one. It is captured by the
+harness `PermissionRequest` hook (`scripts/hook-permission-census.sh`, registered
+in `~/.claude/settings.json` by `/cpp:init` / `/cpp:update`), which records a
+risk-rated record with a derived allow-rule candidate on every prompt shown -
+across every session, not just flow runs (issue #482). Do not log this class by
+hand.
+
+Records go to the main repo's `.claude/friction.jsonl` (a queue drained by
+`/self-improvement:retro`). The helper resolves that durable buffer automatically
+via `git-common-dir`, so signals captured inside this run's worktree survive its
+removal at Step 7 (issue #471) - no env var or per-call path needed. It is
+invoked at the stable `~/.claude/scripts/` path like every other helper; on exit
+127 fall back to `${CLAUDE_PLUGIN_ROOT}/scripts/friction-log.sh` (bundled with
+the plugin, #590) or the CPP-checkout copy. Capture is fail-open - if no copy
+exists, skip it rather than stopping the run.
+This is capture only - proposing and applying fixes happens in the retro, not here.
+
+
+## Step 1: Start - Create Worktree
+
+Worktrees are created OUTSIDE the repo by default (issue #627): a **visible
+sibling** of the repo under its parent dir (`../<repo>-<branch>`), or under
+`FLOW_WORKTREE_BASE` when set (#584). Because an out-of-repo worktree cannot ride
+the native `EnterWorktree` tool - its base dir is not configurable, and an
+out-of-repo `EnterWorktree(path=...)` triggers an unsuppressable approval prompt
+(ADR 0003) - the flow uses `git worktree add` + `cd` on every run; the native
+`EnterWorktree` fresh lane is retired (#440 superseded). CPP keeps and enforces
+the issue-anchored `issue-<N>-<slug>` branch name (the gate policy the helper
+enforces).
+
+Step 1's plumbing - target-repo resolution (#578), issue fetch + state check,
+slug/branch derivation, existing-work triage, the #503 live-driver guard, and
+git-lane worktree creation - lives in ONE audited helper,
+`scripts/flow-start-resolve.sh` (issue #581). Do NOT re-implement any of it as
+inline bash: a multi-line block with variable assignments or control flow can
+never match a permission allowlist rule, so it prompts on every run - the exact
+friction the helper removes.
+
+**Invocation discipline (issue #581):** call flow helpers BARE, with literal
+argument values - never wrapped in `if [ -x ... ]`, never chained with `&&` or
+`;`, never followed by `echo $?`. A compound invocation defeats the allowlist
+prefix rule. Helpers print their own status markers and exit codes carry the
+result. This rule applies to every flow helper in this file (see also Steps 4,
+6, 7).
+
+**Require preflight (#1571).** The opt-in flag validates the complete local host report after resolving the target and before issue reads, fetches, claims or worktree creation. Required gaps, unknown observations, and malformed or contradictory reports stop this run. Optional Codex absence is a warning; standalone `/flow:start` keeps its existing behavior. The helper reports the original preflight status on stderr while preserving its stdout contract.
+
+**Pass `--session-cwd` (issue #592).** The helper cannot observe the Claude
+session's working directory - it sees only the cwd this Bash call inherited, and
+that cwd persists across calls and drifts the moment any earlier step `cd`s
+somewhere. The session cwd is what decides `TARGET_REPO` (with no PROJECT arg) and
+the `current-branch`/`resume` lanes, so pass the session's working directory
+VERBATIM as a literal path - the directory this session reports as its cwd, never
+`$(pwd)` and never wherever a previous step left the shell.
+
+Omitting it does not break the run: the helper falls back to the process cwd and
+reports `SESSION_CWD_INFERRED=1`; the worktree is still created outside the repo
+and entered with `cd` (`GIT_LANE` is always 1, issue #627), so the only risk is a
+misdetected `current-branch`/`resume` lane, not a wrong-repo `EnterWorktree`.
+
+If the stable path is missing (exit 127), fall back in this order - the first
+that exists (issue #590):
+
+1. `scripts/flow-start-resolve.sh` from the CPP checkout.
+
+Either fallback may prompt once: the allowlist rules match only the stable
+`~/.claude/scripts/` path. Tell the user to run **`/flow:repair`**, which
+installs the family there and restores the prompt-free lane. If BOTH fallbacks
+exit 127 there is no helper source at all - **STOP** and report that flow needs
+a CPP checkout plus `/flow:repair` (the symlink tier returns in issue #663).
+
+The helper prints a `key=value` contract ending in `FLOW_START_RESOLVE: ok`.
+On `FLOW_START_RESOLVE: error` (with an `ERROR=` line): **STOP** and report it.
+Contract keys: `LANE` (`current-branch|fresh|resume|remote-pickup|local-pickup|cross-repo`),
+`CROSS_REPO` (1 = the target repo is not the session repo, issue #578),
+`GIT_LANE` (ALWAYS 1 now - worktrees are created outside the repo by default
+(issue #627), so every run rides the git lane: enter with `cd`, never
+`EnterWorktree`, git cleanup at Step 7; the native fresh lane is retired, #440
+superseded), `SESSION_CWD` (the directory the lane decision was made against),
+`SESSION_CWD_INFERRED` (1 = no `--session-cwd` was passed; the decision rests on
+a possibly drifted process cwd - pass it so current-branch/resume detection is
+correct), `TARGET_REPO`, `COMPOSE_PROJECT_NAME` (the canonical compose-project pin
+for the whole run, issue #626 - see the compose-safety rule below), `ISSUE_STATE`,
+`ISSUE_TITLE`, `BRANCH` (the enforced issue-anchored name), `WT_PATH` (created
+outside the repo: `$FLOW_WORKTREE_BASE/<repo>-<branch>` when set, else a visible
+sibling `<parent>/<repo>-<branch>`, issue #627), `DEFAULT_BRANCH`, `REMOTE_BRANCH`
+(remote-pickup lane), `WT_CREATED` (1 = the helper already ran `git worktree add`),
+`WT_BASE` (present only when `WT_CREATED=1`; names a reused pre-existing branch
+instead of the base ref when the lane did not actually branch fresh off it -
+`LANE` alone is not a promise of that, issue #793), `LIVE_DRIVER` / `PR_HEAD`
+(the #503 resume hazards - the helper wraps its sibling
+`scripts/flow-live-driver-guard.sh`), `CLAIM` / `CLAIM_PID` /
+`CLAIM_SESSION` (the #597 cross-session claim on issue-N, read BEFORE any
+worktree is created), `CONFIRM_REQUIRED`.
+
+- `CLAIM=held` (`CONFIRM_REQUIRED=1`): another LIVE session is driving this
+  issue right now (issue #597). **STOP.** Do not create or enter anything -
+  proceeding duplicates that session's work, and whichever run reaches Step 7
+  first deletes the other's worktree. Report the owner (`CLAIM_PID`,
+  `CLAIM_SESSION`) and let the user decide: wait for that session, pick a
+  different issue, or - only if they confirm the other session is genuinely
+  gone - take it over. `CLAIM=stale` (owner process no longer exists) is taken
+  over automatically and needs no confirmation.
+- `ISSUE_STATE` not `OPEN` (`CONFIRM_REQUIRED=1`): warn the user and ask
+  whether to proceed. On yes, re-run the same resolve command with
+  `--allow-closed` appended (the helper is idempotent) and continue with its
+  new contract.
+- `LANE=remote-pickup` / `LANE=local-pickup` with `PR_HEAD=<n>:OPEN`
+  (`CONFIRM_REQUIRED=1`, `WT_CREATED=0`): the issue branch has an open PR -
+  possibly another session's in-flight work. Nothing was created (issue #1258).
+  Ask; on yes, re-run with `--allow-pickup` appended.
+- `SHIPPED_BRANCH=<branch>:<n>:MERGED`: an issue branch whose PR already merged
+  was found and deliberately NOT picked up - it is shipped history (issue #1258).
+  The run took the fresh lane on a free issue-anchored name (possibly with a
+  `-2` suffix). Nothing to decide; mention it in the Step 2 report.
+- `FLOW_START_RESOLVE: error` naming `FLOW_WORKTREE_BASE` (issue #1258): the
+  repo's parent directory is not writable (a container repo at `/workspace`) and
+  `.claude/worktrees/` is not git-ignored there to fall back to. No branch was
+  created. **STOP** and report it.
+Worktrees live outside the repo (issue #627), so `GIT_LANE` is always 1 and you
+NEVER call `EnterWorktree` - every lane enters with `cd <WT_PATH>` and Step 7 uses
+the git cleanup fallback.
+
+- `LANE=current-branch`: already on the issue's branch in the session cwd - use
+  the current directory (nothing to enter).
+- `LANE=fresh` / `LANE=cross-repo` / `LANE=remote-pickup` / `LANE=local-pickup`:
+  the helper already created (or added) the worktree at `WT_PATH`
+  (`WT_CREATED=1`) - a visible sibling `../<repo>-<branch>`, or under
+  `FLOW_WORKTREE_BASE` when set, branched from `origin/<DEFAULT_BRANCH>` (or
+  the remote/local issue branch for pickup). `cd <WT_PATH>`. Check `WT_BASE`
+  (issue #793): when it names a reused branch rather than the base ref, the
+  checkout did not freshly branch off `origin/<DEFAULT_BRANCH>` - it reused an
+  existing branch whose tip was verified to already be contained in it.
+- `FLOW_START_RESOLVE: error` naming a branch as unmerged/not-an-ancestor
+  (issue #793): a pre-existing branch for this issue carries commits the base
+  does not have - possibly another worker's in-flight work. **STOP** and
+  report it; do not retry blindly. The user may need to delete/rename the
+  branch, or rebase it onto the base themselves.
+- `LANE=resume`: a prior session's worktree exists at `WT_PATH`. If
+  `CONFIRM_REQUIRED=1` (`LIVE_DRIVER=suspected` - a dirty file touched within
+  ~30m, another live session may own this checkout (issue #503) - and/or
+  `PR_HEAD` shows an open/merged PR, the already-shipped hazard), **STOP** and
+  require EXPLICIT user confirmation before entering. Then `cd <WT_PATH>`.
+
+The worktree lives outside the repo, so the #473/#486 guards and the friction-log
+durable buffer resolve via git plumbing exactly as before (verified in ADR 0003);
+resolve `Write`/`Edit` paths from `git rev-parse --show-toplevel` run inside the
+worktree (the #486 rule).
+
+
+## Verification Gate (MANDATORY - do NOT skip)
+
+This enforces the moat every later step relies on: it fails
+(`FLOW_START_VERIFY: fail`, exit 1) when the checkout is still on main/master,
+and renames a non-conforming branch to the issue-anchored `issue-<N>-<slug>`
+name so downstream steps can parse the issue number. On success it prints the
+final `BRANCH=`, `WT_ROOT=`, `CLAIM=` and `STASH_GUARD=`.
+
+It also ARMS the shared-stash guard for the repository (issue #1056), on by
+default. Creating a linked worktree is the moment `refs/stash` becomes shared
+across checkouts, so this is where the hazard starts - and it is the reason the
+#635 commit-first rule below is not the whole answer: that rule binds a caller
+reading this document, and the guard binds every caller. `STASH_GUARD=` reports
+`installed|current|disabled|foreign|unsupported|unknown`; `disabled` means the
+repository recorded `cpp.stashGuard=false`. Like `CLAIM`, it is ADVISORY -
+reported, never a precondition, and it can never fail the gate. See
+`docs/agents/shared-stash-stack.md`.
+
+The verify gate also arms the shared-stash guard, `scripts/stash-worktree-guard.sh`
+(issue #1056), which the resolver calls as a sibling - so that script is bundled
+alongside it here. Without the bundle the resolver finds no helper, reports
+`STASH_GUARD=unknown`, and the advertised default protection is simply absent
+(counter-model finding). It is advisory and fail-open, and it honours a
+repository's recorded `cpp.stashGuard=false` opt-out.
+
+The verify gate also STAKES this run's claim on the worktree (issue #597) - it
+is the only hook point that runs inside the checkout on every lane, since the
+native `EnterWorktree` lane creates it only after 1a has already returned. A
+`CLAIM=self` line means the worktree is locked to this session and a sibling
+run's cleanup will refuse to remove it. Claiming is advisory: `unsupported` or
+`unknown` (git too old, or the current-branch lane, where the primary checkout
+cannot be locked) is normal and never blocks the run.
+
+
+## Reconcile the plan record, and record what this run read (issues #1080, #1081)
+
+- `reconcile` leaves the record at `docs/flow-runs/issue-<N>.md` as exactly the
+  last COMMITTED - approved - record for this issue, or absent: committed is
+  evidence and is restored from HEAD, anything else is a dead run's scratch and
+  is removed. It prints `FLOW_PLAN_RECORD: restored|removed|absent`, exit 0.
+  Uncommitted edits to the record are replaced, so do not hand-edit it between
+  runs.
+- `read-issue` stores the issue body exactly as this run read it, with its digest
+  and read time, in the git directory - NOT the worktree, where a new file would
+  make the Step-4 driver guard report a phantom second driver. `AS_READ:
+  recorded` is exit 0. `AS_READ: unresolved` (exit 4) means the issue could not
+  be read: continue, and the Step-4 snapshot will say unresolved rather than
+  claim the issue was unchanged.
+
+**Helper resolution**, here and at Steps 4 and 6: the stable path first; on exit
+127, `${CLAUDE_PLUGIN_ROOT}/scripts/flow-plan-record.py`, else the CPP-checkout
+copy - either may prompt once, so tell the user to run **`/flow:repair`**. If no
+copy exists, **STOP** and report it: the record, the snapshot and the Step-6
+PR-head check cannot run without it, and a run that skips them would reach the
+merge with its approval record unverified. Resume after `/flow:repair`. Why the helper asks HEAD rather than the index, and
+keeps its state in the git directory, is in [the plan-record reference](../agents/flow-plan-record.md) - background,
+not required reading.
+
+**Compose-project safety - RUN-WIDE (issue #626).** `docker compose` derives its
+project name from the current directory basename when `COMPOSE_PROJECT_NAME` is
+unset, and this run works inside a worktree whose basename is
+`<repo>-issue-<N>-<slug>`. So EVERY compose invocation from here - the Step-4
+local test-loop database (`make docker-up` / `docker compose up`), any hand-run
+`make docker-*`, and the Step-9 deploy - would otherwise build a SECOND, parallel
+stack that collides on published ports and leaks orphaned `<basename>_pgdata` /
+`<basename>_default` volumes and networks that nothing reclaims (#535 fixed only
+Step 9). The Step-1 resolver contract carries the canonical pin as
+`COMPOSE_PROJECT_NAME` (an explicit `.claude/deploy.yaml compose_project_name:`
+override, else the canonical primary-checkout basename - never the worktree
+basename). **Whenever any step below, or a command you run by hand, invokes
+`docker compose` in this worktree, set `COMPOSE_PROJECT_NAME` in the SAME shell
+call** (env var persistence is not guaranteed between calls) - e.g.
+`COMPOSE_PROJECT_NAME=<contract value> make docker-up`. Step 9 pins it inline
+already; Step 4 reminds you at the point a test database is started.
+
+
+## Step 2: Analyze - Understand the Issue
+
+Working from the worktree, analyze the issue and codebase to form an implementation plan.
+
+   **If the body carries a `speckit-context` block** (issue #858), it is a generated
+   issue and the block is a bounded CACHE of the task's declared context - not the
+   authority. Fetch the body to a UNIQUE file, check that the fetch succeeded, and
+   only then run the checker: a failed `gh` leaves an empty body, and an empty body
+   reports `absent`, which reads exactly like a healthy issue that simply has no
+   block. A fixed `/tmp` name also collides between concurrent wave workers.
+
+   Helper resolution: `~/.claude/scripts/speckit-context.py` is the stable path
+   (`/flow:repair` installs it). On exit 127 fall back to
+   `${CLAUDE_PLUGIN_ROOT}/scripts/speckit-context.py`, else the CPP-checkout copy.
+   Running inside a generated Codex skill, use the copy bundled in that skill's own
+   `scripts/` directory - never a `scripts/` directory in the target project, which
+   has no reason to contain CPP tooling. The generated skill renders it as
+   `${CPP_SKILL_DIR:-/dev/null}/scripts/<name>`, with `CPP_SKILL_DIR` the directory
+   holding that skill's `SKILL.md` (issue #1542).
+
+   Act on `SPECKIT_CONTEXT_STATE`:
+   - `current` - the cache matches its source. Read the **Reference source** named in
+     the block, including the cross-cutting sections it lists, then plan.
+   - `changed-in-scope` / `changed-outside-scope` - source bytes changed since the
+     issue was written. That is a byte difference, NOT a ruling that acceptance
+     changed. Read the source, decide whether it matters under the existing authority
+     model, and say so in the Step 3 report. Newer bytes do not by themselves override
+     a constraint or plan already accepted on the issue; a recorded
+     `Acceptance-revision:` line is reported with the version it names, and whether it
+     predates the change is part of what you must resolve.
+   - `changed-task` - the task line itself changed: its wording, or the `[USn]` tag
+     that decides which requirements apply. The cached mapping no longer matches the
+     plan, so re-read the task line and its story before planning, and treat the
+     block's requirement list as provisional.
+   - `tasks-missing` - the tasks file the block was built from is not present under
+     this root. Plan from the issue body and the source if one resolves, and report
+     that the task-side mapping could not be re-checked.
+   - `block-edited` / `block-damaged` - someone edited inside the block, or its
+     boundaries are broken. Treat the block as unreliable, read the source directly,
+     and do not refresh it as a side effect of this run.
+   - `source-missing` / `source-unresolved` - no governing source could be read. Plan
+     from the issue body, which is the contract in that case, and surface any
+     ambiguity that is material to the work rather than trying to resolve everything
+     first.
+   - `absent` - an ordinary issue. Its body IS the contract (see
+     [the issue contract](../agents/issue-contract.md)); no spec, story tag
+     or digest is required and none is owed.
+
+   The block's **Task wording** line is the task's own sentence, not a ruling: resolve
+   whether it proposes an approach you may replace or restates a binding constraint
+   against the sections the block names. An **Unresolved** or **Capped** note means the
+   context is incomplete - never that the task has no constraints. Apply the same
+   material-ambiguity standard as everywhere else: resolve what would change the work,
+   surface the rest in the Step 3 report, and plan from what you have. Missing optional
+   structure is not a gate.
+
+2. **Explore the codebase:**
+   - Read files referenced in the issue
+   - Understand existing patterns and conventions
+   - Identify all files that need to be created or modified
+
+3. **Form an implementation plan:**
+   - List the specific changes needed
+   - Note any edge cases or risks
+
+
+## Step 3: ELI5 - Plan + Necessity Gate (Approval Checkpoint)
+
+Before writing any code, run the `/flow:eli5` review using the issue and the Step 2 analysis. This is the post-analysis, pre-implementation communication and approval gate.
+
+**Load the FULL gate spec first (issue #509) - the bullets below are orientation,
+not the spec.** Read it from whichever surface this installation has (first match
+wins), then produce the report against THAT spec, including its report template
+and depth floor:
+
+1. the user-scope command link: `~/.claude/commands/flow/eli5.md` - what
+   `/cpp:init` installs on every host (its command-link step, #663)
+2. a Codex install: `~/.codex/skills/flow-eli5/SKILL.md` (`codex-skill-sync.py --install`)
+3. inside the CPP repo itself: `.claude/commands/flow/eli5.md`
+
+This list names only paths an installer actually creates (issue #1301). It used
+to begin with `~/.claude/skills/flow-eli5/SKILL.md`, which nothing installs - the
+2026-06-28 grill for #398 rejected generating that file - so every run outside
+the CPP repo fell through to reading a checkout by hand.
+
+**If none of them resolves, STOP** and report `ELI5 spec not found` with the
+remedy: run `/cpp:init` (it links `~/.claude/commands/<family>`), or on a Codex
+install `codex-skill-sync.py --install`. Do NOT produce the report from the
+summary below alone - the summary omits the template and the depth floor.
+The three sections, for orientation:
+
+1. **ELI5 overview of intent** - what the issue is really trying to accomplish, in plain language a reviewer can sanity-check for a misread.
+2. **Necessity / staleness analysis** - whether the issue is still worth doing given anything merged since it was filed. Anchor the check to the issue's creation date:
+   ```bash
+   ISSUE_DATE=$(gh issue view "$ISSUE_NUM" --json createdAt --jq '.createdAt')
+   git log --since="$ISSUE_DATE" --oneline -- <relevant/paths>
+   gh pr list --state merged --search "merged:>=${ISSUE_DATE%%T*}" --json number,title,mergedAt
+   gh issue list --state all --search "<key terms>" --json number,title,state
+   ```
+   Output one verdict with evidence: **Still needed / Partially addressed / No longer needed / Needs reframing**. Depth floor: the evidence must enumerate the actual commit SHAs, merged PR numbers, and duplicate/superseding issue numbers inspected (or an explicit "none") - a bare verdict does not satisfy the gate.
+3. **Proposed changes (pending approval)** - the files and edits that will close the issue, framed as a plan awaiting reviewer approval. Depth floor: one numbered line per file with its change gist - never "various files" - plus a scope estimate and at least one named risk (or an explicit "no notable risks").
+
+
+## Step 4: Implement - Write the Code
+
+**Re-check for a second driver (issue #597) - run BEFORE the first edit.** The
+#503 live-driver guard fires once, in Step 1. Everything between Step 1 and here
+- analysis, the ELI5 gate, the approval pause - is wall-clock time in which
+another session can enter this checkout, and one did: on `flow:auto #13` a
+concurrent session wrote a file into this worktree between the Step-1 clear
+verdict and the Step-4 merge, which then aborted on their dirty tree. A guard
+that runs only at Step 1 cannot see that. Re-run it bare, against the worktree
+(#581 invocation discipline; advisory, fail-open). Pass the worktree path from
+the Step-1 contract (`WT_PATH`) verbatim as the literal argument - DECLARED,
+never inferred from the Bash cwd, which drifts on any earlier `cd` (issue #1271,
+the #614 rule); the emitted `FLOW_LIVE_DRIVER_PATH:` line must name the run's
+worktree:
+
+- `FLOW_LIVE_DRIVER: clear` - proceed.
+- `FLOW_LIVE_DRIVER: suspected` - dirty files here were modified in the last
+  30m and you have not written anything yet, so they are NOT yours. **STOP** and
+  ask the user before editing: another session is mid-implementation in this
+  checkout. Editing now means two drivers fighting over one tree.
+- Confirm the claim is still ours if anything looks off:
+  `~/.claude/scripts/flow-worktree-claim.sh check .` - `FLOW_CLAIM: self` is the
+  healthy answer; `held` means someone took the checkout over.
+
+**Early stale-base check (issue #473) - run BEFORE editing.** A sibling PR that
+merges during implementation moves `origin/main` under you; discovering it only
+at the Step-7 #462 guard means your edits were already made against stale copies
+of the very files the sibling changed. Surface it now - a bare invocation
+(advisory: warns, never blocks; the #581 invocation discipline from Step 1
+applies to every helper call below). Pass the worktree path from the Step-1
+contract (`WT_PATH`) verbatim as the trailing literal argument - the checkout
+is DECLARED, never inferred from the Bash cwd, which drifts on any earlier
+`cd` and once made this advisory answer for the wrong tree (issue #614, the
+#592 rule); the emitted `FLOW_STALE_PATH:` line must name the run's worktree:
+
+(Exit 127 - helper family not installed: fall back to
+`${CLAUDE_PLUGIN_ROOT}/scripts/flow-stale-check.sh` (bundled with the plugin,
+#590), else `$CPP_DIR/scripts/flow-stale-check.sh` after locating the CPP
+checkout; either may prompt. This guard is advisory - if no copy exists, note it
+and continue. `/flow:repair` installs the family at the stable path.)
+
+- If it reports `FLOW_STALE_BASE: collision` - or names a file you are about to
+  touch under "Changed upstream" - bring the base in now, before piling edits on
+  a stale tree: `git merge --no-edit origin/main`, resolve any conflict in the
+  named file(s), then implement. If git refuses to START the merge because
+  local changes overlap incoming ones, commit the work first (`git add -A` +
+  `git commit -m "wip(flow): pre-merge snapshot"`) and merge on the clean tree
+  - never stash: the stash stack is SHARED across every worktree of the repo
+  and a bare pop can restore a sibling session's work (#635). There is nothing
+  generated to stage afterwards: `codex/skills/` is ignored build output since
+  issue #1670, rebuilt by the gates that read it.
+- If it reports `current` or `moved-clean` with no overlap, proceed - the Step-7
+  #462 guard remains the final backstop.
+
+
+## First, write the plan record (issue #1080)
+
+**Step 4 is reached only when Step 3's approval was granted**; a `No longer
+needed` verdict stopped at Step 3 and writes NO record. **Only after approval is
+granted, and never before**, and only after the two checks above - writing the
+record IS the first edit, and the driver guard would read an earlier one as a
+phantom second driver - write THIS RUN's approved plan to the branch.
+
+**The record is APPEND-ONLY and each run owns one section (issue #1320).**
+Step 1's `reconcile` gave this run an id; `begin-run` appends this run's
+`## Run <n>` header carrying it (creating the file on a first run). Then APPEND
+this run's fields - never rewrite the file, and never edit an earlier run's
+section. The Step-3 guard, compliance, the stability baseline, drift and
+head-check all read only this run's section, so a prior run's approval does not
+approve this run's plan:
+
+`begin-run` exits 1 when this worktree has no run identity - run Step 1's
+`reconcile` first. A record written before #1320 (no run markers) stays valid
+history, and reads as Run 1.
+
+**Adopting found or dirty work (issue #1504).** If, before this point, you
+preserved pre-existing or dirty work in the worktree by committing it
+unmodified as its own commit - a deliberate, manual act, never something this
+step decides for itself - run `declare-salvage` with that commit's sha right
+after `begin-run`:
+
+Without this, Step 6's compliance check cannot see that commit (it is before
+this run's own `Run-start`) and reports its planned files as untouched even
+though they were genuinely preserved - it does print a report-only note
+pointing at the commit, but the note never changes the verdict. Do NOT run
+this when nothing was deliberately preserved: `declare-salvage` refuses a sha
+that is not an ancestor of HEAD, and the writer must know which commit is a
+genuine preservation, never infer one from history.
+
+If this run ends with deliberately preserved unfinished work pushed to origin,
+follow `/flow:cleanup`'s **Preserved-WIP handoff** procedure before yielding:
+publish or reuse a verified issue comment or linked draft PR naming the branch,
+exact pushed tip, current issue state, provenance and remaining work, and relay
+its URL. `declare-salvage` records local plan accounting, not an issue-visible
+handoff (#1614). A failed publication leaves the handoff incomplete; keep the
+branch/worktree and report that blocker.
+
+Keep Section C as one numbered line per file, in the form ``N. `path` - gist``:
+Step 6 compares the diff against exactly those paths, and a line it cannot parse
+makes that comparison `unknown`. Markdown only - `.gitignore` carries a blanket
+`*.json`, and `git add` skips an ignored path without an error. There is no
+`auto-granted` value and no path that writes this file without an approver
+(issue #775): the approver field comes from the actual approval event.
+
+Do NOT list this record, its `.as-read.md` snapshot or the counter-model receipt
+in Section C: the comparison excludes them itself, and they are not changes to
+plan (issue #1267). Generated `codex/skills/**` mirrors are ignored build output since issue #1670
+and never appear in a diff, so name only the SOURCE (the command document or
+the bundled script).
+
+- exit 0 - `docs/flow-runs/issue-42.as-read.md` is written (the body as read,
+  at most 16 KB stored; its digest covers the FULL body) and the record's digest
+  is stamped in the git directory as the Step-6 baseline.
+- exit 4 (`AS_READ: unresolved`) - the baseline is stamped but the snapshot says
+  the issue could not be read. Proceed; Step 6 will report drift as unresolved,
+  never clean.
+- exit 1 - there is no plan record to stamp, or it has no section for THIS run
+  (a prior run's section does not count, #1320). Run `begin-run` and append it first.
+
+Background on the placement, the cap and the baseline is in
+[the plan-record reference](../agents/flow-plan-record.md) - not required reading.
+
+**Worktree path-resolution rule (issue #486) - a native `EnterWorktree` session
+edits the worktree, but the worktree lives *inside* the main repo at
+`.claude/worktrees/<name>/`.** A `Write`/`Edit` given a hand-built ABSOLUTE
+`.claude/worktrees/<name>/...` path has been observed to land in the MAIN repo
+working tree instead of the worktree (flow:auto #442 x2, #471) - work looks done
+but is written to the wrong tree. So, for every edit in this step:
+
+- Resolve edit paths from the active worktree root - `git rev-parse
+  --show-toplevel` - never a hand-built `.claude/worktrees/<name>/...` absolute
+  path. A path under `$(git rev-parse --show-toplevel)/...`, or a plain relative
+  path from the session cwd, targets the worktree correctly.
+- After writing, confirm the change landed in the worktree (`git status` shows it)
+  and did NOT leak into main. The guard makes the leak check verifiable -
+  invoked with `--strict`, which BLOCKS on a leak signature (issue #576):
+  ```bash
+  ~/.claude/scripts/flow-worktree-guard.sh --strict
+  ```
+  **Exit 3 is a STOP.** A leak means your edits are landing in the wrong tree, so
+  every further edit compounds the damage and the worktree the rest of the flow
+  commits from does not contain the work. **But exit 3 reports a SIGNATURE, not an
+  author** (issue #1014): fresh main dirt on a path you touched, or beside an idle
+  worktree, is also what a NEIGHBOURING session's edit looks like. Before moving or
+  reverting anything in main, attribute it - read the diff (`git -C <main> diff --
+  <path>`) and confirm it is YOUR edit. Only then move the change into the
+  worktree and `git -C <main> checkout -- <path>`. Never revert main content you
+  did not write; if it is someone else's, stop and report it instead. Then re-run
+  the guard before continuing. Only a leak signature exits 3: pre-existing, non-overlapping dirt in
+  main stays a quiet note and never blocks (#536), and a total leak (idle worktree
+  + fresh main edits) is caught the same way (#573).
+  **Read the `FLOW_WORKTREE_GUARD:` line (issue #1014)**, which is always
+  printed:
+  - `no-leak` (exit 0): proceed.
+  - `leak` (exit 3): STOP, as above.
+  - `not-applicable` (exit 5): **proceed and report** "leak guard not applicable:
+    <detail>". On the current-branch lane there is no separate main tree to leak
+    into.
+  - `unknown` (exit 4): **proceed and report** "leak guard could not run:
+    <detail> - UNCHECKED". It must never be read or summarised as "no leak".
+
+  Never treat 4 or 5 as a failure and never run this under `set -e` or behind
+  `|| stop`: only 3 stops.
+
+1. **Make all code changes** in the worktree.
+2. **Follow existing conventions** - match the code style, patterns, and structure of the project.
+3. **Run tests locally** if a quick feedback loop is available (e.g., `make test` or the project's test command).
+   **If the local loop starts a compose stack** (a test database via `make
+   docker-up` / `docker compose up`), pin the project name in the SAME call:
+   `COMPOSE_PROJECT_NAME=<Step-1 contract value> make docker-up` (issue #626).
+   Unpinned, compose names the stack after the worktree basename and forks a
+   second parallel stack that collides on the published port and leaks
+   `<basename>_*` orphans - the run-wide rule from Step 1, at the point it bites.
+4. **Verify the changes** address all acceptance criteria from the issue.
+
+**When the plan turns out to be wrong (issue #859).** Step 2 explored the codebase
+and Step 3 reviewed the plan against it, so the approval is informed - but writing
+the change can still surface evidence the review did not anticipate. The approval
+fixes the intended OUTCOME, not every detail of how to reach it. Three endings, not
+two:
+
+1. **Revise within the agreed outcome and constraints - no new approval.** A better
+   implementation that reaches the same outcome and respects the same constraints
+   is an ordinary implementation choice, not a deviation. Choosing a different
+   function, structure or library within what was agreed needs no checkpoint and no
+   deviation record; say what you did in the Step 6 summary like any other work.
+2. **Investigate an uncertain assumption, bounded and reversible.** Inside the tool
+   and environment permissions you already have: read the source, run the local
+   checks, prototype on a scratch branch or behind a flag. Bounded and reversible
+   does not mean disposable - a prototype that works may become the implementation,
+   and there is no rule that useful work must be deleted and rewritten because it
+   started as an experiment. Remove the unsafe and provisional parts, not the
+   result.
+3. **Consequential conflict - return to the existing authority.** A change is
+   consequential when it alters promised behaviour, breaks compatibility, or
+   crosses a constraint someone set deliberately. Do NOT implement a flaw you have
+   evidence against, and do NOT quietly redefine success to fit what worked.
+   Present the evidence and a concrete alternative to whoever can agree to it.
+   - Prior approval, or a standing delegation that actually covers this change,
+     IS agreement - re-asking for it is the repeated-checkpoint failure this
+     avoids.
+   - Knowing that an approver exists is not agreement. An authority who has not
+     approved THIS change has not approved it.
+   - Record it briefly once agreed: what changed, why, and what it does to the
+     intended outcome. Only consequential deviations earn a record.
+
+**"No material concern found" is a complete answer.** Most fixes are routine. Do
+not manufacture an alternative, an experiment or a challenge for work that does not
+need one.
+
+**If the change adds or modifies a check, gate, guard, tripwire or allowlist**, ask
+the two questions from
+[the detector contracts](../agents/detector-contracts.md) before you
+call it done - does its success message claim more than its input population
+supports, and can a finding tell our thing from a neighbour's - and write the
+answer in as a test rather than a comment. Where the narrow answer is deliberately
+correct, widening is not the remedy: say where the larger question is answered
+instead.
+
+**In a `/flow:wave`, re-register when the scope you derived is wider than the lane
+you declared (issue #1266).** A lane is declared at `/flow:register` time, before
+Step 2 has found what the change actually touches. When implementation reaches a
+file outside the declared `--files` - a scope DERIVED here, not granted - re-run
+`/flow:register` with the full list before committing it. Otherwise the roster
+reports no overlap for a file you are editing, and another role can be granted it.
+`--files` REPLACES the lane, so pass every path you still hold, not only the new one.
+
+
+## Step 5: Update Docs - Regenerate C4 Diagrams and Review Docs
+
+Then perform these documentation tasks:
+
+1. **Regenerate C4 diagrams** - If `docs/architecture/` exists or significant code changes were made, run the `/documentation:c4` workflow:
+   - Analyze the project architecture
+   - Generate L1-L4 C4 diagrams to `docs/architecture/`
+   - Screenshot via Playwright if available
+
+2. **Review CLAUDE.md** - Check that repository structure, command references, and component descriptions match the current state. Fix any stale references.
+
+3. **Review README.md** - Check that the project description, setup instructions, and feature list reflect the changes just implemented. Fix any inaccuracies.
+
+4. **Stage doc changes** - `git add` any modified documentation files.
+
+
+## Step 6: Finish - Quality Gates, Commit, Push, PR
+
+**Stale-base pre-check (issue #473) - run BEFORE the quality gates and commit**,
+so the commit lands on a current tree and the gate reflects what will merge (the
+#462 Step-7 guard stays the final backstop). Bare invocation first (#581
+discipline; on exit 127 fall back to the plugin-bundled copy at
+`${CLAUDE_PLUGIN_ROOT}/scripts/flow-stale-check.sh` (#590), else the
+CPP-checkout copy). As at Step 4, pass the worktree path as the trailing
+literal argument (declared, not inferred - issue #614) and check the emitted
+`FLOW_STALE_PATH:` names this run's worktree:
+
+```bash
+# If the base moved, merge it in now so the gate + commit ride the current tree.
+# COMMIT the Step-4 work FIRST, then merge on the clean tree (issue #635; this
+# supersedes the #521 stash-first order). Stashes live in the repo's COMMON git
+# dir, so every linked worktree shares ONE stack: with ~7 concurrent sessions,
+# two runs stash-pushed seconds apart and each bare `git stash pop` silently
+# restored the OTHER session's uncommitted work into the wrong worktree. A WIP
+# commit is branch-local - a sibling session cannot take it - and the Step-7
+# squash flattens it, so nothing visible changes in what ships. (#521's premise
+# was also too broad: git refuses a dirty-tree merge only when incoming changes
+# OVERLAP locally-modified files; commit-first is safe in every case.) NEVER
+# use `git stash push` or a bare `git stash pop` in a shared-worktree flow.
+git fetch origin main --quiet
+if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then
+    if [ -n "$(git status --porcelain)" ]; then
+        git add -A
+        git commit -m "wip(flow): pre-merge snapshot"
+    fi
+    if ! git merge --no-edit origin/main; then
+        echo "STOP: 'git merge origin/main' hit CONFLICTS. Resolve them, 'git add' + 'git commit', then re-run Step 6."
+        git diff --name-only --diff-filter=U
+        echo "NOTE: your Step-4 work is safe in the 'wip(flow): pre-merge snapshot' commit on this branch."
+        exit 1
+    fi
+    # Keep the generated Codex surface current when the merge pulled ANY source
+    # the skills bundle (issues #506, #1136). The tree is ignored build
+    # output since #1670, so this refreshes what the gates below READ and
+    # nothing is staged. ONE HELPER, invoked BARE (#581) - it decides by asking
+    # codex-skill-sync.py what actually drifted, names it, and re-syncs.
+    #
+    # It replaced `git diff --name-only ORIG_HEAD..HEAD | grep -q
+    # '^\.claude/commands/.*\.md$'` at THREE sites (#1136): the skills bundle
+    # repository docs too, so a bundled-doc edit drifts the mirror while
+    # touching no command document, and the grep stayed silent. That cost two
+    # full gate cycles in two hours. Do not reintroduce a path pattern here -
+    # tests/test_codex_skill_resync.py fails if one reappears.
+    # `[ -x ]` KEEPS THIS CPP-ONLY (counter-model review, #1136). /flow:auto and
+    # /flow:finish run in other repositories, which have neither this helper nor
+    # the generator; a bare call there dies with exit 127 before the helper can
+    # report its own `unavailable`. This is an EXISTENCE guard, not a decision
+    # about what changed - the path-pattern condition it replaced is the one
+    # that must not come back.
+fi
+# KEYED ON THE DIFF, NOT ON THE BASE (S4, sibling of #1136). This call used to
+# sit INSIDE the base-moved block above, so it ran only when `origin/main` had
+# moved. Mirror drift is caused by EDITING a file the skills bundle, which is
+# independent of the base - so an ordinary run that edits `scripts/<name>` on a
+# CURRENT base never re-synced, and `make verify` was the only thing that said
+# so, at the cost of a full gate cycle. Measured: #1191 staled two mirrors and
+# #1192 staled four, neither with a moved base.
+#
+# It is called UNCONDITIONALLY and nothing cleverer. The helper already decides
+# for itself by asking `codex-skill-sync.py --check` - 0.14s on a clean tree -
+# so a condition here could only ever be a worse oracle than the one inside it.
+# In particular: do NOT gate this on an enumerated set of bundled paths. That is
+# a path-set prediction, and #1136 removed exactly that - "the fix is not a
+# wider glob - that is a hardcoded universe again, one entry longer" - which
+# `--list-mirrors` (#1151) does not change, because enumerating the set is a
+# different job from deciding whether it drifted.
+# tests/test_codex_skill_resync.py fails if this is re-gated on the base.
+if [ -x scripts/codex-skill-resync.sh ]; then
+    bash scripts/codex-skill-resync.sh
+fi
+```
+
+**Acceptance accounting (issue #860).** The quality gates above are evidence about
+CHECKS. Before opening the PR, account for what was actually delivered: every
+material acceptance item is demonstrated (name the behavioural test, experiment or
+reviewed observation), revised (give the reason and the agreement it needed), or
+deferred (and still owed). A couple of sentences of prose is enough for a small
+change - there is no required per-item line and no separate artifact. Silence is not
+delivery: an item nobody mentions is unresolved.
+
+Assess the evidence against the CURRENT agreed behaviour. After a #859 revision,
+evidence that satisfied the earlier promise has to be reassessed against the new
+one - sometimes it still suffices, often it does not, and that judgement belongs in
+the report rather than being assumed either way. A revision record on its own is
+never delivery evidence.
+
+The report stays ordinary prose - there is no field to fill in, and nothing is
+parsed out of it. Carry the judgement into the one place it has to act: the closing
+step sets `ACCEPTANCE_COMPLETE=yes` ONLY when every material item is demonstrated,
+revised with evidence for the revised behaviour, or resolved by a transfer or
+withdrawal that recorded its authority and destination. Anything else - including
+"mostly done" - leaves it unset, and unset cannot close.
+
+**Closing must agree with that judgement.** When the accounting is not complete, the
+selected reference is the non-closing `Refs #N` - in the commit message, the PR title
+and the PR body alike, never `Closes #N` - so the merge cannot close a promise the
+report says was not kept.
+
+Then review whatever will actually become the merge text: the PR title and body, and
+the branch commits where they feed the squash. `gh-pr-merge.sh` passes an explicit
+subject and body derived from the PR (#655), so on that path an older commit's wording
+does not reach the squash - but a plain `gh pr merge --squash` can compose it from the
+commits, and that is when a stale closing reference still matters. Check the sources in
+play rather than rewriting history on the assumption that they always feed it:
+
+Read the closing references there yourself rather than grepping for one spelling -
+the merge helper rejects negated and incidental forms too, and a narrow pattern
+misses exactly the ones that surprise you.
+
+The canonical rule is [the issue contract](../agents/issue-contract.md);
+this is where it is executed. Partial delivery stays reviewable and mergeable - the
+disposition changes what CLOSES, not what may merge.
+
+```bash
+# Reference selection (issue #860). Default to a NON-closing reference; a closing one
+# is used only after your own acceptance accounting for THIS issue. Reset it here
+# rather than inheriting a value from an earlier run.
+ACCEPTANCE_COMPLETE=""     # "yes" only when every material item is demonstrated,
+                           # revised with evidence, or resolved by a recorded transfer
+ISSUE_REF="Refs #${ISSUE_NUM}"
+if [[ "$ACCEPTANCE_COMPLETE" == "yes" ]]; then
+    ISSUE_REF="Closes #${ISSUE_NUM}"
+fi
+```
+
+`$ISSUE_REF` then feeds the commit message, the PR title and the PR body, so an
+incomplete accounting cannot publish a closing reference anywhere.
+
+**Collapsing the branch to one commit - the SAFE recipe (issue #657).** Prefer
+NO collapse at all: since #655 the merge helper passes an explicit
+`--subject`/`--body` derived from the PR, so a WIP-first branch squashes with
+the right message and collapsing buys nothing. If you collapse anyway (e.g. to
+curate history before pushing), the target matters more than the mechanics:
+`git reset --soft` onto a base that has MOVED past your index silently stages
+the deletion of everything the moved base added - a conflict-free,
+honestly-green merge then lands those deletions on main (poker-measure lost a
+merged 2,085-line feature to exactly this on 2026-08-11). The safe shape:
+
+```bash
+# Collapse onto your ORIGINAL base, never a moved origin/main:
+git reset --soft "$(git merge-base HEAD origin/main)"
+# Before committing, prove the collapse deletes nothing you did not delete:
+git diff --staged --diff-filter=D --name-only   # MUST be empty unless intended
+git commit -m "type(scope): Description (${ISSUE_REF})"
+# THEN bring the moved base in:
+git merge --no-edit origin/main
+```
+
+**Never collapse AFTER the counter-model receipt (item 1 below) has been
+written for this branch's current commits (Nit Store #864).** A receipt
+records `--head <sha>`, and `scripts/flow-finish-gate.sh`'s enrolment check
+accepts only that exact commit or a descendant of it
+(`git merge-base --is-ancestor`). `git reset --soft` + a new `git commit`
+replaces the receipted commit with a different SHA that is not a descendant of
+it - the receipt still exists on disk, but it no longer describes anything in
+this branch's history, and the finish gate then fails with "counter-model line
+missing" even though a real review happened. If you must collapse after the
+receipt is written, re-run the review and write a fresh receipt against the
+collapsed commit; do not reuse the old one. Picking up a moved base with
+`git merge` instead of a collapse-then-reset avoids this entirely, since a
+merge commit keeps the receipted commit as an ancestor (see the "Prefer NO
+collapse" note above).
+
+   **THE RULE IS A PROPERTY, NOT A TOOL NAME: the reviewing model must not be
+   the implementing model.** Stated that way, a `qwen:auto` or `gemma:auto`
+   lane inherits the requirement with no edit here, and the rule survives the
+   lane topology changing. `/codex:code_review` is the implementation that
+   satisfies it today, not the rule itself.
+
+   **IT RUNS BY DEFAULT. A SKIP IS A RECORDED STATE, NEVER AN OMISSION.** This
+   stage previously lived in a separate command and ran on **0 of 170** merged
+   PRs across two months; it then ran on 21 of 30 in two days, because a wave
+   orchestrator declared it in policy. Adoption tracked an external mandate that
+   dies with the wave, not anyone's judgement per run - so the default is now
+   "runs", and not running requires a reason that lands in the receipt.
+
+   **IT COMES BEFORE THE QUALITY GATES, deliberately.** Accepted findings are
+   fixed in the worktree, and those fixes are code: a review placed after the
+   gates lets a fix that breaks lint, types or tests ride to the PR ungated.
+
+   **1a. Resolve the helper FIRST, then ask whether there is anything to
+   review.** `/flow:auto` runs against OTHER repositories too, and they do not
+   contain CPP's scripts - so a bare `python3 scripts/counter-model-receipt.py`
+   resolves inside the target worktree and simply is not there. Same resolution
+   order as every other flow helper (#581/#590):
+
+   A missing helper is a stated gap, not a silent one. Resolution happens here
+   because step 1c parses the transcript with it - the first cut assigned
+   `$CM_RECEIPT` further down in 1d, so the parse ran against an empty command
+   name in a fresh shell.
+
+   **Before review, commit an implementation checkpoint (schema 5).** Stage
+   only the issue's owned changes, commit them, and review that committed
+   artifact. A fix accepted from review needs a new checkpoint and review before
+   the receipt is written. This keeps dirty working-tree changes from being
+   mistaken for the commit a receipt names. The runtime evidence and producer
+   contract is [counter-model evidence](../agents/counter-model-evidence.md).
+   A collector `CODEX_REVIEW: blocked` or missing artifact binding is a failed
+   precondition: correct the checkpoint/evidence and retry. It does not mean
+   the reviewer was unavailable, and must not be recorded as a skip.
+
+   **Then probe the reviewer (issue #1015).** The ONLY condition that skips a
+   review is the inability to run codex, so that inability is established
+   BEFORE the invocation rather than inferred from its wreckage:
+
+   **The probe is ADDITIVE, never a replacement.** `command -v codex` answers
+   "is the binary on PATH", not "can it review". A codex that is installed and
+   whose API is unreachable passes this probe and must still land in
+   `reviewer-unavailable` via 1c. The probe may only move a run FROM
+   `reviewer-unavailable` TO `codex-absent`; it must never suppress a review
+   that would otherwise have been attempted, and presence on PATH is never
+   evidence of a working lane.
+
+   **An empty diff is NOT a skip (owner ruling, 2026-09-16).** The review runs
+   against whatever the branch holds, including nothing, and records an
+   ordinary `ran` receipt. `no-diff` left the reason set because it is not an
+   inability to run codex. The reversal trigger that would bring it back is
+   committed beside `SKIP_REASONS` in `scripts/counter-model-receipt.py`.
+
+   **Select evidence independently of runtime (issue #1584).** A native Codex
+   implementation may be reviewed by another recorded model through a Codex
+   thread/rollout or a Claude session; it needs no implementing exec stream.
+   The reviewer must differ from every implementing model, including models
+   earlier in the same retained implementing session. Use an available
+   independent reviewer with genuine runtime evidence. When no eligible
+   reviewer can run, record `reviewer-unavailable`; never fabricate a stream
+   or copy a model from a banner. A free-form second-opinion response alone
+   does not supply a supported runtime transcript or artifact binding.
+
+   **The skip receipt is not the whole story.** `reviewer-unavailable` means no
+   reviewer feeds this automated pipeline - it does not mean no review ran.
+   Run `/second-opinion-start` (or another non-Codex review you have available)
+   yourself, and if it ran, state its reviewer and verdict in the PR body
+   alongside the skip, naming both. Until #1513 lands, the receipt alone
+   would read as "no review happened" when one did; the PR body is where that
+   gets corrected.
+
+   **1b. Run the review** (Claude sessions only - a Codex lane takes the skip
+   above). Invoke `/codex:code_review` with that BASE and
+   `CONTEXT` = `"issue #<N>: <issue title>"`, and **capture the transcript to a
+   file** - the receipt in 1d is derived from it, not from memory.
+
+   `/codex:code_review`'s own contract already asks for both a findings report
+   and a `## Red cases` section (issue #1030) - the red cases feed the control
+   registration directly and need no separate ask from this call site. This
+   used to be requested here explicitly because the command's own prompt ended
+   "Return ONLY a findings report", which meant a caller reading that document
+   alone would get no red cases; the contract itself now includes them, so
+   every caller does.
+
+   - `COUNTER_MODEL_REVIEW: findings` - triage each as accepted (fix it now, in
+     this worktree, under the Step-4 rules), rejected (one-line reason), or
+     deferred (real but out of scope - route it to the nit store). If anything
+     was accepted and fixed, re-review **once** more, never a third time.
+   - `COUNTER_MODEL_REVIEW: clean` - the reviewer said so in the prescribed
+     words. Record `ran` with zero counts.
+   - `COUNTER_MODEL_REVIEW: unparseable` (non-zero) - the reviewer produced
+     nothing, was cut off, or answered in another shape. **This is not a clean
+     review.** Record `skipped` with reason `reviewer-unavailable` - codex was
+     reachable enough to invoke and did not return a usable review, which is a
+     DIFFERENT inability from `codex-absent` above; never a `ran` receipt with
+     zeros, which would enter the measurement as a review that happened and
+     found nothing.
+   - `COUNTER_MODEL_REVIEW: format-mismatch` (non-zero, issue #1259) - the
+     Findings section carries severity-labelled findings in a shape the parser
+     does not count (e.g. `- **MEDIUM - file:line**` bullets). **the review HAPPENED,
+     so this is never a skip** - recording `reviewer-unavailable` here writes a
+     receipt asserting the opposite of what occurred (seen on #1056). Ask the
+     reviewer once to restate its findings in the prescribed `### [SEVERITY]
+     title` shape and parse again; if it still does not comply, triage the
+     findings by reading them and record `ran` with the counts from your
+     triage.
+
+   **1d. Write the receipt - ALWAYS, including on a skip** (helper resolved in
+   1a):
+
+   **`--reviewer` no longer exists as a flag you hand a value to (issue
+   #1048).** This document already said "`--reviewer` is a MEASUREMENT, so
+   read it from the run - do not copy the value below" - #1045/#1049 made
+   that instruction correct; #1048 makes it structural. The writer derives
+   the reviewing model itself, straight from the codex exec stream `$STREAM`:
+   it reads the stream's own `thread_id`, finds the matching session
+   rollout - anchored on that thread id, never the newest rollout on the
+   host, because several sessions run concurrently here and the newest one
+   belongs to whoever finished last, or on a SKIP to an unrelated run
+   entirely - and reads that rollout's own `model` field. It REFUSES to
+   write (non-zero exit, no receipt file) when any step of that fails,
+   rather than accepting a value from anywhere else, including
+   `/codex:code_review`'s own `CODEX_REVIEW_MODEL` marker: that marker is
+   itself just a string the caller could get wrong, the same trust problem
+   one level up. The flag through which a wrong value could arrive stops
+   existing.
+
+   On a skip there is no reviewer to derive - `codex-absent` never invoked
+   codex at all, `reviewer-unavailable` invoked it and got nothing usable -
+   so reviewer evidence must not be passed; the writer already refuses a
+   skip that names one (#1046).
+
+   **`--implementer` is ALSO derived now, not asserted (issue #1047).** It
+   used to be the literal `"claude/opus-5"` - a claim that the property this
+   receipt exists to check (the reviewing model must not be the implementing
+   model) could never actually fail on the implementer's side, because
+   nothing measured it. The writer now derives it from this Claude Code
+   session's own transcript (`~/.claude/projects/<project>/
+   $CLAUDE_CODE_SESSION_ID.jsonl`, the same store this session's conversation
+   already lives in) and REFUSES to write when it cannot - a missing session
+   id, no matching transcript, or a transcript with no real model entry to
+   read. **This is on the skip path too, not only `ran`**: a skip receipt now
+   requires a derivable implementer exactly as it requires a reason, so an
+   environment with no `~/.claude/projects` (a container without that mount,
+   for instance) can fail a skip write that used to succeed. That is the
+   correct direction - fail closed rather than assume an identity - but it is
+   a real behaviour change on the path people reach when something has
+   already gone wrong.
+
+   **In a CODEX session the implementer is that session (issue #1453).** Codex
+   exports `CODEX_THREAD_ID` to every command it runs, and the writer derives the
+   implementer from that thread's own rollout - the same derivation it uses for a
+   Codex reviewer - and records the thread and rollout as `implementer_evidence`.
+   Pass it explicitly: `--implementer-thread-id "$CODEX_THREAD_ID"`. Explicitly,
+   because a codex process launched from a Claude session sees BOTH
+   `CODEX_THREAD_ID` and `CLAUDE_CODE_SESSION_ID`; with neither flag the writer
+   refuses that ambiguity and names both flags rather than guessing. The delegated
+   exec selector (`--implementer-exec-log`) never needs a fabricated thread event.
+   **A reviewer matching any implementing model is not a counter-model review.**
+   New `ran` receipts use schema 5 with independent per-role adapters. All real
+   implementing models are retained under scalar `implementer` or plural
+   `implementers`; the reviewer remains scalar and must intersect none of them.
+   Schemas 1-4 remain valid historical records without migration. A typed model
+   with no runtime evidence, or a missing/ambiguous transcript, is UNKNOWN and
+   refuses a new write. See the evidence contract for supported selectors.
+
+   **`--scope` carries `/codex:code_review`'s `CODEX_REVIEW_SCOPE` marker
+   (issue #1400), and is re-measured, not trusted as printed. It is REQUIRED
+   on a Codex-exec `ran` write since #1461**, and a read DENIED mid-review (a command that
+   ran and printed "Permission denied" or "Operation not permitted") also
+   downgrades a claimed `full`, to `unverified`. Unlike
+   `--reviewer`, this flag still exists - a `full`/`diff-only`/`unverified`
+   CLAIM is not itself the measurement the way a model name copied from a
+   banner would be, because the writer independently re-checks it against
+   `$STREAM` (the same exec log already supplied above): any
+   `command_execution` item there whose sandboxed exec process could not even
+   launch downgrades a claimed `full` to `diff-only`, printing why. A claim
+   can only be downgraded, never upgraded, so pass the marker exactly as
+   `/codex:code_review` printed it. **`--network` carries its
+   `CODEX_REVIEW_NETWORK` marker the same way (issue #1450)**, and is recorded
+   as measured: `open` and `unverified` are never a network-fenced review.
+   `--local-credentials` carries `CODEX_REVIEW_LOCAL_CREDENTIALS` (issue #1459)
+   the same way.
+
+   `--passes` is capped at 2, because each pass spends quota. A pass beyond the
+   cap that was explicitly requested (say, by an orchestrator on the final head)
+   is still recorded, with `--passes 3 --extra-pass-reason "<who asked, and why>"`.
+   The writer refuses a third pass without a reason, and a reason without one
+   (issue #1400).
+
+   **CI enforces this receipt at the merge boundary (issue #1452).** The
+   `counter-model-enrolment` pull_request step runs `flow-finish-gate.sh
+   --enrolment-only` against the PR's source branch, so a PR whose branch
+   carries no committed receipt, or skip, at a commit reachable from its head
+   cannot merge, however it was opened.
+
+   **Stage the receipt immediately, on every status including a skip (issue
+   #1030).** `tests/test_counter_model_review.py::test_every_COMMITTED_
+   receipt_is_well_formed_AND_TRACKED` requires every receipt on disk to be
+   TRACKED - `git ls-files`, not merely present. Nothing between writing the
+   receipt above and the quality gates at item 2 stages it, so a fresh
+   receipt on a first run failed that test on its first attempt every time -
+   an ordering defect, not a false green, since the gate correctly refused,
+   but one that cost a second full gate run on every run that reached here.
+   Stage it right after the write, whatever `--status` was used:
+
+   `docs/measurements/counter-model/*.json` already has its own explicit
+   `!` negation in `.gitignore` (issue #934) against the file's blanket
+   `*.json` rule, so a plain `git add` here is not the same silent-no-op trap
+   that bit `.gitignore`-covered receipts before that negation existed
+   (issue #936/#953/#924's own failure shape, verified NOT reproduced here:
+   `git check-ignore` on a receipt in this directory resolves to the `!`
+   line, and `git add` stages it normally). If a future receipt directory
+   ever needs its own negation and does not have one yet, that gap would
+   resurface here identically - the negation is what makes plain `git add`
+   safe, not something this line can assume on its own.
+
+   The existing receipts under `docs/measurements/counter-model/` naming
+   `codex/gpt-5.5` are NOT corrected retroactively (owner ruling, #1048: annotate,
+   do not rewrite). Each records what its own run believed at the time, and that
+   is the evidence of how a documented literal propagated across thirteen
+   independent runs - a corpus rewritten to look correct would destroy exactly
+   that.
+
+   The rationale that used to sit here was that rewriting them "would assert that
+   a different model reviewed work it never saw". On the evidence that is
+   backwards, and it is corrected rather than quietly dropped:
+   `scripts/counter-model-reviewer-attribution.py` links each receipt to the
+   rollout that produced it and finds all 13 were reviewed by `codex/gpt-6-astra`
+   - `gpt-5.5` is the model that never saw the work, and appears in no rollout on
+   the host at all. What was true is recorded in
+   `docs/measurements/counter-model-reviewer-attribution.md`; the receipts stay as
+   the contemporaneous record.
+
+   A skip with a receipt is a state; a skip without one is indistinguishable
+   from a stage that was never wired in. The receipts are the record - **the PR
+   body block below is a RENDERING of the receipt, never the source.** PR #1000
+   ran two review passes, fixed eleven findings, and is counted as having had no
+   cross-model review, because its author hand-wrote a different heading. A
+   marker written by the thing being measured is defeated by whoever writes it.
+
+   Then append the rendered block to the PR body in item 5:
+
+   A skipped stage appends the one-line skip note and its receipt path instead.
+
+2. **Quality gates** - ONE audited helper owns the deterministic-runner
+   invocation (issue #613, the #581 pattern): CPP-checkout resolution, the `uv`
+   check, the documented `PYTHONPATH` / `uv run --project` contract (#430), and
+   the Makefile fallback (`make lint`, `make test`, `make typecheck` and,
+   since issue #1147, `make verify`) all live in
+   `scripts/flow-finish-gate.sh`. Do NOT re-implement any of it as inline bash -
+   a leading env-var assignment plus an interpolated `$CPP_DIR` can never match
+   a permission prefix rule, so the inline shape prompts on every finish and
+   every merge re-gate. Invoke it BARE (#581 discipline):
+
+   (Exit 127 - helper not installed: fall back to
+   `${CLAUDE_PLUGIN_ROOT}/scripts/flow-finish-gate.sh` (bundled with the
+   plugin, #590), else the CPP-checkout copy; either may prompt once - tell the
+   user to run **`/flow:repair`** to restore the prompt-free lane.)
+
+   **A run with no `FLOW_FINISH_GATE:` verdict line did not run the gate: **STOP**
+   (issue #1547).** The trigger is the verdict LINE, never the exit code: 127
+   (not installed), 126 (`Not a directory` - in a generated Codex skill, an unset
+   `CPP_SKILL_DIR`), 2 (a usage error) or anything else, a run that printed only
+   the `FLOW_FINISH_GATE_EXIT=` trailer, or nothing at all, gave no verdict. Work
+   the fallback chain above; if no copy prints a verdict line, STOP and report
+   that the gate did not run. It is NOT `skipped` - that is a verdict the gate
+   PRINTED - and the run never commits, pushes or merges on it.
+
+   The helper ends with a machine-readable marker. Each verdict now has its OWN
+   exit code (issue #1027) - `ok`, `warn` and `skipped` used to share exit 0,
+   so a caller reading only `$?` could not tell "passed cleanly" from "passed
+   but proved nothing" from "did not run at all". Read the exit code, not just
+   the word, if you are scripting around this helper:
+   - `FLOW_FINISH_GATE: ok` (exit 0): gates passed - via the runner, or its
+     documented Makefile fallback when the runner is unavailable (the helper
+     prints a NOTE naming which path ran). Proceed to commit.
+   - `FLOW_FINISH_GATE: warn` (exit 3, issue #621): the gate PASSED but a test
+     step exited 0 having executed no tests - every test skipped, or none were
+     collected. Proceed, but report the counts to the user verbatim (they are in
+     the runner's `warnings` array above the marker) and say plainly that this
+     gate proved nothing about the change. Never summarize such a run as "tests
+     passed". `warn` also means a test failed on the first attempt and PASSED
+     when re-run against only its failed ids (issue #769) - the ids are on the
+     `RERUN_PASSED:` line above the marker. Proceed, but report those ids and
+     never call the run a clean pass. If the skips look load-bearing (a suite
+     that needs a live database, a service, a credential), say which prerequisite
+     is missing and offer to run the fuller target - the agentic-poker case was
+     `make test-pg` sitting unused beside the `make test` the gate ran.
+   - `FLOW_FINISH_GATE: warn (zero coverage: <gates>)` (exit 3, issue #1027):
+     the named gates RAN, exited 0, and a MEASURED PART of them examined
+     NOTHING - a check with no input produces a green that is not evidence
+     about this change. Proceed, but report which gates, and **repeat the
+     runner's warning verbatim rather than paraphrasing it**: for a
+     multi-check gate the measurement is that CHECK, not the whole gate.
+     `warn (zero coverage: security_scan)` can mean only that the secrets
+     scan examined no source files while the gitignore and permissions checks
+     examined theirs - so "security_scan proved nothing" is an overclaim about
+     checks the number never looked at. Do not summarize such a run as "the
+     gates passed" either.
+   - `FLOW_FINISH_GATE: fail` (exit 1): parse the runner/make output above the
+     marker, report the failed step, **STOP**.
+   - `FLOW_FINISH_GATE: skipped` (exit 4): no runner AND no Makefile gate
+     targets at all - this gate did NOT run and proved nothing; warn the user,
+     then proceed.
+   - no `FLOW_FINISH_GATE:` verdict line at all: the gate did not run -
+     **STOP** (above). Never read it as `skipped`.
+   - `FLOW_FINISH_GATE: warn (skipped gates: verify)` is the ORDINARY verdict in
+     a repository with no `verify:` target (issue #1147), and it is #628's
+     existing rule applied to a new gate rather than a new policy: a gate that
+     did not run proved nothing, exactly as a repo with no typecheck route
+     already reported. It does not stop the flow. If you see it in a repo that
+     DOES have a verify target, the target was not found - check the Makefile.
+
+   **Ignored-additions guard** (issue #430, Finding 1; blocking in a worktree
+   since #1258): before committing, catch a blanket `.gitignore` rule that
+   silently swallowed a new file you meant to track (`git add -A` skips it with
+   no error, and a clean clone then lacks it). Invoke bare at the stable path
+   (#581 discipline; on exit 127 skip it):
+   ```bash
+   ~/.claude/scripts/check-ignored-additions.sh
+   ```
+   **Exit 3 is a STOP** - in a linked worktree (every flow run) it blocks: the
+   worktree was created clean from a tracked tree, so a non-scratch ignored file
+   in it was written by this run. Add a `!negation` to `.gitignore` for any
+   intended file and re-stage; delete genuine scratch. Only if you are sure
+   nothing reads the file at run time, re-run with `--advisory`. In the primary
+   checkout it stays advisory (exit 0).
+
+   **Worktree-leak guard** (issue #486; blocking since #576): in a
+   native-worktree session, confirm no edit leaked into the MAIN repo working
+   tree before committing (a stray dirty file on main is otherwise committed
+   later by whoever works there next, and the commit about to be made here is
+   missing that work). Invoke bare with `--strict` (#581 discipline):
+   ```bash
+   ~/.claude/scripts/flow-worktree-guard.sh --strict
+   ```
+   **Exit 3 is a STOP** - do not commit. It reports a leak SIGNATURE, not proof of
+   who wrote main's dirt (issue #1014): first read `git -C <main> diff -- <path>`
+   and confirm the edit is YOURS. Only then move it into the worktree and revert
+   main (`git -C <main> checkout -- <path>`), re-run the guard and re-gate. Never
+   revert main content you did not write - if it is another session's, stop and
+   report it. Non-overlapping pre-existing
+   main dirt is a quiet note and never blocks (#536). Exits 4 (`unknown`, could
+   not examine) and 5 (`not-applicable`, e.g. the current-branch lane) PROCEED
+   and are REPORTED with the `FLOW_WORKTREE_GUARD:` detail - never as "no leak"
+   and never as a stop (issue #1014). On exit 127 fall back to
+   `${CLAUDE_PLUGIN_ROOT}/scripts/flow-worktree-guard.sh --strict` (#590), else
+   the CPP-checkout copy; if no copy exists, note it and continue (the guard
+   cannot block what it cannot run).
+
+3. **Commit** - if there are uncommitted changes:
+   - Conventional commit format, using the selected reference:
+     `type(scope): Description (${ISSUE_REF})`
+   - Include a `Co-Authored-By: <name> <noreply@anthropic.com>` trailer naming
+     the current session's own assistant model - never a literal copied from
+     this document (issue #1037)
+   - **An already-clean tree here is a LEGITIMATE state, not a failure** (issue
+     #635): when the stale-base merge above ran, the Step-4 work is already on
+     the branch in the `wip(flow): pre-merge snapshot` commit. Skip this commit
+     step cleanly and leave the WIP commit as-is - the Step-7 squash flattens
+     branch history and the PR title/body carry the conventional message, so
+     the WIP message never reaches `main`. Do NOT add a STOP for this state.
+
+6. **Check whether the issue moved under this run** (issue #1081):
+   ```bash
+   ~/.claude/scripts/flow-plan-record.py drift 42
+   ```
+   - `ISSUE_DRIFT: clean` (exit 0) - the body digest is unchanged since Step 1.
+   - `ISSUE_DRIFT: drift` (exit 3) - the body changed; the helper prints a diff of
+     the change. Resolve it under the EXISTING authority model - newer bytes do not
+     by themselves override a constraint or a plan already accepted on the issue -
+     and say in the PR how it was resolved.
+   - `ISSUE_DRIFT: unresolved` (exit 4) - no snapshot, or the issue could not be
+     read or hashed. This is NOT clean: report the issue as unchecked.
+
+7. **Compare the diff against the approved plan** (issue #1082). It REPORTS; it
+   never blocks:
+   ```bash
+   ~/.claude/scripts/flow-plan-record.py compliance 42
+   ```
+   The helper marks untracked files intent-to-add itself, so new files are
+   compared; the base defaults to `git merge-base HEAD origin/main` (`--base <ref>`
+   overrides it).
+   - `PLAN_COMPLIANCE: agreement` (exit 0) - the FILE SET matches Section C. File
+     names only: a file rewritten differently from its plan still agrees.
+   - `PLAN_COMPLIANCE: divergence` (exit 3) - it names each `TOUCHED BUT NOT
+     PLANNED`, `PLANNED BUT NOT TOUCHED` and underivable mirror. A finding, not a
+     block: write the reason in the PR, and never edit the plan to make it agree.
+   - `PLAN_COMPLIANCE: unknown` (exit 4) - the comparison could not be made. Never
+     report it as agreement.
+   - `PLAN_RECORD_STABILITY: THE PLAN RECORD CHANGED` (exit 3) - the approved plan
+     moved after Step 4; read the record's own diff before the verdict above.
+     `unknown` means no baseline was stamped.
+
+8. **Confirm the plan record reached the PR** (issue #1080). Skip this only when
+   the run wrote no record (a `No longer needed` verdict has none):
+   ```bash
+   ~/.claude/scripts/flow-plan-record.py head-check 42
+   ```
+   - `FLOW_PLAN_RECORD: present` (exit 0) - proceed.
+   - `FLOW_PLAN_RECORD: absent` (exit 1) - **STOP.** The record is not at the PR
+     head, however it looks locally: an ignored path, an unstaged file or a
+     deletion. Recover by `git add docs/flow-runs/issue-<N>.md`, commit, push, and
+     re-run this check.
+   - `FLOW_PLAN_RECORD: unverified` (exit 4) - **STOP.** The PR head could not be
+     read. That is neither absent nor present; check `gh auth status` and the
+     network, then re-run.
+
+   Why each of these three checks is shaped the way it is - digest over the full
+   body, `--no-renames`, exact exclusions, existence at the head SHA rather than a
+   diff - is in [the plan-record reference](../agents/flow-plan-record.md). It is background, not
+   required reading.
+
+
+## Step 6b: Route Supplemental Findings to the Nit Store
+
+A supplemental finding is anything true and worth fixing that you discovered
+while doing something else: a defect noticed in passing, a rough edge found
+while closing this issue, a contract narrower than its callers assume. Do not
+widen this change to fix it, and do not drop it. Record it.
+
+`flow/finish.md` has carried this step since issue #865; `/flow:auto` inlines
+its own Finish stage rather than delegating to `finish.md` and had no
+equivalent (issue #1030) - a supplemental finding noticed during Step 4
+implementation, or a deferred counter-model finding from item 1c above, had
+nowhere to go.
+
+It is the ONLY copy of the repository-to-issue map (#1272, #1273). It reads the
+repository from `origin`, never from the directory name, because this step runs
+from a per-issue worktree whose basename is not the repository. It answers a
+number only after GitHub confirms that issue is OPEN and titled exactly "Nit Store".
+Act on `NIT_STORE_STATUS`:
+
+- `ok` - post to the number it printed as `NIT_STORE=`, IN the repository it
+  printed as `NIT_STORE_REPO=`:
+  `gh issue comment <NIT_STORE> --repo <NIT_STORE_REPO> --body "<one finding>"`.
+  The `--repo` is not optional: without it gh picks its own default (a fork's
+  upstream, or `GH_REPO`), and the verified number would be posted somewhere
+  that was never checked. When
+  `NIT_STORE_SOURCE=search` (an unmapped repository, resolved by exact title),
+  say so in the closing report.
+- `none` (exit 1) - GitHub was asked and there is no open Nit Store, or the
+  mapped one is closed or retitled. If the repository has no nit store, file the finding as a normal issue instead.
+- `unknown` (exit 3) - GitHub could not be asked, or the answer was ambiguous.
+  Post nowhere. Say in the closing report that the finding is unrouted and
+  carry it there verbatim, because `unknown` is not `none`.
+
+On exit 127 the helper is not installed: fall back to `scripts/nit-store-resolve.sh`
+in the CPP checkout (it may prompt once), and tell the user to run
+**`/flow:repair`**.
+
+- **One finding per comment.** State the file and line (or the command), what is
+  wrong, why it matters, and which issue or PR you were working when you found
+  it. The comment is the whole record; it is read later without your context.
+- **The store is an inbox, not a backlog.** Comments are reviewed and aggregated
+  into real issues later, so a comment is a disposition, not a fix.
+- **It is not a place to hide a defect that warrants its own ticket now.** A live
+  correctness, security, or data-loss problem gets its own issue, and the closing
+  report says so.
+- **Name what you stored, with the comment link, in the closing report.** A
+  finding recorded but never reported is indistinguishable from one dropped.
+
+Having nothing to store is an ordinary outcome. Do not manufacture a finding to
+fill this step.
+
+
+## Step 7: Merge - Squash-Merge and Clean Up
+
+1. **Sync with `origin/main` and re-gate (stale-branch guard, issue #462):**
+   A branch cut earlier - common on resumed or cross-machine worktrees - can have
+   fallen behind `main` while the PR was open. Squash-merging it then fails at the
+   last step on a content conflict (the flow:auto #433 run hit a CLAUDE.md
+   collision), forcing a manual `git merge origin/main` + resolve + re-gate
+   mid-flow. Bring the branch current and re-run the gate on the **post-merge
+   tree** first, so the squash is deterministic and the gate reflects exactly what
+   lands on `main`:
+
+   ```bash
+   BRANCH=$(git branch --show-current)
+   git fetch origin main
+   if [[ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]]; then
+       echo "Branch is behind origin/main - merging main in before the squash."
+       if ! git merge --no-edit origin/main; then
+           echo "STOP: merging origin/main hit conflicts:"
+           git diff --name-only --diff-filter=U
+           echo "Resolve them, 'git add' + 'git commit', then re-run /flow:merge."
+           echo "(Do NOT 'git merge --abort' - that discards the resolution.)"
+           exit 1
+       fi
+       # If the merge pulled ANY command-family source, the generated Codex
+       # skills are re-synced below (all families, not just flow - issue #506).
+       # They are ignored build output since #1670: the re-sync refreshes what
+       # the re-gate READS, and there is nothing to commit. LOCAL scripts
+       # re-sync THIS worktree; [ -x ... ] keeps each CPP-only.
+       # `[ -x ]` KEEPS THIS CPP-ONLY (counter-model review, #1136). /flow:auto and
+       # /flow:finish run in other repositories, which have neither this helper nor
+       # the generator; a bare call there dies with exit 127 before the helper can
+       # report its own `unavailable`. This is an EXISTENCE guard, not a decision
+       # about what changed - the path-pattern condition it replaced is the one
+       # that must not come back.
+   fi
+   # KEYED ON THE DIFF, NOT ON THE BASE (S4, sibling of #1136). This call used to
+   # sit INSIDE the base-moved block above, so it ran only when `origin/main` had
+   # moved. Mirror drift is caused by EDITING a file the skills bundle, which is
+   # independent of the base - so an ordinary run that edits `scripts/<name>` on a
+   # CURRENT base never re-synced, and `make verify` was the only thing that said
+   # so, at the cost of a full gate cycle. Measured: #1191 staled two mirrors and
+   # #1192 staled four, neither with a moved base.
+   #
+   # It is called UNCONDITIONALLY and nothing cleverer. The helper already decides
+   # for itself by asking `codex-skill-sync.py --check` - 0.14s on a clean tree -
+   # so a condition here could only ever be a worse oracle than the one inside it.
+   # In particular: do NOT gate this on an enumerated set of bundled paths. That is
+   # a path-set prediction, and #1136 removed exactly that - "the fix is not a
+   # wider glob - that is a hardcoded universe again, one entry longer" - which
+   # `--list-mirrors` (#1151) does not change, because enumerating the set is a
+   # different job from deciding whether it drifted.
+   # tests/test_codex_skill_resync.py fails if this is re-gated on the base.
+   # NO COMMIT follows the re-sync any more (issue #1670). It used to: the
+   # mirrors were tracked, and an uncommitted codex/skills/ left the squash
+   # carrying stale copies. They are ignored build output now, so the re-sync
+   # cannot change the branch - it only refreshes the tree the re-gate reads.
+   if [ -x scripts/codex-skill-resync.sh ]; then
+       bash scripts/codex-skill-resync.sh
+   fi
+   ```
+
+   THE RE-SYNC IS NO LONGER A WAY THIS BRANCH GAINS A COMMIT. Between S4 and
+   issue #1670 it was: a run on a current base whose diff staled a mirror
+   regenerated and COMMITTED those mirrors here, so the re-gate had to key on a
+   changed branch rather than on a merge. With the mirrors untracked only the
+   merge can move HEAD. The test stays the general one, because it is still
+   the correct question and costs nothing - test for a changed branch, not for
+   a merge:
+
+2. **Merge the PR.** Look up the PR number first (allowlisted read):
+
+   **When CI outlasts main's quiet window (issue #1300)** - a required check
+   takes 15-20 minutes here, longer than `main` stays still - wait for green on
+   the REQUIRED lane first, then merge in the same breath, so the window in which
+   a sibling merge can land is seconds rather than the whole CI run:
+
+   (`flow-ci-status.sh` derives the required lane from branch protection since
+   #1262; read `FLOW_CI_EVENT`. `--strict-event` makes that lane a FILTER for
+   this recipe: a green pipeline on the other lane must not end the wait, so an
+   absent required-lane pipeline stays `not-found` and the wait continues.) On
+   `stalled` (issue #1552) the pipeline is dead, not slow: do not merge and do
+   not keep waiting - report the URL and stalled steps and stop for the user,
+   who must cancel the reported Actions run (`gh run cancel <id>`) or have the
+   Woodpecker operator stop its pipeline, then re-run CI. On
+   `success`, invoke the merge helper at once, PINNED to the sha that wait
+   was keyed on (issue #1543): pass `--match-head-commit <pr-head-sha>`, so a
+   push that lands between the green and the squash is refused (exit 11)
+   instead of merged unverified. The pin rides on the helper, never on a plain
+   `gh pr merge --match-head-commit`. Going around the helper to get the pin
+   is how skillc#513 lost every close-keyword guard.
+   Alternatively pass `--wait-ci[=SECS]` to the helper itself, which makes its
+   required-check wait a deadline instead of the default 60 x 10s. The helper
+   re-reads the base immediately before squashing either way. Updating the
+   branch when the base moved is the CALLER's decision - it costs a CI run - and
+   the helper never does it for you.
+
+   Then merge via the layout-aware helper, invoked BARE with the literal PR
+   number and branch (#581 discipline). Run from inside a linked worktree,
+   plain `gh pr merge --delete-branch` fails AFTER the remote squash succeeds
+   - gh tries to switch this worktree off the merged branch onto the default
+   branch, which is checked out in the primary worktree ("fatal: 'main' is
+   already checked out"), and exits non-zero. The merge still landed; treating
+   that exit as a failure is a false STOP (issue #461). The helper drops
+   `--delete-branch` in a linked worktree, deletes the remote branch itself,
+   and verifies the PR reached `MERGED` before reporting failure. Local
+   worktree/branch cleanup is left to step 4 below, so the native
+   `ExitWorktree` path is unaffected.
+
+   If the stable path is missing (exit 127), resolve the plugin copy, then the
+   CPP-checkout copy, the same order as every other flow helper. If none
+   exists, **REFUSE**. There is no raw-merge fallback (issue #1543). The block
+   this replaced was a plain `gh pr merge --squash`. It skipped every guard
+   the helper runs: the close-keyword guards (#726, #794), the base checks
+   (#767, #810, #1300), the review handoff (#579), local divergence (#1262)
+   and the head pin. That is the path that closed skillc#513 from a PR body
+   saying "Refs, not Closes: #513".
+   <!-- merge-helper-resolution -->
+   ```bash
+   PR_NUMBER=<literal>
+   BRANCH=<literal>
+   PIN_SHA=<pr-head-sha>   # the SAME literal the flow-ci-status.sh wait above was given; PIN_SHA= only for an unpinned merge
+   GH_PR_MERGE=~/.claude/scripts/gh-pr-merge.sh
+   [ -x "$GH_PR_MERGE" ] || GH_PR_MERGE="${CLAUDE_PLUGIN_ROOT:-/nonexistent}/scripts/gh-pr-merge.sh"
+   if [ ! -x "$GH_PR_MERGE" ]; then
+       for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+           if [ -x "$dir/scripts/gh-pr-merge.sh" ] && [ -f "$dir/CLAUDE.md" ]; then
+               GH_PR_MERGE="$dir/scripts/gh-pr-merge.sh"
+               break
+           fi
+       done
+   fi
+   if [ -x "$GH_PR_MERGE" ]; then
+       "$GH_PR_MERGE" ${PIN_SHA:+--match-head-commit "$PIN_SHA"} "$PR_NUMBER" "$BRANCH"
+       MERGE_RC=$?
+   else
+       echo "REFUSING: gh-pr-merge.sh is not installed; not merging PR #$PR_NUMBER with a plain 'gh pr merge'." >&2
+       echo "  A raw merge skips every guard the helper runs, including the close-keyword guards (issue #1543)." >&2
+       echo "  Install the helper with /flow:repair, then resume Step 7." >&2
+       MERGE_RC=12
+   fi
+   ```
+   - **`MERGE_RC` 12 is the MISSING-HELPER REFUSAL (issue #1543), and the
+     helper never emits it.** Nothing was merged. It is not a handoff like exit
+     3, and never a failure to work around. **STOP** and report that
+     `/flow:repair` must run. Never finish the merge by hand with
+     `gh pr merge`, because that is the unguarded path this refusal closes.
+   - **Helper exit 11 is also a CLEAN STOP (issue #1543):** the merge was pinned
+     with `--match-head-commit <sha>` and the PR's head on GitHub is no longer
+     that sha - at the helper's re-read before the check wait, at its re-read
+     just before the squash, or in GitHub's server-side refusal
+     (`GH_PR_MERGE_HEAD_PIN:` names which, and both shas). The PR is left open
+     and untouched. A different head is a different change: it is **never
+     retried and never escalated to `--admin`**. Re-verify the current head
+     (CI, review) and re-run with its sha.
+   - **Helper exit 3 is a FIRST-CLASS CLEAN STOP, not a failure (issue #579):**
+     the PR awaits a required human review (`reviewDecision: REVIEW_REQUIRED` or
+     `CHANGES_REQUESTED`). The branch is already synced and re-gated (step 1
+     above), so the run's job is done: report the helper's handoff message (PR
+     URL + "approve or merge on GitHub, then /flow:merge"), leave the worktree,
+     branch, and PR INTACT - do NOT run cleanup, do NOT retry, and NEVER
+     re-invoke with `--admin` yourself: overriding a review requirement is the
+     owner's explicit, human-typed call. End the run here. Do not "fix" this
+     stop - it is the designed handoff.
+   - **Helper exit 4 is also a CLEAN STOP (issue #657):** the operator opted in
+     to `GH_PR_MERGE_STRICT_DELETIONS=1` and the PR deletes files vs its base.
+     The PR is left open and untouched. Review the paths in the
+     `GH_PR_MERGE_DELETIONS:` marker line; if the deletions are intended,
+     re-run without strict mode. Flow itself never sets this variable.
+   - **Helper exit 5 is also a CLEAN STOP (issue #726):** the squash title,
+     body, or a commit subject on the branch has a NEGATED close/fix/resolve
+     keyword ("does not close #N") that GitHub would still honor. The PR is
+     left open and untouched - report the printed context, reword the
+     offending text, and re-run (or re-run the helper with
+     `--allow-negated-close` only after the user consciously confirms).
+   - **Helper exit 6 is also a CLEAN STOP, not a failure (issue #767):** the
+     base advanced while required checks were running, so the tree that was
+     gated is not the tree that would land. Leave the worktree, branch, and PR
+     intact. Do not retry the merge and do not self-escalate to `--admin`.
+     Re-run Step 7 from sub-step 1: sync with `origin/main`, re-run the quality
+     gate on the merged tree, push, then invoke the merge again.
+   - **Helper exit 7 is also a CLEAN STOP (issue #794):** same shape as 5, but
+     the keyword is not negated - it is merely adjacent to `#N` (not
+     clause-initial, or `#N` is immediately followed by a possessive/
+     slash-compound) and reads as incidental rather than a directive. The PR
+     is left open and untouched - report the printed context, reword the
+     clause, and re-run (or re-run with `--allow-incidental-close` only after
+     the user consciously confirms).
+   - **Helper exit 8 means the incidental-close guard's own self-check failed
+     (issue #794):** a BROKEN CHECK, not a clean scan - never read it as "no
+     hazard found". Report it and investigate the guard; there is no override.
+   - **Helper exit 10 is also a CLEAN STOP (issue #1300):** the required-check
+     wait ran out (60 x 10s, or the `--wait-ci` deadline) - CI is still running,
+     or a required context never posted a status; the message names which. The
+     PR is left open and untouched. It is NOT a red check and nothing about the
+     branch is wrong: do not re-sync or re-gate. Wait for green (see the recipe
+     below) and re-run the merge. `GH_PR_MERGE_CI_WAIT:` reports the wait's
+     verdict on every run.
+   - **Helper exit 6 can also come from the final base re-read (issue #1300):**
+     `GH_PR_MERGE_BASE_AT_SQUASH: <sha>` means the base moved in the seconds
+     between the post-wait check and the squash, or at a "Base branch was
+     modified" retry. Same remedy as any exit 6.
+   - **Helper exit 9 is also a CLEAN STOP (issue #1262):** a worktree on this
+     host has the PR's head branch checked out at a commit that is NOT the PR's
+     head on GitHub - a session may be mid-finish there (committed or merged
+     locally, not yet pushed). The PR is left open and untouched. Report the
+     printed path and sha; push or discard that work, then re-run. The override,
+     `--allow-local-divergence`, is the user's conscious call, never the run's.
+   - **`GH_PR_MERGE_ALREADY_MERGED: <n>` with exit 0 is SUCCESS (issue
+     #1262):** the PR was already merged when the helper was invoked, so it
+     skipped every base guard and the squash and ran only the post-merge cleanup
+     and completeness checks. Proceed to cleanup. Never re-gate on a
+     `GH_PR_MERGE_BASE_STALE` without first checking this: a squash-merged
+     branch never contains its own landed commit, so the stale-base refusal
+     cannot clear by merging and re-gating.
+   - The helper also prints greppable markers per run (issues #657/#767, every
+     one fail-open where it reports `skipped`):
+     `GH_PR_MERGE_BASE_MOVED: <old-sha> -> <new-sha>|0|skipped` around the
+     required-check wait; `GH_PR_MERGE_DELETIONS: <n> <paths...>|0|skipped`
+     before the squash - read that one; a PR landing deletions the issue scope
+     does not explain is the collapse-onto-moved-base signature - and
+     `GH_PR_MERGE_COMPLETENESS: ok|violation|skipped` after a confirmed merge.
+     A `violation` (the landed squash touched paths outside the PR's file
+     list) never changes the exit code - the merge landed - but must be
+     REPORTED to the user, not narrated past.
+   - If the merge genuinely failed (non-zero helper exit - conflicts, failing
+     checks, PR not `MERGED`): **STOP**. Report and exit. A non-zero `gh` exit
+     whose PR is nonetheless `MERGED` is NOT a failure - the helper already treats
+     it as success and continues to cleanup.
+
+   **Release this run's claim FIRST (issue #597), whichever path follows.** The
+   claim is a real `git worktree lock`, and git refuses to remove a locked
+   worktree - including via the native tool, which does not know about the
+   claim. Drop it before removing, bare (#581 discipline; fail-open, never
+   blocks):
+
+   It only releases a claim owned by THIS session (or an abandoned one); a
+   sibling's live claim is left intact and reported, which is the signal that
+   you are about to remove the wrong checkout.
+
+   Worktrees are created on the git lane (issue #627: outside the repo, `cd`-entered,
+   never `EnterWorktree`), so cleanup is ALWAYS the git fallback - `ExitWorktree`
+   is never involved (there is no session-created native worktree to remove; the
+   only exception is `LANE=current-branch`, a feature branch in the main repo with
+   no worktree, where you just delete the branch). **CRITICAL: `cd` to the main
+   repo BEFORE removing the worktree - never remove a worktree while your cwd is
+   inside it. Execute as SEPARATE Bash calls.**
+
+   **Step 7b - Remove the worktree (separate Bash call, AFTER confirming cd
+   succeeded).** When a worktree exists (`WORKTREE_PATH` non-empty and not the
+   main repo), invoke the removal helper BARE with the literal path (#581
+   discipline):
+   ```bash
+   ~/.claude/scripts/worktree-remove.sh /path/to/worktree --force --delete-branch
+   ```
+   The helper checks the #597 claim before removing and **exits 4** when the
+   worktree is claimed by another LIVE session, printing the owner. That is a
+   correct refusal, not a flow failure: it means the path you were about to
+   delete belongs to a run that is still working in it (the failure that
+   destroyed uncommitted work on `flow:auto #5`). Do NOT retry with `--steal` -
+   report it and stop, so the user can decide. Almost always it means Step 1
+   resumed someone else's checkout; the claim caught it late but correctly.
+
+   **Two further refusals, and `--force` does NOT override either (issue #899).**
+   `--force` says the worktree is busy; it does not say its contents are
+   expendable, and those were the same flag until now:
+
+   | exit | meaning | override |
+   |---|---|---|
+   | 6 | uncommitted work would be destroyed | `--allow-dirty` |
+   | 7 | commits here are on no remote ref | `--allow-unpushed` |
+
+   Both are CORRECT refusals, not flow failures, and neither should be retried
+   with its override reflexively - that is how the #888 guard was lost. Exit 7 in
+   particular means the commits exist nowhere else: push the branch and re-run.
+   Your worktree should be clean and pushed by this point in the run, so either
+   refusal means something earlier did not finish - find that, do not silence
+   this.
+   A claim owned by THIS session, or left by a dead one, is released
+   automatically and the removal proceeds normally.
+
+   **`worktree-remove.sh` exit 8 is a CLEAN STOP too (issue #1032).** Note this
+   is the REMOVAL helper's 8, not `gh-pr-merge.sh`'s - that one is a broken
+   self-check and has no override; these two codes are unrelated and the helper
+   name is what tells them apart. Here it means: the worktree's DIRECTORY NAME
+   and its CHECKED-OUT BRANCH name different issues, and `--delete-branch` was
+   asked for. A directory is named for the issue it was created for, but the
+   name is a string - observed here, `...-issue-971-...` (closed, merged)
+   holding branch `issue-980-...` (open). The branch is authoritative; the path
+   you named refers to the other issue, so deleting the branch would silently
+   destroy work you did not mean to touch. Removing the DIRECTORY is local and
+   recoverable, which is why this refusal is scoped to the branch alone and is
+   the LAST check reached - every refusal above it means "do not remove this at
+   all". Report the printed `WORKTREE_REMOVE_ATTRIBUTION:` line, which names the
+   issue this checkout actually holds. Re-run without `--delete-branch` to
+   remove just the directory, or rename the worktree first. `--force` does not
+   override it; `--steal` does, and is the user's call, not the run's.
+
+   **Exit 5 is the same kind of clean STOP (issue #888):** no claim named this
+   session, but a live process has its working directory inside the worktree AND
+   the worktree holds uncommitted work. A claim only protects a checkout where
+   one was staked - `free`, `unsupported` and `unknown` are not claims - so this
+   is the guard for a session that is genuinely driving the tree without having
+   claimed it. `--force` does NOT override it (Step 7 always passes `--force`, so
+   a guard it silenced would never fire here). Report the printed PIDs and dirty
+   paths and stop; do NOT retry with `--steal`, which kills that session's work -
+   that is the user's call, not the run's. A host with no readable `/proc` prints
+   `WORKTREE_REMOVE_OCCUPANCY: unknown` and falls open, which means unchecked,
+   not clean.
+
+   If the helper is not installed, REFUSE rather than removing by hand. The
+   raw `git worktree remove --force` this used to run bypassed the claim check,
+   the occupancy check, the uncommitted-work check and the unpushed-commits
+   check in one line - and a guard that is absent is indistinguishable from a
+   guard that passed (the #823 shape). #899 fixed this in `/flow:merge` and not
+   here, leaving the raw form on the lane almost every run takes (issue #973).
+
+```bash
+# The marker is a FILE, not a shell variable (issue #973). Each step here is a
+# separate Bash call, so a variable set in this one is gone by the time the
+# closing report runs - a refusal recorded only in `$cleanup_refused` would be
+# an owner item that never reaches the owner, which is the failure #965 exists
+# to fix. `$MAIN_REPO/.git` survives the worktree this is removing.
+#
+# DERIVE the paths in THIS call rather than inheriting them. A block that works
+# because an earlier call happened to export something works by accident; shell
+# state does not survive between Bash calls, and this one may be re-run alone.
+MAIN_REPO="$(git rev-parse --show-toplevel)"   # Step 5a already cd'd here
+# WORKTREE_PATH is this step's subject and must be set in THIS call too.
+
+# ONE MARKER PER WORKTREE, not one per repo. A single shared path meant a
+# concurrent run's `rm -f` erased a sibling's pending owner item before the
+# report consumed it - a shared mutable output path, which is a race rather
+# than a handoff.
+CLEANUP_REFUSED_DIR="$MAIN_REPO/.git/flow-cleanup-refused.d"
+CLEANUP_REFUSED_MARKER="$CLEANUP_REFUSED_DIR/$(basename "$WORKTREE_PATH")"
+mkdir -p "$CLEANUP_REFUSED_DIR"
+rm -f "$CLEANUP_REFUSED_MARKER"   # only THIS worktree's entry; a sibling's survives
+cleanup_refused=0
+if [[ -x ~/.claude/scripts/worktree-remove.sh ]]; then
+    ~/.claude/scripts/worktree-remove.sh "$WORKTREE_PATH" --force --delete-branch
+else
+    # Refuse - and make the refusal LEGIBLE (issue #973). Three echoes to
+    # stderr are not a channel the closing report consumes, so a refusal that
+    # only prints is an owner item nobody receives. Two things are required:
+    #
+    #   - a NON-ZERO status, EXPLICITLY tolerated by the `||` below. A block
+    #     that continues merely because no `set -e` is in scope is one `set -e`
+    #     away from silently becoming an abort, and nothing would announce it.
+    #   - explicit STATE the report step reads deterministically. Without it
+    #     the TO-DO entry depends on someone noticing text scroll past, which
+    #     is the failure #965 exists to fix.
+    {
+        echo "REFUSING: worktree-remove.sh is missing; not removing $WORKTREE_PATH by hand." >&2
+        echo "  Every guard this lane relies on lives in that helper (issue #899)." >&2
+        echo "  Install it with /flow:repair, then re-run this step." >&2
+        false
+    } || cleanup_refused=1
+[[ "$cleanup_refused" -eq 1 ]] && printf '%s\n' "$WORKTREE_PATH" > "$CLEANUP_REFUSED_MARKER"
+fi
+```
+
+**The refusal is an OWNER ITEM, not a log line (issues #965, #973).** The
+closing-report step reads the marker DIRECTORY, in its own Bash call, deriving
+the location the same way rather than inheriting it:
+
+The path comes from the file's CONTENTS, so the report names the worktree even
+though it never saw this call's `$WORKTREE_PATH`.
+The run CONTINUES - the PR is already merged by this point, and turning a
+cleanup problem into a run failure produces a guard people route around, which
+is strictly worse than the exit-0 refusal it replaces: absent, and everyone
+knows how. So the closing report's `## TO-DO (owner)` block carries, verbatim:
+
+A leftover worktree is cheap and visible. Destroyed work is neither, and a
+refusal nobody is told about is a third thing: invisible and indistinguishable
+from success.
+
+With no worktree (a feature branch in the main repo) there is nothing for the
+helper to guard, so just delete the branch: `git branch -D <branch>`. That case
+is unchanged by #973 and is not the fallback above - the branch is merged by
+this point, and no worktree means no uncommitted work to destroy.
+
+6. **Close issue** (if still open):
+   ```bash
+   # Set from YOUR acceptance accounting (docs/agents/issue-contract.md). Nothing is
+   # parsed out of the report: a quoted example or a truncated read must never be able
+   # to authorise a close. "yes" only when every material item is demonstrated, revised
+   # WITH evidence, or resolved by a recorded transfer/withdrawal; unset cannot close.
+   # Restate the judgement you reached in Step 6 for THIS issue. It is set here
+   # rather than inherited, so a value left over from earlier work cannot decide it.
+   ACCEPTANCE_COMPLETE=""
+
+   if [[ -n "$ISSUE_NUM" ]]; then
+       ISSUE_STATE=$(gh issue view "$ISSUE_NUM" --json state --jq '.state' 2>/dev/null)
+       if [[ "$ACCEPTANCE_COMPLETE" == "yes" ]]; then
+           if [[ "$ISSUE_STATE" == "OPEN" ]]; then
+               gh issue close "$ISSUE_NUM" --comment "Closed via /flow:auto - PR #${PR_NUMBER} merged."
+           fi
+       else
+           echo "Acceptance not recorded complete - leaving #${ISSUE_NUM} open."
+       fi
+   fi
+   ```
+
+
+## Step 8: Verify CI (after merge)
+
+After merging to main, verify that the CI pipeline passes before deploying.
+
+ONE audited helper owns this (issue #766): `scripts/flow-ci-status.sh` resolves
+the pipeline for a commit SHA, waits for it to finish, and names the failed
+steps. Invoke it BARE with the literal SHA and checkout path (#581 discipline;
+the checkout is DECLARED, never inferred from the Bash cwd - the #614 rule):
+
+Do NOT hand-roll this with `curl`, `gh run list`, or - worst of all - a grep over
+`woodpecker-cli pipeline ls`. Step 8 previously inlined a curl+jq lookup gated on
+`WOODPECKER_API_TOKEN` already being exported, which it usually is not (the token
+lives in an AWS secret, not a shell profile), so the model improvised. On
+flow:auto #516 the improvised grep matched an unrelated PR pipeline from a
+DIFFERENT concurrent session and reported a failure while the run's own pipeline
+was still queued. With several sessions merging into one repo, any positional
+grep over that shared list is a coin flip. The helper matches on `.commit` and
+cannot make that mistake; it also fetches the token from AWS Secrets Manager
+itself when it is not exported.
+
+The helper reads the project's explicit provider list through the canonical
+reader and registry, then dispatches only those lanes. Woodpecker uses HTTP or
+its machine-readable CLI; Actions uses `gh`. Every selected lane is examined:
+any failure is red, any running lane keeps the result running while none is red,
+and success requires all selected lanes to be examined and green. An unknown
+record stops with the writer remedy. Probing is available only via the explicit
+`--fallback-provider-probes` compatibility flag and reports `FLOW_CI_SELECTION:
+fallback`; it is never an implicit lane choice. The CLI lane still anchors on the exact commit
+SHA, which is precisely what the #516 improvisation failed to do.
+
+- `success` -> proceed to Step 9.
+- `failure` -> **STOP**. Do not deploy. Report `FLOW_CI_URL` and every
+  `FLOW_CI_FAILED_STEP` line: which step failed is the whole diagnosis, and
+  pipeline colour does not carry it. A red `deploy` step (a transient SSH
+  connect timeout on kyle's push pipelines, say) is a different problem from a
+  red `test-unit`, and only the step name distinguishes them.
+  Read `FLOW_CI_FAILURE_ORIGIN` before touching the diff (issue #1342):
+  `precode` means the failure happened before any of the change's code ran -
+  the checkout (`clone`), or since #1411 a `*-stage` stager that could not
+  fetch its tool (exit 75). Retry or look at the infrastructure, do not bisect
+  your own change. Note `*-stage` is a naming convention honoured in every repo
+  that uses `flow-ci-status.sh`: name a step that way only if exit 75 really
+  means a fetch failure there. `unknown`
+  is NOT `code`: the lane could not classify the step, so read the step log.
+- `stalled` -> **STOP**. Do not deploy, and do not wait or re-run: the
+  server still lists the pipeline `running` more than the grace period past the
+  repository's own timeout, which the agent enforces - so its agent lost it,
+  typically to a restart (issue #1552; measured in
+  cooneycw/woodpecker-baseline#2). Report `FLOW_CI_URL`, the `FLOW_CI_STALLED`
+  reason and every `FLOW_CI_STALLED_STEP`. For Actions, name the run and offer
+  `gh run cancel <id>` followed by a re-run. For a lost Woodpecker workflow,
+  stop for its server operator: an API cancel may not finish that workflow.
+  The helper reports only and never cancels either provider.
+- `failure` WITH a `FLOW_CI_STALLED: terminal-pipeline-live-children` line ->
+  handle as `failure` above, and also report that the pipeline ended while
+  steps are still listed running (a cancel that did not land).
+- `running` / `pending` -> the wait window expired with the pipeline still
+  going. Non-blocking: report that CI was still running and let the user decide
+  whether to wait, rather than deploying on an unknown result. Read
+  `FLOW_CI_STALL_CHECK` with it: `checked` means it is still inside its
+  timeout; `unavailable (...)` means staleness was NOT checked, so say so
+  rather than calling it merely slow.
+- `not-found` -> no pipeline carries this SHA (CI may not be wired for the repo,
+  or the push has not registered yet). Warn and proceed. **Read `FLOW_CI_WAIT`
+  first (issue #1262):** `not-found` with `FLOW_CI_WAIT: expired (<N>s)` is a
+  different fact from a single-shot `not-found` - after polling for the whole
+  window, no matching pipeline was found AT EXPIRY. Say that, with the window,
+  rather than "CI may not be wired". It does not prove one never registered (a
+  pipeline can appear and then leave the listing), so do not claim that either.
+- `unknown` -> stop CI-dependent deployment or merge work. Report the named
+  record, tool or provider evidence gap; do not interpret an unexamined lane as
+  green. An explicitly requested compatibility probe remains labelled fallback,
+  and its advisory result never establishes recorded-provider completeness.
+
+`--wait` defaults to 600s and polls every 15s; pass `--wait <seconds>` to change
+it, or omit `--wait` for a single-shot read. Without `--event`, the preferred
+event is DERIVED from the DEFAULT branch's classic `.contexts` / `.checks`
+and applicable ruleset required contexts (issue #1262;
+a PR into a differently-protected base should pass `--event`):
+`ci/woodpecker/pr/*` required alone means `pull_request`, `ci/woodpecker/push/*`
+alone means `push`, and both, neither or unreadable falls back to `push` -
+`FLOW_CI_EVENT` names which source decided. Pass `--event` to override it, and
+`--exit-code` if you want a `failure` verdict to exit 1.
+
+On exit 127 the helper family is not installed: fall back to
+`${CLAUDE_PLUGIN_ROOT}/scripts/flow-ci-status.sh` (bundled with the plugin,
+#590), else the CPP-checkout copy - either may prompt once; tell the user to run
+**`/flow:repair`** to restore the prompt-free lane. If no copy exists at all,
+skip CI verification with a warning rather than improvising a lookup, and say
+plainly in the final summary that CI was NOT verified.
+
+
+## Step 9: Deploy (optional)
+
+Only if a Makefile with a `deploy` target exists in the main repo. Because
+`/flow:auto` runs `make deploy` inline (it does NOT call `/flow:deploy`), the
+deploy-verification gate is wired in here too - otherwise the flagship
+"one command to ship" path would deploy without validating the deployment.
+
+```bash
+cd "$MAIN_REPO"
+
+# Locate CPP source for lib/cicd (deploy verification)
+CPP_DIR=""
+for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+  if [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ]; then
+    CPP_DIR="$dir"
+    break
+  fi
+done
+# Verification runs through `uv`, exactly as the Step 6 gate does (issue #595):
+# bare `python3 -m lib.cicd` uses the system interpreter (often 3.10, no venv),
+# so lib/cicd's deps (pydantic) are absent and the module dies on import. If
+# `uv` is missing, verification is skipped with a NOTE rather than attempted -
+# it is a fail-open confidence gate, and there is no Makefile fallback for it
+# the way `make lint` / `make test` back the Step 6 runner.
+VERIFY_ENABLED=0
+if [ -n "$CPP_DIR" ] && grep -q "deploy_verification:" .claude/cicd.yml 2>/dev/null; then
+    if command -v uv >/dev/null 2>&1; then
+        VERIFY_ENABLED=1
+    else
+        echo "NOTE: deploy verification configured but 'uv' is not installed; skipping baseline + verdict." >&2
+    fi
+fi
+
+# Out-of-band deploy opt-out (issue #535): a repo whose real deploy path is a host
+# timer / CI on origin/main - not `make deploy` from a dev box - declares
+# `mode: external` in .claude/deploy.yaml. flow:auto then SKIPS the inline deploy
+# rather than staging a throwaway per-worktree compose stack that collides with
+# fixed prod container_name values and leaks orphaned volumes/networks.
+DEPLOY_MODE=$(grep -oP '^\s*mode:\s*\K\S+' .claude/deploy.yaml 2>/dev/null | head -1)
+
+# Deploy idempotence (issue #597): with several sessions merging to the same
+# main, a sibling run can have deployed THIS exact sha minutes ago - on
+# flow:auto #49 the deploy.log showed the same sha 2 minutes earlier and the
+# duplicate deploy was skipped only because the model happened to notice. Make
+# it a guard: a successful deploy of the current HEAD already on record means
+# there is nothing to do. Only an exit-0 record counts, so a failed deploy is
+# still retried. Fail-open - no log, no skip.
+HEAD_SHA=$(git rev-parse --short HEAD)
+ALREADY_DEPLOYED=0
+if [ -f .claude/deploy.log ] && awk -F'|' -v sha="$HEAD_SHA" '$2 ~ /deploy/ && $3 ~ ("^[[:space:]]*" sha "[[:space:]]*$") && $5 ~ /^[[:space:]]*0[[:space:]]*$/ { found = 1 } END { exit !found }' .claude/deploy.log; then
+    ALREADY_DEPLOYED=1
+fi
+
+if [ "$ALREADY_DEPLOYED" -eq 1 ]; then
+    echo "Deploy skipped: $HEAD_SHA is already recorded as successfully deployed in .claude/deploy.log"
+    echo "(issue #597 - a concurrent session deployed this same commit; re-running would be a duplicate deploy)."
+elif [ "$DEPLOY_MODE" = "external" ]; then
+    echo "Deploy mode 'external' (.claude/deploy.yaml) - deploy runs out of band (host timer / CI on origin/main). Skipping inline 'make deploy'."
+elif [[ -f "Makefile" ]] && grep -q "^deploy:" Makefile; then
+    # Compose-project safety (issue #535): when COMPOSE_PROJECT_NAME is unset,
+    # docker compose derives it from the current directory basename. Run from a
+    # worktree or /tmp recovery clone, that basename diverges from the prod project
+    # (agentic-asst-issue-516 vs agentic-asst), collides with compose files that pin
+    # prod container_name values, and the failed rollback leaks orphaned
+    # <basename>_* volumes/networks. Pin it to a STABLE name: an explicit
+    # .claude/deploy.yaml override, else the CANONICAL primary-checkout name from
+    # git's common dir (never the worktree/tmp basename).
+    if [ -z "$COMPOSE_PROJECT_NAME" ]; then
+        DEPLOY_PROJECT=$(grep -oP '^\s*compose_project_name:\s*\K\S+' .claude/deploy.yaml 2>/dev/null | head -1)
+        if [ -z "$DEPLOY_PROJECT" ]; then
+            GCD=$(git rev-parse --git-common-dir 2>/dev/null)
+            if [ -n "$GCD" ]; then
+                COMMON_GIT_DIR=$(cd "$GCD" 2>/dev/null && pwd)
+                [ -n "$COMMON_GIT_DIR" ] && DEPLOY_PROJECT=$(basename "$(dirname "$COMMON_GIT_DIR")" | tr 'A-Z' 'a-z')
+            fi
+        fi
+        if [ -n "$DEPLOY_PROJECT" ]; then
+            export COMPOSE_PROJECT_NAME="$DEPLOY_PROJECT"
+            echo "Pinned COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME (issue #535: canonical prod project, not the worktree basename)."
+        fi
+    fi
+
+    # Pre-deploy: capture the baseline (before make deploy) so the post-deploy
+    # verify can detect regressions.
+    if [ "$VERIFY_ENABLED" -eq 1 ]; then
+        echo "Capturing pre-deploy baseline..."
+        # PYTHONPATH points at CPP_DIR (the PARENT of lib/), not at lib/ itself,
+        # or `-m lib.cicd` cannot resolve the package - same contract as Step 6.
+        PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd verify --baseline --summary
+    fi
+
+    echo "Running: make deploy"
+    make deploy
+    DEPLOY_EXIT=$?
+
+    # Post-deploy: verify against the baseline and emit a proceed/rollback verdict.
+    VERDICT="none"
+    if [ "$VERIFY_ENABLED" -eq 1 ]; then
+        echo "Running deploy verification..."
+        PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd verify
+        VERIFY_EXIT=$?
+        VERDICT=$( [ "$VERIFY_EXIT" -eq 1 ] && echo "rollback" || echo "proceed/review" )
+        if [ "$VERIFY_EXIT" -eq 1 ]; then
+            echo "DEPLOY VERIFICATION: ROLLBACK - a probe that passed pre-deploy fails now."
+            echo "Recommend rolling back (redeploy previous commit) or investigating with /cicd:health + /cicd:smoke."
+        fi
+    fi
+
+    mkdir -p .claude
+    echo "$(date -Iseconds) | deploy | $(git rev-parse --short HEAD) | main | ${DEPLOY_EXIT} | verify:${VERDICT}" >> .claude/deploy.log
+else
+    echo "No deploy target in Makefile - skipping deployment."
+fi
+```
+
+- Verification is fail-open and inert unless `health.deploy_verification.enabled`
+  is set in `.claude/cicd.yml`. A ROLLBACK verdict is surfaced to the user but
+  never rolls back automatically - it is an actionable signal, not an action.
+
+
+## Post-run: Friction Retro (optional, non-blocking)
+
+Declining is free - capture already persisted the signals for a later retro. This
+offer also appears at the end of `/flow:merge`.
+
+
+## Error Handling
+
+Key failure scenarios:
+- **Issue not found:** Stop at step 1
+- **Issue closed:** Warn at step 1, ask to proceed
+- **Analysis unclear:** Stop at step 2, ask user for clarification
+- **ELI5 verdict `No longer needed`:** Stop at step 3, recommend closing the issue instead of implementing
+- **Plan rejected at ELI5 gate:** Stop at step 3, revise the plan (or close) before proceeding
+- **Implementation blocker:** Stop at step 4, report what's blocking
+- **Doc update fails:** Non-blocking at step 5, warn and continue
+- **Lint/test fails:** Stop at step 6, show test output
+- **Push fails:** Stop at step 6, suggest `git pull --rebase`
+- **PR merge conflicts:** Stop at step 7, suggest manual resolution
+- **CI pipeline fails:** Stop at step 8, link to pipeline/run for investigation
+- **CI not detected:** Non-blocking at step 8, warn and continue to deploy
+- **Deploy fails:** Report but don't roll back (deploy is best-effort)
+- **Inside worktree being removed:** the git cleanup path uses `worktree-remove.sh`, which `cd`s to the main repo first, so removing from inside the worktree is handled safely
+
+
+## Notes
+
+- This is the "one command to ship" - takes an issue number and delivers it end-to-end
+- The analyze step ensures Claude understands the issue before writing code
+- The ELI5 step (Step 3) is a human checkpoint: it restates intent in plain language, verifies the issue is still worth doing, and gates implementation on plan approval. It has **no bypass** (issue #775) - no `--yes`, no `--auto-approve`, and no `eli5: auto-approve` trailer read from the issue body or HEAD commit message; the trailer channel in particular was chosen by neither the invoker nor anyone reviewing the run. A `No longer needed` verdict never implements either
+- Each step builds on the previous one; there's no skipping
+- Worktrees are visible siblings created on the git lane (issue #627): Step 1 (via `flow-start-resolve.sh`) runs `git worktree add` at `<parent>/<repo>-<branch>` (or `$FLOW_WORKTREE_BASE/<repo>-<branch>` when set), enters with `cd`, and Step 7 removes with `worktree-remove.sh`. The native `EnterWorktree`/`ExitWorktree` fresh lane is retired (#440 superseded for the default). The issue-anchored `issue-<N>-<slug>` branch name, the ELI5 gate, and quality gates are CPP policy layered on top
+- Step 1's plumbing is deterministic (issue #581): `scripts/flow-start-resolve.sh` owns target-repo resolution, issue fetch, branch derivation, existing-work triage, the #503 guard, and git-lane creation, emitting a `key=value` contract; the model's only decision is `EnterWorktree` vs `cd`. Helpers are invoked bare at their stable `~/.claude/scripts/` paths so the shipped allowlist rules match (`templates/claude-settings-permissions.json`) and Phase 1 runs prompt-free
+- The session cwd is DECLARED, not inferred (issue #592): Step 1a passes `--session-cwd <path>` so the resolver decides `CROSS_REPO`/`GIT_LANE` (and, with no PROJECT arg, `TARGET_REPO` itself) against the session's working directory rather than the Bash tool's cwd, which drifts on any earlier `cd`. Without it the resolver reports `SESSION_CWD_INFERRED=1` and fails closed to `GIT_LANE=1` - the residual #578 left behind
+- Cross-repo invocations (`/flow:auto <ISSUE> <PROJECT>`, or a session cwd outside any git repo) are first-class (issue #578): the resolver detects the mismatch (path, else `~/Projects/<PROJECT>`) and the run rides the deterministic git lane end-to-end - helper-created worktree, `cd` instead of `EnterWorktree`, git cleanup at Step 7 - with the worktree still under the target repo's `.claude/worktrees/` so every guard resolves unchanged
+- The worktree base is configurable (issue #584, ADR 0003 Option A): `FLOW_WORKTREE_BASE`, when set in host config, relocates worktrees to `$FLOW_WORKTREE_BASE/<repo>-<branch>` and commits the run to the same git lane (`GIT_LANE=1`); unset, shipped behavior is byte-identical to the in-repo default. The guard/merge/remove/friction scripts resolve via git plumbing and need no awareness of the base
+- The deploy step is always optional - it only runs if a deploy target exists
+- After completion, the user is in the main repo on the main branch
+- For step-by-step control, use individual commands: `/flow:start`, `/flow:eli5`, `/flow:finish`, `/flow:merge`, `/flow:deploy`
+- Friction capture runs throughout (always-on, fail-open, `scripts/friction-log.sh` -> `.claude/friction.jsonl`) and the run offers `/self-improvement:retro` at the end to codify fixes - the grill-me cycle (issue #426)
+
+
+## Codex fresh-flow attribution (#1557)
+
+The Git plan and observed stamp join identifies the run; it does not verify approval
+helper execution. Aggregate output can contain auxiliary printed stamps. Creation
+has a stricter independent event shape, and every later model context is included.
