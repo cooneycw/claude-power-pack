@@ -135,11 +135,11 @@ show as `--merged`, so force-delete only a branch whose CURRENT tip is proven la
 
 ```bash
 REPO=$(git -C "$MAIN_REPO" remote get-url origin | sed -E 's#^(git@|https://)github\.com[:/]##; s#\.git$##')
-# Delete ONLY the proven commit: update-ref fails if the branch moved since.
+# Delete ONLY the proven commit: update-ref fails if the branch moved.
 delete_proven() {
     if git -C "$MAIN_REPO" worktree list --porcelain | grep -qx "branch refs/heads/$1"; then
         echo "KEPT: $1 (checked out in a worktree)"
-    elif git -C "$MAIN_REPO" update-ref -d "refs/heads/$1" "$2" 2>/dev/null; then
+    elif git -C "$MAIN_REPO" update-ref --no-deref -d "refs/heads/$1" "$2" 2>/dev/null; then
         git -C "$MAIN_REPO" config --remove-section "branch.$1" 2>/dev/null || true
         echo "DELETED: $1 ($3)"
     else

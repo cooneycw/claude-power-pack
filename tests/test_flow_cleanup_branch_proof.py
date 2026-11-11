@@ -177,6 +177,25 @@ def test_a_branch_that_moves_after_it_was_proven_is_kept(scratch):
     assert _git(repo, "rev-parse", "refs/heads/issue-7-raced") == newer
 
 
+def test_a_symbolic_issue_ref_never_takes_its_target_with_it(scratch):
+    """`update-ref -d` follows a symbolic ref by default. An `issue-*` name that
+    is an alias for `main`, with a tip that satisfies a proof, would delete
+    `main` and report the alias deleted (counter-model review, second pass)."""
+    repo, stub_dir, branch, run = scratch
+    main_tip = _git(repo, "rev-parse", "refs/heads/main")
+    _git(repo, "symbolic-ref", "refs/heads/issue-9-alias", "refs/heads/main")
+    _git(repo, "config", "branch.issue-9-alias.remote", "origin")
+    _git(repo, "config", "branch.issue-9-alias.merge", "refs/heads/issue-9-alias")
+    _git(repo, "config", "branch.issue-9-alias.cpp-merged-head", main_tip)
+    env = dict(os.environ)
+    env["PATH"] = str(stub_dir) + os.pathsep + env["PATH"]
+    env["GH_STUB_DIR"] = str(stub_dir)
+    script = f'MAIN_REPO={json.dumps(str(repo))}\nWORKTREE_BRANCHES=""\n{step4_block()}'
+    subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env, check=False)
+    assert _git(repo, "rev-parse", "refs/heads/main") == main_tip, "main was deleted through the alias"
+    assert _git(repo, "symbolic-ref", "HEAD") == "refs/heads/main"
+
+
 def test_a_proven_branch_checked_out_in_a_worktree_is_kept(scratch, tmp_path):
     repo, stub_dir, branch, run = scratch
     tip = branch("issue-8-checked-out")
