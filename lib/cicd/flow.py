@@ -235,8 +235,15 @@ def status_main(script: str, argv: list[str]) -> int:
     deadline = time.monotonic() + args.wait
     reports: list[tuple[str, str, dict[str, list[str]]]] = []
     expired = False
+    # Lanes that have ANSWERED during this wait. Each poll is a fresh backend
+    # process, so a listing that fails after the pipeline was already seen
+    # arrives as a bare `unknown`, identical to a missing tool (counter-model
+    # review, #1684). A lane that answered once and then cannot is having a
+    # transient failure, not a structural one.
+    answered: set[str] = set()
     while True:
         reports = []
+        retry_lanes: set[str] = set()
         for name, lane in lanes:
             try:
                 result = callback(PROVIDERS[name].flow_status)(script, backend_args, lane)
@@ -251,16 +258,20 @@ def status_main(script: str, argv: list[str]) -> int:
                     report.pop("FLOW_CI_RETRYABLE", None)
             except (OSError, ValueError, ImportError, AttributeError, subprocess.SubprocessError):
                 report, state = {}, "unknown"
+            if state != "unknown":
+                answered.add(name)
+            elif name in answered or report.get("FLOW_CI_RETRYABLE"):
+                retry_lanes.add(name)
             reports.append((name, state, report))
         verdict = aggregate([state for _, state, _ in reports])
-        # An `unknown` is worth another look only when EVERY unknown lane said
-        # its pipeline or listing could not be read yet (issue #1684). Any
-        # other unknown - no record, wrong ref, a final lane judgement - is
+        # An `unknown` is worth another look only when EVERY unknown lane
+        # either said its pipeline or listing could not be read yet, or has
+        # already answered during this wait (issue #1684). Any other unknown -
+        # no record, a lane that never answered, a final lane judgement - is
         # not resolved by polling and still ends the wait at once.
-        unknown_lanes = [report for _, state, report in reports if state == "unknown"]
+        unknown_lanes = [name for name, state, _ in reports if state == "unknown"]
         retryable = verdict == "unknown" and bool(unknown_lanes) and all(
-            report.get("FLOW_CI_STATUS") == ["unknown"] and report.get("FLOW_CI_RETRYABLE")
-            for report in unknown_lanes)
+            name in retry_lanes for name in unknown_lanes)
         if verdict in {"success", "failure", "stalled"} or (verdict == "unknown" and not retryable) \
                 or args.wait <= 0:
             break

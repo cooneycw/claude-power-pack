@@ -483,3 +483,39 @@ def test_an_expired_wait_is_never_exit_0(tmp_path: Path, monkeypatch, capsys, bo
     assert "FLOW_CI_WAIT: expired (30s)" in captured.out
     assert f"FLOW_CI_STATUS: {status}" in captured.out
     assert "expired" in captured.err
+
+
+def test_wait_polls_through_a_lane_that_answered_and_then_cannot(tmp_path: Path, monkeypatch, capsys):
+    """Counter-model review, #1684: each recorded poll is a fresh backend, so a
+    listing that fails after the pipeline was seen is a BARE unknown - no
+    RETRYABLE line - and ended the wait with exit 2."""
+    flow, calls = _recorded_backend(tmp_path, monkeypatch, [
+        "FLOW_CI_STATUS: running\n", "FLOW_CI_STATUS: unknown\n", "FLOW_CI_STATUS: success\n"])
+    assert flow.status_main("owned-backend", [SHA, "--path", str(tmp_path), "--wait", "30"]) == 0
+    assert len(calls) == 3
+    assert "FLOW_CI_STATUS: success" in capsys.readouterr().out
+
+
+@requires_bash
+def test_recorded_woodpecker_cli_wait_survives_a_failed_relisting(tmp_path: Path, monkeypatch, capsys):
+    """The same, through the REAL shell backend: running, a failed call, success."""
+    from lib.cicd import flow
+    from tests.test_flow_ci_status import SCRIPT, _write_sequenced_wpcli
+    record = tmp_path / ".claude/cicd.yml"
+    record.parent.mkdir()
+    record.write_text("pipeline:\n  providers: [woodpecker]\n")
+    counter = tmp_path / "count"
+    wpcli = _write_sequenced_wpcli(
+        tmp_path / "bin", [f"4726|running|{SHA}|push", None, f"4726|success|{SHA}|push"], counter)
+    missing_curl = Path("/nonexistent/curl")
+    assert not missing_curl.exists()
+    for key, value in {"FLOW_CI_WPCLI": str(wpcli), "FLOW_CI_CURL": str(missing_curl),
+                       "FLOW_CI_AWS": "/nonexistent/aws", "FLOW_CI_GH": "/nonexistent/gh"}.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(flow.time, "sleep", lambda seconds: None)
+    code = flow.status_main(str(SCRIPT), [SHA, "--path", str(tmp_path), "--repo", "o/r", "--event", "push",
+                                          "--wait", "30"])
+    out = capsys.readouterr().out
+    assert counter.read_text().strip() == "3", out
+    assert code == 0, out
+    assert "FLOW_CI_STATUS: success" in out and "FLOW_CI_WAIT: settled" in out
