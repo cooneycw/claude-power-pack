@@ -1327,7 +1327,7 @@ FLOW_CI_URL: <url|->
 FLOW_CI_WAIT: none | settled | expired (<N>s)
 FLOW_CI_RUNS: <n> (<id>:<workflow>:<event>:<result>, ...)   (GitHub Actions lane: every run aggregated, issue #1604)
 FLOW_CI_FAILED_STEP: <name>        (repeated, only on failure; `workflow / job / step` on GitHub Actions)
-FLOW_CI_PRECODE_FAILURE: <name>    (repeated, only on failure; a failed `clone`-type step, since #1411 a `*-stage` step exiting 75 - a stager that could not fetch - or since #1508 a step whose image could not be pulled)
+FLOW_CI_PRECODE_FAILURE: <name>    (repeated, only on failure; a failed `clone`-type step, a `*-stage` step exiting 75 (#1411, fetch failed), or an image-pull failure (#1508))
 FLOW_CI_FAILURE_ORIGIN: precode | code | canceled | mixed | unknown   (only on failure)
 FLOW_CI_STALL_CHECK: checked | unavailable (<why>)   (Woodpecker HTTP and GitHub Actions lanes, issues #1552, #1604)
 FLOW_CI_STALLED: past-timeout (...) | terminal-pipeline-live-children
@@ -1340,8 +1340,8 @@ Act on `FLOW_CI_STATUS`:
 - `success` -> proceed to Step 9.
 - `failure` -> **STOP**. Do not deploy. Report `FLOW_CI_URL` and every
   `FLOW_CI_FAILED_STEP` line. Read `FLOW_CI_FAILURE_ORIGIN` first (issue
-  #1342): `precode` (the `clone`, since #1411 a `*-stage` stager exiting 75, or since
-  #1508 an image that could not be pulled) failed before the change's code ran - retry or look at the infrastructure.
+  #1342): `precode` (the `clone`, a `*-stage` stager exiting 75, or an image pull)
+  failed before the change's code ran - retry or look at the infrastructure.
   `unknown` is NOT `code`: read the step log.
 - `stalled` -> **STOP**. Do not deploy, wait or re-run: the agent lost the
   pipeline (issue #1552). Report `FLOW_CI_URL`, the `FLOW_CI_STALLED` reason
