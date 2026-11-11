@@ -55,6 +55,24 @@ def test_an_account_in_a_home_path_is_reported(text):
 
 
 @pytest.mark.parametrize(
+    ("text", "account"),
+    [
+        # Dots and dashes are legal in account names. A placeholder that is only
+        # a PREFIX of the component excuses nothing (counter-model review).
+        (PLAIN + "jane.doe/Projects/widget", "jane.doe"),
+        (PLAIN + "test-person/Projects/widget", "test-person"),
+        (PLAIN + "user.name/x", "user.name"),
+        ("ends a sentence at " + PLAIN + "jane.doe.", "jane.doe"),
+        # Encoded: only `user` and `clean`, as whole tokens, are placeholders.
+        (ENCODED + "test-person-Projects/a.jsonl", "test"),
+        (ENCODED + "alice-Projects/a.jsonl", "alice"),
+    ],
+)
+def test_dotted_dashed_and_prefix_accounts_are_reported(text, account):
+    assert [found for _, found in hap.findings_in(text)] == [account]
+
+
+@pytest.mark.parametrize(
     "text",
     [
         PLAIN + "user/Projects/widget",
@@ -77,6 +95,7 @@ def test_placeholders_and_account_free_forms_are_not_reported(text):
     [
         ("bad-plain-home-path", 1),
         ("bad-encoded-transcript-dir", 1),
+        ("bad-dotted-and-dashed-accounts", 1),
         ("good-placeholders", 0),
     ],
 )
@@ -103,6 +122,41 @@ def test_a_tree_git_cannot_list_is_unknown_not_clean(tmp_path):
     )
     assert proc.returncode == 2, proc.stdout + proc.stderr
     assert "UNKNOWN" in proc.stderr
+
+
+def _tiny_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git = ["git", "-c", "user.email=t@t", "-c", "user.name=t"]
+    subprocess.run([*git, "init", "-q"], cwd=repo, check=True, capture_output=True)
+    (repo / "clean.txt").write_text("nothing here\n", encoding="utf-8")
+    (repo / "record.json").write_text(PLAIN + ACCOUNT + "/x\n", encoding="utf-8")
+    subprocess.run([*git, "add", "-A"], cwd=repo, check=True, capture_output=True)
+    return repo
+
+
+@requires_git
+def test_a_tracked_file_missing_from_the_working_tree_is_read_from_the_index(tmp_path, capsys):
+    """An unstaged deletion or a sparse checkout leaves the file in the index,
+    where a commit would still publish it. Skipping it let one readable clean
+    file certify the tree (counter-model review)."""
+    repo = _tiny_repo(tmp_path)
+    assert hap.main(["--root", str(repo)]) == 1, "precondition: the file is reported while present"
+    (repo / "record.json").unlink()
+    capsys.readouterr()
+    assert hap.main(["--root", str(repo)]) == 1
+    assert "record.json:1" in capsys.readouterr().out
+
+
+@requires_git
+def test_a_symlink_whose_target_names_an_account_is_reported(tmp_path, capsys):
+    repo = _tiny_repo(tmp_path)
+    (repo / "record.json").unlink()
+    (repo / "record.json").write_text("fine\n", encoding="utf-8")
+    (repo / "link").symlink_to(PLAIN + ACCOUNT + "/elsewhere")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+    assert hap.main(["--root", str(repo)]) == 1
+    assert "link:1" in capsys.readouterr().out
 
 
 # --- the writers (the sources of new occurrences) ---------------------------

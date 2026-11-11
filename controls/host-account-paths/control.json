@@ -21,7 +21,12 @@
     "Needs git, like the gate."
   ],
   "gate": "scripts/check-host-account-paths.py",
-  "invocation": ["python3", "{gate}", "--root", "{case}"],
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--root",
+    "{case}"
+  ],
   "good_exit": 0,
   "detect_signal": "^HOST_ACCOUNT_PATH: ",
   "cases": [
@@ -36,6 +41,12 @@
       "input": "cases/bad-encoded-transcript-dir",
       "expect": "BAD",
       "why": "A receipt whose transcript pointer begins with the encoded home directory. Seventeen receipts carried this form and a grep for the plain form does not see it."
+    },
+    {
+      "name": "bad-dotted-and-dashed-accounts",
+      "input": "cases/bad-dotted-and-dashed-accounts",
+      "expect": "BAD",
+      "why": "Account names may contain dots and dashes. The first cut captured only a word prefix, so `jane.doe` was skipped and `test-person` was excused as the placeholder `test` - found by the counter-model review, not the author. If this scores GOOD a placeholder PREFIX is excusing a real account again."
     },
     {
       "name": "good-placeholders",

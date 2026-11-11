@@ -976,7 +976,8 @@ def latest(root: Path, skill: str) -> Optional[Path]:
         obs = data.get("observed")
         repo = obs.get("repository") if isinstance(obs, dict) else None
         worktree = repo.get("worktree") if isinstance(repo, dict) else None
-        if worktree and Path(worktree).resolve() == Path(here).resolve():
+        # `~/...` since #1689; `expanduser` leaves an older absolute path alone.
+        if worktree and Path(worktree).expanduser().resolve() == Path(here).resolve():
             return path
     return None
 

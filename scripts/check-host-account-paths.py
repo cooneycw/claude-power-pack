@@ -49,6 +49,7 @@ Exit 0 clean, 1 findings, 2 unknown.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -68,13 +69,32 @@ PLACEHOLDERS = frozenset(
     }
 )
 
-_ACCOUNT = r"([A-Za-z_][A-Za-z0-9_]*)"
-#: The plain form. The lookbehind keeps `xx/home/...` inside a longer word out.
-#: The lookahead leaves out a FILE that sits directly in the homes directory
-#: (`AGENTS.md` under `/home`), which is a file name and not an account.
-PLAIN_RE = re.compile(r"(?<![A-Za-z0-9_.-])/(?:home|Users)/" + _ACCOUNT + r"(?![A-Za-z0-9_]|\.[A-Za-z0-9])")
-#: The encoded form: a component that begins with the encoded home directory.
-ENCODED_RE = re.compile(r"(?<![A-Za-z0-9_])-(?:home|Users)-" + _ACCOUNT + r"(?=[-/\"'\s]|$)")
+#: In the ENCODED form every path separator has become a dash, so an account
+#: `test-person` and the account `test` followed by a directory `person` are
+#: the same bytes. The ambiguity is settled toward reporting: only these two
+#: names are placeholders there, and only as a WHOLE dash-separated token. They
+#: are the forms this repository's own writers and documents produce. An
+#: account that itself begins `user-` cannot be told apart by any reader of the
+#: string; that case is answered at the source, by the writers' redaction.
+ENCODED_PLACEHOLDERS = frozenset({"user", "clean"})
+
+#: The plain form: the WHOLE path component after the homes directory. Dots and
+#: dashes are legal in account names (`jane.doe`, `test-person`), so the
+#: component is read to its end before the placeholder list is consulted - a
+#: prefix that happens to be a placeholder excuses nothing. The lookbehind
+#: keeps `xx/home/...` inside a longer word out.
+PLAIN_RE = re.compile(r"(?<![A-Za-z0-9_.-])/(?:home|Users)/([A-Za-z0-9_][A-Za-z0-9_.-]*)(/?)")
+#: The encoded form: a component that begins with the encoded home directory;
+#: group 1 is the first dash-separated token after it.
+ENCODED_RE = re.compile(r"(?<![A-Za-z0-9_])-(?:home|Users)-([A-Za-z0-9_][A-Za-z0-9_.]*)(?=[-/\"'\s]|$)")
+
+#: A FILE sitting directly in the homes directory (`AGENTS.md` under `/home`)
+#: is a file name, not an account. Recognised only by a known extension and
+#: only when nothing follows it as a directory, so `jane.doe/` is an account.
+FILE_SUFFIXES = (
+    ".md", ".txt", ".json", ".jsonl", ".yml", ".yaml", ".toml", ".sh", ".py",
+    ".log", ".lock", ".cfg", ".conf", ".ini",
+)
 
 #: The control's own cases are files this check must report.
 CONTROL_PREFIX = "controls/host-account-paths/"
@@ -84,11 +104,17 @@ def findings_in(text: str) -> list[tuple[int, str]]:
     """(line number, account) for every non-placeholder account in a home path."""
     found: list[tuple[int, str]] = []
     for number, line in enumerate(text.splitlines(), 1):
-        for pattern in (PLAIN_RE, ENCODED_RE):
-            for match in pattern.finditer(line):
-                account = match.group(1)
-                if account.lower() not in PLACEHOLDERS:
-                    found.append((number, account))
+        for match in PLAIN_RE.finditer(line):
+            account = match.group(1).rstrip(".-")  # sentence punctuation
+            is_directory = bool(match.group(2))
+            if not is_directory and account.lower().endswith(FILE_SUFFIXES):
+                continue
+            if account and account.lower() not in PLACEHOLDERS:
+                found.append((number, account))
+        for match in ENCODED_RE.finditer(line):
+            account = match.group(1)
+            if account.lower() not in ENCODED_PLACEHOLDERS:
+                found.append((number, account))
     return found
 
 
@@ -133,10 +159,26 @@ def run_check(root: Path) -> int:
         if (prefix + name).startswith(CONTROL_PREFIX) and not prefix.startswith(CONTROL_PREFIX):
             continue
         path = root / name
-        if path.is_symlink() or not path.is_file():
-            continue
         try:
-            raw = path.read_bytes()
+            if path.is_symlink():
+                # A link's content IS its target path, which can name a home.
+                raw = os.readlink(path).encode("utf-8", "replace")
+            elif path.is_file():
+                raw = path.read_bytes()
+            elif path.exists():
+                continue  # a submodule directory: not this repository's bytes
+            else:
+                # Tracked but absent from the working tree (a sparse checkout,
+                # an unstaged deletion). The INDEX still holds it and a commit
+                # would still publish it, so read it from there - skipping it
+                # would let a non-zero count certify a file nobody read.
+                proc = subprocess.run(
+                    ["git", "show", f":./{name}"], cwd=root, capture_output=True, check=False
+                )
+                if proc.returncode != 0:
+                    unreadable.append(name)
+                    continue
+                raw = proc.stdout
         except OSError:
             unreadable.append(name)
             continue
