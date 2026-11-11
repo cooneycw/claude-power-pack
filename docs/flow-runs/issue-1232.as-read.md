@@ -16,8 +16,8 @@ report that the source moved. It does not graduate.
 Every Codex session prints a wall of warnings like:
 
 ```
-⚠ /home/cooneycw/.codex/skills/github-issue-close/SKILL.md: failed to read file: No such file or directory (os error 2)
-⚠ /home/cooneycw/.codex/skills/secrets-rotate/SKILL.md: failed to read file: No such file or directory (os error 2)
+⚠ /home/user/.codex/skills/github-issue-close/SKILL.md: failed to read file: No such file or directory (os error 2)
+⚠ /home/user/.codex/skills/secrets-rotate/SKILL.md: failed to read file: No such file or directory (os error 2)
 ... (one per CPP-generated skill)
 ```
 
@@ -58,7 +58,7 @@ The ownership predicate works exactly as designed — it is being handed the wro
 
 ```
 $ python3 scripts/codex-skill-sync.py --install
-codex-skill-sync: installed 74 skill(s) ... -> /home/cooneycw/.codex/skills (0 orphan(s) removed)
+codex-skill-sync: installed 74 skill(s) ... -> /home/user/.codex/skills (0 orphan(s) removed)
 
 $ ls ~/.codex/skills | wc -l
 74

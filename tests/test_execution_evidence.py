@@ -699,3 +699,26 @@ def test_retired_pilot_sample_predates_the_per_check_field() -> None:
     checks = record["observed"]["checks"]
     assert checks, "precondition: the retired sample has at least one check"
     assert all("carried_from_previous_run" not in c for c in checks)
+
+
+def test_home_relative_records_are_still_found_and_matched_to_their_worktree(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A record under the home directory stores `~/...` (#1689), and BOTH readers
+    expand it. `latest()` did not at first (counter-model review): a new record
+    then vanished from the lookup while `verify` still accepted it.
+    """
+    monkeypatch.setenv("HOME", str(tmp_path))
+    neighbour = tmp_path / "neighbour"
+    _git(repo, "worktree", "add", "-q", str(neighbour))
+    _, mine = _run(repo, [_gate("lint")])
+    _, theirs = _run(neighbour, [_gate("lint")])
+    recorded = json.loads(mine.read_text())["observed"]["repository"]
+    assert recorded["worktree"] == "~/repo", "precondition: the record is home-relative"
+    assert recorded["common_dir"].startswith("~/")
+    assert str(tmp_path) not in mine.read_text().replace(str(tmp_path / "store"), "")
+    assert evidence.latest(repo, "flow-check") == mine
+    assert evidence.latest(neighbour, "flow-check") == theirs
+    assert _verdict(mine, repo)[0] == SUPPORTED
+    v, reasons = _verdict(theirs, repo)
+    assert v == NOT_SUPPORTED and any("not this checkout" in r for r in reasons)

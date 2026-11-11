@@ -32,7 +32,7 @@
     "source": "cpp.execution-evidence/v1",
     "artifact_ref": {
      "path": "cpp-usage/cbf9931314ed45d2927fa5e150daa9d2.json",
-     "digest": "sha256:8dd12170e425d4d3c4211a0f4d15934bfaaff56a37047605bee89ec90d912c40"
+     "digest": "sha256:e88306ca5eee0fc9dc2806add7a5b594df6022a85f33de46e83ded6a9c568b67"
     },
     "reconciliation": "matched"
    }
