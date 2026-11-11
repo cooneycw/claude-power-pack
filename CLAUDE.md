@@ -106,6 +106,7 @@ the smallest applicable workflow and load its command document for execution:
 - `/flow:*` - issue worktrees, planning gate, implementation, finish, merge, wave orchestration, and cleanup.
 - `/project:init` - destination-first project creation and optional Wayfinder/spec handoff.
 - `/project:next` - planning-aware next-action routing through the always-present project-next engine.
+- `/monthly:*` - the monthly review: write the month's monitoring list, then work it.
 - `/spec:adopt` and `/speckit-*` - official spec-kit authoring; implementation routes to `/flow:auto`.
 - `/cicd:*` - Makefile, container, pipeline, health, smoke, deploy, and infrastructure workflows.
 - `/security:*` - deterministic scans; use native `/security-review` for semantic vulnerability review.

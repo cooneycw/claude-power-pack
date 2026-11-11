@@ -15,7 +15,9 @@ while adding CPP-only evidence the v1.3 contract does not represent yet:
 - premise-staleness flags for spec-derived issues whose parent spec predates
   a live architecture decision in the same domain;
 - a delivery verdict for every worktree the engine proposes for cleanup, from
-  per-file blob identity against the default branch (issue #1257).
+  per-file blob identity against the default branch (issue #1257);
+- the monthly review's state (issue #1703): open, done, none for this month,
+  or unknown. This report is what prompts the review - there is no scheduler.
 
 Lifecycle is intentionally outside ``lib/project_next``. A graduation ledger
 can describe an absent spec, so frontmatter alone cannot represent the policy.
@@ -57,6 +59,7 @@ MANIFEST_PATH = REPO_ROOT / "lib" / "project_next" / "ownership.json"
 # subprocess test in tests/test_project_next_contract.py exists.
 sys.path.insert(0, str(REPO_ROOT))
 
+import lib.monthly_review as monthly  # noqa: E402
 from lib.project_next.classify import _dependencies, _task_issue_index, strip_code  # noqa: E402
 from lib.project_next.collect import (  # noqa: E402
     CollectionError,
@@ -262,6 +265,7 @@ class CppExtensions:
     wayfinder_map: WayfinderMap | None = None
     worktree_delivery: tuple[WorktreeDelivery, ...] = field(default_factory=tuple)
     premise_coverage: DecisionCoverage | None = None
+    monthly_review: monthly.ReviewState | None = None
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -1220,6 +1224,60 @@ def worktree_delivery(
     return tuple(annotated)
 
 
+def _today() -> date:
+    """The one clock read, so a test can stand in a fixed date."""
+    return date.today()
+
+
+def monthly_review_state(
+    repository: Path,
+    state: RepositoryState,
+    inventory_complete: bool,
+    fixture: dict[str, object] | None,
+) -> monthly.ReviewState:
+    """The monthly review's state, from issues already collected plus one read.
+
+    Open reviews come from the inventory the engine already holds. A review
+    that was CLOSED this month is not in it, so that needs one more listing:
+    without it a finished month would read `none` and ask for a second review.
+    When that listing cannot be read the answer is `unknown`, never `none`
+    (issue #1703). A fixture supplies it as `monthly_reviews_closed`; one that
+    does not is `unknown` too, for the same reason.
+    """
+    today = _today()
+    opened = [
+        {"number": issue.number, "title": issue.title, "labels": list(issue.labels),
+         "created_at": issue.created_at, "body": issue.body}
+        for issue in state.issues
+    ]
+    has_open = any(monthly.LABEL in {label.strip().lower() for label in row["labels"]} for row in opened)
+    if not has_open and not inventory_complete:
+        return monthly.review_state(None, None, today,
+                                    unknown_reason="the issue inventory is incomplete")
+    closed: list[dict[str, object]] | None
+    reason = ""
+    if fixture is not None:
+        raw = fixture.get("monthly_reviews_closed")
+        closed = list(raw) if isinstance(raw, list) else None
+        reason = "the fixture carries no `monthly_reviews_closed` listing"
+    elif has_open:
+        closed = []  # an open review settles it; the closed listing is not needed
+    else:
+        closed = None
+        reason = "closed monthly reviews could not be listed"
+        command = ["gh", "issue", "list", "--state", "closed", "--label", monthly.LABEL,
+                   "--limit", "30", "--json", "number,title"]
+        try:
+            done = subprocess.run(command, cwd=repository, capture_output=True, text=True,
+                                  check=False, timeout=30)
+            rows = json.loads(done.stdout) if done.returncode == 0 else None
+        except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
+            rows = None
+        if isinstance(rows, list) and all(isinstance(row, dict) for row in rows):
+            closed = rows
+    return monthly.review_state(opened, closed, today, unknown_reason=reason)
+
+
 def _apply_route_rendering(text: str, routes: tuple[PlanningRoute, ...]) -> str:
     for route in routes:
         if route.issue_number is None:
@@ -1374,6 +1432,13 @@ def render_cpp(
         else:
             lines.extend(("", DELIVERY_ADVISORY))
 
+    review = extensions.monthly_review
+    if review is not None:
+        if mode == "brief":
+            lines.append(f"Monthly review: {review.line()}")
+        else:
+            lines.extend(("", "### Monthly review", f"- {review.line()}"))
+
     if mode != "brief":
         lines.extend(("", "### Wayfinder planning routes", f"- {map_line}"))
         for route in extensions.planning_routes:
@@ -1460,6 +1525,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     repository = Path(args.repository).resolve()
     try:
         config = load_config(repository, args.config)
+        fixture: dict[str, object] | None = None
         if args.input:
             fixture = json.loads(args.input.read_text(encoding="utf-8"))
             state = RepositoryState.from_dict(fixture)
@@ -1507,6 +1573,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         premise_flags=premise,
         premise_coverage=decisions.coverage,
         worktree_delivery=delivery,
+        monthly_review=monthly_review_state(repository, state, result.inventory_complete, fixture),
     )
     if args.json:
         payload = _apply_route_payload(result.to_dict(), extensions.planning_routes)

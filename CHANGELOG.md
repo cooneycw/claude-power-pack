@@ -4,6 +4,14 @@
 
 ### Behaviour changes you may notice
 
+- **`/project:next` now carries a `Monthly review` line, and there are two new
+  commands.** `/monthly:create` scans the repository (Nit Store, `evergreen`
+  issues, this host's friction log, `follow-up` issues with a `Due:` date) and
+  writes one `Monthly review: YYYY-MM` issue; `/monthly:review` works it.
+  `/project:next` reports open, done, none or unknown in every mode and in
+  `cpp_extensions.monthly_review`; nothing existing changed shape and no rank
+  moved. There is no scheduler: the report is the prompt. `/project:init`
+  creates a new project's first review (#1703).
 - **This repository's Nit Store is found by title, not by number.**
   `nit-store-resolve.sh` no longer maps claude-power-pack to #864; it answers
   the one open issue titled exactly `Nit Store`, so the store can roll over

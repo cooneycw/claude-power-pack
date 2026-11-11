@@ -1,0 +1,11 @@
+# `monthly-review` - script reference
+
+Per-script history, indexed from [the scripts inventory](../scripts.md).
+
+## `monthly-review` (#1703)
+
+- monthly-review IS THE HELPER BEHIND `/monthly:create` AND `/monthly:review`. `status` says which review covers this month, `scan` prints the monitoring list a create would write, `create` writes the month's issue once. The rules live in `lib/monthly_review`, which `scripts/project-next.py` imports too, so the helper and the `/project:next` line cannot disagree about what "this month has a review" means
+- monthly-review THE REVIEW HAS FOUR STATES AND `unknown` IS NEVER `none`. `open` (any open issue labelled `monthly-review`, whatever its month - an overdue review is worked, not duplicated), `done` (a closed issue titled for this month), `none`, and `unknown` when either listing could not be read or filled its bound. `none` asks for a new issue, so reading a failure as `none` is how a month gets two reviews. `create` refuses on `unknown` (exit 3) and re-reads the state itself before writing. Red case: `test_create_refuses_when_the_state_is_unknown`
+- monthly-review EVERY SCAN SOURCE HAS THREE ANSWERS: `due`, `clear`, `unread`. An unread source is written into the issue under "Could not be read" as an item to resolve by hand. It is never dropped and never reported as clear. A follow-up issue with no `Due: YYYY-MM-DD` line is `unread`, not "not due": nothing says when it is owed. A listing that fills its bound of 200 is `unread`, because the count could be short
+- monthly-review THERE IS NO SCHEDULER. `/project:next` reports the state on every run and names the route; that report is the trigger. The helper is a reporter and a writer, not a gate: nothing is let through on its output, which is why it is in the census as a reporter and has no registered control
+- monthly-review THE FRICTION COUNT IS ONE HOST'S. `.claude/friction.jsonl` is a local file in the main checkout, counted the way `hook-pending-retro.sh` counts it (the three actionable classes). The line says "on this host"; a review run elsewhere will show a different number

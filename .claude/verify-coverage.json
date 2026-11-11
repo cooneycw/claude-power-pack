@@ -261,6 +261,11 @@
       "consumer": "tests/test_lane_serveability.py",
       "reason": "decides whether /qwen:auto and /gemma:auto delegate at all"
     },
+    "monthly-review.py": {
+      "class": "tested",
+      "consumer": "tests/test_monthly_review.py",
+      "reason": "the /monthly:create and /monthly:review helper (#1703): reports which review covers this month (open, done, none, unknown) and writes the month's issue once. A reporter and a writer, not a gate - `create` re-reads the state before writing instead of trusting an earlier `status`. monthly-review.py is driven through its own entry point by the consumer"
+    },
     "maintain-loop-indicator.py": {
       "class": "tested",
       "reason": "the #1085 maintain-loop leading indicator: it reports a PARTITION (attributable / excluded / UNDETERMINED) over recorded findings, not a pass-fail verdict, so no build surface invokes it - `make verify` would be asserting that a number is acceptable, which is a BAND and #1085 defers thresholds to ADR 0009. Its behaviour is driven by tests/test_maintain_loop_indicator.py through the same entry point the registered control runs, and controls/maintain-loop-indicator exercises the three input states an observed empty population, a zero-byte capture, and an unreadable one must be told apart by",
