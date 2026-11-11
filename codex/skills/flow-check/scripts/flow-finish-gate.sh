@@ -359,6 +359,19 @@ if coordination_admission_on && [[ "$MODE" == "gate" && "${CPP_KYLE_FULL_SUITE_A
     fi
     _coordination_status="$_coordination_tmp/status"
     _coordination_verdict="$_coordination_tmp/verdict"
+    _coordination_answer="$_coordination_tmp/answer"
+    # The wait for a grant is BOUNDED (issue #1678). Without --wait, kyle-lock
+    # retries an unavailable authority forever: the gate never starts, never
+    # fails and says nothing after one log line, which reads exactly like a slow
+    # suite. kyle-lock has ONE deadline covering queued, frozen and unavailable,
+    # so this bound covers a real queue too; the default sits well above a
+    # normal full-suite queue. There is no unbounded setting. Read only here,
+    # inside the admission-on path: the variable is inert everywhere else.
+    _coordination_wait="${CPP_KYLE_LOCK_WAIT_SECONDS:-3600}"
+    if [[ ! "$_coordination_wait" =~ ^[1-9][0-9]{0,8}$ ]]; then
+        echo "FLOW_FINISH_GATE: fail (coordination wait bound invalid: CPP_KYLE_LOCK_WAIT_SECONDS must be a positive whole number of seconds)"
+        gate_exit fail
+    fi
     # The authority configuration belongs to the supervisor. Test commands
     # must not inherit its credentials.
     #
@@ -368,7 +381,7 @@ if coordination_admission_on && [[ "$MODE" == "gate" && "${CPP_KYLE_FULL_SUITE_A
     # its verdict line is held back from stdout: only a matching pair is the
     # gate's verdict, so a lease lost after a green gate prints one fail, never
     # an ok followed by a fail. This process writes the one exit line.
-    "$_coordination_bin" run full-suite -- env \
+    "$_coordination_bin" run full-suite --wait "$_coordination_wait" -- env \
         -u KYLE_LOCK_URL -u KYLE_LOCK_TOKEN -u KYLE_LOCK_TOKEN_FILE \
         CPP_KYLE_FULL_SUITE_ACTIVE=1 CPP_FLOW_FINISH_GATE_STATUS_FILE="$_coordination_status" \
         bash "${BASH_SOURCE[0]}" "${COORDINATION_ORIGINAL_ARGS[@]}" \
@@ -376,12 +389,17 @@ if coordination_admission_on && [[ "$MODE" == "gate" && "${CPP_KYLE_FULL_SUITE_A
             if [[ "$_coordination_line" == "FLOW_FINISH_GATE: "* ]]; then
                 printf '%s\n' "$_coordination_line" 2>/dev/null >> "$_coordination_verdict"
             else
+                # The supervisor's own JSON answer, kept so an unavailable
+                # ending can name the authority's code. Still printed.
+                [[ "$_coordination_line" != "{"* ]] \
+                    || printf '%s\n' "$_coordination_line" 2>/dev/null > "$_coordination_answer"
                 printf '%s\n' "$_coordination_line"
             fi
         done
     _coordination_rc=${PIPESTATUS[0]}
     _coordination_gate_rc="$(cat -- "$_coordination_status" 2>/dev/null)"
     _coordination_held="$(cat -- "$_coordination_verdict" 2>/dev/null)"
+    _coordination_last="$(cat -- "$_coordination_answer" 2>/dev/null)"
     rm -rf -- "$_coordination_tmp"
     _coordination_tmp=""
     if [[ "$_coordination_gate_rc" =~ ^[0-9]+$ ]]; then
@@ -394,6 +412,17 @@ if coordination_admission_on && [[ "$MODE" == "gate" && "${CPP_KYLE_FULL_SUITE_A
     fi
     # No recorded status is refused, queued, frozen, unavailable or usage before
     # the gate started - or a gate killed outright. It never reads as a pass.
+    if [[ "$_coordination_rc" == 75 ]]; then
+        # kyle-lock's unavailable (issue #1678): no grant arrived inside the
+        # bound, or the authority's answer was unusable. Name its code when it
+        # gave one. The bound is an upper limit, not a measured wait.
+        _coordination_code="exit 75"
+        if [[ "$_coordination_last" =~ \"code\"[[:space:]]*:[[:space:]]*\"([A-Za-z0-9_.-]{1,64})\" ]]; then
+            _coordination_code="${BASH_REMATCH[1]}"
+        fi
+        echo "FLOW_FINISH_GATE: fail (coordination unavailable: $_coordination_code; no grant within ${_coordination_wait}s, no gate work started)"
+        gate_exit fail
+    fi
     echo "FLOW_FINISH_GATE: fail (coordination supervisor exited $_coordination_rc and the gate recorded no status)"
     gate_exit fail
 fi
