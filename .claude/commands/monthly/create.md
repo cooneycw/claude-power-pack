@@ -64,8 +64,8 @@ short list. That is an ordinary result, not an error.
 - `MONTHLY_REVIEW_CREATE: exists #N` - someone created it between Steps 1 and
   3. Nothing was written; report #N.
 - `MONTHLY_REVIEW_CREATE: refused` (exit 3) - nothing was established. Report
-  the reason. If it names `gh issue create`, check for a half-created issue
-  before retrying.
+  the reason. If it says the issue could not be created, check for a
+  half-created issue before retrying.
 
 The helper re-reads the state itself before writing and creates the
 `monthly-review` label if the repository lacks it.
