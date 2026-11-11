@@ -170,3 +170,34 @@ interruption. The helper neither sends messages nor installs timers. Fresh
 liveness is supplied by the caller using the existing registry/native observation
 rules; CPP checks its timestamp age (0-60 seconds) and never probes a remote PID.
 A completion message may prompt an earlier check but cannot replace a receipt.
+
+## Worked example: Kyle's role-receipt adapter
+
+This section applies only to a wave hosted in Kyle. Any other reader can skip
+it: the filesystem default and the adapter contract above are unchanged, and
+CPP ships no Kyle code. It also serves as an example of an external store
+using this contract. It does not describe a deployed adapter. Kyle's
+`docs/cpp-receipt-adapter.md`, in the Kyle repository, is the authoritative
+companion.
+
+Kyle's adapter uses the executable contract above without changing CPP.
+Before launching a role, an orchestrator or master registers that role's full
+identity and key against the role's prepared Kyle job and run. A worker
+cannot reserve a key, including another role's. An unregistered `get` or
+`put`, or one against the wrong namespace, is UNKNOWN. Null means a
+registered, healthy binding that has no receipt yet.
+
+Configure both roles for the same Kyle run namespace, each with its own
+existing service principal. Verify the setup from the coordinator's own
+configuration: publish and read back a separate harmless setup identity, then
+read from a deliberately wrong namespace, which must be UNKNOWN, never null.
+
+Kyle stores the role's claimed outcome, time and evidence separately from any
+measured process exit. A failed or cancelled claim never implies an exit code,
+and a missing measured completion stays unknown. CPP still validates identity,
+result, timestamps, assignment state, deadlines and the post-publication `get`
+exactly as for any store. No adapter result extends a deadline.
+
+Kyle's local tests are not deployed permission or durability acceptance. An
+operator must verify cross-container coordinator readback before relying on a
+deployed namespace.
