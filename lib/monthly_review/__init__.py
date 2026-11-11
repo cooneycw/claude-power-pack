@@ -245,13 +245,16 @@ def scan_nit_store(runner: Runner, resolver: Path, today: date) -> tuple[list[It
         return [Item(source, "unread", f"the Nit Store could not be resolved ({why})")], None
     store = int(number.group(1))
     code, out = runner(["gh", "issue", "view", str(store), *repo_args(repo), "--json", "comments,createdAt"])
-    try:
-        data = json.loads(out) if code == 0 else None
-        comments = len(data["comments"])
-        created = _parse_day(data["createdAt"])
-    except (json.JSONDecodeError, KeyError, TypeError):
-        data = None
-    if data is None:
+    comments: int | None = None
+    created: date | None = None
+    if code == 0:
+        try:
+            data = json.loads(out)
+            comments = len(data["comments"])
+            created = _parse_day(data["createdAt"])
+        except (json.JSONDecodeError, KeyError, TypeError):
+            comments = None
+    if comments is None:
         return [Item(source, "unread", f"Nit Store #{store} could not be read (exit {code})")], store
     age = f", opened {(today - created).days}d ago" if created else ""
     if comments == 0:
