@@ -210,6 +210,55 @@ def test_a_broken_friction_record_is_reported_not_skipped(tmp_path: Path) -> Non
     assert sorted(i.state for i in mr.scan_friction(log)) == ["due", "unread"]
 
 
+def _budget_repo(tmp_path: Path, table: str, docs: dict[str, str]) -> Path:
+    (tmp_path / ".claude" / "commands" / "x").mkdir(parents=True)
+    (tmp_path / ".claude" / "command-word-budgets.tsv").write_text(table)
+    for rel, text in docs.items():
+        (tmp_path / ".claude" / "commands" / rel).write_text(text)
+    return tmp_path
+
+
+def test_command_budget_three_states(tmp_path: Path) -> None:
+    """Counter-model review: #1703's acceptance names this source and the scan lacked it."""
+    assert [i.state for i in mr.scan_command_budget(None)] == ["unread"]
+    assert not (tmp_path / ".claude").exists()  # precondition: no budget surface at all
+    items = mr.scan_command_budget(tmp_path)
+    assert [i.state for i in items] == ["clear"] and "declares no" in items[0].text
+    root = _budget_repo(tmp_path, "# comment\n3\tx/a.md\n2\tx/b.md\n", {"x/a.md": "one two three", "x/b.md": "one two"})
+    items = mr.scan_command_budget(root)
+    assert [i.state for i in items] == ["clear"] and "all 2 budgeted" in items[0].text
+    (root / ".claude" / "commands" / "x" / "b.md").write_text("one two three four")
+    items = mr.scan_command_budget(root)
+    assert [i.state for i in items] == ["due"] and "x/b.md (4 > 2)" in items[0].text
+
+
+@pytest.mark.parametrize("table", ["3\tx/missing.md\n", "many\tx/a.md\n", "no-tab-here\n"])
+def test_a_budget_that_cannot_be_applied_is_unread_not_within_budget(tmp_path: Path, table: str) -> None:
+    root = _budget_repo(tmp_path, table, {"x/a.md": "one"})
+    assert [i.state for i in mr.scan_command_budget(root)] == ["unread"]
+
+
+def test_the_friction_log_override_is_honoured(tmp_path: Path, monkeypatch) -> None:
+    """Counter-model review: the producer honours CPP_FRICTION_LOG and the scan did not,
+    so signals at the configured path read as 'no friction log on this host'."""
+    log = tmp_path / "elsewhere.jsonl"
+    log.write_text('{"class":"gate-failure"}\n')
+    runner = Runner({"rev-parse": (0, str(tmp_path / "repo" / ".git") + "\n")})
+    monkeypatch.delenv("CPP_FRICTION_LOG", raising=False)
+    default = helper.friction_log(runner, tmp_path)
+    assert default == tmp_path / "repo" / ".claude" / "friction.jsonl" and not default.exists()
+    monkeypatch.setenv("CPP_FRICTION_LOG", str(log))
+    assert helper.friction_log(runner, tmp_path) == log
+    assert [i.state for i in mr.scan_friction(helper.friction_log(runner, tmp_path))] == ["due"]
+
+
+def test_the_helper_is_executable() -> None:
+    """Both commands invoke it directly, and the installers skip a non-executable helper."""
+    import os
+
+    assert os.access(SCRIPT, os.X_OK), "scripts/monthly-review.py must be committed mode 100755"
+
+
 def test_the_body_keeps_unread_sources_as_items_to_resolve() -> None:
     body = mr.render_body([mr.Item("a", "due", "Do the thing"), mr.Item("b", "unread", "source b failed"),
                            mr.Item("c", "clear", "nothing in c")], TODAY)

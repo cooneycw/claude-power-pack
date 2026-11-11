@@ -44,7 +44,7 @@ user to run `/cpp:update`.
 It prints the title and body it would write. Show the user the three groups:
 
 - **Checklist** - what the scan found due: the Nit Store rollover, each open
-  `evergreen` issue, friction signals waiting for a retro on this host, and
+  `evergreen` issue, command documents over their word budget, friction signals waiting for a retro on this host, and
   each `follow-up` issue whose `Due: YYYY-MM-DD` falls in or before the month.
 - **Could not be read** - a source the scan could not examine. It is written
   into the issue as an item to resolve by hand. Never drop one, and never

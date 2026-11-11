@@ -96,3 +96,16 @@ def test_a_review_issue_is_ordinary_startable_work(tmp_path: Path, capsys) -> No
     result = json.loads(capsys.readouterr().out)
     assert result["next_startable_issue"] == 40, result["next_startable_issue"]
     assert result["cpp_extensions"]["monthly_review"]["verdict"] == "open"
+
+
+def test_a_closed_listing_that_fills_its_bound_is_unknown_without_this_month() -> None:
+    """Counter-model review: 30 rows came back, none for this month, and it read `none`."""
+    today = date(2026, 12, 9)
+    full = [{"number": n, "title": f"Monthly review: 20{n:02d}-01"} for n in range(project_next.CLOSED_REVIEW_LIMIT)]
+    assert project_next._complete_closed_listing(full, today) is None
+    assert project_next.monthly.review_state([], project_next._complete_closed_listing(full, today), today).verdict == "unknown"
+    short = full[:-1]
+    assert project_next._complete_closed_listing(short, today) == short
+    assert project_next.monthly.review_state([], short, today).verdict == "none"
+    with_match = [*full[:-1], {"number": 99, "title": "Monthly review: 2026-12"}]
+    assert project_next.monthly.review_state([], project_next._complete_closed_listing(with_match, today), today).verdict == "done"

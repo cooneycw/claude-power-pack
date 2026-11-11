@@ -1224,6 +1224,23 @@ def worktree_delivery(
     return tuple(annotated)
 
 
+#: The bound on the closed-review listing. A listing that FILLS it may have cut
+#: this month's review off, so without a match it is unread, never "none".
+CLOSED_REVIEW_LIMIT = 30
+
+
+def _complete_closed_listing(
+    closed: list[dict[str, object]] | None, today: date
+) -> list[dict[str, object]] | None:
+    """`closed`, or None when a full listing cannot show this month is absent."""
+    if closed is None or len(closed) < CLOSED_REVIEW_LIMIT:
+        return closed
+    wanted = monthly.title_for(monthly.month_of(today))
+    if any(str(row.get("title") or "") == wanted for row in closed):
+        return closed
+    return None
+
+
 def _today() -> date:
     """The one clock read, so a test can stand in a fixed date."""
     return date.today()
@@ -1264,9 +1281,10 @@ def monthly_review_state(
         closed = []  # an open review settles it; the closed listing is not needed
     else:
         closed = None
-        reason = "closed monthly reviews could not be listed"
+        reason = (f"closed monthly reviews could not be listed, or the listing filled its "
+                  f"bound of {CLOSED_REVIEW_LIMIT} without this month's")
         command = ["gh", "issue", "list", "--state", "closed", "--label", monthly.LABEL,
-                   "--limit", "30", "--json", "number,title"]
+                   "--limit", str(CLOSED_REVIEW_LIMIT), "--json", "number,title"]
         try:
             done = subprocess.run(command, cwd=repository, capture_output=True, text=True,
                                   check=False, timeout=30)
@@ -1275,7 +1293,8 @@ def monthly_review_state(
             rows = None
         if isinstance(rows, list) and all(isinstance(row, dict) for row in rows):
             closed = rows
-    return monthly.review_state(opened, closed, today, unknown_reason=reason)
+    return monthly.review_state(opened, _complete_closed_listing(closed, today), today,
+                                unknown_reason=reason)
 
 
 def _apply_route_rendering(text: str, routes: tuple[PlanningRoute, ...]) -> str:

@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from datetime import date
@@ -91,7 +92,10 @@ def read_state(runner: mr.Runner, today: date) -> mr.ReviewState:
 
 
 def friction_log(runner: mr.Runner, root: Path) -> Path | None:
-    """The main checkout's log, as `friction-log.sh` resolves it."""
+    """The log `friction-log.sh` writes: `CPP_FRICTION_LOG`, else the main checkout's."""
+    override = os.environ.get("CPP_FRICTION_LOG", "").strip()
+    if override:
+        return Path(override).expanduser()
     code, out = runner(["git", "rev-parse", "--git-common-dir"])
     if code != 0 or not out.strip():
         return None
@@ -102,7 +106,7 @@ def friction_log(runner: mr.Runner, root: Path) -> Path | None:
 
 
 def do_scan(runner: mr.Runner, root: Path, today: date) -> list[mr.Item]:
-    return mr.scan(runner, RESOLVER, friction_log(runner, root), today)
+    return mr.scan(runner, RESOLVER, friction_log(runner, root), today, root)
 
 
 def cmd_status(args: argparse.Namespace, runner: mr.Runner, today: date) -> int:

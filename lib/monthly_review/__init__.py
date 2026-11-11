@@ -326,11 +326,51 @@ def scan_friction(log: Path | None) -> list[Item]:
     return items or [Item(source, "clear", "no actionable friction signal on this host")]
 
 
-def scan(runner: Runner, resolver: Path, friction_log: Path | None, today: date) -> list[Item]:
+def scan_command_budget(root: Path | None) -> list[Item]:
+    """Command documents against their declared word budgets (issue #1669).
+
+    A repository with no budget file has no such surface: that is clear, and
+    says so. A budget file that is present but cannot be applied - an
+    unparseable row, a listed document that is missing - is unread, because
+    "nothing over budget" was not established.
+    """
+    source = "command-budget"
+    if root is None:
+        return [Item(source, "unread", "the repository root is not known, so command budgets were not examined")]
+    table = root / ".claude" / "command-word-budgets.tsv"
+    if not table.exists():
+        return [Item(source, "clear", "this repository declares no command-document word budget")]
+    try:
+        rows = [line for line in table.read_text(encoding="utf-8").splitlines()
+                if line.strip() and not line.lstrip().startswith("#")]
+    except (OSError, UnicodeDecodeError) as exc:
+        return [Item(source, "unread", f"the command word-budget file could not be read ({exc})")]
+    over: list[str] = []
+    for row in rows:
+        budget, _, rel = row.partition("\t")
+        doc = root / ".claude" / "commands" / rel.strip()
+        try:
+            words = len(doc.read_text(encoding="utf-8").split())
+            limit = int(budget)
+        except (OSError, UnicodeDecodeError, ValueError):
+            return [Item(source, "unread",
+                         f"the command word budget could not be applied (row `{row.strip()[:60]}`)")]
+        if words > limit:
+            over.append(f"{rel.strip()} ({words} > {limit})")
+    if over:
+        shown = ", ".join(over[:5]) + (f" and {len(over) - 5} more" if len(over) > 5 else "")
+        return [Item(source, "due", f"Trim {len(over)} command document(s) over their word budget: {shown}")]
+    return [Item(source, "clear", f"all {len(rows)} budgeted command document(s) are within budget")]
+
+
+def scan(
+    runner: Runner, resolver: Path, friction_log: Path | None, today: date, root: Path | None = None
+) -> list[Item]:
     nit, store = scan_nit_store(runner, resolver, today)
     return [
         *nit,
         *scan_evergreen(runner, store),
+        *scan_command_budget(root),
         *scan_friction(friction_log),
         *scan_follow_ups(runner, month_of(today)),
     ]

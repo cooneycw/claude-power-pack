@@ -28,7 +28,9 @@ project's first review.
 - The open Nit Store: how many findings it holds and how old it is.
 - Every open issue labelled `evergreen`. The label still means "never offer
   this as the next thing to start"; the monthly review is what visits it.
-- The friction log on this host.
+- Command documents against their declared word budgets, where the repository
+  declares any.
+- The friction log on this host (`CPP_FRICTION_LOG` if set).
 - Open issues labelled `follow-up` with a `Due: YYYY-MM-DD` line.
 
 A source that cannot be read is listed as unread. It is never left out and
