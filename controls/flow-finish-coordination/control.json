@@ -9,7 +9,7 @@
   "good_exit": 0,
   "detect_signal": "^CPP_COORDINATION_REFUSED: no gate work started$",
   "unavailable_signal": "^CPP_COORDINATION_CONTROL: unavailable",
-  "limits": "Proves an explicitly enabled finish caller refuses to start gate work when its supervisor refuses, and still runs the old green gate when granted. Fake coordinator, no service/DB/network: actual Kyle CLI renewal, watchdog process-tree stopping and authority authorization are not established here. The historical gate ignores the rollout signal and runs work after refusal; the same fixture gives it a clean good run. Off-path, metadata, credential isolation and nested invocation are separately covered by focused regression tests. A planted garbage flag must stay on the old path even with a refusing supervisor configured.",
+  "limits": "Proves an explicitly enabled finish caller refuses to start gate work when its supervisor refuses, and still runs the old green gate when granted. Fake coordinator, no service/DB/network: actual Kyle CLI renewal, watchdog process-tree stopping and authority authorization are not established here. The historical gate ignores the rollout signal and runs work after refusal; the same fixture gives it a clean good run. Off-path, metadata, credential isolation and nested invocation are separately covered by focused regression tests. A planted garbage flag must stay on the old path even with a refusing supervisor configured. bad-unavailable (issue #1678): a coordinator that never answers unless the caller bounded the wait with --wait must end in the named 'coordination unavailable: <code>' fail inside the bound; a caller that passes no --wait hangs past the runner's timeout and reads GOOD (the miss), as does one that ends without the name. The fake models kyle-lock's --wait contract as read from kyle 4aa3a2aa, not a live client.",
   "cases": [
     {
       "name": "good-held",
@@ -19,6 +19,11 @@
     {
       "name": "bad-refused",
       "input": "cases/bad-refused",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-unavailable",
+      "input": "cases/bad-unavailable",
       "expect": "BAD"
     },
     {
