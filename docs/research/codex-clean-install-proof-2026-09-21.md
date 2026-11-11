@@ -80,7 +80,7 @@ write anything at all, including fabricated helpers.
 ### Why containment comes from bwrap, not from codex
 
 Codex's own `--sandbox workspace-write` restricts **writes**; reads stay broad. An
-arm that can read `/home/cooneycw/Projects/claude-power-pack` can simply `cp` the
+arm that can read `/home/user/Projects/claude-power-pack` can simply `cp` the
 helpers, and then a filesystem effect proves nothing about whether CPP's surface
 was present. Containment therefore has to come from outside codex.
 
@@ -89,9 +89,9 @@ Verified from **inside** the sandbox, by a child process, rather than assumed:
 ```
 HOME                     = /home/clean
 ~ resolves to            = /home/clean
-real checkout readable?  = ls: cannot access '/home/cooneycw/Projects': No such file or directory
-real ~/.claude readable? = ls: cannot access '/home/cooneycw/.claude': No such file or directory
-real ~/.codex/skills?    = ls: cannot access '/home/cooneycw/.codex/skills': No such file or directory
+real checkout readable?  = ls: cannot access '/home/user/Projects': No such file or directory
+real ~/.claude readable? = ls: cannot access '/home/user/.claude': No such file or directory
+real ~/.codex/skills?    = ls: cannot access '/home/user/.codex/skills': No such file or directory
 CPP file anywhere        = (none - searched every mount, not `-xdev`)
 ```
 

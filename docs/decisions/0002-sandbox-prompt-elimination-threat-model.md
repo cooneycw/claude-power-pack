@@ -15,7 +15,7 @@ broke bash entirely, reproduced 3x: every sandboxed command, including a bare
 `pwd`, died at jail construction with
 
 ```
-bwrap: Can't create file at /home/cooneycw/Projects/.claude/skills: No such file or directory
+bwrap: Can't create file at /home/user/Projects/.claude/skills: No such file or directory
 ```
 
 Root cause: Claude Code auto-adds `.claude/skills` to the sandbox

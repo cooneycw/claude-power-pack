@@ -17,11 +17,11 @@
     "sources": [
       {
         "bytes": 1422466,
-        "path": "-home-cooneycw-Projects/73bb828e-1363-4eb1-8822-85a8bb30fa27.jsonl",
+        "path": "-home-user-Projects/73bb828e-1363-4eb1-8822-85a8bb30fa27.jsonl",
         "sha256": "a50d639e38652708349399d04c6acf69efc6e70f69caeafa4314874e40bcf06b"
       }
     ],
-    "transcript": "-home-cooneycw-Projects/73bb828e-1363-4eb1-8822-85a8bb30fa27.jsonl"
+    "transcript": "-home-user-Projects/73bb828e-1363-4eb1-8822-85a8bb30fa27.jsonl"
   },
   "issue": "1678",
   "local_credentials": "absent",

@@ -1,0 +1,3 @@
+A dotted account: /home/jane.doe/Projects/widget
+A dashed account that begins with a placeholder: /home/test-person/Projects/widget
+The same account in a transcript directory name: -home-test-person-Projects/0000.jsonl
