@@ -428,3 +428,104 @@ exit 1
     assert code == 1
     assert counter.read_text().strip() == "2"
     assert "FLOW_CI_STATUS: failure" in capsys.readouterr().out
+
+
+def _recorded_backend(tmp_path: Path, monkeypatch, replies: list[str]):
+    """Recorded github-actions lane answered from canned stdout bodies."""
+    import subprocess
+
+    from lib.cicd import flow
+    record = tmp_path / ".claude/cicd.yml"
+    record.parent.mkdir()
+    record.write_text("pipeline:\n  providers: [github-actions]\n")
+    calls: list[str] = []
+    queue = list(replies)
+
+    def backend(script, argv, lane):
+        body = queue.pop(0) if len(queue) > 1 else queue[0]
+        calls.append(body)
+        return subprocess.CompletedProcess(argv, 0, stdout=(
+            "FLOW_CI_PROVIDER: github-actions\nFLOW_CI_REF: " + SHA + "\n" + body), stderr="")
+    monkeypatch.setattr(flow, "shell_status", backend)
+    monkeypatch.setattr(flow.time, "sleep", lambda seconds: None)
+    return flow, calls
+
+
+UNREADABLE = ("FLOW_CI_PIPELINE: 4726\nFLOW_CI_RETRYABLE: pipeline #4726 found; status '' unreadable\n"
+              "FLOW_CI_STATUS: unknown\n")
+
+
+def test_wait_polls_a_found_but_unreadable_pipeline(tmp_path: Path, monkeypatch, capsys):
+    """Issue #1684 on the recorded path: `unknown` ended the wait on the first look."""
+    flow, calls = _recorded_backend(tmp_path, monkeypatch, [UNREADABLE, "FLOW_CI_STATUS: success\n"])
+    assert flow.status_main("owned-backend", [SHA, "--path", str(tmp_path), "--wait", "30"]) == 0
+    assert len(calls) == 2
+    out = capsys.readouterr().out
+    assert "FLOW_CI_STATUS: success" in out and "FLOW_CI_WAIT: settled" in out
+
+
+def test_wait_does_not_poll_an_unknown_that_is_a_final_judgement(tmp_path: Path, monkeypatch, capsys):
+    """No RETRYABLE line: polling cannot resolve it, so the wait still ends at once."""
+    flow, calls = _recorded_backend(tmp_path, monkeypatch, ["FLOW_CI_STATUS: unknown\n"])
+    assert flow.status_main("owned-backend", [SHA, "--path", str(tmp_path), "--wait", "30"]) == 2
+    assert len(calls) == 1
+    assert "FLOW_CI_WAIT: settled" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("body,status", [(UNREADABLE, "unknown"), ("FLOW_CI_STATUS: running\n", "running"),
+                                         ("FLOW_CI_STATUS: not-found\n", "not-found")])
+def test_an_expired_wait_is_never_exit_0(tmp_path: Path, monkeypatch, capsys, body, status):
+    flow, calls = _recorded_backend(tmp_path, monkeypatch, [body])
+    clock = iter(range(0, 10_000, 10))
+    monkeypatch.setattr(flow.time, "monotonic", lambda: next(clock))
+    assert flow.status_main("owned-backend", [SHA, "--path", str(tmp_path), "--wait", "30"]) == 5
+    assert len(calls) > 1
+    captured = capsys.readouterr()
+    assert "FLOW_CI_WAIT: expired (30s)" in captured.out
+    assert f"FLOW_CI_STATUS: {status}" in captured.out
+    assert "expired" in captured.err
+
+
+def test_wait_polls_through_a_lane_that_answered_and_then_cannot(tmp_path: Path, monkeypatch, capsys):
+    """Counter-model review, #1684: each recorded poll is a fresh backend, so a
+    listing that fails after the pipeline was seen is a BARE unknown - no
+    RETRYABLE line - and ended the wait with exit 2."""
+    flow, calls = _recorded_backend(tmp_path, monkeypatch, [
+        "FLOW_CI_STATUS: running\n", "FLOW_CI_STATUS: unknown\n", "FLOW_CI_STATUS: success\n"])
+    assert flow.status_main("owned-backend", [SHA, "--path", str(tmp_path), "--wait", "30"]) == 0
+    assert len(calls) == 3
+    assert "FLOW_CI_STATUS: success" in capsys.readouterr().out
+
+
+@requires_bash
+def test_recorded_woodpecker_cli_wait_survives_a_failed_relisting(tmp_path: Path, monkeypatch, capsys):
+    """The same, through the REAL shell backend: running, a failed call, success."""
+    from lib.cicd import flow
+    from tests.test_flow_ci_status import SCRIPT, _write_sequenced_wpcli
+    record = tmp_path / ".claude/cicd.yml"
+    record.parent.mkdir()
+    record.write_text("pipeline:\n  providers: [woodpecker]\n")
+    counter = tmp_path / "count"
+    wpcli = _write_sequenced_wpcli(
+        tmp_path / "bin", [f"4726|running|{SHA}|push", None, f"4726|success|{SHA}|push"], counter)
+    missing_curl = Path("/nonexistent/curl")
+    assert not missing_curl.exists()
+    for key, value in {"FLOW_CI_WPCLI": str(wpcli), "FLOW_CI_CURL": str(missing_curl),
+                       "FLOW_CI_AWS": "/nonexistent/aws", "FLOW_CI_GH": "/nonexistent/gh"}.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(flow.time, "sleep", lambda seconds: None)
+    code = flow.status_main(str(SCRIPT), [SHA, "--path", str(tmp_path), "--repo", "o/r", "--event", "push",
+                                          "--wait", "30"])
+    out = capsys.readouterr().out
+    assert counter.read_text().strip() == "3", out
+    assert code == 0, out
+    assert "FLOW_CI_STATUS: success" in out and "FLOW_CI_WAIT: settled" in out
+
+
+def test_wait_polls_through_unreadable_then_a_failed_listing(tmp_path: Path, monkeypatch, capsys):
+    """Counter-model review pass 2: unreadable, then a bare unknown, then green."""
+    flow, calls = _recorded_backend(tmp_path, monkeypatch, [
+        UNREADABLE, "FLOW_CI_STATUS: unknown\n", "FLOW_CI_STATUS: success\n"])
+    assert flow.status_main("owned-backend", [SHA, "--path", str(tmp_path), "--wait", "30"]) == 0
+    assert len(calls) == 3
+    assert "FLOW_CI_STATUS: success" in capsys.readouterr().out
