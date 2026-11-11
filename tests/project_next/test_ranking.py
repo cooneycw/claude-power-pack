@@ -236,6 +236,33 @@ def test_status_unknown_worktree_is_never_offered_as_the_resume_top_action() -> 
     assert result.top_action is None or "uncommitted changes" not in result.top_action.reason
 
 
+def test_prunable_worktree_naming_an_open_issue_stays_in_flight_but_is_never_a_dirty_resume() -> None:
+    """A prunable worktree follows the #1398 rule for any unexamined one (#1674).
+
+    Git refuses to delete a branch while a worktree entry - even a prunable one -
+    still names it, so the issue's branch is real evidence that work is in
+    flight: the issue must NOT be offered as startable for a fresh run. What the
+    stale entry can never support is the claim that there are uncommitted
+    changes to resume, because nothing examined a directory that is gone.
+    """
+    reason = "worktree /gone is prunable (gitdir file points to non-existent location); not examined"
+    state = RepositoryState(
+        repository="example/repo",
+        default_branch="main",
+        collected_at="2026-08-07T13:00:00Z",
+        issues=(Issue(number=28, title="Stale checkout", body=""),),
+        worktrees=(Worktree("/gone", "issue-28-x", dirty=None, status_unknown_reason=reason),),
+    )
+
+    result = recommend(state)
+
+    assert 28 in result.classification.in_flight
+    assert result.next_startable_issue is None
+    assert result.top_action is not None and "uncommitted changes" not in result.top_action.reason
+    assert not any("dirty:true" in item for item in result.top_action.evidence)
+    assert any(item.endswith(":unknown") for item in result.classification.in_flight_evidence[28])
+
+
 def test_unmatched_label_vocabulary_is_reported_instead_of_passing_issue_order_as_rank(
     project_next_scenarios: dict[str, Any],
 ) -> None:
