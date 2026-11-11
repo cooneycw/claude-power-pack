@@ -191,6 +191,7 @@ INVOCATIONS: dict[str, list[list[str]]] = {
     "install-memory-harness.sh": [[]],
     "commands-mirror-sync.sh": [[]],
     "hook-pending-retro.sh": [[]],
+    "ci-provider-advisory.sh": [[]],
     "install-drift.sh": [[]],
     "prompt-context.sh": [[]],
     "retired-surface-prune.py": [["--dry-run"]],

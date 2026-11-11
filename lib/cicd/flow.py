@@ -76,6 +76,10 @@ def provider_lanes(project: str | Path) -> list[tuple[str, str]]:
 def lane_plan(project: str | Path, *, allow_fallback: bool = False) -> dict:
     """Stable offline API for doctor: no probes, subprocesses or record writes.
 
+    One exception, local and read-only (issue #1677): a linked worktree with no
+    record of its own, whose main checkout has one, costs a single
+    `git ls-files` to learn whether that record is tracked.
+
     `status=ok` establishes a recorded plan only. An explicitly allowed fallback
     remains unknown until probing actually happens; `would_trigger` describes
     that future action rather than claiming any provider answered.

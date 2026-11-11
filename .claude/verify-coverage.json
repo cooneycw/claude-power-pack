@@ -237,6 +237,11 @@
       "class": "not-a-checker",
       "reason": "a secret-masking filter for files at rest; it rewrites text and issues no verdict"
     },
+    "ci-provider-advisory.sh": {
+      "class": "tested",
+      "consumer": "tests/test_ci_provider_advisory.py",
+      "reason": "the pre-merge no-recorded-CI-provider advisory relayed by the SessionStart hook and /cpp:update; its control is controls/ci-provider-advisory"
+    },
     "hook-pending-retro.sh": {
       "class": "not-a-checker",
       "reason": "an opt-in advisory reminder; it issues no verdict"
