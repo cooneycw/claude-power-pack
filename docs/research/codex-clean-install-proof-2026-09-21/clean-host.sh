@@ -13,7 +13,7 @@
 #
 # Usage: clean-host.sh <sandbox-home> <command...>
 # Verify containment (never assume it):
-#   clean-host.sh "$SB" /bin/bash -c 'ls /home/cooneycw/Projects; find / -name "flow-*.sh"'
+#   clean-host.sh "$SB" /bin/bash -c 'ls /home/user/Projects; find / -name "flow-*.sh"'
 set -euo pipefail
 SBHOME="$1"; shift
 [ -d "$SBHOME" ] || { echo "clean-host: sandbox home does not exist: $SBHOME" >&2; exit 2; }

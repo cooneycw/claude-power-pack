@@ -22,7 +22,7 @@ section; nothing earlier is edited, and every check reads only its own run.
 commits: ff0bbdf9 (#1545) only, which adds one more affected call. PRs: #1545. dup/super: none (#1408 introduced the
 rewrite, #1543 added the merge block). Host: no sibling worktree with unpushed commits on these paths.
 Pre-fix reds on ff0bbdf9 using the real flow-auto mirror line: scratch target -> exit 127; decoy target -> DECOY-GATE-RAN, exit 0.
-Codex 0.164.0: the system prompt gives the absolute SKILL.md location (alias r0=/home/cooneycw/.codex/skills) and says
+Codex 0.164.0: the system prompt gives the absolute SKILL.md location (alias r0=/home/user/.codex/skills) and says
 "Resolve relative paths against the directory containing a filesystem-backed SKILL.md"; a live `codex exec` env had no
 skill-dir variable and no CODEX_HOME, with pwd = target. Skill roots per OpenAI docs: .agents/skills (cwd..repo root),
 ~/.agents/skills, /etc/codex/skills, system; plus ~/.codex/skills on this host.

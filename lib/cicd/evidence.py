@@ -130,12 +130,33 @@ def redact_url(url: Optional[str]) -> Optional[str]:
     return urlunsplit((parts.scheme, host, parts.path, "", ""))
 
 
+def home_relative(path: str | None, home: Path | None = None) -> str | None:
+    """Record a path under the home directory as `~/...` (issue #1689).
+
+    A record can be committed (the pilot's specimen is), and an absolute path
+    names the host account and its home layout, which are not evidence. `~` is
+    expanded again where the path is compared (`Path.expanduser`), so a record
+    still says which worktree made it to a reader on the same host. A path
+    outside the home directory is recorded unchanged.
+    """
+    if not path:
+        return path
+    home_text = (home or Path.home()).as_posix()
+    if home_text in ("", "/"):
+        return path
+    if path == home_text:
+        return "~"
+    if path.startswith(home_text + "/"):
+        return "~" + path[len(home_text):]
+    return path
+
+
 def repository_identity(root: Path) -> dict[str, Any]:
     common = _git(root, "rev-parse", "--path-format=absolute", "--git-common-dir")
     return {
         "origin": redact_url(_git(root, "remote", "get-url", "origin")),
-        "common_dir": common,
-        "worktree": _git(root, "rev-parse", "--show-toplevel"),
+        "common_dir": home_relative(common),
+        "worktree": home_relative(_git(root, "rev-parse", "--show-toplevel")),
         "branch": _git(root, "branch", "--show-current") or None,
     }
 
@@ -919,7 +940,8 @@ def verify(path: Path, root: Optional[Path] = None, check_current: bool = True) 
             if not reasons:
                 return UNKNOWN, [f"cannot compute the current tree identity of {target} to compare"], None
         else:
-            if Path(recorded).resolve() != Path(here).resolve():
+            # A record stores a home path as `~/...` (#1689); older ones are absolute.
+            if Path(recorded).expanduser().resolve() != Path(here).resolve():
                 reasons.append(f"record was made in worktree {recorded}, not this checkout {here}")
             if now["head"] != end.get("head"):
                 reasons.append(f"stale: record is for HEAD {end.get('head')}, current HEAD is {now['head']}")

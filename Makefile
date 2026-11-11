@@ -19,7 +19,7 @@
        tools-version-check toolchain-provenance checkout-readers \
        delegated-core-check delegated-core-write \
        version-consistency-check unicode-dashes-check co-authored-by-trailer-check \
-       md-relative-links-check \
+       md-relative-links-check host-account-paths-check \
        qa-regression-demo \
        skill-coverage-map-check skill-coverage-snapshot eval-enrollment-check
 
@@ -406,7 +406,7 @@ verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-impor
 	control-ci-deps-check ci-coverage-check \
 	consolidation-ledger-check host-surface-check cpp-host-writes-check cpp-init-promises-check cpp-init-cicd-args-check \
 	version-consistency-check unicode-dashes-check co-authored-by-trailer-check md-relative-links-check \
-	codex-skill-links-check \
+	codex-skill-links-check host-account-paths-check \
 	behavioral-eval-check eli5-check tool-risk-check skill-coverage-map-check eval-enrollment-check
 	@python3 scripts/verify-coverage-check.py --report
 
@@ -802,6 +802,14 @@ md-relative-links-check:
 ## verify-coverage: gate codex-skill-links-check - every relative markdown link in the generated codex/skills/ mirrors resolves FROM THE MIRROR location (issue #1494); ci: runs codex-skill-links-check
 codex-skill-links-check: codex-skills
 	@python3 scripts/check-md-relative-links.py --codex-skills
+
+## No tracked file names a host account in a home path (issue #1689). This
+## repository is public and its tools record where they ran; the check matches
+## the SHAPE of the path, never the running account, so it sees the same thing
+## in CI as on the host that produced the file.
+## verify-coverage: gate host-account-paths-check - no tracked file names a host account in a home path; ci: runs host-account-paths-check
+host-account-paths-check:
+	@python3 scripts/check-host-account-paths.py
 
 ## verify-coverage: gate co-authored-by-trailer-check - the Co-Authored-By trailer names a real model; ci: excluded needs-git
 co-authored-by-trailer-check:

@@ -1655,7 +1655,48 @@ def _adapter(args: argparse.Namespace, role: str) -> tuple[list[str], dict, list
     evidence.update({"kind": kind, "runtime": runtime, "models": identities, "sources": sources})
     if kind == "exec_log":
         evidence["exec_log"] = sources[0]["path"]
+    # LAST, after every in-run read-back above has used the real paths: the
+    # stored record names no host account (issue #1689).
+    for source in sources:
+        source["path"] = _redact_home_account(source["path"])
+    for pointer in ("transcript", "rollout", "database", "exec_log"):
+        if isinstance(evidence.get(pointer), str):
+            evidence[pointer] = _redact_home_account(evidence[pointer])
     return identities, evidence, records
+
+
+#: The stand-in for the host account in a recorded evidence path.
+HOME_ACCOUNT_PLACEHOLDER = "user"
+
+
+def _redact_home_account(recorded: str, home: Path | None = None) -> str:
+    """Replace the host account's name in a recorded evidence path (issue #1689).
+
+    Claude and Qwen name a project's transcript directory after the session's
+    working directory, so a path relative to the projects directory still
+    begins `-home-<account>-...`. A receipt is committed to a public
+    repository; the account name and home layout of the machine a review ran on
+    are not evidence and do not belong in it. The sha256 beside the path is
+    what identifies the consumed bytes. The recorded path is a pointer for a
+    reader on the producing host, who can still find the file by its session id.
+
+    Only the home directory's own encoding is replaced, wherever it starts a
+    path component: an account name that happens to appear elsewhere in a file
+    name is left alone, because rewriting it would damage a real name.
+    """
+    home = home or Path.home()
+    plain = home.as_posix()
+    if not plain.startswith("/") or home.name in ("", HOME_ACCOUNT_PLACEHOLDER):
+        return recorded
+    neutral = (home.parent / HOME_ACCOUNT_PLACEHOLDER).as_posix()
+    out = recorded.replace(plain, neutral)
+    encoded, neutral_encoded = plain.replace("/", "-"), neutral.replace("/", "-")
+    parts = []
+    for part in out.split("/"):
+        if part == encoded or part.startswith(encoded + "-"):
+            part = neutral_encoded + part[len(encoded):]
+        parts.append(part)
+    return "/".join(parts)
 
 
 def _model_key(identity: str) -> str:

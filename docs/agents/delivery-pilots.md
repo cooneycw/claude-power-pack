@@ -208,7 +208,7 @@ own account.
 The assignment asked whether guidance that routes to a checkout-relative document is
 readable once the skill is installed elsewhere. It is not. Before the fix,
 `~/.codex/skills/flow-auto/reference.md` plus `../../../docs/agents/issue-contract.md`
-resolved to `/home/cooneycw/docs/agents/issue-contract.md`, which does not exist.
+resolved to `/home/user/docs/agents/issue-contract.md`, which does not exist.
 
 Enumeration corrected the worker's own first report: three skills were named, the
 actual set is **six** - `evaluate-issue`, `flow-auto`, `flow-finish`, `flow-merge`,

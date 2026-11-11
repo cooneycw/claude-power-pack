@@ -56,7 +56,7 @@ FLOW_WAVE_SESSION_PIDS='' .venv/bin/python -m pytest -n0 -q tests/test_flow_wave
 
 Run `make verify` in the ordinary developer environment to check the complete failure set. The deterministic command above explicitly declares no session; the defect is that the fixture assumes session ownership without creating it.
 
-Local scan artifacts: `/home/cooneycw/Downloads/cpp-final-scan-evidence-2026-09-25/` (`verify.log`, `lineage-probe.py`, `lineage-probes.json`). The essentials are reproduced here so acceptance does not depend on those local files.
+Local scan artifacts: `/home/user/Downloads/cpp-final-scan-evidence-2026-09-25/` (`verify.log`, `lineage-probe.py`, `lineage-probes.json`). The essentials are reproduced here so acceptance does not depend on those local files.
 
 ## Proposed approach (revisable)
 
