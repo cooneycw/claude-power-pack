@@ -416,6 +416,14 @@ def test_update_binds_the_issue_query_to_the_named_project() -> None:
     assert "the `gh` query runs against that project's repository" in text
 
 
+def test_update_treats_a_full_page_of_fixes_as_truncated() -> None:
+    """A list cut at the limit reads as a complete one, and the stamp then hides the rest."""
+    text = normalized(read("lane/update.md"))
+    assert "A full page is a truncated list." in text
+    assert "until a query returns fewer than its limit" in text
+    assert "leave the review date where it was" in text
+
+
 def test_update_says_what_to_search_when_the_file_is_undated() -> None:
     text = normalized(read("lane/update.md"))
     assert "With no usable review date" in text

@@ -64,6 +64,12 @@ gh issue list --state closed --search "closed:>=<LANE_FILE_REVIEWED date> fix in
 days instead, and tell the owner that this period was chosen because the file
 was undated - older fixes were not read.
 
+**A full page is a truncated list.** If the query returns exactly as many
+issues as its `--limit`, more were closed than it showed. Do not stamp over
+that: re-run with a higher `--limit`, or split the period into shorter windows,
+until a query returns fewer than its limit. If you cannot, tell the owner which
+period went unread, and leave the review date where it was.
+
 Scan the titles for work that failed in one route and worked in another, and
 offer each as a candidate lane. If `gh` cannot be read, say so: the list was
 not examined, which is not the same as no candidates.
