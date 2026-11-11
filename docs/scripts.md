@@ -111,6 +111,7 @@ legitimately about something other than one script is declared on the marker bel
 - `knowledge-graduation-check` - verifies completed-spec knowledge mapping and its lifecycle decision. [reference](scripts/persistent-context-checks.md)
 - `lane-serveability-check` - says whether a local-model lane can actually serve (#895). [reference](scripts/lane-serveability-check.md)
 - `maintain-loop-indicator` - leading indicator of whether recorded findings reach the backlog. [reference](scripts/maintain-loop-indicator.md)
+- `monthly-review` - reports and writes the month's review issue for `/monthly:*` (#1703). [reference](scripts/monthly-review.md)
 - `mcp-drift` - detects and tears down orphaned Docker MCP infrastructure. [reference](scripts/mcp-drift.md)
 - `measurement-shape-scan` - flags cwd-relative git measurement shapes in a transcript (#666). [reference](scripts/measurement-shape-scan.md)
 - `memories-db-setup` - sets up the memories database; reaches outside `$HOME`. [reference](scripts/memories-db-setup.md)
