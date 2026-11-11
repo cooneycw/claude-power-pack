@@ -101,11 +101,14 @@ def test_a_review_issue_is_ordinary_startable_work(tmp_path: Path, capsys) -> No
 def test_a_closed_listing_that_fills_its_bound_is_unknown_without_this_month() -> None:
     """Counter-model review: 30 rows came back, none for this month, and it read `none`."""
     today = date(2026, 12, 9)
+    complete = project_next._complete_closed_listing
+
+    def verdict(closed: list[dict] | None) -> str:
+        return project_next.monthly.review_state([], closed, today).verdict
+
     full = [{"number": n, "title": f"Monthly review: 20{n:02d}-01"} for n in range(project_next.CLOSED_REVIEW_LIMIT)]
-    assert project_next._complete_closed_listing(full, today) is None
-    assert project_next.monthly.review_state([], project_next._complete_closed_listing(full, today), today).verdict == "unknown"
+    assert complete(full, today) is None and verdict(complete(full, today)) == "unknown"
     short = full[:-1]
-    assert project_next._complete_closed_listing(short, today) == short
-    assert project_next.monthly.review_state([], short, today).verdict == "none"
+    assert complete(short, today) == short and verdict(short) == "none"
     with_match = [*full[:-1], {"number": 99, "title": "Monthly review: 2026-12"}]
-    assert project_next.monthly.review_state([], project_next._complete_closed_listing(with_match, today), today).verdict == "done"
+    assert verdict(complete(with_match, today)) == "done"

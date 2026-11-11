@@ -241,7 +241,8 @@ def scan_nit_store(runner: Runner, resolver: Path, today: date) -> tuple[list[It
     if status.group(1) == "none":
         return [Item(source, "clear", "this repository has no open Nit Store")], None
     if status.group(1) != "ok" or number is None:
-        return [Item(source, "unread", f"the Nit Store could not be resolved ({status.group(2) or status.group(1)})")], None
+        why = status.group(2) or status.group(1)
+        return [Item(source, "unread", f"the Nit Store could not be resolved ({why})")], None
     store = int(number.group(1))
     code, out = runner(["gh", "issue", "view", str(store), *repo_args(repo), "--json", "comments,createdAt"])
     try:
