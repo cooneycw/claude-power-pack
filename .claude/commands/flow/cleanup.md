@@ -1,6 +1,6 @@
 ---
 description: Clean up stale worktrees and branches, and offer archival of finished waves
-allowed-tools: Bash(git:*), Bash(gh api:*), Bash(mktemp:*), Bash(printf:*), Bash(awk:*), Bash(grep:*), Bash(wc:*), Bash(echo:*), Bash(jq:*), Bash(~/.claude/scripts/flow-worktree-sweep.sh:*), Bash(~/.claude/scripts/flow-wave-registry.sh:*), Read
+allowed-tools: Bash(git:*), Bash(gh pr list:*), Bash(mktemp:*), Bash(printf:*), Bash(awk:*), Bash(grep:*), Bash(wc:*), Bash(echo:*), Bash(jq:*), Bash(~/.claude/scripts/flow-worktree-sweep.sh:*), Bash(~/.claude/scripts/flow-wave-registry.sh:*), Read
 ---
 
 # Flow: Cleanup - Prune Stale Worktrees and Branches
@@ -40,14 +40,6 @@ Run this FIRST, before anything below prunes or fetches. Ordering is
 load-bearing and the reason is in Step 5: `git fetch --prune` destroys one of the
 two signals this step needs.
 
-Until #887 this command removed worktree *references* and protected every branch
-that had a worktree, so nothing removed a worktree at all. That was not an
-oversight in this command - it is that nobody owned teardown. `gh pr merge
---delete-branch` deletes the remote branch and then fails `git branch -d`,
-because git refuses while a worktree holds the branch and `gh` has no notion of
-worktrees. The error is correct to ignore, which is exactly why the worktrees
-pile up: 33 of them and 3.1G after a single wave on cooneycw/kyle.
-
 ```bash
 ~/.claude/scripts/flow-worktree-sweep.sh --repo "$MAIN_REPO"
 ```
@@ -59,8 +51,7 @@ That is a **dry run** and removes nothing. Read the report, then apply:
 ```
 
 `--apply` re-derives every condition itself. The dry-run output is a report, not
-a manifest to execute - the state moves while a wave runs, which is why #887
-specifies verification at removal time.
+a manifest to execute.
 
 Read the contract lines rather than the prose:
 
@@ -117,7 +108,7 @@ Note: `git worktree prune` deliberately skips a LOCKED entry, so a worktree
 still carrying a live `/flow` claim (issue #597) is never pruned even if its
 directory is gone. Step 2's sweep skips a locked entry for the
 same reason and never passes `--steal`, so the two agree: a claim outranks both
-of them. That is the intended asymmetry - a claim outranks cleanup.
+of them.
 Inspect one with `~/.claude/scripts/flow-worktree-claim.sh check --issue <N>`;
 a claim whose owning process is gone reports `stale` and is released by the
 next run that needs the worktree.
@@ -141,32 +132,40 @@ For each merged branch:
 1. Skip if it has an active worktree
 2. Delete it with `git -C "$MAIN_REPO" branch -d "$BRANCH"`
 
-**Important:** Some branches from squash-merged PRs won't show as `--merged`. Also check for branches whose remote counterpart has been deleted:
+**A gone upstream is not proof of a merge (#1708):** a remote branch also goes
+when deleted unmerged, leaving the local one the only copy. Squash merges never
+show as `--merged`, so force-delete only a branch whose CURRENT tip is proven landed:
 
 ```bash
-# Find local issue-* branches whose remote tracking branch is gone
-for branch in $(git -C "$MAIN_REPO" branch | grep 'issue-' | sed 's/^[ *]*//' ); do
-    # Skip if branch has an active worktree
-    echo "$WORKTREE_BRANCHES" | grep -q "^${branch}$" && continue
-
-    # Check if remote tracking branch exists
+REPO=$(git -C "$MAIN_REPO" remote get-url origin | sed -E 's#^(git@|https://)github\.com[:/]##; s#\.git$##')
+for branch in $(git -C "$MAIN_REPO" branch --format='%(refname:short)' --list 'issue-*'); do
+    echo "$WORKTREE_BRANCHES" | grep -qx "$branch" && continue
     REMOTE=$(git -C "$MAIN_REPO" config "branch.${branch}.remote" 2>/dev/null || echo "")
     MERGE_REF=$(git -C "$MAIN_REPO" config "branch.${branch}.merge" 2>/dev/null || echo "")
-
-    if [[ -n "$REMOTE" && -n "$MERGE_REF" ]]; then
-        REMOTE_REF="refs/remotes/${REMOTE}/$(echo "$MERGE_REF" | sed 's|refs/heads/||')"
-        if ! git -C "$MAIN_REPO" show-ref --verify --quiet "$REMOTE_REF" 2>/dev/null; then
-            # Remote branch is gone - safe to delete locally
-            # (The PR was merged and remote branch deleted)
-            echo "Remote deleted: $branch"
-        fi
+    [[ -n "$REMOTE" && -n "$MERGE_REF" ]] || continue
+    git -C "$MAIN_REPO" show-ref --verify --quiet "refs/remotes/${REMOTE}/${MERGE_REF#refs/heads/}" && continue
+    TIP=$(git -C "$MAIN_REPO" rev-parse "refs/heads/$branch")
+    # Proof 1: the merge helper recorded this commit as landed (#916).
+    if [[ "$(git -C "$MAIN_REPO" config "branch.${branch}.cpp-merged-head" 2>/dev/null)" == "$TIP" ]]; then
+        echo "DELETE: $branch (landed: merge-helper record)"; continue
+    fi
+    # Proof 2: a MERGED PR here whose head is this commit.
+    PRS=$(gh pr list -R "$REPO" --head "$branch" --state merged --json headRefOid 2>/dev/null) || PRS=""
+    if ! printf '%s' "$PRS" | jq -e 'type == "array"' >/dev/null 2>&1; then
+        echo "KEPT: $branch (could not ask GitHub)"
+    elif printf '%s' "$PRS" | jq -e --arg t "$TIP" 'any(.[]; .headRefOid == $t)' >/dev/null; then
+        echo "DELETE: $branch (landed: merged PR head)"
+    elif printf '%s' "$PRS" | jq -e 'length > 0' >/dev/null; then
+        echo "KEPT: $branch (tip differs from merged head)"
+    else
+        echo "KEPT: $branch (no merged PR)"
     fi
 done
 ```
 
-For branches where the remote was deleted (PR merged + `--delete-branch`), use `git branch -D` since squash merges don't register as fully merged.
-
-Report each branch deleted and the reason (merged to main, or remote branch deleted).
+Run `git -C "$MAIN_REPO" branch -D` on `DELETE:` branches only. Never delete a
+`KEPT:` branch: a failed, empty or unreadable answer is unknown, not "no PR".
+Report each deleted branch with its proof and each kept branch with its reason.
 
 ### Step 5: Prune Stale Remote Tracking Branches
 
@@ -237,7 +236,8 @@ Report `FLOW_WAVE_ARCHIVE` and `FLOW_WAVE_BYTES_FREED` for each closed wave.
 
 ### Local Branches Deleted
   {branch-1} (merged to main)
-  {branch-2} (remote branch deleted - squash-merged PR)
+  {branch-2} (landed: merge-helper record | merged PR head)
+  Kept, not proven landed: {branch-3} ({reason})
   ... or "No stale branches found"
 
 ### Remote Tracking Branches
@@ -329,7 +329,7 @@ draft PRs for a historical backlog; report the missing handoff instead.
   passes `--force`. Step 6 removes wave state only after a verified archive and
   the user's per-wave selection. Other steps remove references and branches.
 - Only deletes `issue-*` pattern branches in the squash-merge detection path (other branches require `--merged` confirmation)
-- Use `git branch -d` (safe delete) for merged branches, `git branch -D` (force) only for branches whose remote was deleted
+- Use `git branch -d` (safe delete) for merged branches, `git branch -D` (force) only for a `DELETE:` branch from Step 4
 - Run automatically after `/flow:merge` or manually anytime
 - Normal cleanup needs network access for `git fetch --prune`; a deliberate
   preserved-WIP handoff also needs GitHub publication and readback.
