@@ -84,19 +84,15 @@ desktop.ini
 # own copies under controls/, which this pattern covers too.
 !.claude/verify-coverage.json
 !controls/**/.claude/verify-coverage.json
-# Runtime data a bundled Codex helper reads (#1028) - checked in by design, and
-# the blanket *.json rule is exactly what it must survive. `codex-skill-sync.py`
-# bundles `.claude/project-next-vendor.json` beside the entry point that reads it
-# at rank time; ignored, the generated mirror is INCOMPLETE in every fresh clone
-# while looking complete on the author's box, and `codex-skills-check` reds in CI
-# with MISSING. The pattern is the bundle location, not one file, so the next
-# bundled manifest is covered too.
-!codex/skills/**/.claude/*.json
-# #1448 moved the project-next pin into the engine package, so the bundle now
-# carries it at lib/project_next/ownership.json - a location the `.claude/`
-# pattern above does not reach. Without this line the mirror was generated and
-# then silently skipped by `git add`, exactly as described above.
-!codex/skills/**/lib/project_next/ownership.json
+# Generated Codex skill mirrors are BUILD OUTPUT, not a tracked tree (issue
+# #1670, ADR 0013). `scripts/codex-skill-sync.py --write` (make codex-skills)
+# builds them from .claude/commands/, scripts/, lib/ and docs/; committing them
+# made every ordinary PR rewrite its copies and their SHA256SUMS manifests.
+# Only the README is tracked, so the directory explains itself in a fresh clone.
+# The two `!codex/skills/**` negations that stood here (#1028, #1448) existed to
+# keep bundled *.json files TRACKED and are gone with the tracked tree.
+/codex/skills/*
+!/codex/skills/README.md
 # CPP's ownership pin for the project-next engine (#1069) - checked in by
 # design, and the blanket *.json rule is exactly what it must survive. It IS the
 # offline gate's source of truth AND the runtime contract-version pin that

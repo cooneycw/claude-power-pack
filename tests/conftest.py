@@ -176,8 +176,9 @@ def _refuse_install_dest_env() -> str:
     return str(module.REFUSE_INSTALL_DEST_ENV)
 
 
-def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
+def pytest_configure(config: pytest.Config) -> None:
     """Arm the host-install refusal for this process and everything it spawns."""
+    _build_codex_skills(config)
     try:
         name = _refuse_install_dest_env()
         dest = Path.home() / ".codex" / "skills"
@@ -185,6 +186,55 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
         _HOST_INSTALL_GUARD_UNARMED.append(f"{type(exc).__name__}: {exc}")
         return
     os.environ[name] = str(dest)
+
+
+# --------------------------------------------------------------------------- #
+# codex/skills/ is build output, so the suite builds it (#1670)
+# --------------------------------------------------------------------------- #
+# Some forty test files read the generated Codex skills under `codex/skills/`.
+# While that tree was tracked, a fresh clone simply had it. It is ignored build
+# output now (ADR 0013), so a fresh clone has only its README and every one of
+# those tests would fail on a missing file that no commit removed.
+#
+# BUILT ONCE, BY THE CONTROLLER. An xdist worker carries `workerinput`; letting
+# each worker regenerate would have a dozen processes rewriting files the
+# others are reading.
+#
+# A FAILED BUILD STOPS THE RUN. Carrying on would turn one generator error into
+# hundreds of unrelated-looking failures, and a stale tree left from an earlier
+# build would be worse: those tests would pass against yesterday's skills.
+#
+# `--write` REGENERATES, it does not merely fill gaps: it rewrites any file that
+# differs and prunes what is no longer generated, so the tree the suite reads is
+# the one the current sources produce.
+#
+# ONCE PER SESSION TREE, NOT ONCE PER PROCESS. Several tests start a nested
+# pytest (`pytester`) that loads this same conftest, some of them against a
+# fake repository root with no generator in it. A nested run rebuilding the
+# tree would rewrite it under the parallel session that is reading it. The
+# environment variable is inherited by every child, so only the outermost
+# process builds.
+_CODEX_SKILLS_BUILT_ENV = "CPP_TEST_CODEX_SKILLS_BUILT"
+
+
+def _build_codex_skills(config: pytest.Config) -> None:
+    if hasattr(config, "workerinput") or os.environ.get(_CODEX_SKILLS_BUILT_ENV):
+        return
+    import subprocess
+    import sys
+
+    script = REPO_ROOT / "scripts" / "codex-skill-sync.py"
+    result = subprocess.run(
+        [sys.executable, str(script), "--write"],
+        capture_output=True, text=True, timeout=300, check=False,
+    )
+    if result.returncode != 0:
+        raise pytest.UsageError(
+            "could not build codex/skills/ before the test session"
+            f" (codex-skill-sync.py --write exited {result.returncode}):\n"
+            f"{result.stdout}{result.stderr}"
+        )
+    os.environ[_CODEX_SKILLS_BUILT_ENV] = str(REPO_ROOT)
 
 
 @pytest.fixture(autouse=True)

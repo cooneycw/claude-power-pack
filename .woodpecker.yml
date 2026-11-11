@@ -2,7 +2,7 @@
 # Runs quality gates.
 #
 # Pipeline:
-#   PR/push -> secret-scan -> validate (lint+test+typecheck) + codex-skills-check
+#   PR/push -> secret-scan -> codex-skills-generate -> validate (lint+test+typecheck) + codex-skills-check
 #              + delegated-core-check + dependency-audit + bandit-audit
 #              + undeclared-import-audit
 #              + eli5-vendor-check
@@ -130,7 +130,10 @@ steps:
 
   validate:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
-    depends_on: [secret-scan, shellcheck-stage, jq-stage, make-stage, git-stage]
+    # codex-skills-generate: some forty test files read codex/skills/. The
+    # suite's conftest builds the tree itself, but it must not be the FIRST
+    # writer while sibling steps read the same workspace (#1670).
+    depends_on: [secret-scan, shellcheck-stage, jq-stage, make-stage, git-stage, codex-skills-generate]
     # THE CAP IS DECLARED, NEVER `auto` (issues #640, #1086). `-n auto` means one
     # worker per core, and `nproc` is 24 on the agent host while flow sessions run
     # full suites beside the pipeline; multiplied by the invocations actually in
@@ -179,14 +182,33 @@ steps:
         -k "SubsumedGates or ResumeSettlesDeferredGates" -q -rs --no-header
       - uv run mypy .
 
-  # Explicit Codex-skill drift gate (issue #556): the pytest suite already checks
-  # currency via test_codex_skill_sync.py, but a dedicated step makes an out-of-sync
-  # codex/skills/ fail CI loudly on its own line. The generator is stdlib-only and
-  # git-free, so it runs directly under the slim image (no `make`, matching the
-  # uv-direct style of the steps above). Same command `make codex-skills-check` wraps.
-  codex-skills-check:
+  # BUILD THE CODEX SKILL MIRRORS (issue #1670, ADR 0013). `codex/skills/` is
+  # ignored build output, so a fresh checkout holds only its README. Every step
+  # that READS the tree depends on this one, and it is one step rather than a
+  # `--write` in each reader because steps run concurrently in one workspace:
+  # several writers would be rewriting files the others are reading.
+  #
+  # NOT named `*-stage`: that suffix is the convention `flow-ci-status.sh` reads
+  # as "a stager that fetches a tool", where exit 75 means a fetch failure
+  # (#1411). This step fetches nothing; a failure here is the generator's.
+  #
+  # The generator is stdlib-only and git-free, so it runs under the slim image.
+  codex-skills-generate:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
     depends_on: [secret-scan]
+    commands:
+      - python3 scripts/codex-skill-sync.py --write
+
+  # Does the BUILT tree match what the generator produces (issue #556)? Since
+  # #1670 nothing is committed to drift, so on the tree the step above just
+  # built this proves the generator is complete (no UNPACKAGED source) and
+  # deterministic - NOT that any mirror a host has installed is current. The
+  # refusal of a mirror that differs from its source is at `--install`
+  # (controls/codex-skill-install-fidelity); installed copies are
+  # install-drift.sh's question. Same command `make codex-skills-check` wraps.
+  codex-skills-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [codex-skills-generate]
     commands:
       - python3 scripts/codex-skill-sync.py --check
 
@@ -352,7 +374,9 @@ steps:
   # crash still fails.
   skill-coverage-map-check:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
-    depends_on: [secret-scan]
+    # Reads the BUILT codex/skills/ tree (#1670): without the generate step it
+    # would hash an empty tree and print a different, equally green, advisory.
+    depends_on: [codex-skills-generate]
     commands:
       - python3 scripts/check-skill-coverage-map.py --advisory
 
@@ -364,7 +388,8 @@ steps:
   # this image.
   eval-enrollment-check:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
-    depends_on: [secret-scan]
+    # Reads the BUILT codex/skills/ tree (#1670); see skill-coverage-map-check.
+    depends_on: [codex-skills-generate]
     commands:
       - python3 scripts/check-eval-enrollment.py --advisory
 
@@ -550,7 +575,7 @@ steps:
   # its source location can still be dead once copied to a different depth.
   codex-skill-links-check:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
-    depends_on: [git-stage]
+    depends_on: [git-stage, codex-skills-generate]
     commands:
       - python3 scripts/check-md-relative-links.py --codex-skills
 
@@ -823,7 +848,7 @@ steps:
 
   negative-controls:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
-    depends_on: [secret-scan, shellcheck-stage, jq-stage, make-stage, git-stage]
+    depends_on: [secret-scan, shellcheck-stage, jq-stage, make-stage, git-stage, codex-skills-generate]
     commands:
       # `.ci-bin` carries the PINNED shellcheck staged by shellcheck-stage
       # and the PINNED jq staged by jq-stage.
