@@ -203,6 +203,15 @@ and consumed by brief, compact, and full rendering:
   the branch still exists on the remote (asked of the remote, not of possibly
   unpruned local refs).
 
+- `monthly_review`: the state of this month's review (issue #1703) -
+  `open` (with its number, month, age and how many checklist items remain),
+  `done`, `none`, or `unknown`. Rendered in every mode as a `Monthly review`
+  line. `none` routes to `/monthly:create` and `open` to `/monthly:review`;
+  this command only NAMES the route and never runs it. `unknown` means the
+  closed-review listing could not be read (always, for an `--input` fixture
+  that carries no `monthly_reviews_closed`) and is never evidence that no
+  review exists. It annotates the report and changes no rank or partition.
+
 Lifecycle defaults to `active` when `spec.md` has no `lifecycle` frontmatter,
 preserving compatibility with pre-Wayfinder specs. An active spec becomes
 `stale` only when its spec-sync issue state conflicts with the engine's current
@@ -293,6 +302,8 @@ issue on premise grounds stays a reviewer decision.
 - All modes use the same engine result, lifecycle decisions, relationship
   evidence, and Wayfinder routes. Renderers do not reclassify them.
 - Planning-only Wayfinder artifacts never display a `/flow:auto` route.
+- When the `Monthly review` line reads `none` or `OVERDUE`, say so beside the
+  pick with its route. It is a prompt, never the pick itself.
 - A premise flag annotates a ranked issue; it never re-ranks, filters, or hides
   one.
 - A malformed engine package, fixture corpus, manifest hash, import, or
