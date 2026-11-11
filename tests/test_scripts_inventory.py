@@ -118,6 +118,11 @@ def test_every_entry_claim_resolves_to_a_script_or_a_declaration():
 #: A generous ceiling for one index line. The longest at the split was 22 words.
 INDEX_LINE_WORD_CEILING = 45
 
+#: Whole-index budget: a fixed allowance for the preamble plus a per-script
+#: allowance. At the split the index was 1,815 words for 128 scripts.
+INDEX_PREAMBLE_WORD_BUDGET = 500
+INDEX_WORDS_PER_SCRIPT = 25
+
 _REFERENCE_LINK_RE = re.compile(r"\]\((scripts/[^)#\s]+\.md)\)")
 
 
@@ -129,6 +134,20 @@ def index_shape_findings(doc: str, stems: set[str], docs_dir: Path) -> list[str]
         heading = sic.HEADING_RE.match(line)
         if heading and heading.group(1) in stems:
             findings.append(f"script section in the index: {line.strip()[:60]}")
+    # A bullet's CONTINUATION is part of the bullet: counting only its first
+    # physical line let a history paragraph sit under a short line unseen
+    # (counter-model review, #1672). So any text directly under a bullet is a
+    # finding, and the whole index has a budget as the backstop.
+    previous_is_bullet = False
+    for line in lines:
+        is_bullet = line.startswith("- ")
+        if previous_is_bullet and line.strip() and not is_bullet and not line.startswith("#"):
+            findings.append(f"text continues under an index bullet: {line.strip()[:60]}")
+        previous_is_bullet = is_bullet or (previous_is_bullet and bool(line.strip()) and not line.startswith("#"))
+    total = sum(len(line.split()) for line in lines)
+    budget = INDEX_PREAMBLE_WORD_BUDGET + INDEX_WORDS_PER_SCRIPT * len(stems)
+    if total > budget:
+        findings.append(f"the index is {total} words, over its budget of {budget}")
     for stem in sorted(stems):
         own = [ln for ln in lines if (m := sic.BULLET_RE.match(ln)) and m.group(1) == stem]
         if len(own) != 1:
@@ -160,6 +179,8 @@ def test_the_real_index_is_one_line_per_script():
         ("- `alpha-tool` - x\n- `alpha-tool` - history\n", "2 index line(s)"),
         ("- `alpha-tool` - " + "word " * 60 + "\n", "history belongs in its reference"),
         ("- `alpha-tool` - x. [reference](scripts/gone.md)\n", "does not exist"),
+        ("- `alpha-tool` - x\n  Historical detail.\n  More of it.\n", "continues under an index bullet"),
+        ("- `alpha-tool` - x\n\n" + "Historical detail. " * 400 + "\n", "over its budget"),
     ],
 )
 def test_the_index_shape_check_discriminates(tmp_path, doc, expected):
