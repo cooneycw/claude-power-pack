@@ -11,7 +11,7 @@
   "ci_deps_provided_by_invocation": [
     "curl"
   ],
-  "limits": "WHAT THIS ESTABLISHES: that scripts/flow-ci-status.sh's FLOW_CI_FAILURE_ORIGIN classifies a failed commands-type step by its EXIT CODE (75, EX_TEMPFAIL - the convention ci-stage-jq.py/ci-stage-git.py/ci-stage-make.py all return for 'could not fetch'), not only by the provider's step TYPE (clone). The bad case (a jq-stage-shaped step failing with exit 75) must report precode; the good case (the same step failing with exit 1, the sha256/scheme-mismatch code) must still report code - the must-not-flip anchor, since laundering a tampered-bytes finding into precode would be worse than the defect #1411 fixes. The gate's OWN exit code does not vary with this distinction (it is 0 unless --exit-code is passed, and then 1 for any failure, precode or not), so run-case.sh does not pass it through: it reads FLOW_CI_FAILURE_ORIGIN from stdout and recomputes a verdict-shaped exit itself (0 for code, 1 for precode), which is what good_exit and detect_signal are read against. NO NETWORK, NO WOODPECKER SERVER: run-case.sh puts a stub curl first on PATH and answers the gate's three real calls (repo lookup, pipeline list, one pipeline's workflow detail) from fixed JSON, varying only the one failed step's exit_code per case - the same no-network shape controls/lane-serveability-check already uses for an HTTP-fetching gate. TRANSPORT IS NOT EXERCISED: this proves the CLASSIFICATION of a given exit code, not how Woodpecker's API actually renders one, and not the woodpecker-cli fallback lane (a separate code path this control does not reach - it has no verified way to carry a per-step exit code today, so it stays on the pre-#1411 behaviour by construction, not by a case here). Does not cover the clone-type half of FLOW_CI_FAILURE_ORIGIN (#1342's own prior control, if one exists, or the existing tests/test_flow_ci_status.py cases), the MIXED verdict, or a step with no exit_code field at all. MEASURED directly (issue #1411): the first draft of run-case.sh's embedded curl stub used bash's ${@: -1} to read the last argument, and /bin/sh here resolves to dash - a silent 'Bad substitution' on every stub invocation, which wp_api's own 2>/dev/null swallowed into an empty REPO_ID and read as 'no provider answered', not as a stub bug. Fixed with a POSIX-safe 'for url in \"$@\"; do :; done' loop; the case file below is what caught it, by failing to run at all rather than by scoring wrong. These cases exercise backend evidence with CPP_FLOW_CI_BACKEND=probe; recorded-provider dispatch is independently tested in tests/test_flow_recorded_providers.py.",
+  "limits": "WHAT THIS ESTABLISHES: that scripts/flow-ci-status.sh's FLOW_CI_FAILURE_ORIGIN classifies a failed commands-type step by its EXIT CODE (75, EX_TEMPFAIL - the convention ci-stage-jq.py/ci-stage-git.py/ci-stage-make.py all return for 'could not fetch'), not only by the provider's step TYPE (clone). The bad case (a jq-stage-shaped step failing with exit 75) must report precode; the good case (the same step failing with exit 1, the sha256/scheme-mismatch code) must still report code - the must-not-flip anchor, since laundering a tampered-bytes finding into precode would be worse than the defect #1411 fixes. The gate's OWN exit code does not vary with this distinction (it is 0 unless --exit-code is passed, and then 1 for any failure, precode or not), so run-case.sh does not pass it through: it reads FLOW_CI_FAILURE_ORIGIN from stdout and recomputes a verdict-shaped exit itself (0 for code, 1 for precode), which is what good_exit and detect_signal are read against. NO NETWORK, NO WOODPECKER SERVER: run-case.sh puts a stub curl first on PATH and answers the gate's three real calls (repo lookup, pipeline list, one pipeline's workflow detail) from fixed JSON, varying only the one failed step's exit_code per case - the same no-network shape controls/lane-serveability-check already uses for an HTTP-fetching gate. TRANSPORT IS NOT EXERCISED: this proves the CLASSIFICATION of a given exit code, not how Woodpecker's API actually renders one, and not the woodpecker-cli fallback lane (a separate code path this control does not reach - it has no verified way to carry a per-step exit code today, so it stays on the pre-#1411 behaviour by construction, not by a case here). Does not cover the clone-type half of FLOW_CI_FAILURE_ORIGIN (#1342's own prior control, if one exists, or the existing tests/test_flow_ci_status.py cases), the MIXED verdict, or a step with no exit_code field at all. MEASURED directly (issue #1411): the first draft of run-case.sh's embedded curl stub used bash's ${@: -1} to read the last argument, and /bin/sh here resolves to dash - a silent 'Bad substitution' on every stub invocation, which wp_api's own 2>/dev/null swallowed into an empty REPO_ID and read as 'no provider answered', not as a stub bug. Fixed with a POSIX-safe 'for url in \"$@\"; do :; done' loop; the case file below is what caught it, by failing to run at all rather than by scoring wrong. These cases exercise backend evidence with CPP_FLOW_CI_BACKEND=probe; recorded-provider dispatch is independently tested in tests/test_flow_recorded_providers.py. IMAGE PULL (issue #1508): run-case.sh also varies the failed step's `error` text from an optional `error` file. The two bad cases are VERBATIM from a deliberate bad-image run, CPP repo 1 pipeline 3674 on 2026-11-11 against Woodpecker server 3.19.0 (server self-report): three steps, each `type=commands state=failure exit_code=0`, errors `failed to resolve reference` (missing tag, and unreachable registry) and `pull access denied for` (missing repository). WHAT THAT DOES NOT ESTABLISH: a registry outage or rate limit part-way through a pull, an auth failure against a private registry that exists, a non-Docker backend, or another Docker/Woodpecker version may word the error differently - an unrecognised wording stays `code`, which is the safe direction. The rule matches the daemon's wording as a prefix, so a reworded daemon message silently returns pull failures to `code`; nothing here detects that. It names WHERE the failure happened, not whose fault: a change that itself points a step at a nonexistent image reads precode. The historical anchor predates the error field entirely, so it reads both bad cases as code.",
   "cases": [
     {
       "name": "bad-fetch-failure-exit-75",
@@ -28,6 +28,42 @@
       "input": "cases/good-non-stager-exit-75",
       "expect": "GOOD",
       "why": "A `validate` step exiting 75 - EX_TEMPFAIL is a general code an application may use after running the change. It must stay `code`. Without this case a mutant that drops the `*-stage` name check still passes the control, because both other cases use `jq-stage` (issue #1462)."
+    },
+    {
+      "name": "bad-image-pull-failure",
+      "input": "cases/bad-image-pull-failure",
+      "expect": "BAD",
+      "why": "MEASURED (issue #1508): CPP repo 1 pipeline 3674, step `no-such-tag`, Woodpecker 3.19.0 - `type=commands state=failure exit_code=0` with this error verbatim. The image tag does not exist, the container never started, so none of the change's code ran: it must report precode. The unreachable-registry step of the same pipeline carried the same `failed to resolve reference` prefix."
+    },
+    {
+      "name": "bad-image-pull-access-denied",
+      "input": "cases/bad-image-pull-access-denied",
+      "expect": "BAD",
+      "why": "MEASURED (issue #1508): the same pipeline's `no-such-repository` step, verbatim. The second of the two daemon wordings; without this case a mutant that keeps only the `failed to resolve reference` prefix still passes."
+    },
+    {
+      "name": "good-docker-socket-error-126",
+      "input": "cases/good-docker-socket-error-126",
+      "expect": "GOOD",
+      "why": "MEASURED: kyle repo 17 pipeline 3568, step `test-playwright-push` - the agent lost its Docker socket, exit 126. A different infrastructure failure the issue says must not be conflated with a pull failure; it stays code. Without it a mutant that maps any non-empty error to precode passes."
+    },
+    {
+      "name": "good-bare-exit-126",
+      "input": "cases/good-bare-exit-126",
+      "expect": "GOOD",
+      "why": "Exit 126 with no error text at all must stay code: the rule keys on the measured error, never on an exit code alone."
+    },
+    {
+      "name": "good-other-daemon-error-exit-0",
+      "input": "cases/good-other-daemon-error-exit-0",
+      "expect": "GOOD",
+      "why": "A never-started step (exit 0) carrying a daemon error that is NOT a pull failure. The text is measured (a workflow-level error on this server); its placement on a step is constructed. Without it a mutant that drops the two-prefix test and accepts any exit-0 daemon error passes."
+    },
+    {
+      "name": "good-pull-text-after-exit-1",
+      "input": "cases/good-pull-text-after-exit-1",
+      "expect": "GOOD",
+      "why": "CONSTRUCTED, not measured: the pull wording on a step whose command really exited 1. Without it a mutant that drops the exit-code-0 half passes, and that half is what refuses to excuse a step that ran."
     }
   ],
   "anchors": [
