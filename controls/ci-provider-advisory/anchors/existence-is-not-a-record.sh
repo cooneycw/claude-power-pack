@@ -32,6 +32,13 @@
 
 set -u
 
+# The project is the one NAMED (or the cwd), never one an inherited GIT_DIR or
+# GIT_WORK_TREE selects: with those set, `git -C` would answer for a neighbour
+# and this line would name the wrong project, or stay silent for it.
+while IFS= read -r inherited; do
+    unset "$inherited"
+done < <(compgen -e | grep '^GIT_' || true)
+
 target="${1:-.}"
 top="$(git -C "$target" rev-parse --show-toplevel 2>/dev/null)" || exit 0
 [ -n "$top" ] && [ -d "$top" ] || exit 0

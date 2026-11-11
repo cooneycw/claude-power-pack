@@ -29,7 +29,7 @@
       "sha": "n/a",
       "origin": "scripts/ci-provider-advisory.sh",
       "path": "anchors/existence-is-not-a-record.sh",
-      "sha256": "450106eec50d3d2da96eeb9fd486fa5195605f8cf41ff4d0bcbc6dc060d623c6",
+      "sha256": "7cf337856435b607e3b3c40c9be87c979910e6421b0e86c29b9a275e3076c6a8",
       "why": "CONSTRUCTED rather than historical: the gate is new in the change that registers this control, so there is no pre-fix commit to vendor. It is the real gate with exactly one edit - a `.claude/cicd.yml` that EXISTS is taken as a recorded provider, without asking the reader. That is the inference ADR 0012 was written against and the state CPP's own repository was in: a config file present, naming no provider. On bad-file-without-providers it prints nothing and the adapter reports silent; on good-recorded it agrees with the gate."
     }
   ]

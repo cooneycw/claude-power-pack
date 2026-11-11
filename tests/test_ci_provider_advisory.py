@@ -143,3 +143,21 @@ def test_a_project_lib_package_does_not_shadow_the_reader(tmp_path: Path):
     result = subprocess.run(["bash", str(ADVISORY)], cwd=project, env=_env(),
                             stdin=subprocess.DEVNULL, capture_output=True, text=True)
     assert "has no recorded CI provider" in result.stdout
+
+
+def test_inherited_git_variables_cannot_select_a_neighbour(tmp_path: Path):
+    """GIT_DIR / GIT_WORK_TREE pointing at a RECORDED neighbour must not silence the named project."""
+    project = _project(tmp_path)
+    neighbour = tmp_path / "neighbour"
+    neighbour.mkdir()
+    _git(neighbour, "init", "-q")
+    (neighbour / ".woodpecker.yml").write_text("steps: []\n")
+    (neighbour / ".claude").mkdir()
+    (neighbour / ".claude/cicd.yml").write_text("pipeline:\n  providers: [woodpecker]\n")
+    assert _advise(neighbour).stdout == ""  # precondition: the neighbour really is recorded
+    result = subprocess.run(
+        ["bash", str(ADVISORY), str(project)], stdin=subprocess.DEVNULL, capture_output=True, text=True,
+        env={**_env(), "GIT_DIR": str(neighbour / ".git"), "GIT_WORK_TREE": str(neighbour)},
+    )
+    assert "has no recorded CI provider" in result.stdout
+    assert str(project) in result.stdout and str(neighbour) not in result.stdout
