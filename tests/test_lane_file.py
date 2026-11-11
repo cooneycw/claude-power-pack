@@ -390,3 +390,14 @@ def test_the_plan_step_relays_the_advisory_and_continues() -> None:
     assert "lane-file.py age" in pointer
     assert "LANE_FILE_AGE:" in pointer
     assert "never a stop" in pointer, "the plan step no longer says the advisory cannot stop a plan"
+
+
+def test_project_init_creates_the_lane_file_after_ci_providers_are_recorded() -> None:
+    text = read("project/init.md")
+    step = text.index("### 4a.2: Lane file")
+    assert text.index("### 4a.1: Record CI providers") < step < text.index("### 4b: CPP Init")
+    body = normalized(text[step : text.index("### 4b: CPP Init")])
+    assert "`/lane:create`" in body
+    assert "the owner reads the draft before it is written" in body
+    assert "One lane still gets a one-row file." in body
+    assert "warn and continue" in body

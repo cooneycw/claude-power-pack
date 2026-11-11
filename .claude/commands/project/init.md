@@ -399,6 +399,12 @@ Writing the local posture does not apply it to GitHub. Show the concrete
 `scripts/branch-protection.sh --apply --config .claude/branch-protection.json`
 only after explicit approval. No setup default invokes the protection API.
 
+### 4a.2: Lane file (#1696)
+
+Run `/lane:create`: it drafts `.claude/lanes.md` from the scaffold and the recorded
+CI providers, and the owner reads the draft before it is written.
+One lane still gets a one-row file. On `unknown`, warn and continue.
+
 ### 4b: CPP Init (symlinks)
 
 ```bash
@@ -417,9 +423,7 @@ if [ -n "$CPP_DIR" ]; then
         echo "Symlinked .claude/skills"
     fi
 
-    # No hooks.json is installed (issue #1206): Claude Code never loads
-    # .claude/hooks.json, so shipping it only created the impression of a
-    # protection that was not running.
+    # No hooks.json is installed (issue #1206): Claude Code never loads it.
 fi
 ```
 
@@ -454,9 +458,6 @@ layers its CI/CD governance directives on top so nothing is lost.
      `make troubleshoot`.
    - **Docker Conventions** (only if a Dockerfile / docker-compose is present) -
      `make docker-*` targets over raw `docker` commands.
-
-The net effect: `/init` owns the config-scaffold generation (its native job), and
-CPP owns the governance overlay - no duplicated CLAUDE.md template to maintain.
 
 ### 4d: Spec Init
 
