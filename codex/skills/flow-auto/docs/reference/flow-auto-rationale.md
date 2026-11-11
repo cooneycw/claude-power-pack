@@ -596,10 +596,6 @@ two:
    - Record it briefly once agreed: what changed, why, and what it does to the
      intended outcome. Only consequential deviations earn a record.
 
-An explicit constraint remains binding even when no rationale is recorded for it
-(see [the issue contract](../agents/issue-contract.md)): a missing
-reason is something to surface, never grounds to drop it.
-
 **"No material concern found" is a complete answer.** Most fixes are routine. Do
 not manufacture an alternative, an experiment or a challenge for work that does not
 need one.

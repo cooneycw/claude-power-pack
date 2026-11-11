@@ -5,8 +5,13 @@
 # A command document is read in full by every run that invokes it. It holds the
 # steps to execute; rationale and incident history belong in a linked reference.
 #
-# flow/auto.md carries its owner-approved target (#1669). Every other number is
-# an INTERIM CAP - the document's size when the gate landed - so nothing grows
+# flow/auto.md: the owner's starting target was 10183 (#1669). The declared
+# budget is 10450, argued from measurement: trimmed to 10182, the document had
+# lost or altered 21 instructions that no machine check could see (5 found by
+# two counter-model review passes, 16 by an independent old-versus-new read).
+# With every one restored it measures 10444. Its fenced blocks alone - the
+# commands and report templates - are about 2100 of those words.
+# Every other number is an INTERIM CAP - the document's size when the gate landed - so nothing grows
 # while it waits to be trimmed. Owner targets still owed (#1669): flow/register.md
 # 8208, flow/wave.md 6954, flow/finish.md 1791. Lower a number when you trim;
 # raising one needs a reason in the PR.
@@ -45,7 +50,7 @@
 1218	documentation/pptx.md
 457	evaluate/help.md
 2284	evaluate/issue.md
-10183	flow/auto.md
+10450	flow/auto.md
 1837	flow/check.md
 2258	flow/cleanup.md
 1561	flow/deploy.md

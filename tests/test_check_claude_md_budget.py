@@ -282,8 +282,14 @@ def test_commands_mode_refuses_a_table_it_cannot_fully_read(tmp_path: Path, caps
         assert "command-word-budgets.tsv:" in capsys.readouterr().err
 
 
-def test_the_real_repo_declares_the_owner_target_for_flow_auto() -> None:
-    """Pins the number #1669 approved, so raising it is a visible, reviewed edit."""
+def test_the_real_repo_declares_the_argued_budget_for_flow_auto() -> None:
+    """Pins the declared number, so raising it is a visible, reviewed edit.
+
+    The owner's starting target was 10,183 (#1669). 10,450 is the argued
+    budget: the document measures 10,444 with every instruction that the trim
+    to 10,182 had dropped restored. The reasoning is beside the number in
+    `.claude/command-word-budgets.tsv`.
+    """
     root = SCRIPT.parents[1]
     budgets = budget.load_command_budgets(root / budget.COMMAND_BUDGETS)
     on_disk = {
@@ -291,5 +297,5 @@ def test_the_real_repo_declares_the_owner_target_for_flow_auto() -> None:
         for p in (root / budget.COMMANDS_DIR).rglob("*.md")
     }
 
-    assert budgets["flow/auto.md"] == 10_183
+    assert budgets["flow/auto.md"] == 10_450
     assert on_disk and on_disk == set(budgets), "every command document is declared, and nothing else"

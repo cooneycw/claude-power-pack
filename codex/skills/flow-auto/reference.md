@@ -75,6 +75,7 @@ before any STOP, via the fail-open capture helper:
 Never log the **permission-prompt** class by hand (issue #482). On exit 127
 fall back to `${CLAUDE_PLUGIN_ROOT}/scripts/friction-log.sh` (#590) or the
 CPP-checkout copy; if no copy exists, skip capture rather than stopping.
+Capture only: fixes are proposed and applied in the retro, not here.
 
 ---
 
@@ -152,7 +153,8 @@ claim), `CONFIRM_REQUIRED`.
   checkout reused an existing branch already contained in the base (issue #793).
 - `FLOW_START_RESOLVE: error` naming a branch as unmerged/not-an-ancestor
   (issue #793): a pre-existing branch for this issue carries commits the base
-  does not have. **STOP** and report it; do not retry blindly.
+  does not have. **STOP** and report it; do not retry blindly. The user may
+  need to delete/rename the branch or rebase it themselves.
 - `LANE=resume`: a prior session's worktree exists at `WT_PATH`. If
   `CONFIRM_REQUIRED=1` (`LIVE_DRIVER=suspected`, issue #503, and/or `PR_HEAD`
   shows an open/merged PR), **STOP** and require EXPLICIT user confirmation
@@ -174,7 +176,8 @@ It fails (`FLOW_START_VERIFY: fail`, exit 1) when the checkout is still on
 main/master, and renames a non-conforming branch to `issue-<N>-<slug>`. On
 success it prints `BRANCH=`, `WT_ROOT=`, `CLAIM=` and `STASH_GUARD=`. The last
 two are ADVISORY, never a precondition: `CLAIM=self` means the worktree is
-locked to this session (issue #597); `STASH_GUARD=unknown` means the
+locked to this session (issue #597); `STASH_GUARD=disabled` means the
+repository recorded `cpp.stashGuard=false`; `STASH_GUARD=unknown` means the
 shared-stash guard (`scripts/stash-worktree-guard.sh`, issue #1056) was not
 found. See `docs/agents/shared-stash-stack.md`.
 
@@ -245,7 +248,9 @@ compose names a second, colliding stack after the worktree basename.
    - `changed-in-scope` / `changed-outside-scope` - source bytes changed, which
      is NOT a ruling that acceptance changed. Read the source, decide whether
      it matters under the existing authority model, and say so in the Step 3
-     report, with any recorded `Acceptance-revision:` line.
+     report. Newer bytes do not by themselves override a constraint or plan
+     already accepted on the issue. Report any recorded `Acceptance-revision:`
+     line with the version it names, and resolve whether it predates the change.
    - `changed-task` - re-read the task line and its story; treat the block's
      requirement list as provisional.
    - `tasks-missing` - plan from the issue body and the source if one resolves;
@@ -257,7 +262,10 @@ compose names a second, colliding stack after the worktree basename.
    - `absent` - an ordinary issue. Its body IS the contract (see
      [the issue contract](docs/agents/issue-contract.md)).
 
-   The block's **Task wording** line is the task's own sentence, not a ruling.
+   The block's **Task wording** line is the task's own sentence, not a ruling:
+   resolve whether it proposes an approach you may replace or restates a binding
+   constraint. Resolve what would change the work, surface the rest in the
+   Step 3 report, and plan from what you have.
    An **Unresolved** or **Capped** note means the context is incomplete - never
    that the task has no constraints. Missing optional structure is not a gate.
 
@@ -516,10 +524,12 @@ It fixes the intended OUTCOME, not every detail of how to reach it:
    evidence and a concrete alternative to whoever can agree to it. Prior
    approval, or a standing delegation that actually covers this change, IS
    agreement. Knowing that an approver exists is not agreement. Record it
-   briefly once agreed. Only consequential deviations earn a record.
+   briefly once agreed: what changed, why, and what it does to the intended
+   outcome. Only consequential deviations earn a record.
 
 An explicit constraint remains binding even when no rationale is recorded for it
-(see [the issue contract](docs/agents/issue-contract.md)).
+(see [the issue contract](docs/agents/issue-contract.md)): a missing
+reason is something to surface, never grounds to drop it.
 **"No material concern found" is a complete answer.**
 
 **If the change adds or modifies a check, gate, guard, tripwire or allowlist**, ask
@@ -527,6 +537,8 @@ the two questions from
 [the detector contracts](docs/agents/detector-contracts.md) - does its
 success message claim more than its input population supports, and can a
 finding tell our thing from a neighbour's - and write the answer in as a test.
+Where the narrow answer is deliberately correct, do not widen the check: say
+where the larger question is answered instead.
 
 **In a `/flow-wave`, re-register when the scope you derived is wider than the lane
 you declared (issue #1266).** Re-run `/flow-register` with the full list before
@@ -618,10 +630,13 @@ revised with evidence for the revised behaviour, or resolved by a recorded
 transfer or withdrawal. Anything else - including "mostly done" - leaves it
 unset, and unset cannot close. **Closing must agree with that judgement.**
 When the accounting is not complete, use the non-closing `Refs #N` - in the
-commit message, the PR title and the PR body alike, never `Closes #N`.
+commit message, the PR title and the PR body alike, never `Closes #N`. Partial
+delivery stays reviewable and mergeable: the disposition changes what CLOSES,
+not what may merge. A revision record on its own is never delivery evidence.
 
 Review whatever will become the merge text, reading the closing references
-yourself rather than grepping for one spelling (the canonical rule is
+yourself rather than grepping for one spelling, and check the sources in play
+rather than rewriting history (the canonical rule is
 [the issue contract](docs/agents/issue-contract.md)):
 
 ```bash
@@ -866,7 +881,8 @@ instead.
      document (issue #1037)
    - **An already-clean tree here is a LEGITIMATE state, not a failure** (issue
      #635): the work is already in the `wip(flow): pre-merge snapshot` commit.
-     Skip this step.
+     Skip this step and leave the WIP commit as-is. Do NOT add a STOP for this
+     state.
 
 4. **Push** the branch:
    ```bash
@@ -887,7 +903,9 @@ instead.
    ```
    - `ISSUE_DRIFT: clean` (exit 0) - the body digest is unchanged since Step 1.
    - `ISSUE_DRIFT: drift` (exit 3) - the body changed; the helper prints the
-     diff. Resolve it under the EXISTING authority model and say in the PR how.
+     diff. Resolve it under the EXISTING authority model - newer bytes do not by
+     themselves override a constraint or a plan already accepted on the issue -
+     and say in the PR how.
    - `ISSUE_DRIFT: unresolved` (exit 4) - NOT clean: report the issue as
      unchecked.
 
@@ -956,7 +974,8 @@ tell the user to run **`/flow-repair`**.
   wrong, why it matters, and which issue or PR you were working. The comment is
   the whole record; it is read later without your context.
 - **It is not a place to hide a defect that warrants its own ticket now.** A live
-  correctness, security, or data-loss problem gets its own issue.
+  correctness, security, or data-loss problem gets its own issue, and the
+  closing report says so.
 - **The store is an inbox, not a backlog.** A comment is a disposition, not a fix.
 - **Name what you stored, with the comment link, in the closing report.**
 
@@ -1082,8 +1101,8 @@ Having nothing to store is an ordinary outcome. Do not manufacture a finding.
        MERGE_RC=12
    fi
    ```
-   Every code below except a genuine failure leaves the PR open and untouched.
-   None is ever retried blindly or escalated to `--admin` by the run.
+   Every CLEAN STOP below leaves the PR open and untouched. None is retried
+   blindly or escalated to `--admin` by the run.
 
    - **`MERGE_RC` 12 is the MISSING-HELPER REFUSAL (issue #1543), and the
      helper never emits it.** Nothing was merged. **STOP** and report that
@@ -1100,9 +1119,11 @@ Having nothing to store is an ordinary outcome. Do not manufacture a finding.
    - **Helper exit 4 is also a CLEAN STOP (issue #657):** the operator set
      `GH_PR_MERGE_STRICT_DELETIONS=1` and the PR deletes files. Review the
      `GH_PR_MERGE_DELETIONS:` paths; if intended, re-run without strict mode.
+     Flow itself never sets this variable.
    - **Helper exit 5 is also a CLEAN STOP (issue #726):** the squash title,
      body, or a commit subject has a NEGATED close keyword ("does not close
-     #N") that GitHub would still honor. Reword it and re-run
+     #N") that GitHub would still honor. Report the printed context, reword it and
+     re-run
      (`--allow-negated-close` only after the user consciously confirms).
    - **Helper exit 6 is also a CLEAN STOP, not a failure (issue #767):** the
      base advanced during the check wait. Re-run Step 7 from sub-step 1: sync,
@@ -1110,7 +1131,8 @@ Having nothing to store is an ordinary outcome. Do not manufacture a finding.
    - **Helper exit 6 can also come from the final base re-read (issue #1300):**
      `GH_PR_MERGE_BASE_AT_SQUASH: <sha>`. Same remedy.
    - **Helper exit 7 is also a CLEAN STOP (issue #794):** as 5, but the keyword
-     is merely adjacent to `#N`. Reword and re-run (`--allow-incidental-close`
+     is merely adjacent to `#N`. Report the printed context, reword and re-run
+     (`--allow-incidental-close`
      only after the user consciously confirms).
    - **Helper exit 8 means the incidental-close guard's own self-check failed
      (issue #794):** a BROKEN CHECK, not a clean scan. Report it; there is no
@@ -1184,7 +1206,7 @@ Having nothing to store is an ordinary outcome. Do not manufacture a finding.
    | 5 | a live process's cwd is inside AND the tree is dirty | `--steal` |
    | 6 | uncommitted work would be destroyed | `--allow-dirty` |
    | 7 | commits here are on no remote ref | `--allow-unpushed` |
-   | 8 | directory name and checked-out branch name different issues | `--steal` |
+   | 8 | `--delete-branch` asked, but directory name and checked-out branch name different issues | `--steal` |
 
    - The helper **exits 4** for a sibling's claim; this session's own claim,
      or a dead one, is released automatically.
@@ -1195,7 +1217,8 @@ Having nothing to store is an ordinary outcome. Do not manufacture a finding.
      that. On 7, push the branch and re-run.
    - **`worktree-remove.sh` exit 8 is a CLEAN STOP too (issue #1032).** It is
      not `gh-pr-merge.sh`'s 8. Report the `WORKTREE_REMOVE_ATTRIBUTION:` line.
-     Re-run without `--delete-branch` to remove just the directory.
+     Re-run without `--delete-branch` to remove just the directory, or rename
+     the worktree first.
 
    If the helper is not installed, REFUSE rather than removing by hand
    (issue #973). Derive the paths in THIS call (`WORKTREE_PATH` must be set in
@@ -1335,14 +1358,15 @@ Act on `FLOW_CI_STATUS`:
 - `failure` WITH a `FLOW_CI_STALLED: terminal-pipeline-live-children` line ->
   handle as `failure`, and report that steps are still listed running.
 - `running` / `pending` -> the wait window expired. Report it and let the user
-  decide whether to wait. `FLOW_CI_STALL_CHECK: unavailable (...)` means
+  decide whether to wait; do not deploy on an unknown result. `FLOW_CI_STALL_CHECK: unavailable (...)` means
   staleness was NOT checked; say so.
 - `not-found` -> no pipeline carries this SHA. Warn and proceed. **Read
   `FLOW_CI_WAIT` first (issue #1262):** with `FLOW_CI_WAIT: expired (<N>s)`, say
   that no matching pipeline was found AT EXPIRY of that window - not "CI may
   not be wired", and not that one never registered.
 - `unknown` -> stop CI-dependent deployment or merge work. Report the named
-  evidence gap; an unexamined lane is not green.
+  evidence gap; an unexamined lane is not green, and a fallback probe's result
+  never establishes recorded-provider completeness.
 
 `--wait` defaults to 600s, polling every 15s; `--wait <seconds>` changes it and
 omitting it gives a single-shot read. Without `--event` the preferred event is
@@ -1524,7 +1548,8 @@ Flow Auto stopped at Step N/9: {Step Name}
 ```
 
 Failure rules no step states: analysis unclear - stop at step 2 and ask the
-user; push fails - stop at step 6 and suggest `git pull --rebase`; deploy fails -
+user; plan rejected at the ELI5 gate - stop at step 3 and revise the plan (or
+close) before proceeding; push fails - stop at step 6 and suggest `git pull --rebase`; deploy fails -
 report it, do not roll back.
 
 ## Notes
