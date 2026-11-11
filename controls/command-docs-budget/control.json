@@ -1,0 +1,52 @@
+{
+  "_comment": [
+    "Registration for the --commands mode of scripts/check-claude-md-budget.py (issue #1669).",
+    "",
+    "WHY A SEPARATE CONTROL from controls/claude-md-budget: a control carries ONE invocation, and",
+    "this mode reads a different population (every document under .claude/commands) against a",
+    "different budget source (.claude/command-word-budgets.tsv, not the script's DOCUMENT_BUDGETS).",
+    "Blinding one mode does not blind the other.",
+    "",
+    "WHY THIS GATE NEEDS ONE: it lets work THROUGH - a prerequisite of `make verify` - and nothing",
+    "downstream re-derives it. A blind version prints the same 'ok - N command documents' line over",
+    "a command document that has doubled, which is the growth #1669 measured (flow/auto.md 10,183",
+    "to 20,924 words in 60 days).",
+    "",
+    "The cases carry their own budget table, so they do not move when a real budget is lowered."
+  ],
+  "gate": "scripts/check-claude-md-budget.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--commands",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^command-docs-budget: \\S+ has [0-9]+ words; budget is [0-9]+ \\([0-9]+ over\\)$",
+  "limits": "Covers the WORD COUNT of a declared command document against its declared budget. It does not cover the undeclared-document, stale-entry, malformed-table or empty-population refusals, which report a different line and are pinned by tests/test_check_claude_md_budget.py. It says nothing about whether any real budget is the RIGHT number, nor about whether a trimmed document kept its steps - that is check-claude-md-behavior.py's command-step fixture.",
+  "cases": [
+    {
+      "name": "bad-command-over-budget",
+      "input": "cases/bad-command-over-budget",
+      "expect": "BAD",
+      "why": "flow/example.md at 101 words against a declared budget of 100 - ONE word over, the #1669 acceptance case. Distinct tokens, so it cannot pass for a reason peculiar to the counter."
+    },
+    {
+      "name": "good-command-at-budget",
+      "input": "cases/good-command-at-budget",
+      "expect": "GOOD",
+      "why": "The same document at exactly 100 words. Separates a working gate from one wedged at 'fail', and pins the boundary as inclusive."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/check-claude-md-budget.py",
+      "path": "anchors/constructed-declared-only-command-docs-budget.py",
+      "sha256": "5ccd568aaa1559ab326d554d5b4da4514791fd4f4e483b4ecd5b9880102e686c",
+      "why": "CONSTRUCTED: the plausible weaker check - every command document has a line in the budget table - with the word count never taken. 'It has a declared budget' mistaken for 'it is inside its declared budget'. It catches an undeclared document and is blind to a declared one over budget: it MISSES the known-bad input and AGREES with the gate on the known-good one."
+    }
+  ]
+}

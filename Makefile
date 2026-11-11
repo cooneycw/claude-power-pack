@@ -13,7 +13,7 @@
        branch-protection-check branch-protection-apply branch-protection-show \
        host-surfaces-check host-surfaces-plan host-surfaces-prune memory-harness \
        binary-guards-check negative-fixture-check negative-controls claude-md-budget-check \
-       agents-md-budget-check \
+       agents-md-budget-check command-docs-budget-check \
        claude-md-links-check claude-md-behavior-check skills-check \
        install-drift-check install-drift-list \
        tools-version-check toolchain-provenance checkout-readers \
@@ -399,7 +399,8 @@ oscillation:
 verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-import-audit oscillation \
 	binary-guards-check negative-fixture-check negative-controls \
 	host-surface-observe \
-	claude-md-budget-check agents-md-budget-check claude-md-links-check claude-md-behavior-check \
+	claude-md-budget-check agents-md-budget-check command-docs-budget-check \
+	claude-md-links-check claude-md-behavior-check \
 	project-next-check delegated-core-check codex-skills-check \
 	scripts-inventory-check instrument-census-check verify-coverage-check \
 	control-ci-deps-check ci-coverage-check \
@@ -769,6 +770,14 @@ negative-fixture-check:
 ## and the test guarding it could not see the number anyone could raise.
 agents-md-budget-check:
 	@python3 scripts/check-claude-md-budget.py AGENTS.md
+
+## verify-coverage: gate command-docs-budget-check - every command document stays inside its declared word budget, and an undeclared one fails; ci: runs command-docs-budget-check
+## A command document is read in full by the run that invokes it, so its size is
+## a per-run cost (issue #1669). Budgets are declared one per line in
+## .claude/command-word-budgets.tsv - not here - and rationale moved out of a
+## trimmed document lives in a linked reference under docs/reference/.
+command-docs-budget-check:
+	@python3 scripts/check-claude-md-budget.py --commands
 
 ## verify-coverage: gate claude-md-budget-check - always-loaded guidance stays inside its word budget; ci: runs claude-md-budget-check
 claude-md-budget-check:

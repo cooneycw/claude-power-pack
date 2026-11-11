@@ -256,9 +256,25 @@ def test_the_refusal_sets_state_the_report_can_read(surface: Path) -> None:
     )
 
 
+def _executable_lines(block: str) -> list[str]:
+    """The block with full-line comments and blank lines dropped (issue #1669).
+
+    The FORM is the code. Each command document is trimmed against its own word
+    budget on its own schedule, so one surface may carry the rationale as
+    comments while the other points at the reference; a byte comparison would
+    then report a diverged form when not one executed line differs.
+    """
+    return [
+        line.rstrip()
+        for line in block.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+
+
 def test_both_surfaces_ship_the_same_form() -> None:
     """Two refusal forms in a generated-mirror family read as a generator bug."""
-    blocks = {s: refusal_block(s) for s in REFUSING_SURFACES}
+    blocks = {s: _executable_lines(refusal_block(s)) for s in REFUSING_SURFACES}
+    assert all(blocks.values()), "a refusal block with no executable line compares equal to nothing"
     first, *rest = blocks.values()
     assert all(b == first for b in rest), (
         "the refusal forms have diverged between "
