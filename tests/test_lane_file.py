@@ -401,3 +401,68 @@ def test_project_init_creates_the_lane_file_after_ci_providers_are_recorded() ->
     assert "the owner reads the draft before it is written" in body
     assert "One lane still gets a one-row file." in body
     assert "warn and continue" in body
+
+
+@pytest.mark.parametrize("rel", ["lane/create.md", "lane/update.md"])
+def test_a_named_project_binds_every_step(rel: str) -> None:
+    """Reviewing one project and stamping another records a review nobody did."""
+    text = normalized(read(rel))
+    assert "Resolve the target once and use it for every step." in text
+    assert "the stamp takes the same `--root <path>` as Step 1" in text
+
+
+def test_update_binds_the_issue_query_to_the_named_project() -> None:
+    text = normalized(read("lane/update.md"))
+    assert "the `gh` query runs against that project's repository" in text
+
+
+def test_update_says_what_to_search_when_the_file_is_undated() -> None:
+    text = normalized(read("lane/update.md"))
+    assert "With no usable review date" in text
+    assert "search the last 90 days" in text
+    assert "older fixes were not read" in text
+
+
+# --- the Harness lane: the generated Codex skills ------------------------------
+
+
+@pytest.fixture(scope="module")
+def codex_tree(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    out = tmp_path_factory.mktemp("codex-skills")
+    result = subprocess.run(
+        [sys.executable, str(REPO / "scripts" / "codex-skill-sync.py"), "--write", "--output-root", str(out)],
+        capture_output=True, text=True, cwd=REPO, check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    return out
+
+
+@pytest.mark.parametrize("skill", ["lane-create", "lane-update", "lane-help"])
+def test_the_lane_family_is_generated_as_codex_skills(codex_tree: Path, skill: str) -> None:
+    assert (codex_tree / skill / "SKILL.md").is_file()
+
+
+@pytest.mark.parametrize("skill", ["lane-create", "lane-update", "flow-eli5"])
+def test_a_generated_skill_calls_its_own_bundled_helper(codex_tree: Path, skill: str) -> None:
+    # A long command is split: its later sections land in reference.md, which is
+    # where the plan gate's lane pointer sits. Read the skill as Codex is given it.
+    text = "".join(
+        (codex_tree / skill / name).read_text(encoding="utf-8")
+        for name in ("SKILL.md", "reference.md")
+        if (codex_tree / skill / name).is_file()
+    )
+    assert "/scripts/lane-file.py age" in text
+    assert "~/.claude/scripts/lane-file.py" not in text, f"{skill} still points at the Claude install path"
+    assert (codex_tree / skill / "scripts" / "lane-file.py").is_file()
+
+
+def test_the_bundled_helper_gives_the_same_verdict_as_the_source(codex_tree: Path, tmp_path: Path) -> None:
+    write_lanes(tmp_path, "2025-12-31")
+    bundled = codex_tree / "lane-update" / "scripts" / "lane-file.py"
+    assert os.access(bundled, os.X_OK), "the bundled helper is not executable"
+    result = subprocess.run(
+        [sys.executable, str(bundled), "age", "--root", str(tmp_path), "--today", TODAY],
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 3
+    assert result.stdout.strip().splitlines()[-1] == age(tmp_path)[1]

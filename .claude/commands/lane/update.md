@@ -16,9 +16,15 @@ only what the owner accepts, and records the review date. The rule is in
 - `PROJECT` (optional): a directory under `~/Projects`, resolved like
   `/project:next`. Default: the current repository.
 
+**Resolve the target once and use it for every step.** With a PROJECT, every
+helper call below takes the same `--root <path>`, the `gh` query runs against
+that project's repository (`--repo`, read from its `origin`), and every read
+and edit is in that directory - never the directory the session happens to be
+in. Reviewing one project and stamping another records a review nobody did.
+
 ## Step 1: Read the file's state
 
-Run the helper bare, from the repository (pass `--root <path>` for a PROJECT):
+Run the helper bare (with `--root <path>` for a PROJECT):
 
 ```bash
 ~/.claude/scripts/lane-file.py age
@@ -27,7 +33,8 @@ Run the helper bare, from the repository (pass `--root <path>` for a PROJECT):
 - `absent` - there is nothing to update. Route to `/lane:create`. **STOP.**
 - `fresh`, `stale` - continue, and note the `LANE_FILE_REVIEWED:` date.
 - `unknown` - continue if the file can be read and only its date is missing or
-  wrong; this review will set it. If the file itself cannot be read, report the
+  wrong; this review will set it. `LANE_FILE_REVIEWED:` is then `-`: there is
+  no last review to search from (Step 3 says what to do). If the file itself cannot be read, report the
   reason and **STOP**.
 
 On exit 127 use `scripts/lane-file.py` from the CPP checkout and tell the user
@@ -53,6 +60,10 @@ fix issues closed since the last review date:
 gh issue list --state closed --search "closed:>=<LANE_FILE_REVIEWED date> fix in:title" --limit 50 --json number,title,closedAt
 ```
 
+**With no usable review date** (`LANE_FILE_REVIEWED: -`), search the last 90
+days instead, and tell the owner that this period was chosen because the file
+was undated - older fixes were not read.
+
 Scan the titles for work that failed in one route and worked in another, and
 offer each as a candidate lane. If `gh` cannot be read, say so: the list was
 not examined, which is not the same as no candidates.
@@ -69,7 +80,7 @@ the owner accepts.
 ~/.claude/scripts/lane-file.py stamp
 ```
 
-A review that changes no row is still a review, and the date records that a
+With a PROJECT, the stamp takes the same `--root <path>` as Step 1. A review that changes no row is still a review, and the date records that a
 person read the whole list today. On `refused`, report the reason; do not edit
 the date by hand around it. Leave the file uncommitted for the owner unless
 they ask for a commit.

@@ -18,9 +18,13 @@ This command drafts that file. It never writes a lane the owner has not seen.
 - `PROJECT` (optional): a directory under `~/Projects`, resolved like
   `/project:next`. Default: the current repository.
 
+**Resolve the target once and use it for every step.** With a PROJECT, every
+helper call below takes the same `--root <path>`, and every read and write is
+in that directory - never the directory the session happens to be in.
+
 ## Step 1: Check there is nothing to overwrite
 
-Run the helper bare, from the repository (pass `--root <path>` for a PROJECT):
+Run the helper bare (with `--root <path>` for a PROJECT):
 
 ```bash
 ~/.claude/scripts/lane-file.py age
@@ -79,6 +83,7 @@ review date:
 ~/.claude/scripts/lane-file.py stamp
 ```
 
+With a PROJECT, the stamp takes the same `--root <path>` as Step 1.
 `LANE_FILE_STAMP: stamped <date>` is success. On `refused`, report the reason;
 do not edit the date by hand around it. Leave the file uncommitted for the
 owner unless they ask for a commit.
