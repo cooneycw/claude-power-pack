@@ -29,7 +29,7 @@ Dev stayed on the previous release until each pipeline was stopped by hand. Beca
 
 ## Cause
 
-kyle19's agent runs from `woodpecker/docker-compose.agent.yml` in this repo (compose `working_dir` /home/cooneycw/Projects/claude-power-pack/woodpecker). That file mounts only the docker socket:
+kyle19's agent runs from `woodpecker/docker-compose.agent.yml` in this repo (compose `working_dir` /home/user/Projects/claude-power-pack/woodpecker). That file mounts only the docker socket:
 
 ```yaml
 volumes:

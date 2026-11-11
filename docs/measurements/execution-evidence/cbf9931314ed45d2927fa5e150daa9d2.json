@@ -24,8 +24,8 @@
   "observed": {
     "repository": {
       "origin": "https://github.com/cooneycw/claude-power-pack.git",
-      "common_dir": "/home/cooneycw/Projects/claude-power-pack/.git",
-      "worktree": "/home/cooneycw/Projects/claude-power-pack-issue-1366-pilot-durable-per-skill-execution-evidence-for-flo",
+      "common_dir": "/home/user/Projects/claude-power-pack/.git",
+      "worktree": "/home/user/Projects/claude-power-pack-issue-1366-pilot-durable-per-skill-execution-evidence-for-flo",
       "branch": "issue-1366-pilot-durable-per-skill-execution-evidence-for-flo"
     },
     "tree_at_start": {

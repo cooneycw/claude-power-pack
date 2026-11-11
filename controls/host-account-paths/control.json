@@ -1,0 +1,68 @@
+{
+  "_comment": [
+    "Registration for scripts/check-host-account-paths.py (issue #1689).",
+    "",
+    "WHY THIS GATE NEEDS A COMMITTED CASE (ADR 0008): it lets work THROUGH. make",
+    "verify reads its green as 'no tracked file names a host account in a home",
+    "path', in a public repository, and nothing downstream re-derives that.",
+    "",
+    "THE CASES ARE SMALL TRACKED TREES. The gate's population is git ls-files, so",
+    "a case must be tracked to be seen at all; the gate takes --root.",
+    "",
+    "TWO BAD CASES, one per spelling the gate matches: the plain home path, and",
+    "the encoded transcript-directory name, which is the form 17 receipts carried.",
+    "The account in them is the made-up 'hostacct'.",
+    "",
+    "The GOOD case holds the shapes that must NOT fire: placeholder accounts in",
+    "both spellings, a file sitting directly in the homes directory, and the",
+    "account-free forms. The gate is in make verify, so a false red blocks every",
+    "merge.",
+    "",
+    "Needs git, like the gate."
+  ],
+  "gate": "scripts/check-host-account-paths.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^HOST_ACCOUNT_PATH: ",
+  "cases": [
+    {
+      "name": "bad-plain-home-path",
+      "input": "cases/bad-plain-home-path",
+      "expect": "BAD",
+      "why": "A committed record whose worktree field is an absolute home path naming an account. This is the execution-evidence shape #1689 found. If it scores GOOD the gate cannot see the plain form."
+    },
+    {
+      "name": "bad-encoded-transcript-dir",
+      "input": "cases/bad-encoded-transcript-dir",
+      "expect": "BAD",
+      "why": "A receipt whose transcript pointer begins with the encoded home directory. Seventeen receipts carried this form and a grep for the plain form does not see it."
+    },
+    {
+      "name": "bad-dotted-and-dashed-accounts",
+      "input": "cases/bad-dotted-and-dashed-accounts",
+      "expect": "BAD",
+      "why": "Account names may contain dots and dashes. The first cut captured only a word prefix, so `jane.doe` was skipped and `test-person` was excused as the placeholder `test` - found by the counter-model review, not the author. If this scores GOOD a placeholder PREFIX is excusing a real account again."
+    },
+    {
+      "name": "good-placeholders",
+      "input": "cases/good-placeholders",
+      "expect": "GOOD",
+      "why": "Placeholder accounts in both spellings, a file directly under the homes directory, and account-free forms. A gate wedged at fail passes both bad cases; this is the half that shows it is not."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/check-host-account-paths.py",
+      "path": "anchors/constructed-running-account-only.py",
+      "sha256": "a030d6b9145155d85afcdd08e9d9fb72e53a0861ba528b259648431a80dfc5b9",
+      "why": "CONSTRUCTED: the gate is new. This is the weaker check the obvious framing produces - look for the account RUNNING the check. It misses both bad cases, whose account is not the runner's, and agrees with the gate on the good case. It is exactly what would have reported clean in CI over the 29 files #1689 fixed."
+    }
+  ]
+}

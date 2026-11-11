@@ -32,7 +32,7 @@ enumerates `~/.codex/skills` and then reads each `SKILL.md`; entries removed
 between the listing and the read produce
 
 ```
-⚠ /home/cooneycw/.codex/skills/<name>/SKILL.md: failed to read file: No such file or directory (os error 2)
+⚠ /home/user/.codex/skills/<name>/SKILL.md: failed to read file: No such file or directory (os error 2)
 ```
 
 one line per affected skill. #1232 fixes the cause of that particular install

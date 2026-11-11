@@ -578,6 +578,17 @@ steps:
       - export PATH="$PWD/.ci-bin:$PATH"
       - python3 scripts/check-md-relative-links.py
 
+  # Does any tracked file name a host account in a home path? (#1689.) The
+  # repository is public and its tools record where they ran. The check
+  # matches the path's shape, not the running account, so this step sees what
+  # the producing host sees. Needs git for its population: `git-stage`.
+  host-account-paths-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [git-stage]
+    commands:
+      - export PATH="$PWD/.ci-bin:$PATH"
+      - python3 scripts/check-host-account-paths.py
+
   # Does every relative markdown link in the GENERATED codex/skills/ mirrors
   # resolve from the mirror's own location? (#1494.) The check above excludes
   # codex/skills/ by design - its links are checked here instead, against the

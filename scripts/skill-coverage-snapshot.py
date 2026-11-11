@@ -250,7 +250,10 @@ def run_diagnose(skillc: Path, cpp: Path, skill: str, profile_dir: str, cpp_revi
                 f"skill-coverage-snapshot: 'skillc profile diagnose' exited "
                 f"{proc.returncode}: {proc.stderr.strip()}"
             )
-        return {"command": " ".join(command), "result": json.loads(proc.stdout)}
+        # The snapshot is committed; record the home directory as `~` so the
+        # command names no host account (issue #1689).
+        recorded = " ".join(command).replace(Path.home().as_posix(), "~")
+        return {"command": recorded, "result": json.loads(proc.stdout)}
 
 
 def write_snapshot(skill: str, cpp: Path, skillc: Path, profile_dir: str, out_dir: Path) -> Path:

@@ -37,6 +37,7 @@ legitimately about something other than one script is declared on the marker bel
 - `check-cpp-init-cicd-args` - parses literal cpp:init `lib.cicd` launchers without dispatching them. [reference](scripts/check-cpp-init-cicd-args.md)
 - `check-cpp-init-promises` - resolves the installation promises cpp:init makes (#1587). [reference](scripts/check-cpp-init-promises.md)
 - `check-eval-enrollment` - reads an evaluation-enrollment decision record and reports what it may claim (#1371). [reference](scripts/check-eval-enrollment.md)
+- `check-host-account-paths` - tripwire: no tracked file names a host account in a home path (#1689). [reference](scripts/check-host-account-paths.md)
 - `check-ignored-additions` - warns when a new working-tree file is swallowed by `.gitignore`. [reference](scripts/check-ignored-additions.md)
 - `check-md-relative-links` - checks that relative links in tracked `.md` files resolve. [reference](scripts/persistent-context-checks.md)
 - `check-memory-supersession` - finds stale dependents of a superseded memory (#1440). [reference](scripts/check-memory-supersession.md)

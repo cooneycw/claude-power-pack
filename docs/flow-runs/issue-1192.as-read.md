@@ -18,7 +18,7 @@ report that the source moved. It does not graduate.
 Run from a CPP checkout against kyle at `974d427`:
 
 ```
-makefile_grammar_refusal("/home/cooneycw/Projects/kyle") -> 'line 9: an include'
+makefile_grammar_refusal("/home/user/Projects/kyle") -> 'line 9: an include'
 subsumed_gate_ids("finish", BUILTIN_PLANS["finish"], kyle)
   -> ({}, ['the makefile is outside the grammar subsumption requires
            (line 9: an include), so nothing is subsumed and every gate runs'])

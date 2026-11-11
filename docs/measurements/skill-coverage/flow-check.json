@@ -23,7 +23,7 @@
     "skillc_commit": "d846a693d2e513c001dcd2f69ab39d19ce68be27",
     "profile_dir": "cpp-codex-flow-check-652c0118",
     "cpp_revision_snapshot": "652c01185bc73adf18df49f5b9d1d5ad77a038c7",
-    "command": "uv run --no-sync skillc profile diagnose /tmp/skill-coverage-snapshot-hkgucssw/profile.json --repo /home/cooneycw/Projects/claude-power-pack-issue-1532-refresh-flow-check-coverage-reference-after-a-new",
+    "command": "uv run --no-sync skillc profile diagnose /tmp/skill-coverage-snapshot-hkgucssw/profile.json --repo /home/user/Projects/claude-power-pack-issue-1532-refresh-flow-check-coverage-reference-after-a-new",
     "recorded_at": "2026-10-23T15:26:33Z",
     "result": {
       "diagnostic_schema": 1,
