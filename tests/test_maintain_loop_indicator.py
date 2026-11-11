@@ -476,6 +476,7 @@ def test_resolve_nit_store_drives_the_real_resolver_across_a_rollover(
         "#!/usr/bin/env bash\n"
         'case "$1 $2" in\n'
         '  "issue list") printf "TOTAL %s\\n" "${STUB_TOTAL}"; printf "%s" "${STUB_FOUND}" ;;\n'
+        '  "issue view") printf "OPEN\\tNit Store\\n" ;;\n'
         "  *) exit 1 ;;\n"
         "esac\n"
     )

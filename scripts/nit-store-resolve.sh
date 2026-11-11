@@ -117,6 +117,26 @@ found=$(printf '%s\n' "$listing" | grep -v '^TOTAL ' || true)
 count=$(printf '%s\n' "$found" | grep -c '^[0-9][0-9]*$' || true)
 case "$count" in
     0) none "$REPO has no open issue titled 'Nit Store'" ;;
-    1) echo "NIT_STORE=$found"; echo "NIT_STORE_STATUS: ok"; exit 0 ;;
+    1) ;;
     *) unknown "$REPO has $count open issues titled 'Nit Store'; which one is not decidable here" ;;
 esac
+
+# THE SEARCH IS AN INDEX, AND AN INDEX LAGS (issue #1673, counter-model review).
+# Just after a rollover the listing can still return the predecessor as "open"
+# although it has been closed, and the mapped branch's direct read - the check
+# this whole script exists for - was never applied to a searched number. So the
+# one candidate is read directly, exactly as a mapped number is, before it is
+# answered. A stale candidate is `none`: GitHub was asked and this is not an
+# open Nit Store, so the finding is filed as a normal issue rather than posted
+# into a closed inbox.
+if ! got=$(gh issue view "$found" --repo "$REPO" --json state,title \
+             --jq '.state + "\t" + .title' 2>/dev/null); then
+    unknown "gh could not read $REPO#$found"
+fi
+state=${got%%$'\t'*}
+title=${got#*$'\t'}
+[ "$state" = "OPEN" ] || none "the search returned $REPO#$found, which is $state, not OPEN (a search index can lag a rollover)"
+[ "$title" = "Nit Store" ] || none "the search returned $REPO#$found, which is titled '$title', not 'Nit Store'"
+echo "NIT_STORE=$found"
+echo "NIT_STORE_STATUS: ok"
+exit 0

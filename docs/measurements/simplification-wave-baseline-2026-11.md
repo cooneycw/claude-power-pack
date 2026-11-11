@@ -25,20 +25,26 @@ Wave close re-runs the commands below and reports both columns. Measured on
 | cicd commands | `.claude/commands/cicd/*` | 12 | 1,497 |
 | flow tests | `tests/test_flow_*` | 40 | 33,732 |
 | cicd tests | `tests/*cicd*` | 21 | 7,424 |
-| flow controls | `controls/flow-*/**` | 314 | 42,143 |
+| flow controls | `controls/flow-*/**` | 306 | 42,145 |
 | merge and cleanup tail | `scripts/gh-pr-merge.sh`, `scripts/worktree-remove.sh` | 2 | 3,657 |
 
 ```bash
+REV=15521b1e          # the commit being measured; wave close names its own
 for g in 'scripts/flow-*' '.claude/commands/flow/*' 'lib/cicd/**' \
-         '.claude/commands/cicd/*' 'tests/test_flow_*' 'tests/*cicd*' 'controls/flow-*/**'; do
-    n=$(git ls-files -- "$g" | wc -l)
-    l=$(git ls-files -z -- "$g" | xargs -0 -r cat | wc -l)
-    echo "$g files=$n lines=$l"
+         '.claude/commands/cicd/*' 'tests/test_flow_*' 'tests/*cicd*' 'controls/flow-*/**' \
+         'scripts/gh-pr-merge.sh' 'scripts/worktree-remove.sh'; do
+    git grep -I -c '' "$REV" -- "$g" \
+      | awk -F: -v g="$g" '{n++; s+=$NF} END{printf "%s files=%d lines=%d\n", g, n, s}'
 done
-wc -l scripts/gh-pr-merge.sh scripts/worktree-remove.sh
 ```
 
-A glob that matches no file prints `files=0 lines=0`. Read that as "the glob
+The counts are read from the named commit's blobs, never from the working tree:
+a count taken from a checkout includes whatever branch and uncommitted edits
+that checkout happens to hold. `git grep -I -c ''` counts text files with at
+least one line, so empty and binary files are not in the file count.
+
+A glob that matches no file prints `files=0 lines=0`, and so does a `REV` git
+cannot read. Read that as "the glob
 is wrong or the area moved", never as "the area is now empty".
 
 ## Fix commits per file, 2026-09-12 to 2026-11-11
@@ -62,12 +68,16 @@ they touch.
 | `lib/cicd/manifest.py` | 7 | 603 |
 
 ```bash
-git log --since=2026-09-12 --no-merges --format='@%s' --name-only origin/main -- \
+REV=15521b1e
+git log --since=2026-09-12 --until=2026-11-12 --no-merges --format='@%s' --name-only "$REV" -- \
     'scripts/flow-*' lib/cicd '.claude/commands/flow' '.claude/commands/cicd' \
     scripts/worktree-remove.sh scripts/gh-pr-merge.sh \
   | awk '/^@/{fix=($0 ~ /^@fix/); next} NF&&fix{c[$0]++} END{for(f in c)print c[f],f}' \
   | sort -rn | head -25
 ```
+
+Both ends of the window are stated and the walk starts from the named commit,
+so a later `fix` on an advanced `origin/main` cannot join the baseline.
 
 ## Fix:feat ratio
 
@@ -81,13 +91,20 @@ day (#1673 recorded 429 / 244 / 98 earlier the same day, before ten more merges)
 | title scope starts `cicd` | 27 | 5 | 5.4 |
 
 ```bash
-gh pr list --state merged --search "merged:2026-09-12..2026-11-11" --limit 1000 \
-    --json title -q '.[].title' > prs.txt
-wc -l < prs.txt                      # must be BELOW the --limit, or the listing was cut off
-grep -c '^fix' prs.txt;  grep -c '^feat' prs.txt
-grep -cE '^fix\(flow[^)]*\)' prs.txt; grep -cE '^feat\(flow[^)]*\)' prs.txt
-grep -cE '^fix\(cicd[^)]*\)' prs.txt; grep -cE '^feat\(cicd[^)]*\)' prs.txt
+if ! gh pr list --state merged --search "merged:2026-09-12..2026-11-11" --limit 1000 \
+        --json title -q '.[].title' > prs.txt; then
+    echo "UNKNOWN - the listing failed; prs.txt is not a measurement"; rm -f prs.txt
+else
+    wc -l < prs.txt                  # must be BELOW the --limit, or the listing was cut off
+    grep -c '^fix' prs.txt;  grep -c '^feat' prs.txt
+    grep -cE '^fix\(flow[^)]*\)' prs.txt; grep -cE '^feat\(flow[^)]*\)' prs.txt
+    grep -cE '^fix\(cicd[^)]*\)' prs.txt; grep -cE '^feat\(cicd[^)]*\)' prs.txt
+fi
 ```
+
+A failed `gh` call still creates an empty `prs.txt`, and an empty file counts to
+zero everywhere and passes the below-limit check. Zero pull requests in a window
+this repository was active in means the listing failed, not that nothing merged.
 
 ## The follow-up reading
 
