@@ -97,6 +97,11 @@ it is not an ELI5.
 Red-case results, gate output, review dispositions, CI, and the run's status
 lines (issue, changes, PR, branch, worktree, deploy, verify, friction, location).
 
+**Lanes, when the project lists them.** If the project has a lane file, Evidence
+carries the rows the approved plan answered, each with what happened, and a row
+whose result differs from the plan is explained. The rule is
+[the lanes reference](lanes.md); do not restate it here.
+
 **Demoted, never deleted.** This is the half that makes a claim about the
 *check* rather than about one run - "the check fails on X and passes on Y" is a
 claim about the check; "it passed" is a claim about this run. Brevity is never
