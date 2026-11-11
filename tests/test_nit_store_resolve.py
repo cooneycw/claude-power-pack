@@ -49,7 +49,9 @@ if a[:2] == ["issue", "view"]:
     print(i["state"] + "\t" + i["title"])
 elif a[:2] == ["issue", "list"]:
     rows = sorted(issues.items(), key=lambda kv: int(kv[0]))
-    if opt("--state") == "open":
+    # GH_STUB_STALE_INDEX=1 models a search index that lags: the listing still
+    # returns issues that `issue view` reports CLOSED (issue #1673).
+    if opt("--state") == "open" and os.environ.get("GH_STUB_STALE_INDEX") != "1":
         rows = [r for r in rows if r[1]["state"] == "OPEN"]
     rows = rows[: int(opt("--limit", "30"))]
     jq = opt("--jq", "")
@@ -64,7 +66,7 @@ else:
 
 
 def _run(tmp_path: Path, issues: dict, *args: str, fail: bool = False,
-         cwd: Path | None = None) -> tuple[int, str]:
+         cwd: Path | None = None, stale_index: bool = False) -> tuple[int, str]:
     """`issues` is keyed by OWNER/NAME, then by issue number."""
     bindir = tmp_path / "bin"
     bindir.mkdir(exist_ok=True)
@@ -74,7 +76,8 @@ def _run(tmp_path: Path, issues: dict, *args: str, fail: bool = False,
     data = tmp_path / "issues.json"
     data.write_text(json.dumps(issues))
     env = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}",
-           "GH_STUB_ISSUES": str(data), "GH_STUB_FAIL": "1" if fail else "0"}
+           "GH_STUB_ISSUES": str(data), "GH_STUB_FAIL": "1" if fail else "0",
+           "GH_STUB_STALE_INDEX": "1" if stale_index else "0"}
     r = subprocess.run(["bash", str(SCRIPT), *args], capture_output=True, text=True,
                        env=env, cwd=str(cwd or tmp_path))
     return r.returncode, r.stdout + r.stderr
@@ -82,27 +85,30 @@ def _run(tmp_path: Path, issues: dict, *args: str, fail: bool = False,
 
 OPEN_STORE = {"state": "OPEN", "title": "Nit Store"}
 CPP, CXPP, OTHER = "cooneycw/claude-power-pack", "cooneycw/codex-power-pack", "someone/other"
+# A repository the resolver still MAPS. claude-power-pack left the map in #1673
+# (its store rolls over monthly), so the map-path cases run against kyle.
+KYLE = "cooneycw/kyle"
 
 
 def test_a_mapped_open_nit_store_is_the_answer(tmp_path: Path) -> None:
-    rc, out = _run(tmp_path, {CPP: {"864": OPEN_STORE}}, "--repo", CPP)
-    assert rc == 0 and "NIT_STORE=864" in out and "NIT_STORE_SOURCE=map" in out, out
+    rc, out = _run(tmp_path, {KYLE: {"1004": OPEN_STORE}}, "--repo", KYLE)
+    assert rc == 0 and "NIT_STORE=1004" in out and "NIT_STORE_SOURCE=map" in out, out
 
 
 def test_a_closed_mapped_target_is_none_never_the_number(tmp_path: Path) -> None:
     """The #227 shape: the map named an issue that had been CLOSED."""
-    rc, out = _run(tmp_path, {CPP: {"864": {"state": "CLOSED", "title": "Nit Store"}}}, "--repo", CPP)
+    rc, out = _run(tmp_path, {KYLE: {"1004": {"state": "CLOSED", "title": "Nit Store"}}}, "--repo", KYLE)
     assert rc == 1 and "NIT_STORE_STATUS: none" in out and "normal issue" in out, out
-    assert "NIT_STORE=864" not in out
+    assert "NIT_STORE=1004" not in out
 
 
 def test_a_retitled_mapped_target_is_refused(tmp_path: Path) -> None:
-    rc, out = _run(tmp_path, {CPP: {"864": {"state": "OPEN", "title": "Release checklist"}}}, "--repo", CPP)
-    assert rc == 1 and "not 'Nit Store'" in out and "NIT_STORE=864" not in out, out
+    rc, out = _run(tmp_path, {KYLE: {"1004": {"state": "OPEN", "title": "Release checklist"}}}, "--repo", KYLE)
+    assert rc == 1 and "not 'Nit Store'" in out and "NIT_STORE=1004" not in out, out
 
 
 def test_an_unreadable_mapped_target_is_unknown_not_none(tmp_path: Path) -> None:
-    rc, out = _run(tmp_path, {CPP: {"864": OPEN_STORE}}, "--repo", CPP, fail=True)
+    rc, out = _run(tmp_path, {KYLE: {"1004": OPEN_STORE}}, "--repo", KYLE, fail=True)
     assert rc == 3 and "NIT_STORE_STATUS: unknown" in out and "NIT_STORE=" not in out.replace(
         "NIT_STORE_REPO=", ""), out
 
@@ -194,3 +200,60 @@ def test_an_origin_that_is_not_github_is_unknown(tmp_path: Path, url: str) -> No
     subprocess.run(["git", "-C", str(wt), "remote", "add", "origin", url], check=True)
     rc, out = _run(tmp_path, {CPP: {"864": OPEN_STORE}}, cwd=wt)
     assert rc == 3 and "not a github.com remote" in out and "NIT_STORE=864" not in out, out
+
+
+# --- claude-power-pack resolves by search, across a rollover (issue #1673) ---
+
+def test_cpp_is_found_by_search_not_by_a_hard_coded_number(tmp_path: Path) -> None:
+    """The successor store has a number nobody wrote down anywhere."""
+    rc, out = _run(tmp_path, {CPP: {"1700": OPEN_STORE}}, "--repo", CPP)
+    assert rc == 0 and "NIT_STORE=1700" in out and "NIT_STORE_SOURCE=search" in out, out
+
+
+def test_after_a_rollover_the_successor_is_the_answer_not_864(tmp_path: Path) -> None:
+    """#864 CLOSED and a successor OPEN. The mapped resolver answered `none`
+    here (it read #864, found it closed, and never looked further), so every
+    finding after a rollover would have been filed as a normal issue."""
+    rc, out = _run(tmp_path, {CPP: {"864": {"state": "CLOSED", "title": "Nit Store"},
+                                   "1700": OPEN_STORE}}, "--repo", CPP)
+    assert rc == 0 and "NIT_STORE=1700" in out and "NIT_STORE=864" not in out, out
+
+
+def test_mid_rollover_with_both_stores_open_is_unknown(tmp_path: Path) -> None:
+    """Successor opened before #864 was closed: which one is not decidable, so
+    nothing is posted. The rollover procedure closes the old store FIRST."""
+    rc, out = _run(tmp_path, {CPP: {"864": OPEN_STORE, "1700": OPEN_STORE}}, "--repo", CPP)
+    assert rc == 3 and "2 open issues" in out and "NIT_STORE=864" not in out, out
+
+
+def test_between_close_and_reopen_cpp_has_no_store(tmp_path: Path) -> None:
+    rc, out = _run(tmp_path, {CPP: {"864": {"state": "CLOSED", "title": "Nit Store"}}}, "--repo", CPP)
+    assert rc == 1 and "NIT_STORE_STATUS: none" in out and "normal issue" in out, out
+
+
+def test_a_stale_search_hit_on_the_closed_predecessor_is_never_answered(tmp_path: Path) -> None:
+    """Counter-model review: just after a rollover the search index can still
+    list #864 as open. The search branch answered it unread - `NIT_STORE=864`,
+    exit 0 - so findings went into the closed inbox. It is now read directly."""
+    closed = {"state": "CLOSED", "title": "Nit Store"}
+    # Precondition: the listing really does offer the closed issue.
+    rc, out = _run(tmp_path, {CPP: {"864": closed}}, "--repo", CPP, stale_index=True)
+    assert rc == 1 and "NIT_STORE=864" not in out, out
+    assert "NIT_STORE_STATUS: none" in out and "is CLOSED" in out and "normal issue" in out, out
+
+
+def test_a_searched_candidate_that_cannot_be_read_is_unknown(tmp_path: Path) -> None:
+    """The listing names an issue `issue view` cannot read: nothing is established."""
+    stub_only_lists = {OTHER: {"7": OPEN_STORE}}
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    gh = bindir / "gh"
+    gh.write_text('#!/usr/bin/env bash\n'
+                  'case "$1 $2" in "issue list") printf "TOTAL 1\\n7\\n" ;; *) exit 1 ;; esac\n')
+    gh.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}"}
+    r = subprocess.run(["bash", str(SCRIPT), "--repo", OTHER], capture_output=True, text=True,
+                       env=env, cwd=str(tmp_path))
+    out = r.stdout + r.stderr
+    assert stub_only_lists and r.returncode == 3 and "could not read someone/other#7" in out, out
+    assert "NIT_STORE=7" not in out, out

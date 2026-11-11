@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Maintain-loop leading indicator: do recorded findings reach the backlog?
 
-Issue #1085. CPP already records findings in two places - the Nit Store (#864)
+Issue #1085. CPP already records findings in two places - the Nit Store
 and `.claude/friction.jsonl` - and nothing measured whether they MOVE. This
 computes the one number that says so, from data the repository already writes,
 with no new instrumentation in the flow lifecycle.
@@ -74,8 +74,29 @@ from pathlib import Path
 
 #: NEGATIVE-CONTROL: controls/maintain-loop-indicator
 
-NIT_STORE = 864
 REPO = "cooneycw/claude-power-pack"
+
+#: THE STORE IS RESOLVED, NEVER WRITTEN HERE (issue #1673). This held
+#: `NIT_STORE = 864`; the store now rolls over monthly, and a constant would
+#: keep reading the CLOSED predecessor after a rollover - a capture that parses,
+#: looks like an observation, and has stopped growing. `--capture` asks the
+#: resolver for the current store; `--nit-store N` names one explicitly, which
+#: is how a closed predecessor's history is still read.
+RESOLVER = Path(__file__).resolve().parent / "nit-store-resolve.sh"
+
+
+def resolve_nit_store() -> tuple[int | None, str]:
+    """(number, "") for the one open store, else (None, why). Never a guess."""
+    try:
+        out = subprocess.run(["bash", str(RESOLVER), "--repo", REPO],
+                             capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, f"the resolver could not run ({exc})"
+    number = re.search(r"^NIT_STORE=(\d+)$", out.stdout, re.M)
+    if out.returncode == 0 and number and "NIT_STORE_STATUS: ok" in out.stdout:
+        return int(number.group(1)), ""
+    status = re.search(r"^NIT_STORE_STATUS: (.*)$", out.stdout, re.M)
+    return None, status.group(1) if status else f"the resolver exited {out.returncode} with no status line"
 
 #: A finding is attributable only through an explicit comment citation.
 CITATION_RE = re.compile(r"issuecomment-(\d+)")
@@ -383,10 +404,18 @@ def _github_unreadable(dest: Path) -> int:
     return UNKNOWN_EXIT
 
 
-def capture(dest: Path, root: Path) -> int:
+def capture(dest: Path, root: Path, nit_store: int | None = None) -> int:
     """Write a capture document from live data. Never writes a partial one."""
+    if nit_store is None:
+        nit_store, why = resolve_nit_store()
+        if nit_store is None:
+            print(f"maintain-loop: UNKNOWN - which issue is the Nit Store could not be "
+                  f"established ({why}), so no capture was written. Name one with "
+                  f"--nit-store N to read a specific (for example closed) store.",
+                  file=sys.stderr)
+            return UNKNOWN_EXIT
     comments = _gh(["api", "--paginate",
-                    f"repos/{REPO}/issues/{NIT_STORE}/comments",
+                    f"repos/{REPO}/issues/{nit_store}/comments",
                     "--jq", '.[] | {id:(.id|tostring), created_at:.created_at, body:.body}'])
     # `incomplete_results` IS PART OF THE ANSWER AND THE PROJECTION THREW IT
     # AWAY (counter-model finding). GitHub's search API returns partial results
@@ -484,7 +513,7 @@ def capture(dest: Path, root: Path) -> int:
 
     doc = {
         "captured_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "source": f"github:{REPO}#{NIT_STORE} + .claude/friction.jsonl",
+        "source": f"github:{REPO}#{nit_store} + .claude/friction.jsonl",
         "comments": parsed["comments"],
         "issues": parsed["issues"],
         "friction": friction,
@@ -503,10 +532,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--capture", type=Path, default=None,
                     help="fetch live data and write a capture document here (needs gh)")
     ap.add_argument("--root", type=Path, default=Path("."))
+    ap.add_argument("--nit-store", type=int, default=None, metavar="N",
+                    help="with --capture: read this Nit Store issue instead of the "
+                         "current one (how a closed predecessor is still read)")
     args = ap.parse_args(argv)
 
     if args.capture is not None:
-        return capture(args.capture, args.root)
+        return capture(args.capture, args.root, args.nit_store)
     if args.input is None:
         print("maintain-loop: usage - one of --input or --capture is required. "
               "Absent both, this reports NOTHING rather than defaulting to a "
