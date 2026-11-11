@@ -60,7 +60,14 @@ def subprocess_runner(command: list[str], cwd: Path) -> str:
     timeout = 30 if command[:5] == ["gh", "pr", "list", "--state", "merged"] else None
     if command[:3] == ["gh", "api", "graphql"]:
         timeout = 60
-    completed = subprocess.run(command, cwd=cwd, capture_output=True, text=True, check=False, timeout=timeout)
+    try:
+        completed = subprocess.run(command, cwd=cwd, capture_output=True, text=True, check=False, timeout=timeout)
+    except OSError as exc:
+        # The command could not START: a missing cwd, or no such executable
+        # (#1674). That is a collection failure like any other - it used to
+        # escape as a bare OSError past every caller that catches
+        # CollectionError, and one stale worktree entry ended the whole report.
+        raise CollectionError(f"{' '.join(command[:3])}: could not run in {cwd}: {exc.strerror or exc}") from exc
     if completed.returncode:
         diagnostic = (completed.stderr or "").strip() or (completed.stdout or "").strip() or "command failed"
         message = gh_field_remediation(command, diagnostic) or diagnostic.splitlines()[0]
@@ -136,6 +143,29 @@ def _parse_worktrees(output: str, repository: Path, runner: CommandRunner, warni
         path = Path(entry.get("worktree", repository))
         branch = entry.get("branch", "").removeprefix("refs/heads/")
         status_unknown_reason = ""
+        # A PRUNABLE entry has no directory to ask (#1674): git still lists the
+        # worktree, with a `prunable <why>` line since 2.31, after its directory
+        # was deleted. Running git there cannot succeed, so it is not attempted.
+        # The worktree is UNEXAMINED - never clean, never "resume this" - and
+        # this command stays read-only: it reports, it does not prune.
+        if "prunable" in entry or not path.is_dir():
+            why = entry.get("prunable") or "its directory is missing"
+            status_unknown_reason = (
+                f"worktree {path} is prunable ({why}); directory is missing, not examined - "
+                "`git worktree prune` removes the stale entry"
+            )
+            warnings.append(status_unknown_reason)
+            worktrees.append(
+                Worktree(
+                    path=str(path),
+                    branch=branch,
+                    dirty=None,
+                    untracked_only=False,
+                    recent_commits=(),
+                    status_unknown_reason=status_unknown_reason,
+                )
+            )
+            continue
         try:
             status = runner(["git", "status", "--short"], path)
         except CollectionError as exc:

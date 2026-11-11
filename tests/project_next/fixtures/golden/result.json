@@ -36,7 +36,7 @@
     "unmapped_worktrees": []
   },
   "cleanup_candidates": [],
-  "contract_version": "1.8",
+  "contract_version": "1.9",
   "inventory_complete": true,
   "next_startable_issue": null,
   "ranked_available": [],
