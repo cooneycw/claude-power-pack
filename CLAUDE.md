@@ -108,6 +108,7 @@ the smallest applicable workflow and load its command document for execution:
 - `/project:init` - destination-first project creation and optional Wayfinder/spec handoff.
 - `/project:next` - planning-aware next-action routing through the always-present project-next engine.
 - `/spec:adopt` and `/speckit-*` - official spec-kit authoring; implementation routes to `/flow:auto`.
+- `/lane:create`, `/lane:update` - draft and review the project's lane file (`.claude/lanes.md`).
 - `/cicd:*` - Makefile, container, pipeline, health, smoke, deploy, and infrastructure workflows.
 - `/security:*` - deterministic scans; use native `/security-review` for semantic vulnerability review.
 - `/documentation:*` - repository documentation, C4 diagrams, and presentations.

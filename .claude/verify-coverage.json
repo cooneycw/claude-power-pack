@@ -256,6 +256,11 @@
       "consumer": "tests/test_knowledge_graduation_check.py",
       "reason": "decides whether a completed spec may be removed"
     },
+    "lane-file.py": {
+      "class": "tested",
+      "consumer": "tests/test_lane_file.py",
+      "reason": "the lane file helper (#1696): `age` reads the Reviewed: date inside .claude/lanes.md and reports fresh, stale, unknown or absent; `stamp` records a review. An advisory, not a gate - /flow:eli5 relays the LANE_FILE_AGE: line and continues on every exit code, so nothing is let through on it and it is not wired into make verify. Its age verdict carries a committed control (controls/lane-file-age); the tests pin the states the control does not."
+    },
     "lane-serveability-check.sh": {
       "class": "tested",
       "consumer": "tests/test_lane_serveability.py",

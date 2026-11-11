@@ -4,6 +4,18 @@
 
 ### Behaviour changes you may notice
 
+- **A project can list its lanes, and plans then say which ones they tested.**
+  A lane is a route one behaviour travels: main checkout or linked worktree,
+  dev or prod, small fixture or real-size data. With a `.claude/lanes.md`, the
+  `/flow:eli5` plan answers every listed lane (will test, will refuse, not
+  applicable, not covered), the closing report shows the same rows with
+  results, and `/codex:code_review` hands the reviewer the list and asks for a
+  lane the plan omits (#1695). `/lane:create` drafts the file from a survey
+  checklist and `/lane:update` reviews it; `/project:init` creates it for a new
+  project. The plan step also relays a notice when the list was last reviewed
+  more than 60 days ago or cannot be dated (`lane-file.py age`). That notice
+  never stops a plan. A project with no lane file is asked nothing, and no
+  existing output changed (#1696). See `docs/agents/lanes.md`.
 - **This repository's Nit Store is found by title, not by number.**
   `nit-store-resolve.sh` no longer maps claude-power-pack to #864; it answers
   the one open issue titled exactly `Nit Store`, so the store can roll over

@@ -77,6 +77,11 @@ From `/flow:eli5`, the closing-report section (issue #965):
 > hands the work **back** - the moment the context is largest and the reader's
 > attention thinnest.
 
+From `/flow:eli5`, the first Notes bullet, moved by #1696 to pay for the lane
+file age advisory (the document's opening already says what the command is for):
+
+> This command is the communication and approval checkpoint: intent in the reviewer's language, an honest necessity verdict, and the plan that is about to be executed.
+
 From `/codex:code_review` Step 2, above the `trap` that removes the diff file:
 
 > Four refusal paths below (no common ancestor, no diff vs BASE, an unreadable
@@ -291,6 +296,8 @@ qualifiers such as `/qa:test` being single-session) are not lost.
 
 - `/project:init <name>` - Full project scaffolding (zero to GitHub repo)
 - `/project:next` - Prioritized next-step report (compact default ~2-4K tokens; `--full` deep analysis, `--brief` single pick)
+- `/lane:create` - Draft `.claude/lanes.md` from a survey checklist; the owner reads the draft, with each row's evidence, before anything is written (#1696)
+- `/lane:update` - Re-check the lane file against the repository and recent fixes, write only what the owner accepts, and record the review date (#1696)
 - `/project:lite` - Quick project reference (~500-800 tokens)
 ### Spec-Driven Development
 
