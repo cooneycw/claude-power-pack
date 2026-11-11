@@ -541,3 +541,18 @@ def test_the_cli_refuses_to_report_preservation_over_nothing(tmp_path: Path, cap
 def test_the_cli_success_line_names_how_many_documents_it_read(capsys) -> None:
     assert behavior.main(["--root", str(SCRIPT.parents[1])]) == 0
     assert "1 trimmed command document(s) still carry their recorded step text" in capsys.readouterr().out
+
+
+def test_a_command_whose_CASE_changed_is_a_missing_step(tmp_path: Path) -> None:
+    """Counter-model finding (#1669, pass 2): executable text is case-sensitive.
+
+    Prose markers are matched case-folded; a command line must not be, because
+    `MAKE DEPLOY` does not run.
+    """
+    step = {"slug": "bash-deploy", "needle": "make deploy", "kind": "bash-line", "count": 1}
+    _write_steps(tmp_path, body="```bash\nmake deploy\n```\n", needles=[step])
+    assert behavior.check_tree(tmp_path) == []
+
+    _write_steps(tmp_path, body="```bash\nMAKE DEPLOY\n```\n", needles=[step])
+
+    assert [finding.kind for finding in behavior.check_tree(tmp_path)] == ["missing-step"]

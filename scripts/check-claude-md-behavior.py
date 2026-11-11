@@ -282,8 +282,13 @@ def _load_step_fixture(path: Path) -> tuple[list[tuple[str, str, str, int]], dic
     return steps, retirements
 
 
+def _command_line(text: str) -> str:
+    """Whitespace-normalised, CASE PRESERVED: `MAKE DEPLOY` is not `make deploy`."""
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def _bash_lines(source: str) -> dict[str, int]:
-    """Folded non-comment lines of every ```bash block, with their counts."""
+    """Non-comment lines of every ```bash block, with their counts."""
     counts: dict[str, int] = {}
     in_block, language = False, ""
     for line in source.splitlines():
@@ -293,7 +298,7 @@ def _bash_lines(source: str) -> dict[str, int]:
             in_block = not in_block
             continue
         if in_block and language == "bash" and stripped and not stripped.startswith("#"):
-            key = _fold(stripped).strip()
+            key = _command_line(stripped)
             counts[key] = counts.get(key, 0) + 1
     return counts
 
@@ -340,7 +345,7 @@ def check_command_steps(root: Path) -> tuple[list[Finding], int]:
             if slug in retirements:
                 continue
             if kind == "bash-line":
-                found = bash.get(_fold(needle).strip(), 0)
+                found = bash.get(_command_line(needle), 0)
                 if found < count:
                     findings.append(
                         Finding(

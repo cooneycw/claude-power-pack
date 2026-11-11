@@ -2,7 +2,7 @@
 
 Complete end-to-end workflow: start worktree → analyze issue → ELI5 plan + necessity gate → implement → finish (PR) → merge → deploy.
 
-Steps only (#1669). Why each rule exists:
+Why each rule exists (#1669):
 [flow:auto rationale](../../../docs/reference/flow-auto-rationale.md).
 
 ## Arguments
@@ -214,8 +214,6 @@ compose names a second, colliding stack after the worktree basename.
 
 ### Step 2: Analyze - Understand the Issue
 
-Working from the worktree, analyze the issue and codebase to form an implementation plan.
-
 1. **Parse the issue body:**
    - Extract acceptance criteria (checkbox items `- [ ]`)
    - Identify referenced files, components, or areas
@@ -295,7 +293,7 @@ Report: `Step 2/9: Analyze complete - {N} files to modify`
 
 ### Step 3: ELI5 - Plan + Necessity Gate (Approval Checkpoint)
 
-Before writing any code, run the `/flow:eli5` review using the issue and the Step 2 analysis. This is the post-analysis, pre-implementation communication and approval gate.
+Before writing any code, run the `/flow:eli5` review using the issue and the Step 2 analysis.
 
 **Load the FULL gate spec first (issue #509)** and produce the report against
 THAT spec, including its report template and depth floor. First match wins:
@@ -551,8 +549,6 @@ if [[ -f "Makefile" ]] && grep -q "^update_docs:" Makefile; then
 fi
 ```
 
-Then:
-
 1. **Regenerate C4 diagrams** - if `docs/architecture/` exists or significant
    code changed, run the `/documentation:c4` workflow (L1-L4 diagrams to
    `docs/architecture/`).
@@ -560,7 +556,8 @@ Then:
    description the change made stale.
 3. **Stage doc changes** - `git add` any modified documentation files.
 
-If no `update_docs` target exists in the Makefile, skip this step.
+If no `update_docs` target exists in the Makefile, skip this step. A failure
+here is non-blocking: warn and continue.
 
 Report: `Step 5/9: Update Docs complete - {N} files updated` or `Step 5/9: Update Docs skipped (no Makefile target)`
 
@@ -1022,7 +1019,7 @@ Having nothing to store is an ordinary outcome. Do not manufacture a finding.
    git push origin "$BRANCH"
    ```
 
-2. **Merge the PR.** Look up the PR number first (allowlisted read):
+2. **Merge the PR.** Look up the PR number first:
 
    ```bash
    gh pr list --head "$BRANCH" --json number --jq '.[0].number'
@@ -1282,8 +1279,6 @@ Report: `Step 7/9: Merge complete - worktree cleaned up`
 
 ### Step 8: Verify CI (after merge)
 
-After merging to main, verify that the CI pipeline passes before deploying.
-
 ONE audited helper owns this (issue #766). Invoke `scripts/flow-ci-status.sh`
 BARE with the literal SHA and checkout path (#581; the checkout is DECLARED,
 the #614 rule):
@@ -1364,7 +1359,7 @@ Report: `Step 8/9: Verify CI complete - pipeline #{N} passed` or
 ### Step 9: Deploy (optional)
 
 Only if a Makefile with a `deploy` target exists in the main repo. `/flow:auto`
-runs `make deploy` inline (it does NOT call `/flow:deploy`). The block skips
+runs `make deploy` inline. The block skips
 when `.claude/deploy.yaml` declares `mode: external` (issue #535) or the sha is
 already recorded as deployed (issue #597), pins `COMPOSE_PROJECT_NAME`, and
 wraps the deploy in a verification baseline run through `uv` (issue #595):
@@ -1525,6 +1520,10 @@ Flow Auto stopped at Step N/9: {Step Name}
     [check CI dashboard] (if step 8 failed)
     /flow:deploy     (if step 9 failed)
 ```
+
+Failure rules no step states: analysis unclear - stop at step 2 and ask the
+user; push fails - stop at step 6 and suggest `git pull --rebase`; deploy fails -
+report it, do not roll back.
 
 ## Notes
 

@@ -287,6 +287,8 @@ already; Step 4 reminds you at the point a test database is started.
 
 ## Step 2: Analyze - Understand the Issue
 
+Working from the worktree, analyze the issue and codebase to form an implementation plan.
+
    **If the body carries a `speckit-context` block** (issue #858), it is a generated
    issue and the block is a bounded CACHE of the task's declared context - not the
    authority. Fetch the body to a UNIQUE file, check that the fetch succeeded, and
@@ -350,6 +352,8 @@ already; Step 4 reminds you at the point a test database is started.
 
 
 ## Step 3: ELI5 - Plan + Necessity Gate (Approval Checkpoint)
+
+Before writing any code, run the `/flow:eli5` review using the issue and the Step 2 analysis. This is the post-analysis, pre-implementation communication and approval gate.
 
 **Load the FULL gate spec first (issue #509) - the bullets below are orientation,
 not the spec.** Read it from whichever surface this installation has (first match
@@ -1346,6 +1350,8 @@ fill this step.
    pushed, so the PR the squash reads would not contain it. Test for a changed
    branch, not for a merge:
 
+2. **Merge the PR.** Look up the PR number first (allowlisted read):
+
    **When CI outlasts main's quiet window (issue #1300)** - a required check
    takes 15-20 minutes here, longer than `main` stays still - wait for green on
    the REQUIRED lane first, then merge in the same breath, so the window in which
@@ -1680,6 +1686,8 @@ this point, and no worktree means no uncommitted work to destroy.
 
 
 ## Step 8: Verify CI (after merge)
+
+After merging to main, verify that the CI pipeline passes before deploying.
 
 ONE audited helper owns this (issue #766): `scripts/flow-ci-status.sh` resolves
 the pipeline for a commit SHA, waits for it to finish, and names the failed
