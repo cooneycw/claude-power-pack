@@ -144,6 +144,7 @@ set -uo pipefail
 # removed here too: a second `trap ... EXIT` further down would REPLACE this
 # one and silently drop the exit trailer.
 CODEX_EXPECT_TMP=""
+# shellcheck disable=SC2317  # invoked only from the EXIT trap below
 on_exit() {
     local rc=$?
     [ -n "$CODEX_EXPECT_TMP" ] && rm -rf "$CODEX_EXPECT_TMP"
