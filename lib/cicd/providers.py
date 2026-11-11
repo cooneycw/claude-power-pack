@@ -66,7 +66,12 @@ HOST_CHECKS = {
     "woodpecker-auth": HostCheckSpec("lib.cicd.host:check_woodpecker", ("woodpecker-cli",)),
 }
 
-REMEDY = "record pipeline.providers in .claude/cicd.yml with pipeline --providers NAME[,NAME] --record"
+# The record must reach every checkout that merges (issue #1677): commit it, or
+# - where the project git-ignores .claude/ - write it once in the MAIN checkout,
+# which `read_provider_record` shares with linked worktrees that lack their own.
+REMEDY = ("record pipeline.providers in .claude/cicd.yml with pipeline --providers NAME[,NAME] --record; "
+          "commit that file, or where .claude/ is git-ignored record it in the main checkout "
+          "(linked worktrees read an untracked main-checkout record)")
 
 
 def normalize_providers(pipeline: dict[str, Any]) -> list[str]:
@@ -148,14 +153,93 @@ def parse_config_mapping(text: str, source: str) -> dict[str, Any]:
     return data
 
 
-def read_provider_record(project: str | Path) -> ProviderRecord:
-    path = Path(project) / ".claude/cicd.yml"
+RECORD_PATH = ".claude/cicd.yml"
+
+
+def linked_worktree_main(project: str | Path) -> Path | None:
+    """The main checkout of the linked worktree whose TOP LEVEL is `project`.
+
+    Read from git's own files, with no subprocess: a linked worktree's `.git`
+    is a FILE naming its private git directory, which holds a `commondir`
+    file (a submodule's does not) and a `gitdir` file pointing back at this
+    worktree. Anything else - the main checkout, a subdirectory, a submodule,
+    a bare repository, an unreadable file - answers None.
+    """
     try:
-        data = parse_config_mapping(path.read_text(), str(path))
+        here = Path(project).resolve()
+        pointer = (here / ".git").read_text().strip()
+        if not pointer.startswith("gitdir:"):
+            return None
+        private = (here / pointer[len("gitdir:"):].strip()).resolve()
+        back = (private / (private / "gitdir").read_text().strip()).resolve()
+        if back != here / ".git":
+            return None
+        common = (private / (private / "commondir").read_text().strip()).resolve()
+        main = common.parent
+        if common.name != ".git" or main == here or not main.is_dir():
+            return None
+        return main
+    except (OSError, ValueError):
+        return None
+
+
+def shared_record_path(project: str | Path) -> Path | None:
+    """The main checkout's UNTRACKED record, for a linked worktree that has none.
+
+    Issue #1677. A project that git-ignores `.claude/` keeps its record out of
+    every commit, so each new linked worktree started without one and the
+    writer had to be re-run per worktree. An untracked record is a fact about
+    the clone, not about a tree, so the main checkout's copy answers for its
+    linked worktrees.
+
+    DELIBERATELY NARROW - absent still means unknown (ADR 0012 decision 2):
+      - only for the top level of a LINKED worktree, never a subdirectory or
+        the main checkout itself;
+      - only when the main checkout's record is NOT tracked. A tracked record
+        already reaches every worktree through git, so a worktree that lacks
+        it sits on a branch that predates or deliberately deleted it, and
+        borrowing main's copy would hide that;
+      - any git failure answers None. An unanswerable question is not a yes.
+
+    ONE local `git ls-files` runs, and only once a linked worktree has a
+    main-checkout record to consider. Every other path - including every
+    project that is not a linked worktree - spawns nothing, which keeps
+    `lane_plan` offline for them.
+    """
+    import subprocess
+
+    main = linked_worktree_main(project)
+    if main is None:
+        return None
+    candidate = main / RECORD_PATH
+    if not candidate.is_file():
+        return None
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    try:
+        # Exit 1 is git's "not tracked"; 0 is tracked; anything else is unknown.
+        tracked = subprocess.run(["git", "-C", str(main), "ls-files", "--error-unmatch", "--", RECORD_PATH],
+                                 capture_output=True, text=True, timeout=10, env=env)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return candidate if tracked.returncode == 1 else None
+
+
+def read_provider_record(project: str | Path) -> ProviderRecord:
+    path = Path(project) / RECORD_PATH
+    borrowed = False
+    try:
+        text = path.read_text()
     except FileNotFoundError:
-        return ProviderRecord((), f"{path}: file missing")
+        shared = shared_record_path(project)
+        if shared is None:
+            return ProviderRecord((), f"{path}: file missing")
+        try:
+            text, path, borrowed = shared.read_text(), shared, True
+        except OSError as exc:
+            raise ProviderError(f"could not read {shared}: {type(exc).__name__}") from exc
     except OSError as exc:
         raise ProviderError(f"could not read {path}: {type(exc).__name__}") from exc
+    data = parse_config_mapping(text, str(path))
     pipeline = data.get("pipeline", {})
     if pipeline is None:
         pipeline = {}
@@ -164,6 +248,8 @@ def read_provider_record(project: str | Path) -> ProviderRecord:
     selected = normalize_providers(pipeline)
     source = ("pipeline.providers" if "providers" in pipeline else
               "pipeline.provider" if "provider" in pipeline else "providers absent")
+    if borrowed:
+        source += " (untracked main-checkout record, shared with this linked worktree)"
     return ProviderRecord(tuple(selected), f"{path}: {source}")
 
 
