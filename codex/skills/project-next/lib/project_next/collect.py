@@ -148,10 +148,17 @@ def _parse_worktrees(output: str, repository: Path, runner: CommandRunner, warni
         # was deleted. Running git there cannot succeed, so it is not attempted.
         # The worktree is UNEXAMINED - never clean, never "resume this" - and
         # this command stays read-only: it reports, it does not prune.
-        if "prunable" in entry or not path.is_dir():
-            why = entry.get("prunable") or "its directory is missing"
+        #
+        # GIT'S OWN WORD IS THE ONLY TRIGGER, deliberately. Probing the
+        # filesystem here would bypass an injected runner whose worktree path
+        # is not a real directory (controls/project-next-worktree-log does
+        # exactly that) and silently drop its evidence. A missing directory
+        # git did NOT flag still degrades safely: the real runner reports a
+        # command that cannot start as a CollectionError, handled just below.
+        if "prunable" in entry:
+            why = entry["prunable"] or "no reason given"
             status_unknown_reason = (
-                f"worktree {path} is prunable ({why}); directory is missing, not examined - "
+                f"worktree {path} is prunable ({why}); not examined - "
                 "`git worktree prune` removes the stale entry"
             )
             warnings.append(status_unknown_reason)

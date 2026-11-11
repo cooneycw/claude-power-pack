@@ -507,19 +507,44 @@ def test_a_prunable_worktree_is_unexamined_and_does_not_take_down_collection(tmp
 
 
 def test_a_missing_directory_without_a_prunable_line_is_still_unexamined(tmp_path: Path) -> None:
-    """Git older than 2.31 prints no `prunable` line; the missing directory alone must suffice (#1674)."""
-    from lib.project_next.collect import _parse_worktrees
+    """Git older than 2.31 prints no `prunable` line; the real runner must still degrade (#1674).
 
+    With no `prunable` word the collector asks, the command cannot start, and the
+    runner's CollectionError lands in the existing unexamined path.
+    """
+    import shutil
+
+    from lib.project_next.collect import _parse_worktrees, subprocess_runner
+
+    if shutil.which("git") is None:
+        pytest.skip("git is not installed")
     gone = tmp_path / "never-existed"
-
-    def runner(command: list[str], cwd: Path) -> str:
-        raise AssertionError(f"git must not be run in a missing directory: {command} in {cwd}")
+    assert not gone.exists()
 
     warnings: list[str] = []
-    result = _parse_worktrees(f"worktree {gone}\nbranch refs/heads/issue-28\n", tmp_path, runner, warnings)
+    result = _parse_worktrees(f"worktree {gone}\nbranch refs/heads/issue-28\n", tmp_path, subprocess_runner, warnings)
     assert result[0].dirty is None
-    assert "directory is missing" in result[0].status_unknown_reason
-    assert len(warnings) == 1
+    assert "could not run" in result[0].status_unknown_reason and str(gone) in result[0].status_unknown_reason
+    assert warnings
+
+
+def test_an_injected_runner_is_still_asked_about_a_path_that_is_not_a_real_directory(tmp_path: Path) -> None:
+    """Only git's `prunable` word skips the runner - never a filesystem probe (#1674, counter-model review).
+
+    controls/project-next-worktree-log feeds `/fixture/worktree` through an
+    injected runner. A guard that tested the directory itself would bypass that
+    runner and report its dirty worktree as unexamined.
+    """
+    from lib.project_next.collect import _parse_worktrees
+
+    fake = tmp_path / "not-a-real-directory"
+    assert not fake.exists()
+
+    def runner(command: list[str], cwd: Path) -> str:
+        return " M tracked.py\n" if command[1] == "status" else ""
+
+    result = _parse_worktrees(f"worktree {fake}\nbranch refs/heads/issue-28\n", tmp_path, runner, [])
+    assert result[0].dirty is True and result[0].status_unknown_reason == ""
 
 
 def test_the_real_runner_reports_an_unstartable_command_as_a_collection_error(tmp_path: Path) -> None:
