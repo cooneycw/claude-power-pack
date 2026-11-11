@@ -651,6 +651,12 @@ Co-Authored-By: <name> <noreply@anthropic.com>"
 git push origin main
 ```
 
+**Create the first monthly review (issue #1703).** With the repository on
+GitHub, run `/monthly:create`: it writes `Monthly review: YYYY-MM` and creates
+the `monthly-review` label, so standing work has a home from day one. A new
+project's list is short; that is expected. If it reports `refused` or
+`unknown`, warn and continue - `/project:next` will name it again.
+
 Report the final summary:
 
 ```
@@ -664,6 +670,7 @@ Project created: {PROJECT_NAME}
   Host CI:    {per-provider ready/missing/unknown; never inferred from config}
   CPP:        Commands + Skills + Hooks
   Spec:       .specify/ initialized
+  Monthly:    {review issue URL, or "not created - run /monthly:create"}
 
 Next steps:
   cd ~/Projects/{PROJECT_NAME}

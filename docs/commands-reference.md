@@ -292,6 +292,8 @@ qualifiers such as `/qa:test` being single-session) are not lost.
 - `/project:init <name>` - Full project scaffolding (zero to GitHub repo)
 - `/project:next` - Prioritized next-step report (compact default ~2-4K tokens; `--full` deep analysis, `--brief` single pick)
 - `/project:lite` - Quick project reference (~500-800 tokens)
+- `/monthly:create` - Scan the repository and write this month's monitoring list as a `Monthly review: YYYY-MM` issue (#1703). `/project:next` reports when a month has none; that report is the only trigger, and `/project:init` creates a new project's first one
+- `/monthly:review` - Work the open monthly review item by item, recording what was done or why an item is carried
 ### Spec-Driven Development
 
 - `/spec:help` - Overview of the spec-kit authoring path
