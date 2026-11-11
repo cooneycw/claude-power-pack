@@ -258,6 +258,7 @@ CLAIM_BEARING = (
     "CLAUDE.md",
     "README.md",
     "docs/scripts.md",
+    "docs/scripts/hooks.md",
     ".claude/commands/cpp/init.md",
     ".claude/commands/cpp/update.md",
     ".claude/commands/cpp/status.md",
@@ -424,7 +425,7 @@ def test_the_scan_can_find_something_before_it_is_believed():
     # issue is actually about and require each one IN, so a deny list that
     # grows too greedy is caught by the test rather than by a later reader.
     must_scan = {
-        "CLAUDE.md", "README.md", "docs/scripts.md",
+        "CLAUDE.md", "README.md", "docs/scripts.md", "docs/scripts/hooks.md",
         ".claude/commands/cpp/update.md",
     }
     present = {p.relative_to(ROOT).as_posix() for p in surfaces}

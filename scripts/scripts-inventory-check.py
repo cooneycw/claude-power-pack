@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Derive the `docs/scripts.md` entry population from `scripts/` (issue #1013).
 
-`docs/scripts.md` is the repository's inventory of its own tooling - one section
-per script, holding the accumulated per-script history that issue #711 moved out
-of the always-loaded `CLAUDE.md`. Nothing generated it and nothing checked it, so
+`docs/scripts.md` is the repository's inventory of its own tooling. Since issue
+#1672 it is an INDEX - one bullet per script, each linking the script's own
+reference under `docs/scripts/` - and this gate reads only the index. Before that
+it held one section per script, with the accumulated per-script history that
+issue #711 moved out of the always-loaded `CLAUDE.md`; the rest of this
+docstring describes that document, and the claim rule below is unchanged, which
+is why a bullet-only index satisfies it. Nothing generated it and nothing checked it, so
 a script could be added and its entry simply never written; 17 of 68 were in that
 state when this gate was built.
 

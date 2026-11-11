@@ -401,7 +401,9 @@ def test_no_LIVE_SURFACE_still_routes_a_reader_to_the_dead_command() -> None:
     for root in roots:
         for path in sorted(root.rglob("*.md")):
             rel = path.relative_to(ROOT)
-            if rel in exempt or rel.parts[:2] == ("docs", "research"):
+            # docs/scripts/ is the per-script HISTORY that docs/scripts.md held
+            # until #1672 split it; the exemption moved with the text.
+            if rel in exempt or rel.parts[:2] in (("docs", "research"), ("docs", "scripts")):
                 continue
             # A flow run's AS-READ SNAPSHOT is the issue body copied byte for byte
             # (`flow-plan-record.py approve`), so it quotes whatever the filer
