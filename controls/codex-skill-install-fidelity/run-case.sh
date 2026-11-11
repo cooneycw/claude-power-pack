@@ -20,10 +20,11 @@
 #
 # Then it asks the gate to install that tree into a tmp destination.
 #
-# "finding" = the install exited non-zero AND nothing from the tree reached
-# the destination. For the bad case that is the gate refusing the altered
-# mirror; the good case expects a clean install, so a finding there would be
-# a false refusal of an intact tree.
+# "finding" = the install exited non-zero, PRINTED ITS OWN REFUSAL, and left
+# the destination with no file in it. "no finding" = exit 0 with the WHOLE
+# tree published byte for byte. Anything in between - a partial publish, an
+# exit 0 that copied nothing, a failure for an unrelated reason - is
+# `unavailable`: it is not evidence about fidelity in either direction.
 #
 # THE ANCHOR has no `--output-root`. It is handed the same tree the only way
 # it accepts one - as its OUTPUT_ROOT - and its `--install` copies it without
@@ -151,15 +152,35 @@ try:
 except Exception as exc:
     unavailable(f"{' '.join(argv)} raised: {exc}")
 
-published = dest / "flow-auto" / "scripts" / "helper.sh"
-reached = published.is_file()
-altered_reached = reached and MARK in published.read_text()
-detail = f"argv={argv} rc={rc} published={reached} altered-bytes-published={altered_reached}"
+# WHAT WAS PUBLISHED is read from the whole destination, not from one file
+# (counter-model review, #1670): an install that wrote SKILL.md and then failed
+# has not "published nothing", and one that exited 0 having copied nothing has
+# not installed anything.
+text = out.getvalue()
+published_files = (
+    sorted(p.relative_to(dest).as_posix() for p in dest.rglob("*") if p.is_file())
+    if dest.is_dir() else []
+)
+tree_files = sorted(p.relative_to(tree).as_posix() for p in tree.rglob("*") if p.is_file())
+complete = bool(tree_files) and published_files == tree_files and all(
+    (dest / rel).read_bytes() == (tree / rel).read_bytes() for rel in tree_files
+)
+altered_reached = any(MARK.encode() in (dest / rel).read_bytes() for rel in published_files)
+refused = "REFUSING to install" in text
+detail = (
+    f"argv={argv} rc={rc} refusal-diagnostic={refused} published-files={len(published_files)}"
+    f" of {len(tree_files)} complete={complete} altered-bytes-published={altered_reached}"
+)
 
-if rc != 0 and not reached:
-    print(f"{tag}: finding - the install REFUSED the tree and published nothing ({detail})")
-    print(out.getvalue())
+if rc != 0 and refused and not published_files:
+    print(f"{tag}: finding - the install REFUSED the tree and the destination is unchanged ({detail})")
+    print(text)
     sys.exit(1)
-print(f"{tag}: no finding - the install published the tree ({detail})")
-sys.exit(0)
+if rc == 0 and complete:
+    print(f"{tag}: no finding - the install published the whole tree ({detail})")
+    sys.exit(0)
+# Neither a clean refusal nor a clean install: a partial publish, an exit 0
+# that copied nothing, or a failure for some other reason. None of those is
+# evidence about fidelity, so none may score as either verdict.
+unavailable(f"the install neither refused cleanly nor published the whole tree ({detail})\n{text}")
 PYEOF

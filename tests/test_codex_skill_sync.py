@@ -1350,6 +1350,41 @@ def test_an_ungenerated_named_tree_is_refused_not_installed_empty(tmp_repo, tmp_
     assert not tmp_home.exists() or not any(tmp_home.iterdir())
 
 
+def test_a_generated_skill_no_source_produces_is_refused(tmp_repo, tmp_home, capsys):
+    """`--check` looks for orphans under KNOWN family prefixes only; the
+    publisher copies every dir with a SKILL.md. A generated dir under any other
+    name must not ride through the gap (counter-model review, #1670)."""
+    codex_skill_sync.main(["--write"])
+    out = tmp_repo / "codex" / "skills"
+    extra = out / "retired-extra"
+    extra.mkdir()
+    marker = codex_skill_sync.marker_for("retired", "extra.md")
+    (extra / "SKILL.md").write_text(f"{marker}\nno source produces this\n")
+    # Precondition: the drift check alone does NOT see it.
+    assert codex_skill_sync.main(["--check"]) == 0
+    capsys.readouterr()
+
+    assert codex_skill_sync.main(["--install", "--output-root", str(out)]) == 1
+
+    captured = capsys.readouterr()
+    assert "UNEXPECTED generated skill: retired-extra" in captured.out
+    assert "REFUSING to install" in captured.err
+    assert not tmp_home.exists() or not any(tmp_home.iterdir())
+
+
+def test_a_curated_skill_in_a_named_tree_is_still_published(tmp_repo, tmp_home):
+    """Ownership is the marker, never the name: an UNMARKED dir is hand-curated
+    and the gate above must not start refusing it."""
+    codex_skill_sync.main(["--write"])
+    out = tmp_repo / "codex" / "skills"
+    curated = out / "my-own-skill"
+    curated.mkdir()
+    (curated / "SKILL.md").write_text("---\nname: my-own-skill\n---\nhand written\n")
+
+    assert codex_skill_sync.main(["--install", "--output-root", str(out)]) == 0
+    assert (tmp_home / "my-own-skill" / "SKILL.md").is_file()
+
+
 def test_output_root_does_not_leak_into_the_next_call(tmp_repo, tmp_path):
     before = codex_skill_sync.OUTPUT_ROOT
     codex_skill_sync.main(["--write", "--output-root", str(tmp_path / "x")])

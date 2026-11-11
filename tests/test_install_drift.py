@@ -540,6 +540,10 @@ def test_orphaned_codex_skill_is_reported_but_not_drift(tmp_path: Path):
     checkout = _make_checkout(tmp_path / "checkout")
     home = tmp_path / "home"
     _make_codex_skill_installed(home, "cpp-retired-thing", body="gone\n", managed=True)
+    # The checkout still ships SOMETHING. "Orphaned" is a claim that we stopped
+    # shipping this one skill, and it needs a real expectation to stand on: a
+    # generator that produced nothing at all yields `unexamined` instead (#1670).
+    _make_codex_skill_source(checkout, "cpp-help", body="still shipped\n")
 
     report = _run(checkout, home)
     quiet = _run(checkout, home, "--quiet")
@@ -1737,4 +1741,21 @@ def test_the_generator_is_not_run_when_nothing_of_ours_is_installed(tmp_path: Pa
     assert not witness.exists()
     assert payload["codex_skills_expectation"] == "not-needed"
     assert payload["codex_skills_unexamined"] == 0
+
+
+def test_a_successful_build_of_nothing_is_unexamined_not_orphaned(tmp_path: Path):
+    """A generator that exits 0 having generated no skill has not told us we
+    stopped shipping anything (counter-model review, #1670)."""
+    checkout = _make_checkout(tmp_path)
+    home = tmp_path / "home"
+    # The stub generator succeeds and creates an EMPTY output directory.
+    assert not (checkout / "generator-output").exists()
+    _make_codex_skill_installed(home, "cpp-help", body="same\n")
+
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert payload["codex_skills_orphaned"] == 0
+    assert payload["codex_skills_unexamined"] == 1
+    assert "generated no skills" in payload["codex_skills_expectation"]
+    assert payload["verdict"] != "ok"
 

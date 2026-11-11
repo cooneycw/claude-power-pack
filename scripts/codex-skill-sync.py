@@ -2654,6 +2654,7 @@ def main(argv: list[str] | None = None) -> int:
         OUTPUT_ROOT = previous
 
 
+#: NEGATIVE-CONTROL: controls/codex-skill-install-fidelity
 def run_validated_install(selected: list[str], *, write: bool, private_build: bool) -> int:
     """Build (or take) a tree, CHECK it against the sources, then publish it.
 
@@ -2698,6 +2699,23 @@ def _install_from(root: Path, selected: list[str], *, write: bool) -> int:
             if rc != 0:
                 return rc
         rc = run_check(list(FAMILIES))
+        #: `run_check` only looks for orphans under a KNOWN family prefix, which
+        #: is right for a drift report and wrong for a publish gate: the
+        #: publisher copies EVERY dir holding a SKILL.md. A generated skill
+        #: under any other name - a retired family, a renamed one - would pass
+        #: the check and reach the host (counter-model review, #1670). So the
+        #: population the publisher will copy is compared to the population the
+        #: sources generate. An UNMARKED dir is a hand-curated skill and is
+        #: published as before; ownership is the marker, never the name.
+        if rc == 0:
+            expected = set(expected_outputs(list(FAMILIES)))
+            for d in sorted(root.iterdir()):
+                if d.is_dir() and d.name not in expected and is_managed(d):
+                    print(
+                        f"UNEXPECTED generated skill: {d.name} carries the GENERATED"
+                        " marker and no source command produces it"
+                    )
+                    rc = 1
         if rc != 0:
             print(
                 f"codex-skill-sync: REFUSING to install from {root} - it does not match"

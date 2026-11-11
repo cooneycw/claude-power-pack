@@ -555,12 +555,29 @@ if [ "$CODEX_MANAGED_INSTALLED" -gt 0 ]; then
     elif ! CODEX_EXPECT_TMP="$(mktemp -d 2>/dev/null)"; then
         CODEX_EXPECT_TMP=""
         CODEX_SKILLS_EXPECTATION="unavailable (could not create a temp directory)"
-    elif python3 "$CODEX_GENERATOR" --write --output-root "$CODEX_EXPECT_TMP/skills" >/dev/null 2>&1 \
-         && [ -d "$CODEX_EXPECT_TMP/skills" ]; then
-        CODEX_SKILLS_SOURCE="$CODEX_EXPECT_TMP/skills"
-        CODEX_SKILLS_EXPECTATION="generated"
-    else
+    elif ! python3 "$CODEX_GENERATOR" --write --output-root "$CODEX_EXPECT_TMP/skills" >/dev/null 2>&1 \
+         || [ ! -d "$CODEX_EXPECT_TMP/skills" ]; then
         CODEX_SKILLS_EXPECTATION="unavailable (codex-skill-sync.py --write failed)"
+    else
+        # A SUCCESSFUL BUILD OF NOTHING IS NOT AN EXPECTATION (counter-model
+        # review, #1670). A generator that exits 0 over an empty or unreadable
+        # source tree leaves an empty directory, and comparing against that
+        # calls every installed skill of ours an ORPHAN - "we stopped shipping
+        # it" - on the strength of having generated nothing at all. The floor
+        # is one skill carrying our marker.
+        CODEX_EXPECTED_COUNT=0
+        for generated in "$CODEX_EXPECT_TMP/skills"/*/; do
+            [ -d "$generated" ] || continue
+            if is_managed_codex_skill "$generated"; then
+                CODEX_EXPECTED_COUNT=$(( CODEX_EXPECTED_COUNT + 1 ))
+            fi
+        done
+        if [ "$CODEX_EXPECTED_COUNT" -gt 0 ]; then
+            CODEX_SKILLS_SOURCE="$CODEX_EXPECT_TMP/skills"
+            CODEX_SKILLS_EXPECTATION="generated"
+        else
+            CODEX_SKILLS_EXPECTATION="unavailable (codex-skill-sync.py --write generated no skills)"
+        fi
     fi
 fi
 
