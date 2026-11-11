@@ -1,1212 +1,1735 @@
 {
  "version": 1,
  "source": ".claude/commands/flow/auto.md at dca1ac6b, before the issue #1669 trim (20,924 words)",
- "method": "Extracted mechanically, not chosen: every non-comment line of every bash block, every backticked KEY: value / KEY=value verdict marker, and every bold exit-code rule. Each must still be found in the document itself; the linked reference does not count.",
+ "method": "Extracted mechanically, not chosen. kind=bash-line: every non-comment line of every bash block, with the number of times it occurred; the document must still carry that line, as a whole line of a bash block, at least that many times. kind=text: every backticked KEY: value / KEY=value verdict marker and every bold exit-code rule; the document must still contain the text. The linked reference never counts. LIMIT: this records that a step's text is present, not which section it sits in nor the action attached to a marker.",
  "document": ".claude/commands/flow/auto.md",
  "obligations": [
   {
    "slug": "bash-0001",
-   "needle": "~/.claude/scripts/flow-driver-capability.sh list # the whole matrix"
+   "needle": "~/.claude/scripts/flow-driver-capability.sh list # the whole matrix",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0002",
-   "needle": "~/.claude/scripts/flow-driver-capability.sh show flow:auto"
+   "needle": "~/.claude/scripts/flow-driver-capability.sh show flow:auto",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0003",
-   "needle": "~/.claude/scripts/friction-log.sh --class <gate-failure|red-output|manual-intervention> \\"
+   "needle": "~/.claude/scripts/friction-log.sh --class <gate-failure|red-output|manual-intervention> \\",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0004",
-   "needle": "--signal \"<what happened>\" --fix \"<proposed fix, if obvious>\" \\"
+   "needle": "--signal \"<what happened>\" --fix \"<proposed fix, if obvious>\" \\",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0005",
-   "needle": "--scope <local|portable> --run \"flow:auto #$ISSUE_NUM\" --step \"<N/9 Name>\" --outcome \"<retried|worked-around|corrected>\""
+   "needle": "--scope <local|portable> --run \"flow:auto #$ISSUE_NUM\" --step \"<N/9 Name>\" --outcome \"<retried|worked-around|corrected>\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0006",
-   "needle": "~/.claude/scripts/flow-start-resolve.sh 42 --require-preflight --session-cwd /home/user/Projects/my-repo"
+   "needle": "~/.claude/scripts/flow-start-resolve.sh 42 --require-preflight --session-cwd /home/user/Projects/my-repo",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0007",
-   "needle": "~/.claude/scripts/flow-start-resolve.sh 42 my-project --require-preflight --session-cwd /home/user/Projects/my-repo"
+   "needle": "~/.claude/scripts/flow-start-resolve.sh 42 my-project --require-preflight --session-cwd /home/user/Projects/my-repo",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0008",
-   "needle": "~/.claude/scripts/flow-start-resolve.sh --verify 42 issue-42-fix-login"
+   "needle": "~/.claude/scripts/flow-start-resolve.sh --verify 42 issue-42-fix-login",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0009",
-   "needle": "~/.claude/scripts/flow-plan-record.py reconcile 42"
+   "needle": "~/.claude/scripts/flow-plan-record.py reconcile 42",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0010",
-   "needle": "~/.claude/scripts/flow-plan-record.py read-issue 42"
+   "needle": "~/.claude/scripts/flow-plan-record.py read-issue 42",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0011",
-   "needle": "BODY_FILE=\"$(mktemp -t flow-auto-body-XXXXXX.md)\""
+   "needle": "BODY_FILE=\"$(mktemp -t flow-auto-body-XXXXXX.md)\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0012",
-   "needle": "if ! gh issue view \"$ISSUE_NUM\" --json body --jq .body > \"$BODY_FILE\"; then"
+   "needle": "if ! gh issue view \"$ISSUE_NUM\" --json body --jq .body > \"$BODY_FILE\"; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0013",
-   "needle": "echo \"STOP: could not fetch issue #$ISSUE_NUM; not checking context against an empty body.\""
+   "needle": "echo \"STOP: could not fetch issue #$ISSUE_NUM; not checking context against an empty body.\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0014",
-   "needle": "exit 1"
+   "needle": "exit 1",
+   "kind": "bash-line",
+   "count": 3
   },
   {
    "slug": "bash-0015",
-   "needle": "~/.claude/scripts/speckit-context.py check --body-file \"$BODY_FILE\" --root ."
+   "needle": "~/.claude/scripts/speckit-context.py check --body-file \"$BODY_FILE\" --root .",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0016",
-   "needle": "ISSUE_DATE=$(gh issue view \"$ISSUE_NUM\" --json createdAt --jq '.createdAt')"
+   "needle": "ISSUE_DATE=$(gh issue view \"$ISSUE_NUM\" --json createdAt --jq '.createdAt')",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0017",
-   "needle": "git log --since=\"$ISSUE_DATE\" --oneline -- <relevant/paths>"
+   "needle": "git log --since=\"$ISSUE_DATE\" --oneline -- <relevant/paths>",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0018",
-   "needle": "gh pr list --state merged --search \"merged:>=${ISSUE_DATE%%T*}\" --json number,title,mergedAt"
+   "needle": "gh pr list --state merged --search \"merged:>=${ISSUE_DATE%%T*}\" --json number,title,mergedAt",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0019",
-   "needle": "gh issue list --state all --search \"<key terms>\" --json number,title,state"
+   "needle": "gh issue list --state all --search \"<key terms>\" --json number,title,state",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0020",
-   "needle": "gh issue close \"$ISSUE_NUM\" --comment \"Closed via /flow:auto ELI5 review - <reason; cite superseding PR/issue>.\""
+   "needle": "gh issue close \"$ISSUE_NUM\" --comment \"Closed via /flow:auto ELI5 review - <reason; cite superseding PR/issue>.\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0021",
-   "needle": "~/.claude/scripts/flow-live-driver-guard.sh /path/to/worktree"
+   "needle": "~/.claude/scripts/flow-live-driver-guard.sh /path/to/worktree",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0022",
-   "needle": "~/.claude/scripts/flow-stale-check.sh origin/main /path/to/worktree"
+   "needle": "~/.claude/scripts/flow-stale-check.sh origin/main /path/to/worktree",
+   "kind": "bash-line",
+   "count": 2
   },
   {
    "slug": "bash-0023",
-   "needle": "~/.claude/scripts/flow-plan-record.py begin-run 42"
+   "needle": "~/.claude/scripts/flow-plan-record.py begin-run 42",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0024",
-   "needle": "cat >> \"docs/flow-runs/issue-42.md\" <<'RECORD'"
+   "needle": "cat >> \"docs/flow-runs/issue-42.md\" <<'RECORD'",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0025",
-   "needle": "- Issue: #42"
+   "needle": "- Issue: #42",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0026",
-   "needle": "- Base SHA: <SHA this plan was formed against>"
+   "needle": "- Base SHA: <SHA this plan was formed against>",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0027",
-   "needle": "- Necessity verdict: Still needed | Partially addressed | Needs reframing"
+   "needle": "- Necessity verdict: Still needed | Partially addressed | Needs reframing",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0028",
-   "needle": "- Approval: granted"
+   "needle": "- Approval: granted",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0029",
-   "needle": "- Approver: <who this run understood the approver to be>"
+   "needle": "- Approver: <who this run understood the approver to be>",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0030",
-   "needle": "- Recorded at: <ISO 8601 UTC>"
+   "needle": "- Recorded at: <ISO 8601 UTC>",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0031",
-   "needle": "<the commit SHAs, merged PR numbers and duplicate/superseding issue numbers"
+   "needle": "<the commit SHAs, merged PR numbers and duplicate/superseding issue numbers",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0032",
-   "needle": "Section B enumerated, or an explicit \"none\">"
+   "needle": "Section B enumerated, or an explicit \"none\">",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0033",
-   "needle": "<the numbered per-file change list, the scope estimate and the named risk(s),"
+   "needle": "<the numbered per-file change list, the scope estimate and the named risk(s),",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0034",
-   "needle": "exactly as approved>"
+   "needle": "exactly as approved>",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0035",
-   "needle": "RECORD"
+   "needle": "RECORD",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0036",
-   "needle": "~/.claude/scripts/flow-plan-record.py declare-salvage 42 <sha> --reason \"<why>\""
+   "needle": "~/.claude/scripts/flow-plan-record.py declare-salvage 42 <sha> --reason \"<why>\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0037",
-   "needle": "~/.claude/scripts/flow-plan-record.py approve 42"
+   "needle": "~/.claude/scripts/flow-plan-record.py approve 42",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0038",
-   "needle": "~/.claude/scripts/flow-worktree-guard.sh --strict"
+   "needle": "~/.claude/scripts/flow-worktree-guard.sh --strict",
+   "kind": "bash-line",
+   "count": 2
   },
   {
    "slug": "bash-0039",
-   "needle": "if [[ -f \"Makefile\" ]] && grep -q \"^update_docs:\" Makefile; then"
+   "needle": "if [[ -f \"Makefile\" ]] && grep -q \"^update_docs:\" Makefile; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0040",
-   "needle": "echo \"Running: make update_docs\""
+   "needle": "echo \"Running: make update_docs\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0041",
-   "needle": "make update_docs"
+   "needle": "make update_docs",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0042",
-   "needle": "BRANCH=$(git branch --show-current)"
+   "needle": "BRANCH=$(git branch --show-current)",
+   "kind": "bash-line",
+   "count": 2
   },
   {
    "slug": "bash-0043",
-   "needle": "ISSUE_NUM=$(echo \"$BRANCH\" | grep -oP 'issue-\\K[0-9]+' || echo \"\")"
+   "needle": "ISSUE_NUM=$(echo \"$BRANCH\" | grep -oP 'issue-\\K[0-9]+' || echo \"\")",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0044",
-   "needle": "git fetch origin main --quiet"
+   "needle": "git fetch origin main --quiet",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0045",
-   "needle": "if [ \"$(git rev-list --count HEAD..origin/main)\" -gt 0 ]; then"
+   "needle": "if [ \"$(git rev-list --count HEAD..origin/main)\" -gt 0 ]; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0046",
-   "needle": "if [ -n \"$(git status --porcelain)\" ]; then"
+   "needle": "if [ -n \"$(git status --porcelain)\" ]; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0047",
-   "needle": "git add -A"
+   "needle": "git add -A",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0048",
-   "needle": "git commit -m \"wip(flow): pre-merge snapshot\""
+   "needle": "git commit -m \"wip(flow): pre-merge snapshot\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0049",
-   "needle": "if ! git merge --no-edit origin/main; then"
+   "needle": "if ! git merge --no-edit origin/main; then",
+   "kind": "bash-line",
+   "count": 2
   },
   {
    "slug": "bash-0050",
-   "needle": "echo \"STOP: 'git merge origin/main' hit CONFLICTS. Resolve them, 'git add' + 'git commit', then re-run Step 6.\""
+   "needle": "echo \"STOP: 'git merge origin/main' hit CONFLICTS. Resolve them, 'git add' + 'git commit', then re-run Step 6.\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0051",
-   "needle": "git diff --name-only --diff-filter=U"
+   "needle": "git diff --name-only --diff-filter=U",
+   "kind": "bash-line",
+   "count": 2
   },
   {
    "slug": "bash-0052",
-   "needle": "echo \"NOTE: your Step-4 work is safe in the 'wip(flow): pre-merge snapshot' commit on this branch.\""
+   "needle": "echo \"NOTE: your Step-4 work is safe in the 'wip(flow): pre-merge snapshot' commit on this branch.\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0053",
-   "needle": "if [ -x scripts/codex-skill-resync.sh ]; then"
+   "needle": "if [ -x scripts/codex-skill-resync.sh ]; then",
+   "kind": "bash-line",
+   "count": 2
   },
   {
    "slug": "bash-0054",
-   "needle": "bash scripts/codex-skill-resync.sh"
+   "needle": "bash scripts/codex-skill-resync.sh",
+   "kind": "bash-line",
+   "count": 2
   },
   {
    "slug": "bash-0055",
-   "needle": "git log origin/main..HEAD --format=%B"
+   "needle": "git log origin/main..HEAD --format=%B",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0056",
-   "needle": "gh pr view \"$PR_NUMBER\" --json title,body --jq '.title, .body' 2>/dev/null"
+   "needle": "gh pr view \"$PR_NUMBER\" --json title,body --jq '.title, .body' 2>/dev/null",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0057",
-   "needle": "ACCEPTANCE_COMPLETE=\"\" # \"yes\" only when every material item is demonstrated,"
+   "needle": "ACCEPTANCE_COMPLETE=\"\" # \"yes\" only when every material item is demonstrated,",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0058",
-   "needle": "ISSUE_REF=\"Refs #${ISSUE_NUM}\""
+   "needle": "ISSUE_REF=\"Refs #${ISSUE_NUM}\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0059",
-   "needle": "if [[ \"$ACCEPTANCE_COMPLETE\" == \"yes\" ]]; then"
+   "needle": "if [[ \"$ACCEPTANCE_COMPLETE\" == \"yes\" ]]; then",
+   "kind": "bash-line",
+   "count": 2
   },
   {
    "slug": "bash-0060",
-   "needle": "ISSUE_REF=\"Closes #${ISSUE_NUM}\""
+   "needle": "ISSUE_REF=\"Closes #${ISSUE_NUM}\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0061",
-   "needle": "git reset --soft \"$(git merge-base HEAD origin/main)\""
+   "needle": "git reset --soft \"$(git merge-base HEAD origin/main)\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0062",
-   "needle": "git diff --staged --diff-filter=D --name-only # MUST be empty unless intended"
+   "needle": "git diff --staged --diff-filter=D --name-only # MUST be empty unless intended",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0063",
-   "needle": "git commit -m \"type(scope): Description (${ISSUE_REF})\""
+   "needle": "git commit -m \"type(scope): Description (${ISSUE_REF})\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0064",
-   "needle": "git merge --no-edit origin/main"
+   "needle": "git merge --no-edit origin/main",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0065",
-   "needle": "CM_RECEIPT=~/.claude/scripts/counter-model-receipt.py"
+   "needle": "CM_RECEIPT=~/.claude/scripts/counter-model-receipt.py",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0066",
-   "needle": "[ -f \"$CM_RECEIPT\" ] || CM_RECEIPT=\"${CLAUDE_PLUGIN_ROOT}/scripts/counter-model-receipt.py\""
+   "needle": "[ -f \"$CM_RECEIPT\" ] || CM_RECEIPT=\"${CLAUDE_PLUGIN_ROOT}/scripts/counter-model-receipt.py\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0067",
-   "needle": "[ -f \"$CM_RECEIPT\" ] || CM_RECEIPT=\"$CPP_DIR/scripts/counter-model-receipt.py\""
+   "needle": "[ -f \"$CM_RECEIPT\" ] || CM_RECEIPT=\"$CPP_DIR/scripts/counter-model-receipt.py\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0068",
-   "needle": "[ -f \"$CM_RECEIPT\" ] || { echo \"NOTE: counter-model-receipt.py not installed - \\"
+   "needle": "[ -f \"$CM_RECEIPT\" ] || { echo \"NOTE: counter-model-receipt.py not installed - \\",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0069",
-   "needle": "the run will be reported in the PR body and NOT recorded in a receipt.\"; CM_RECEIPT=\"\"; }"
+   "needle": "the run will be reported in the PR body and NOT recorded in a receipt.\"; CM_RECEIPT=\"\"; }",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0070",
-   "needle": "BASE=\"origin/${DEFAULT_BRANCH:-main}\""
+   "needle": "BASE=\"origin/${DEFAULT_BRANCH:-main}\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0071",
-   "needle": "git fetch origin --quiet || true"
+   "needle": "git fetch origin --quiet || true",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0072",
-   "needle": "if ! command -v codex >/dev/null 2>&1; then"
+   "needle": "if ! command -v codex >/dev/null 2>&1; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0073",
-   "needle": ": # record skipped / codex-absent (1d) and go to the quality gates"
+   "needle": ": # record skipped / codex-absent (1d) and go to the quality gates",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0074",
-   "needle": "python3 \"$CM_RECEIPT\" parse /path/to/transcript.md"
+   "needle": "python3 \"$CM_RECEIPT\" parse /path/to/transcript.md",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0075",
-   "needle": "python3 \"$CM_RECEIPT\" write --dir \"$(git rev-parse --show-toplevel)/docs/measurements/counter-model\" \\"
+   "needle": "python3 \"$CM_RECEIPT\" write --dir \"$(git rev-parse --show-toplevel)/docs/measurements/counter-model\" \\",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0076",
-   "needle": "--issue \"$ISSUE_NUM\" --branch \"$BRANCH\" \\"
+   "needle": "--issue \"$ISSUE_NUM\" --branch \"$BRANCH\" \\",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0077",
-   "needle": "--status ran --reviewer-exec-log \"$STREAM\" --scope \"$CODEX_REVIEW_SCOPE\" \\"
+   "needle": "--status ran --reviewer-exec-log \"$STREAM\" --scope \"$CODEX_REVIEW_SCOPE\" \\",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0078",
-   "needle": "--review-base \"$CODEX_REVIEW_BASE\" \\"
+   "needle": "--review-base \"$CODEX_REVIEW_BASE\" \\",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0079",
-   "needle": "--network \"$CODEX_REVIEW_NETWORK\" \\"
+   "needle": "--network \"$CODEX_REVIEW_NETWORK\" \\",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0080",
-   "needle": "--local-credentials \"$CODEX_REVIEW_LOCAL_CREDENTIALS\" \\"
+   "needle": "--local-credentials \"$CODEX_REVIEW_LOCAL_CREDENTIALS\" \\",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0081",
-   "needle": "--implementer-session-id \"$CLAUDE_CODE_SESSION_ID\" \\"
+   "needle": "--implementer-session-id \"$CLAUDE_CODE_SESSION_ID\" \\",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0082",
-   "needle": "--passes 2 --accepted 3 --rejected 1 --deferred 0 \\"
+   "needle": "--passes 2 --accepted 3 --rejected 1 --deferred 0 \\",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0083",
-   "needle": "--red-cases-proposed 4 --red-cases-already-covered 3"
+   "needle": "--red-cases-proposed 4 --red-cases-already-covered 3",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0084",
-   "needle": "git add \"$(git rev-parse --show-toplevel)/docs/measurements/counter-model/\"*.json"
+   "needle": "git add \"$(git rev-parse --show-toplevel)/docs/measurements/counter-model/\"*.json",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0085",
-   "needle": "~/.claude/scripts/flow-finish-gate.sh"
+   "needle": "~/.claude/scripts/flow-finish-gate.sh",
+   "kind": "bash-line",
+   "count": 2
   },
   {
    "slug": "bash-0086",
-   "needle": "~/.claude/scripts/check-ignored-additions.sh"
+   "needle": "~/.claude/scripts/check-ignored-additions.sh",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0087",
-   "needle": "git push -u origin \"$BRANCH\""
+   "needle": "git push -u origin \"$BRANCH\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0088",
-   "needle": "gh pr create --title \"type(scope): Description (${ISSUE_REF})\" --body \"...\""
+   "needle": "gh pr create --title \"type(scope): Description (${ISSUE_REF})\" --body \"...\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0089",
-   "needle": "~/.claude/scripts/flow-plan-record.py drift 42"
+   "needle": "~/.claude/scripts/flow-plan-record.py drift 42",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0090",
-   "needle": "~/.claude/scripts/flow-plan-record.py compliance 42"
+   "needle": "~/.claude/scripts/flow-plan-record.py compliance 42",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0091",
-   "needle": "~/.claude/scripts/flow-plan-record.py head-check 42"
+   "needle": "~/.claude/scripts/flow-plan-record.py head-check 42",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0092",
-   "needle": "~/.claude/scripts/nit-store-resolve.sh"
+   "needle": "~/.claude/scripts/nit-store-resolve.sh",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0093",
-   "needle": "git fetch origin main"
+   "needle": "git fetch origin main",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0094",
-   "needle": "if [[ \"$(git rev-list --count HEAD..origin/main)\" -gt 0 ]]; then"
+   "needle": "if [[ \"$(git rev-list --count HEAD..origin/main)\" -gt 0 ]]; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0095",
-   "needle": "echo \"Branch is behind origin/main - merging main in before the squash.\""
+   "needle": "echo \"Branch is behind origin/main - merging main in before the squash.\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0096",
-   "needle": "echo \"STOP: merging origin/main hit conflicts:\""
+   "needle": "echo \"STOP: merging origin/main hit conflicts:\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0097",
-   "needle": "echo \"Resolve them, 'git add' + 'git commit', then re-run /flow:merge.\""
+   "needle": "echo \"Resolve them, 'git add' + 'git commit', then re-run /flow:merge.\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0098",
-   "needle": "echo \"(Do NOT 'git merge --abort' - that discards the resolution.)\""
+   "needle": "echo \"(Do NOT 'git merge --abort' - that discards the resolution.)\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0099",
-   "needle": "if ! git diff --quiet -- codex/skills/; then"
+   "needle": "if ! git diff --quiet -- codex/skills/; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0100",
-   "needle": "git add codex/skills/"
+   "needle": "git add codex/skills/",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0101",
-   "needle": "git commit -m \"chore(generated): re-sync codex skill copies after a bundled source changed (#506)\""
+   "needle": "git commit -m \"chore(generated): re-sync codex skill copies after a bundled source changed (#506)\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0102",
-   "needle": "git rev-parse HEAD # compare against the SHA before this step"
+   "needle": "git rev-parse HEAD # compare against the SHA before this step",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0103",
-   "needle": "git push origin \"$BRANCH\""
+   "needle": "git push origin \"$BRANCH\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0104",
-   "needle": "gh pr list --head \"$BRANCH\" --json number --jq '.[0].number'"
+   "needle": "gh pr list --head \"$BRANCH\" --json number --jq '.[0].number'",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0105",
-   "needle": "~/.claude/scripts/flow-ci-status.sh <pr-head-sha> --path /path/to/worktree --strict-event --wait 1800"
+   "needle": "~/.claude/scripts/flow-ci-status.sh <pr-head-sha> --path /path/to/worktree --strict-event --wait 1800",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0106",
-   "needle": "~/.claude/scripts/gh-pr-merge.sh 78 issue-42-fix-login"
+   "needle": "~/.claude/scripts/gh-pr-merge.sh 78 issue-42-fix-login",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0107",
-   "needle": "PR_NUMBER=<literal>"
+   "needle": "PR_NUMBER=<literal>",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0108",
-   "needle": "BRANCH=<literal>"
+   "needle": "BRANCH=<literal>",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0109",
-   "needle": "PIN_SHA=<pr-head-sha> # the SAME literal the flow-ci-status.sh wait above was given; PIN_SHA= only for an unpinned merge"
+   "needle": "PIN_SHA=<pr-head-sha> # the SAME literal the flow-ci-status.sh wait above was given; PIN_SHA= only for an unpinned merge",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0110",
-   "needle": "GH_PR_MERGE=~/.claude/scripts/gh-pr-merge.sh"
+   "needle": "GH_PR_MERGE=~/.claude/scripts/gh-pr-merge.sh",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0111",
-   "needle": "[ -x \"$GH_PR_MERGE\" ] || GH_PR_MERGE=\"${CLAUDE_PLUGIN_ROOT:-/nonexistent}/scripts/gh-pr-merge.sh\""
+   "needle": "[ -x \"$GH_PR_MERGE\" ] || GH_PR_MERGE=\"${CLAUDE_PLUGIN_ROOT:-/nonexistent}/scripts/gh-pr-merge.sh\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0112",
-   "needle": "if [ ! -x \"$GH_PR_MERGE\" ]; then"
+   "needle": "if [ ! -x \"$GH_PR_MERGE\" ]; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0113",
-   "needle": "for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do"
+   "needle": "for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do",
+   "kind": "bash-line",
+   "count": 2
   },
   {
    "slug": "bash-0114",
-   "needle": "if [ -x \"$dir/scripts/gh-pr-merge.sh\" ] && [ -f \"$dir/CLAUDE.md\" ]; then"
+   "needle": "if [ -x \"$dir/scripts/gh-pr-merge.sh\" ] && [ -f \"$dir/CLAUDE.md\" ]; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0115",
-   "needle": "GH_PR_MERGE=\"$dir/scripts/gh-pr-merge.sh\""
+   "needle": "GH_PR_MERGE=\"$dir/scripts/gh-pr-merge.sh\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0116",
-   "needle": "break"
+   "needle": "break",
+   "kind": "bash-line",
+   "count": 2
   },
   {
    "slug": "bash-0117",
-   "needle": "done"
+   "needle": "done",
+   "kind": "bash-line",
+   "count": 3
   },
   {
    "slug": "bash-0118",
-   "needle": "if [ -x \"$GH_PR_MERGE\" ]; then"
+   "needle": "if [ -x \"$GH_PR_MERGE\" ]; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0119",
-   "needle": "\"$GH_PR_MERGE\" ${PIN_SHA:+--match-head-commit \"$PIN_SHA\"} \"$PR_NUMBER\" \"$BRANCH\""
+   "needle": "\"$GH_PR_MERGE\" ${PIN_SHA:+--match-head-commit \"$PIN_SHA\"} \"$PR_NUMBER\" \"$BRANCH\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0120",
-   "needle": "MERGE_RC=$?"
+   "needle": "MERGE_RC=$?",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0121",
-   "needle": "else"
+   "needle": "else",
+   "kind": "bash-line",
+   "count": 6
   },
   {
    "slug": "bash-0122",
-   "needle": "echo \"REFUSING: gh-pr-merge.sh is not installed; not merging PR #$PR_NUMBER with a plain 'gh pr merge'.\" >&2"
+   "needle": "echo \"REFUSING: gh-pr-merge.sh is not installed; not merging PR #$PR_NUMBER with a plain 'gh pr merge'.\" >&2",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0123",
-   "needle": "echo \" A raw merge skips every guard the helper runs, including the close-keyword guards (issue #1543).\" >&2"
+   "needle": "echo \" A raw merge skips every guard the helper runs, including the close-keyword guards (issue #1543).\" >&2",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0124",
-   "needle": "echo \" Install the helper with /flow:repair, then resume Step 7.\" >&2"
+   "needle": "echo \" Install the helper with /flow:repair, then resume Step 7.\" >&2",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0125",
-   "needle": "MERGE_RC=12"
+   "needle": "MERGE_RC=12",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0126",
-   "needle": "if [[ -f \".git\" ]]; then"
+   "needle": "if [[ -f \".git\" ]]; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0127",
-   "needle": "WORKTREE_PATH=$(pwd)"
+   "needle": "WORKTREE_PATH=$(pwd)",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0128",
-   "needle": "MAIN_REPO=$(cat .git | sed 's/gitdir: //' | sed 's|/.git/worktrees/.*||')"
+   "needle": "MAIN_REPO=$(cat .git | sed 's/gitdir: //' | sed 's|/.git/worktrees/.*||')",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0129",
-   "needle": "WORKTREE_PATH=\"\" # not in a worktree - on a feature branch in the main repo"
+   "needle": "WORKTREE_PATH=\"\" # not in a worktree - on a feature branch in the main repo",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0130",
-   "needle": "MAIN_REPO=$(pwd)"
+   "needle": "MAIN_REPO=$(pwd)",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0131",
-   "needle": "~/.claude/scripts/flow-worktree-claim.sh release /path/to/worktree"
+   "needle": "~/.claude/scripts/flow-worktree-claim.sh release /path/to/worktree",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0132",
-   "needle": "cd \"$MAIN_REPO\""
+   "needle": "cd \"$MAIN_REPO\"",
+   "kind": "bash-line",
+   "count": 2
   },
   {
    "slug": "bash-0133",
-   "needle": "pwd # Verify you are in the main repo, NOT the worktree"
+   "needle": "pwd # Verify you are in the main repo, NOT the worktree",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0134",
-   "needle": "~/.claude/scripts/worktree-remove.sh /path/to/worktree --force --delete-branch"
+   "needle": "~/.claude/scripts/worktree-remove.sh /path/to/worktree --force --delete-branch",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0135",
-   "needle": "MAIN_REPO=\"$(git rev-parse --show-toplevel)\" # Step 5a already cd'd here"
+   "needle": "MAIN_REPO=\"$(git rev-parse --show-toplevel)\" # Step 5a already cd'd here",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0136",
-   "needle": "CLEANUP_REFUSED_DIR=\"$MAIN_REPO/.git/flow-cleanup-refused.d\""
+   "needle": "CLEANUP_REFUSED_DIR=\"$MAIN_REPO/.git/flow-cleanup-refused.d\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0137",
-   "needle": "CLEANUP_REFUSED_MARKER=\"$CLEANUP_REFUSED_DIR/$(basename \"$WORKTREE_PATH\")\""
+   "needle": "CLEANUP_REFUSED_MARKER=\"$CLEANUP_REFUSED_DIR/$(basename \"$WORKTREE_PATH\")\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0138",
-   "needle": "mkdir -p \"$CLEANUP_REFUSED_DIR\""
+   "needle": "mkdir -p \"$CLEANUP_REFUSED_DIR\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0139",
-   "needle": "rm -f \"$CLEANUP_REFUSED_MARKER\" # only THIS worktree's entry; a sibling's survives"
+   "needle": "rm -f \"$CLEANUP_REFUSED_MARKER\" # only THIS worktree's entry; a sibling's survives",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0140",
-   "needle": "cleanup_refused=0"
+   "needle": "cleanup_refused=0",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0141",
-   "needle": "if [[ -x ~/.claude/scripts/worktree-remove.sh ]]; then"
+   "needle": "if [[ -x ~/.claude/scripts/worktree-remove.sh ]]; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0142",
-   "needle": "~/.claude/scripts/worktree-remove.sh \"$WORKTREE_PATH\" --force --delete-branch"
+   "needle": "~/.claude/scripts/worktree-remove.sh \"$WORKTREE_PATH\" --force --delete-branch",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0143",
-   "needle": "echo \"REFUSING: worktree-remove.sh is missing; not removing $WORKTREE_PATH by hand.\" >&2"
+   "needle": "echo \"REFUSING: worktree-remove.sh is missing; not removing $WORKTREE_PATH by hand.\" >&2",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0144",
-   "needle": "echo \" Every guard this lane relies on lives in that helper (issue #899).\" >&2"
+   "needle": "echo \" Every guard this lane relies on lives in that helper (issue #899).\" >&2",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0145",
-   "needle": "echo \" Install it with /flow:repair, then re-run this step.\" >&2"
+   "needle": "echo \" Install it with /flow:repair, then re-run this step.\" >&2",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0146",
-   "needle": "false"
+   "needle": "false",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0147",
-   "needle": "} || cleanup_refused=1"
+   "needle": "} || cleanup_refused=1",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0148",
-   "needle": "[[ \"$cleanup_refused\" -eq 1 ]] && printf '%s\\n' \"$WORKTREE_PATH\" > \"$CLEANUP_REFUSED_MARKER\""
+   "needle": "[[ \"$cleanup_refused\" -eq 1 ]] && printf '%s\\n' \"$WORKTREE_PATH\" > \"$CLEANUP_REFUSED_MARKER\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0149",
-   "needle": "MAIN_REPO=\"$(git rev-parse --show-toplevel)\""
+   "needle": "MAIN_REPO=\"$(git rev-parse --show-toplevel)\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0150",
-   "needle": "for m in \"$MAIN_REPO\"/.git/flow-cleanup-refused.d/*; do"
+   "needle": "for m in \"$MAIN_REPO\"/.git/flow-cleanup-refused.d/*; do",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0151",
-   "needle": "[[ -e \"$m\" ]] || continue # glob with no matches: nothing refused"
+   "needle": "[[ -e \"$m\" ]] || continue # glob with no matches: nothing refused",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0152",
-   "needle": "echo \"TO-DO: worktree $(cat \"$m\") was NOT removed (worktree-remove.sh missing)\""
+   "needle": "echo \"TO-DO: worktree $(cat \"$m\") was NOT removed (worktree-remove.sh missing)\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0153",
-   "needle": "rm -f \"$m\" # consumed - do not re-report next run"
+   "needle": "rm -f \"$m\" # consumed - do not re-report next run",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0154",
-   "needle": "git -C \"$MAIN_REPO\" checkout main 2>/dev/null || true"
+   "needle": "git -C \"$MAIN_REPO\" checkout main 2>/dev/null || true",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0155",
-   "needle": "git -C \"$MAIN_REPO\" pull origin main"
+   "needle": "git -C \"$MAIN_REPO\" pull origin main",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0156",
-   "needle": "pwd # MUST show main repo path, NOT the deleted worktree"
+   "needle": "pwd # MUST show main repo path, NOT the deleted worktree",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0157",
-   "needle": "git status # MUST succeed - if this fails, your CWD was deleted"
+   "needle": "git status # MUST succeed - if this fails, your CWD was deleted",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0158",
-   "needle": "ACCEPTANCE_COMPLETE=\"\""
+   "needle": "ACCEPTANCE_COMPLETE=\"\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0159",
-   "needle": "if [[ -n \"$ISSUE_NUM\" ]]; then"
+   "needle": "if [[ -n \"$ISSUE_NUM\" ]]; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0160",
-   "needle": "ISSUE_STATE=$(gh issue view \"$ISSUE_NUM\" --json state --jq '.state' 2>/dev/null)"
+   "needle": "ISSUE_STATE=$(gh issue view \"$ISSUE_NUM\" --json state --jq '.state' 2>/dev/null)",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0161",
-   "needle": "if [[ \"$ISSUE_STATE\" == \"OPEN\" ]]; then"
+   "needle": "if [[ \"$ISSUE_STATE\" == \"OPEN\" ]]; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0162",
-   "needle": "gh issue close \"$ISSUE_NUM\" --comment \"Closed via /flow:auto - PR #${PR_NUMBER} merged.\""
+   "needle": "gh issue close \"$ISSUE_NUM\" --comment \"Closed via /flow:auto - PR #${PR_NUMBER} merged.\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0163",
-   "needle": "echo \"Acceptance not recorded complete - leaving #${ISSUE_NUM} open.\""
+   "needle": "echo \"Acceptance not recorded complete - leaving #${ISSUE_NUM} open.\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0164",
-   "needle": "~/.claude/scripts/flow-ci-status.sh <merge-sha> --path /path/to/main/repo --wait"
+   "needle": "~/.claude/scripts/flow-ci-status.sh <merge-sha> --path /path/to/main/repo --wait",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0165",
-   "needle": "CPP_DIR=\"\""
+   "needle": "CPP_DIR=\"\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0166",
-   "needle": "if [ -d \"$dir\" ] && [ -f \"$dir/CLAUDE.md\" ]; then"
+   "needle": "if [ -d \"$dir\" ] && [ -f \"$dir/CLAUDE.md\" ]; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0167",
-   "needle": "CPP_DIR=\"$dir\""
+   "needle": "CPP_DIR=\"$dir\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0168",
-   "needle": "VERIFY_ENABLED=0"
+   "needle": "VERIFY_ENABLED=0",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0169",
-   "needle": "if [ -n \"$CPP_DIR\" ] && grep -q \"deploy_verification:\" .claude/cicd.yml 2>/dev/null; then"
+   "needle": "if [ -n \"$CPP_DIR\" ] && grep -q \"deploy_verification:\" .claude/cicd.yml 2>/dev/null; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0170",
-   "needle": "if command -v uv >/dev/null 2>&1; then"
+   "needle": "if command -v uv >/dev/null 2>&1; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0171",
-   "needle": "VERIFY_ENABLED=1"
+   "needle": "VERIFY_ENABLED=1",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0172",
-   "needle": "echo \"NOTE: deploy verification configured but 'uv' is not installed; skipping baseline + verdict.\" >&2"
+   "needle": "echo \"NOTE: deploy verification configured but 'uv' is not installed; skipping baseline + verdict.\" >&2",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0173",
-   "needle": "DEPLOY_MODE=$(grep -oP '^\\s*mode:\\s*\\K\\S+' .claude/deploy.yaml 2>/dev/null | head -1)"
+   "needle": "DEPLOY_MODE=$(grep -oP '^\\s*mode:\\s*\\K\\S+' .claude/deploy.yaml 2>/dev/null | head -1)",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0174",
-   "needle": "HEAD_SHA=$(git rev-parse --short HEAD)"
+   "needle": "HEAD_SHA=$(git rev-parse --short HEAD)",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0175",
-   "needle": "ALREADY_DEPLOYED=0"
+   "needle": "ALREADY_DEPLOYED=0",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0176",
-   "needle": "if [ -f .claude/deploy.log ] && awk -F'|' -v sha=\"$HEAD_SHA\" '$2 ~ /deploy/ && $3 ~ (\"^[[:space:]]*\" sha \"[[:space:]]*$\") && $5 ~ /^[[:space:]]*0[[:space:]]*$/ { found = 1 } END { exit !found }' .claude/deploy.log; then"
+   "needle": "if [ -f .claude/deploy.log ] && awk -F'|' -v sha=\"$HEAD_SHA\" '$2 ~ /deploy/ && $3 ~ (\"^[[:space:]]*\" sha \"[[:space:]]*$\") && $5 ~ /^[[:space:]]*0[[:space:]]*$/ { found = 1 } END { exit !found }' .claude/deploy.log; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0177",
-   "needle": "ALREADY_DEPLOYED=1"
+   "needle": "ALREADY_DEPLOYED=1",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0178",
-   "needle": "if [ \"$ALREADY_DEPLOYED\" -eq 1 ]; then"
+   "needle": "if [ \"$ALREADY_DEPLOYED\" -eq 1 ]; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0179",
-   "needle": "echo \"Deploy skipped: $HEAD_SHA is already recorded as successfully deployed in .claude/deploy.log\""
+   "needle": "echo \"Deploy skipped: $HEAD_SHA is already recorded as successfully deployed in .claude/deploy.log\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0180",
-   "needle": "echo \"(issue #597 - a concurrent session deployed this same commit; re-running would be a duplicate deploy).\""
+   "needle": "echo \"(issue #597 - a concurrent session deployed this same commit; re-running would be a duplicate deploy).\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0181",
-   "needle": "elif [ \"$DEPLOY_MODE\" = \"external\" ]; then"
+   "needle": "elif [ \"$DEPLOY_MODE\" = \"external\" ]; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0182",
-   "needle": "echo \"Deploy mode 'external' (.claude/deploy.yaml) - deploy runs out of band (host timer / CI on origin/main). Skipping inline 'make deploy'.\""
+   "needle": "echo \"Deploy mode 'external' (.claude/deploy.yaml) - deploy runs out of band (host timer / CI on origin/main). Skipping inline 'make deploy'.\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0183",
-   "needle": "elif [[ -f \"Makefile\" ]] && grep -q \"^deploy:\" Makefile; then"
+   "needle": "elif [[ -f \"Makefile\" ]] && grep -q \"^deploy:\" Makefile; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0184",
-   "needle": "if [ -z \"$COMPOSE_PROJECT_NAME\" ]; then"
+   "needle": "if [ -z \"$COMPOSE_PROJECT_NAME\" ]; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0185",
-   "needle": "DEPLOY_PROJECT=$(grep -oP '^\\s*compose_project_name:\\s*\\K\\S+' .claude/deploy.yaml 2>/dev/null | head -1)"
+   "needle": "DEPLOY_PROJECT=$(grep -oP '^\\s*compose_project_name:\\s*\\K\\S+' .claude/deploy.yaml 2>/dev/null | head -1)",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0186",
-   "needle": "if [ -z \"$DEPLOY_PROJECT\" ]; then"
+   "needle": "if [ -z \"$DEPLOY_PROJECT\" ]; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0187",
-   "needle": "GCD=$(git rev-parse --git-common-dir 2>/dev/null)"
+   "needle": "GCD=$(git rev-parse --git-common-dir 2>/dev/null)",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0188",
-   "needle": "if [ -n \"$GCD\" ]; then"
+   "needle": "if [ -n \"$GCD\" ]; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0189",
-   "needle": "COMMON_GIT_DIR=$(cd \"$GCD\" 2>/dev/null && pwd)"
+   "needle": "COMMON_GIT_DIR=$(cd \"$GCD\" 2>/dev/null && pwd)",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0190",
-   "needle": "[ -n \"$COMMON_GIT_DIR\" ] && DEPLOY_PROJECT=$(basename \"$(dirname \"$COMMON_GIT_DIR\")\" | tr 'A-Z' 'a-z')"
+   "needle": "[ -n \"$COMMON_GIT_DIR\" ] && DEPLOY_PROJECT=$(basename \"$(dirname \"$COMMON_GIT_DIR\")\" | tr 'A-Z' 'a-z')",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0191",
-   "needle": "if [ -n \"$DEPLOY_PROJECT\" ]; then"
+   "needle": "if [ -n \"$DEPLOY_PROJECT\" ]; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0192",
-   "needle": "export COMPOSE_PROJECT_NAME=\"$DEPLOY_PROJECT\""
+   "needle": "export COMPOSE_PROJECT_NAME=\"$DEPLOY_PROJECT\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0193",
-   "needle": "echo \"Pinned COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME (issue #535: canonical prod project, not the worktree basename).\""
+   "needle": "echo \"Pinned COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME (issue #535: canonical prod project, not the worktree basename).\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0194",
-   "needle": "if [ \"$VERIFY_ENABLED\" -eq 1 ]; then"
+   "needle": "if [ \"$VERIFY_ENABLED\" -eq 1 ]; then",
+   "kind": "bash-line",
+   "count": 2
   },
   {
    "slug": "bash-0195",
-   "needle": "echo \"Capturing pre-deploy baseline...\""
+   "needle": "echo \"Capturing pre-deploy baseline...\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0196",
-   "needle": "PYTHONPATH=\"$CPP_DIR:$PYTHONPATH\" env -u UV_PROJECT_ENVIRONMENT \"CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}\" \"CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}\" uv run --python 3.11 --no-python-downloads --project \"$CPP_DIR\" python -m lib.cicd verify --baseline --summary"
+   "needle": "PYTHONPATH=\"$CPP_DIR:$PYTHONPATH\" env -u UV_PROJECT_ENVIRONMENT \"CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}\" \"CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}\" uv run --python 3.11 --no-python-downloads --project \"$CPP_DIR\" python -m lib.cicd verify --baseline --summary",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0197",
-   "needle": "echo \"Running: make deploy\""
+   "needle": "echo \"Running: make deploy\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0198",
-   "needle": "make deploy"
+   "needle": "make deploy",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0199",
-   "needle": "DEPLOY_EXIT=$?"
+   "needle": "DEPLOY_EXIT=$?",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0200",
-   "needle": "VERDICT=\"none\""
+   "needle": "VERDICT=\"none\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0201",
-   "needle": "echo \"Running deploy verification...\""
+   "needle": "echo \"Running deploy verification...\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0202",
-   "needle": "PYTHONPATH=\"$CPP_DIR:$PYTHONPATH\" env -u UV_PROJECT_ENVIRONMENT \"CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}\" \"CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}\" uv run --python 3.11 --no-python-downloads --project \"$CPP_DIR\" python -m lib.cicd verify"
+   "needle": "PYTHONPATH=\"$CPP_DIR:$PYTHONPATH\" env -u UV_PROJECT_ENVIRONMENT \"CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}\" \"CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}\" uv run --python 3.11 --no-python-downloads --project \"$CPP_DIR\" python -m lib.cicd verify",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0203",
-   "needle": "VERIFY_EXIT=$?"
+   "needle": "VERIFY_EXIT=$?",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0204",
-   "needle": "VERDICT=$( [ \"$VERIFY_EXIT\" -eq 1 ] && echo \"rollback\" || echo \"proceed/review\" )"
+   "needle": "VERDICT=$( [ \"$VERIFY_EXIT\" -eq 1 ] && echo \"rollback\" || echo \"proceed/review\" )",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0205",
-   "needle": "if [ \"$VERIFY_EXIT\" -eq 1 ]; then"
+   "needle": "if [ \"$VERIFY_EXIT\" -eq 1 ]; then",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0206",
-   "needle": "echo \"DEPLOY VERIFICATION: ROLLBACK - a probe that passed pre-deploy fails now.\""
+   "needle": "echo \"DEPLOY VERIFICATION: ROLLBACK - a probe that passed pre-deploy fails now.\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0207",
-   "needle": "echo \"Recommend rolling back (redeploy previous commit) or investigating with /cicd:health + /cicd:smoke.\""
+   "needle": "echo \"Recommend rolling back (redeploy previous commit) or investigating with /cicd:health + /cicd:smoke.\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0208",
-   "needle": "mkdir -p .claude"
+   "needle": "mkdir -p .claude",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0209",
-   "needle": "echo \"$(date -Iseconds) | deploy | $(git rev-parse --short HEAD) | main | ${DEPLOY_EXIT} | verify:${VERDICT}\" >> .claude/deploy.log"
+   "needle": "echo \"$(date -Iseconds) | deploy | $(git rev-parse --short HEAD) | main | ${DEPLOY_EXIT} | verify:${VERDICT}\" >> .claude/deploy.log",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "bash-0210",
-   "needle": "echo \"No deploy target in Makefile - skipping deployment.\""
+   "needle": "echo \"No deploy target in Makefile - skipping deployment.\"",
+   "kind": "bash-line",
+   "count": 1
   },
   {
    "slug": "marker-0001",
-   "needle": "SESSION_CWD_INFERRED=1"
+   "needle": "SESSION_CWD_INFERRED=1",
+   "kind": "text"
   },
   {
    "slug": "marker-0002",
-   "needle": "FLOW_START_RESOLVE: ok"
+   "needle": "FLOW_START_RESOLVE: ok",
+   "kind": "text"
   },
   {
    "slug": "marker-0003",
-   "needle": "FLOW_START_RESOLVE: error"
+   "needle": "FLOW_START_RESOLVE: error",
+   "kind": "text"
   },
   {
    "slug": "marker-0004",
-   "needle": "ERROR="
+   "needle": "ERROR=",
+   "kind": "text"
   },
   {
    "slug": "marker-0005",
-   "needle": "WT_CREATED=1"
+   "needle": "WT_CREATED=1",
+   "kind": "text"
   },
   {
    "slug": "marker-0006",
-   "needle": "CLAIM=held"
+   "needle": "CLAIM=held",
+   "kind": "text"
   },
   {
    "slug": "marker-0007",
-   "needle": "CONFIRM_REQUIRED=1"
+   "needle": "CONFIRM_REQUIRED=1",
+   "kind": "text"
   },
   {
    "slug": "marker-0008",
-   "needle": "CLAIM=stale"
+   "needle": "CLAIM=stale",
+   "kind": "text"
   },
   {
    "slug": "marker-0009",
-   "needle": "LANE=remote-pickup"
+   "needle": "LANE=remote-pickup",
+   "kind": "text"
   },
   {
    "slug": "marker-0010",
-   "needle": "LANE=local-pickup"
+   "needle": "LANE=local-pickup",
+   "kind": "text"
   },
   {
    "slug": "marker-0011",
-   "needle": "PR_HEAD=<n>:OPEN"
+   "needle": "PR_HEAD=<n>:OPEN",
+   "kind": "text"
   },
   {
    "slug": "marker-0012",
-   "needle": "WT_CREATED=0"
+   "needle": "WT_CREATED=0",
+   "kind": "text"
   },
   {
    "slug": "marker-0013",
-   "needle": "SHIPPED_BRANCH=<branch>:<n>:MERGED"
+   "needle": "SHIPPED_BRANCH=<branch>:<n>:MERGED",
+   "kind": "text"
   },
   {
    "slug": "marker-0014",
-   "needle": "LANE=current-branch"
+   "needle": "LANE=current-branch",
+   "kind": "text"
   },
   {
    "slug": "marker-0015",
-   "needle": "LANE=fresh"
+   "needle": "LANE=fresh",
+   "kind": "text"
   },
   {
    "slug": "marker-0016",
-   "needle": "LANE=cross-repo"
+   "needle": "LANE=cross-repo",
+   "kind": "text"
   },
   {
    "slug": "marker-0017",
-   "needle": "LANE=resume"
+   "needle": "LANE=resume",
+   "kind": "text"
   },
   {
    "slug": "marker-0018",
-   "needle": "LIVE_DRIVER=suspected"
+   "needle": "LIVE_DRIVER=suspected",
+   "kind": "text"
   },
   {
    "slug": "marker-0019",
-   "needle": "FLOW_START_VERIFY: fail"
+   "needle": "FLOW_START_VERIFY: fail",
+   "kind": "text"
   },
   {
    "slug": "marker-0020",
-   "needle": "BRANCH="
+   "needle": "BRANCH=",
+   "kind": "text"
   },
   {
    "slug": "marker-0021",
-   "needle": "WT_ROOT="
+   "needle": "WT_ROOT=",
+   "kind": "text"
   },
   {
    "slug": "marker-0022",
-   "needle": "CLAIM="
+   "needle": "CLAIM=",
+   "kind": "text"
   },
   {
    "slug": "marker-0023",
-   "needle": "STASH_GUARD="
+   "needle": "STASH_GUARD=",
+   "kind": "text"
   },
   {
    "slug": "marker-0024",
-   "needle": "STASH_GUARD=unknown"
+   "needle": "STASH_GUARD=unknown",
+   "kind": "text"
   },
   {
    "slug": "marker-0025",
-   "needle": "CLAIM=self"
+   "needle": "CLAIM=self",
+   "kind": "text"
   },
   {
    "slug": "marker-0026",
-   "needle": "FLOW_PLAN_RECORD: restored|removed|absent"
+   "needle": "FLOW_PLAN_RECORD: restored|removed|absent",
+   "kind": "text"
   },
   {
    "slug": "marker-0027",
-   "needle": "AS_READ: unresolved"
+   "needle": "AS_READ: unresolved",
+   "kind": "text"
   },
   {
    "slug": "marker-0028",
-   "needle": "COMPOSE_PROJECT_NAME=<contract value> make docker-up"
+   "needle": "COMPOSE_PROJECT_NAME=<contract value> make docker-up",
+   "kind": "text"
   },
   {
    "slug": "marker-0029",
-   "needle": "FLOW_LIVE_DRIVER_PATH:"
+   "needle": "FLOW_LIVE_DRIVER_PATH:",
+   "kind": "text"
   },
   {
    "slug": "marker-0030",
-   "needle": "FLOW_LIVE_DRIVER: clear"
+   "needle": "FLOW_LIVE_DRIVER: clear",
+   "kind": "text"
   },
   {
    "slug": "marker-0031",
-   "needle": "FLOW_LIVE_DRIVER: suspected"
+   "needle": "FLOW_LIVE_DRIVER: suspected",
+   "kind": "text"
   },
   {
    "slug": "marker-0032",
-   "needle": "FLOW_CLAIM: self"
+   "needle": "FLOW_CLAIM: self",
+   "kind": "text"
   },
   {
    "slug": "marker-0033",
-   "needle": "FLOW_STALE_PATH:"
+   "needle": "FLOW_STALE_PATH:",
+   "kind": "text"
   },
   {
    "slug": "marker-0034",
-   "needle": "FLOW_STALE_BASE: collision"
+   "needle": "FLOW_STALE_BASE: collision",
+   "kind": "text"
   },
   {
    "slug": "marker-0035",
-   "needle": "FLOW_WORKTREE_GUARD:"
+   "needle": "FLOW_WORKTREE_GUARD:",
+   "kind": "text"
   },
   {
    "slug": "marker-0036",
-   "needle": "COMPOSE_PROJECT_NAME=<Step-1 contract value> make docker-up"
+   "needle": "COMPOSE_PROJECT_NAME=<Step-1 contract value> make docker-up",
+   "kind": "text"
   },
   {
    "slug": "marker-0037",
-   "needle": "ACCEPTANCE_COMPLETE=yes"
+   "needle": "ACCEPTANCE_COMPLETE=yes",
+   "kind": "text"
   },
   {
    "slug": "marker-0038",
-   "needle": "CODEX_REVIEW: blocked"
+   "needle": "CODEX_REVIEW: blocked",
+   "kind": "text"
   },
   {
    "slug": "marker-0039",
-   "needle": "COUNTER_MODEL_REVIEW: findings"
+   "needle": "COUNTER_MODEL_REVIEW: findings",
+   "kind": "text"
   },
   {
    "slug": "marker-0040",
-   "needle": "COUNTER_MODEL_REVIEW: clean"
+   "needle": "COUNTER_MODEL_REVIEW: clean",
+   "kind": "text"
   },
   {
    "slug": "marker-0041",
-   "needle": "COUNTER_MODEL_REVIEW: unparseable"
+   "needle": "COUNTER_MODEL_REVIEW: unparseable",
+   "kind": "text"
   },
   {
    "slug": "marker-0042",
-   "needle": "COUNTER_MODEL_REVIEW: format-mismatch"
+   "needle": "COUNTER_MODEL_REVIEW: format-mismatch",
+   "kind": "text"
   },
   {
    "slug": "marker-0043",
-   "needle": "FLOW_FINISH_GATE:"
+   "needle": "FLOW_FINISH_GATE:",
+   "kind": "text"
   },
   {
    "slug": "marker-0044",
-   "needle": "FLOW_FINISH_GATE_EXIT="
+   "needle": "FLOW_FINISH_GATE_EXIT=",
+   "kind": "text"
   },
   {
    "slug": "marker-0045",
-   "needle": "FLOW_FINISH_GATE: ok"
+   "needle": "FLOW_FINISH_GATE: ok",
+   "kind": "text"
   },
   {
    "slug": "marker-0046",
-   "needle": "FLOW_FINISH_GATE: warn"
+   "needle": "FLOW_FINISH_GATE: warn",
+   "kind": "text"
   },
   {
    "slug": "marker-0047",
-   "needle": "RERUN_PASSED:"
+   "needle": "RERUN_PASSED:",
+   "kind": "text"
   },
   {
    "slug": "marker-0048",
-   "needle": "FLOW_FINISH_GATE: warn (zero coverage: <gates>)"
+   "needle": "FLOW_FINISH_GATE: warn (zero coverage: <gates>)",
+   "kind": "text"
   },
   {
    "slug": "marker-0049",
-   "needle": "FLOW_FINISH_GATE: fail"
+   "needle": "FLOW_FINISH_GATE: fail",
+   "kind": "text"
   },
   {
    "slug": "marker-0050",
-   "needle": "FLOW_FINISH_GATE: skipped"
+   "needle": "FLOW_FINISH_GATE: skipped",
+   "kind": "text"
   },
   {
    "slug": "marker-0051",
-   "needle": "FLOW_FINISH_GATE: warn (skipped gates: verify)"
+   "needle": "FLOW_FINISH_GATE: warn (skipped gates: verify)",
+   "kind": "text"
   },
   {
    "slug": "marker-0052",
-   "needle": "ISSUE_DRIFT: clean"
+   "needle": "ISSUE_DRIFT: clean",
+   "kind": "text"
   },
   {
    "slug": "marker-0053",
-   "needle": "ISSUE_DRIFT: drift"
+   "needle": "ISSUE_DRIFT: drift",
+   "kind": "text"
   },
   {
    "slug": "marker-0054",
-   "needle": "ISSUE_DRIFT: unresolved"
+   "needle": "ISSUE_DRIFT: unresolved",
+   "kind": "text"
   },
   {
    "slug": "marker-0055",
-   "needle": "PLAN_COMPLIANCE: agreement"
+   "needle": "PLAN_COMPLIANCE: agreement",
+   "kind": "text"
   },
   {
    "slug": "marker-0056",
-   "needle": "PLAN_COMPLIANCE: divergence"
+   "needle": "PLAN_COMPLIANCE: divergence",
+   "kind": "text"
   },
   {
    "slug": "marker-0057",
-   "needle": "PLAN_COMPLIANCE: unknown"
+   "needle": "PLAN_COMPLIANCE: unknown",
+   "kind": "text"
   },
   {
    "slug": "marker-0058",
-   "needle": "PLAN_RECORD_STABILITY: THE PLAN RECORD CHANGED"
+   "needle": "PLAN_RECORD_STABILITY: THE PLAN RECORD CHANGED",
+   "kind": "text"
   },
   {
    "slug": "marker-0059",
-   "needle": "FLOW_PLAN_RECORD: present"
+   "needle": "FLOW_PLAN_RECORD: present",
+   "kind": "text"
   },
   {
    "slug": "marker-0060",
-   "needle": "FLOW_PLAN_RECORD: absent"
+   "needle": "FLOW_PLAN_RECORD: absent",
+   "kind": "text"
   },
   {
    "slug": "marker-0061",
-   "needle": "FLOW_PLAN_RECORD: unverified"
+   "needle": "FLOW_PLAN_RECORD: unverified",
+   "kind": "text"
   },
   {
    "slug": "marker-0062",
-   "needle": "NIT_STORE="
+   "needle": "NIT_STORE=",
+   "kind": "text"
   },
   {
    "slug": "marker-0063",
-   "needle": "NIT_STORE_REPO="
+   "needle": "NIT_STORE_REPO=",
+   "kind": "text"
   },
   {
    "slug": "marker-0064",
-   "needle": "NIT_STORE_SOURCE=search"
+   "needle": "NIT_STORE_SOURCE=search",
+   "kind": "text"
   },
   {
    "slug": "marker-0065",
-   "needle": "GH_PR_MERGE_HEAD_PIN:"
+   "needle": "GH_PR_MERGE_HEAD_PIN:",
+   "kind": "text"
   },
   {
    "slug": "marker-0066",
-   "needle": "GH_PR_MERGE_STRICT_DELETIONS=1"
+   "needle": "GH_PR_MERGE_STRICT_DELETIONS=1",
+   "kind": "text"
   },
   {
    "slug": "marker-0067",
-   "needle": "GH_PR_MERGE_DELETIONS:"
+   "needle": "GH_PR_MERGE_DELETIONS:",
+   "kind": "text"
   },
   {
    "slug": "marker-0068",
-   "needle": "GH_PR_MERGE_CI_WAIT:"
+   "needle": "GH_PR_MERGE_CI_WAIT:",
+   "kind": "text"
   },
   {
    "slug": "marker-0069",
-   "needle": "GH_PR_MERGE_BASE_AT_SQUASH: <sha>"
+   "needle": "GH_PR_MERGE_BASE_AT_SQUASH: <sha>",
+   "kind": "text"
   },
   {
    "slug": "marker-0070",
-   "needle": "GH_PR_MERGE_ALREADY_MERGED: <n>"
+   "needle": "GH_PR_MERGE_ALREADY_MERGED: <n>",
+   "kind": "text"
   },
   {
    "slug": "marker-0071",
-   "needle": "GH_PR_MERGE_BASE_MOVED: <old-sha> -> <new-sha>|0|skipped"
+   "needle": "GH_PR_MERGE_BASE_MOVED: <old-sha> -> <new-sha>|0|skipped",
+   "kind": "text"
   },
   {
    "slug": "marker-0072",
-   "needle": "GH_PR_MERGE_DELETIONS: <n> <paths...>|0|skipped"
+   "needle": "GH_PR_MERGE_DELETIONS: <n> <paths...>|0|skipped",
+   "kind": "text"
   },
   {
    "slug": "marker-0073",
-   "needle": "GH_PR_MERGE_COMPLETENESS: ok|violation|skipped"
+   "needle": "GH_PR_MERGE_COMPLETENESS: ok|violation|skipped",
+   "kind": "text"
   },
   {
    "slug": "marker-0074",
-   "needle": "WORKTREE_REMOVE_ATTRIBUTION:"
+   "needle": "WORKTREE_REMOVE_ATTRIBUTION:",
+   "kind": "text"
   },
   {
    "slug": "marker-0075",
-   "needle": "WORKTREE_REMOVE_OCCUPANCY: unknown"
+   "needle": "WORKTREE_REMOVE_OCCUPANCY: unknown",
+   "kind": "text"
   },
   {
    "slug": "marker-0076",
-   "needle": "FLOW_CI_STALLED: terminal-pipeline-live-children"
+   "needle": "FLOW_CI_STALLED: terminal-pipeline-live-children",
+   "kind": "text"
   },
   {
    "slug": "marker-0077",
-   "needle": "FLOW_CI_WAIT: expired (<N>s)"
+   "needle": "FLOW_CI_WAIT: expired (<N>s)",
+   "kind": "text"
   },
   {
    "slug": "marker-0078",
-   "needle": "GIT_LANE=1"
+   "needle": "GIT_LANE=1",
+   "kind": "text"
   },
   {
    "slug": "exit-rule-0001",
-   "needle": "Exit 3 is a STOP."
+   "needle": "Exit 3 is a STOP.",
+   "kind": "text"
   },
   {
    "slug": "exit-rule-0002",
-   "needle": "Exit 3 is a STOP"
+   "needle": "Exit 3 is a STOP",
+   "kind": "text"
   },
   {
    "slug": "exit-rule-0003",
-   "needle": "Helper exit 11 is also a CLEAN STOP (issue #1543):"
+   "needle": "Helper exit 11 is also a CLEAN STOP (issue #1543):",
+   "kind": "text"
   },
   {
    "slug": "exit-rule-0004",
-   "needle": "Helper exit 3 is a FIRST-CLASS CLEAN STOP, not a failure (issue #579):"
+   "needle": "Helper exit 3 is a FIRST-CLASS CLEAN STOP, not a failure (issue #579):",
+   "kind": "text"
   },
   {
    "slug": "exit-rule-0005",
-   "needle": "Helper exit 4 is also a CLEAN STOP (issue #657):"
+   "needle": "Helper exit 4 is also a CLEAN STOP (issue #657):",
+   "kind": "text"
   },
   {
    "slug": "exit-rule-0006",
-   "needle": "Helper exit 5 is also a CLEAN STOP (issue #726):"
+   "needle": "Helper exit 5 is also a CLEAN STOP (issue #726):",
+   "kind": "text"
   },
   {
    "slug": "exit-rule-0007",
-   "needle": "Helper exit 6 is also a CLEAN STOP, not a failure (issue #767):"
+   "needle": "Helper exit 6 is also a CLEAN STOP, not a failure (issue #767):",
+   "kind": "text"
   },
   {
    "slug": "exit-rule-0008",
-   "needle": "Helper exit 7 is also a CLEAN STOP (issue #794):"
+   "needle": "Helper exit 7 is also a CLEAN STOP (issue #794):",
+   "kind": "text"
   },
   {
    "slug": "exit-rule-0009",
-   "needle": "Helper exit 10 is also a CLEAN STOP (issue #1300):"
+   "needle": "Helper exit 10 is also a CLEAN STOP (issue #1300):",
+   "kind": "text"
   },
   {
    "slug": "exit-rule-0010",
-   "needle": "Helper exit 6 can also come from the final base re-read (issue #1300):"
+   "needle": "Helper exit 6 can also come from the final base re-read (issue #1300):",
+   "kind": "text"
   },
   {
    "slug": "exit-rule-0011",
-   "needle": "Helper exit 9 is also a CLEAN STOP (issue #1262):"
+   "needle": "Helper exit 9 is also a CLEAN STOP (issue #1262):",
+   "kind": "text"
   },
   {
    "slug": "exit-rule-0012",
-   "needle": "`worktree-remove.sh` exit 8 is a CLEAN STOP too (issue #1032)."
+   "needle": "`worktree-remove.sh` exit 8 is a CLEAN STOP too (issue #1032).",
+   "kind": "text"
   },
   {
    "slug": "exit-rule-0013",
-   "needle": "Exit 5 is the same kind of clean STOP (issue #888):"
+   "needle": "Exit 5 is the same kind of clean STOP (issue #888):",
+   "kind": "text"
+  },
+  {
+   "slug": "bash-0211",
+   "needle": "fi",
+   "kind": "bash-line",
+   "count": 32
+  },
+  {
+   "slug": "bash-0212",
+   "needle": "{",
+   "kind": "bash-line",
+   "count": 1
   }
  ],
  "retirements": {}

@@ -388,7 +388,7 @@ def test_the_negative_case_reds_a_deliberately_blind_variant(tmp_path: Path) -> 
 _STEP_DOC = ".claude/commands/flow/auto.md"
 
 
-def _write_steps(root: Path, *, body: str | None, needles: list[str] | None, retirements=None) -> None:
+def _write_steps(root: Path, *, body: str | None, needles: list | None, retirements=None) -> None:
     (root / "CLAUDE.md").write_text("Short routing file.", encoding="utf-8")
     _write_fixture(root, retirements={"never-output-secrets": "not under test here"})
     if body is not None:
@@ -403,7 +403,8 @@ def _write_steps(root: Path, *, body: str | None, needles: list[str] | None, ret
                 {
                     "version": behavior.FIXTURE_VERSION,
                     "obligations": [
-                        {"slug": f"step-{i}", "needle": needle} for i, needle in enumerate(needles)
+                        needle if isinstance(needle, dict) else {"slug": f"step-{i}", "needle": needle}
+                        for i, needle in enumerate(needles)
                     ],
                     "retirements": {} if retirements is None else retirements,
                 }
@@ -486,4 +487,57 @@ def test_the_real_flow_auto_fixture_is_substantial_and_satisfied() -> None:
 
     assert len(steps) >= 300, "the pre-trim flow/auto.md held 301 recorded steps"
     assert retirements == {}
-    assert behavior.check_command_steps(root) == []
+    assert behavior.check_command_steps(root) == ([], 1)
+
+
+_GUARD = "~/.claude/scripts/flow-worktree-guard.sh --strict"
+_GUARD_STEP = {"slug": "bash-guard", "needle": _GUARD, "kind": "bash-line", "count": 2}
+
+
+def test_deleting_ONE_of_a_repeated_invocation_fails(tmp_path: Path) -> None:
+    """Counter-model finding (#1669): another occurrence must not stand in.
+
+    The guard is invoked at Step 4 and again at Step 6. A document-wide
+    substring match is satisfied by either, so deleting one passed.
+    """
+    twice = f"Step 4:\n```bash\n{_GUARD}\n```\nStep 6:\n```bash\n{_GUARD}\n```\n"
+    _write_steps(tmp_path, body=twice, needles=[_GUARD_STEP])
+    assert behavior.check_tree(tmp_path) == []
+
+    once = f"Step 4:\n```bash\n{_GUARD}\n```\nStep 6: run the guard as before.\n"
+    _write_steps(tmp_path, body=once, needles=[_GUARD_STEP])
+    findings = behavior.check_tree(tmp_path)
+
+    assert [finding.kind for finding in findings] == ["missing-step"]
+    assert "2 time(s) in bash blocks, found 1" in findings[0].detail
+
+
+def test_a_command_line_mentioned_only_in_prose_is_not_a_step(tmp_path: Path) -> None:
+    """A short line like `fi` is a substring of ordinary prose; a line is a line."""
+    _write_steps(
+        tmp_path,
+        body="The word file contains fi, and so does this prose.",
+        needles=[{"slug": "bash-fi", "needle": "fi", "kind": "bash-line", "count": 1}],
+    )
+
+    assert [finding.kind for finding in behavior.check_tree(tmp_path)] == ["missing-step"]
+
+
+def test_the_cli_refuses_to_report_preservation_over_nothing(tmp_path: Path, capsys) -> None:
+    """Counter-model finding (#1669): document AND fixture both absent.
+
+    `check_tree` does not examine a tree with neither, which is right for a
+    library call over a partial tree and wrong for the gate: its success line
+    would claim command steps were kept when none were read.
+    """
+    _write_steps(tmp_path, body=None, needles=None)
+    assert not (tmp_path / _STEP_DOC).exists(), "fixture must omit the command document"
+    assert not (tmp_path / behavior.COMMAND_STEP_FIXTURES[_STEP_DOC]).exists(), "and its step fixture"
+
+    assert behavior.main(["--root", str(tmp_path)]) == 1
+    assert "unexamined-command-steps: 0 of 1" in capsys.readouterr().err
+
+
+def test_the_cli_success_line_names_how_many_documents_it_read(capsys) -> None:
+    assert behavior.main(["--root", str(SCRIPT.parents[1])]) == 0
+    assert "1 trimmed command document(s) still carry their recorded step text" in capsys.readouterr().out

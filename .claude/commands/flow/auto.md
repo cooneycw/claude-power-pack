@@ -2,8 +2,8 @@
 
 Complete end-to-end workflow: start worktree → analyze issue → ELI5 plan + necessity gate → implement → finish (PR) → merge → deploy.
 
-Steps only (issue #1669). The reason and incident behind each rule:
-[the flow:auto rationale](../../../docs/reference/flow-auto-rationale.md).
+Steps only (#1669). Why each rule exists:
+[flow:auto rationale](../../../docs/reference/flow-auto-rationale.md).
 
 ## Arguments
 
@@ -494,7 +494,7 @@ Execute the approved plan from the Step 3 ELI5 gate:
 
 1. **Make all code changes** in the worktree, following the project's existing
    conventions.
-2. **Run tests locally** if a quick feedback loop is available (e.g. `make test`).
+2. **Run tests locally** if a quick feedback loop is available.
    **If the local loop starts a compose stack**, pin the project name in the
    SAME call: `COMPOSE_PROJECT_NAME=<Step-1 contract value> make docker-up`
    (issue #626).
@@ -850,7 +850,8 @@ instead.
    `--strict`, and handle the `FLOW_WORKTREE_GUARD:` verdict exactly as in
    Step 4 (issue #1014): exit 3 stops - do not commit, and first read
    `git -C <main> diff -- <path>` to confirm the edit is YOURS before moving or
-   reverting anything; 4 and 5 proceed and are reported, never as "no leak":
+   reverting anything, then re-run the guard AND re-run the quality gates
+   above; 4 and 5 proceed and are reported, never as "no leak":
    ```bash
    ~/.claude/scripts/flow-worktree-guard.sh --strict
    ```
@@ -1493,7 +1494,7 @@ Flow Auto Complete
 ### Post-run: Friction Retro (optional, non-blocking)
 
 After the summary, if `.claude/friction.jsonl` recorded any signals this run,
-offer the codify step - do not block or auto-run it. Declining is free:
+offer the codify step - do not block or auto-run it:
 
 ```
 Friction retro: this run recorded N friction signal(s). Run /self-improvement:retro

@@ -1891,9 +1891,6 @@ fi
 
 ## Post-run: Friction Retro (optional, non-blocking)
 
-After the summary, if `.claude/friction.jsonl` recorded any signals this run, offer
-the codify step - do not block or auto-run it:
-
 Declining is free - capture already persisted the signals for a later retro. This
 offer also appears at the end of `/flow:merge`.
 
