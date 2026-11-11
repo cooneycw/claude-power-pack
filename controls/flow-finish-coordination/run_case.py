@@ -8,7 +8,7 @@ from pathlib import Path
 
 case, gate = Path(sys.argv[1]), Path(sys.argv[2]).resolve()
 mode = (case / "mode.txt").read_text().strip()
-if mode not in {"held", "refused", "garbage"} or not shutil.which("bash"):
+if mode not in {"held", "refused", "garbage", "unavailable"} or not shutil.which("bash"):
     print("CPP_COORDINATION_CONTROL: unavailable: invalid case or missing bash")
     sys.exit(2)
 with tempfile.TemporaryDirectory(prefix="cpp-coordination-control-") as tmp:
@@ -24,9 +24,16 @@ with tempfile.TemporaryDirectory(prefix="cpp-coordination-control-") as tmp:
     supervisor = bindir / "coordinator"
     supervisor.write_text(
         '#!/usr/bin/env bash\n'
-        '[[ "$1" == run && "$2" == full-suite && "$3" == -- ]] || exit 92\n'
+        '[[ "$1" == run && "$2" == full-suite ]] || exit 92\n'
         'printf "called\\n" >> "$CPP_CONTROL_CALLS"\n'
-        + ('exit 75\n' if mode in {"refused", "garbage"} else 'shift 3\nexec "$@"\n')
+        'shift 2\nwait=\n'
+        'if [[ "$1" == --wait ]]; then wait="$2"; shift 2; fi\n'
+        '[[ "$1" == -- ]] || exit 92\nshift\n'
+        # An unavailable authority never answers on its own (issue #1678): only
+        # a caller that bounded the wait gets control back, at the bound.
+        + {"held": 'exec "$@"\n', "refused": 'exit 75\n', "garbage": 'exit 75\n',
+           "unavailable": '[[ -n "$wait" ]] || exec sleep 600\nsleep "$wait"\n'
+                          'printf \'{"state": "unavailable", "code": "authority_down"}\\n\'\nexit 75\n'}[mode]
     )
     supervisor.chmod(0o755)
     env = dict(os.environ)
@@ -36,10 +43,19 @@ with tempfile.TemporaryDirectory(prefix="cpp-coordination-control-") as tmp:
     env.update({"CPP_COORDINATION_ADMISSION_FILE": str(flag),
                 "CLAUDE_PLUGIN_ROOT": str(env_lib.parent), "CPP_KYLE_LOCK_BIN": str(supervisor),
                 "CPP_CONTROL_WORK": str(work / "work.log"), "CPP_CONTROL_CALLS": str(work / "calls.log"),
+                "CPP_KYLE_LOCK_WAIT_SECONDS": "1",
                 "FLOW_GATE_CPP_DIR": "", "PATH": f"{bindir}:{env['PATH']}"})
-    result = subprocess.run(["bash", str(gate)], cwd=work, env=env, capture_output=True, text=True, timeout=15)
+    try:
+        result = subprocess.run(["bash", str(gate)], cwd=work, env=env, capture_output=True, text=True, timeout=15)
+    except subprocess.TimeoutExpired:
+        print("CPP_COORDINATION_CONTROL: gate waited past its bound on the authority")
+        sys.exit(0 if mode == "unavailable" else 2)
     calls = work / "calls.log"
     started = (work / "work.log").exists()
+    named = "FLOW_FINISH_GATE: fail (coordination unavailable: authority_down; " in result.stdout
+    if mode == "unavailable" and result.returncode == 1 and not named:
+        print("CPP_COORDINATION_CONTROL: gate ended without naming the unavailable authority")
+        sys.exit(0)
     if result.returncode == 1 and calls.exists() and not started:
         print("CPP_COORDINATION_REFUSED: no gate work started")
         sys.exit(1)

@@ -10,7 +10,7 @@ for a run: every instruction a run needs is in the command document, and
 
 Each section below carries the heading it had in the command document, and
 under it the passages that were moved out or condensed there, VERBATIM as they
-stood at `dca1ac6b` (the last revision before the trim). A passage that was
+stood at `abce5ab5` (the last revision before the trim). A passage that was
 condensed appears here in full, so it may restate an instruction the command
 document still gives in fewer words. Where the two differ, the command document
 is the procedure and this is the history. Code blocks are reproduced with the
@@ -436,11 +436,9 @@ and continue. `/flow:repair` installs the family at the stable path.)
   local changes overlap incoming ones, commit the work first (`git add -A` +
   `git commit -m "wip(flow): pre-merge snapshot"`) and merge on the clean tree
   - never stash: the stash stack is SHARED across every worktree of the repo
-  and a bare pop can restore a sibling session's work (#635). If the merge touched any
-  `.claude/commands/**/*.md`, re-run the LOCAL
-  `python3 scripts/codex-skill-sync.py --write`, then stage `codex/skills/`, so
-  the generated Codex surface does not drift (issue #506; Codex skills #555,
-  marketplace retired #662).
+  and a bare pop can restore a sibling session's work (#635). There is nothing
+  generated to stage afterwards: `codex/skills/` is ignored build output since
+  issue #1670, rebuilt by the gates that read it.
 - If it reports `current` or `moved-clean` with no overlap, proceed - the Step-7
   #462 guard remains the final backstop.
 
@@ -496,9 +494,9 @@ makes that comparison `unknown`. Markdown only - `.gitignore` carries a blanket
 
 Do NOT list this record, its `.as-read.md` snapshot or the counter-model receipt
 in Section C: the comparison excludes them itself, and they are not changes to
-plan (issue #1267). For a generated `codex/skills/**` mirror, name its SOURCE
-(the command document or the bundled script) - the mirror and a regenerated
-`scripts/SHA256SUMS` manifest are attributed to that source automatically.
+plan (issue #1267). Generated `codex/skills/**` mirrors are ignored build output since issue #1670
+and never appear in a diff, so name only the SOURCE (the command document or
+the bundled script).
 
 - exit 0 - `docs/flow-runs/issue-42.as-read.md` is written (the body as read,
   at most 16 KB stored; its digest covers the FULL body) and the record's digest
@@ -670,8 +668,9 @@ if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then
         exit 1
     fi
     # Keep the generated Codex surface current when the merge pulled ANY source
-    # the skills bundle (issues #506, #1136). The Step-6 commit stages generated
-    # files. ONE HELPER, invoked BARE (#581) - it decides by asking
+    # the skills bundle (issues #506, #1136). The tree is ignored build
+    # output since #1670, so this refreshes what the gates below READ and
+    # nothing is staged. ONE HELPER, invoked BARE (#581) - it decides by asking
     # codex-skill-sync.py what actually drifted, names it, and re-syncs.
     #
     # It replaced `git diff --name-only ORIG_HEAD..HEAD | grep -q
@@ -1293,13 +1292,11 @@ fill this step.
            echo "(Do NOT 'git merge --abort' - that discards the resolution.)"
            exit 1
        fi
-       # If the merge pulled ANY command-family source, re-sync the generated
-       # Codex skills (all families, not just flow - issue #506) and COMMIT them: this
-       # branch is squashed straight after `git push` below with no further commit
-       # step, so uncommitted codex/skills/ would leave the squash
-       # carrying stale copies and fail the parity gates on main - the exact race
-       # this guards. LOCAL scripts re-sync THIS worktree; [ -x ... ] keeps each
-       # CPP-only.
+       # If the merge pulled ANY command-family source, the generated Codex
+       # skills are re-synced below (all families, not just flow - issue #506).
+       # They are ignored build output since #1670: the re-sync refreshes what
+       # the re-gate READS, and there is nothing to commit. LOCAL scripts
+       # re-sync THIS worktree; [ -x ... ] keeps each CPP-only.
        # `[ -x ]` KEEPS THIS CPP-ONLY (counter-model review, #1136). /flow:auto and
        # /flow:finish run in other repositories, which have neither this helper nor
        # the generator; a bare call there dies with exit 127 before the helper can
@@ -1324,27 +1321,22 @@ fill this step.
    # `--list-mirrors` (#1151) does not change, because enumerating the set is a
    # different job from deciding whether it drifted.
    # tests/test_codex_skill_resync.py fails if this is re-gated on the base.
-   # The COMMIT travels with the re-sync: this branch is squashed straight after
-   # the push with no further commit step, so an uncommitted codex/skills/ would
-   # leave the squash carrying stale copies. Moving the re-sync out and leaving
-   # the commit behind would re-sync and then not commit it.
+   # NO COMMIT follows the re-sync any more (issue #1670). It used to: the
+   # mirrors were tracked, and an uncommitted codex/skills/ left the squash
+   # carrying stale copies. They are ignored build output now, so the re-sync
+   # cannot change the branch - it only refreshes the tree the re-gate reads.
    if [ -x scripts/codex-skill-resync.sh ]; then
        bash scripts/codex-skill-resync.sh
    fi
-   if ! git diff --quiet -- codex/skills/; then
-       git add codex/skills/
-       git commit -m "chore(generated): re-sync codex skill copies after a bundled source changed (#506)"
-   fi
    ```
 
-   THE RE-SYNC IS NOW A SECOND WAY THIS BRANCH GAINS A COMMIT (S4,
-   counter-model review). This used to read "if the merge above ran", which was
-   complete while the re-sync could only happen inside the merge block. It no
-   longer is: a run on a CURRENT base whose diff staled a mirror now regenerates
-   and COMMITS those mirrors here, and gating the re-gate on the merge would let
-   that commit reach the squash without ever being validated - and without being
-   pushed, so the PR the squash reads would not contain it. Test for a changed
-   branch, not for a merge:
+   THE RE-SYNC IS NO LONGER A WAY THIS BRANCH GAINS A COMMIT. Between S4 and
+   issue #1670 it was: a run on a current base whose diff staled a mirror
+   regenerated and COMMITTED those mirrors here, so the re-gate had to key on a
+   changed branch rather than on a merge. With the mirrors untracked only the
+   merge can move HEAD. The test stays the general one, because it is still
+   the correct question and costs nothing - test for a changed branch, not for
+   a merge:
 
 2. **Merge the PR.** Look up the PR number first (allowlisted read):
 

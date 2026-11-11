@@ -485,7 +485,7 @@ def test_the_real_flow_auto_fixture_is_substantial_and_satisfied() -> None:
     root = SCRIPT.parents[1]
     steps, retirements = behavior._load_fixture(root / behavior.COMMAND_STEP_FIXTURES[_STEP_DOC])
 
-    assert len(steps) >= 300, "the pre-trim flow/auto.md held 301 recorded steps"
+    assert len(steps) >= 300, "the pre-trim flow/auto.md held 300 recorded steps"
     assert retirements == {}
     assert behavior.check_command_steps(root) == ([], 1)
 

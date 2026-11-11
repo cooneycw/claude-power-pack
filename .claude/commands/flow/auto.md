@@ -396,9 +396,8 @@ the CPP-checkout copy; if none exists, note it and continue.)
   conflict before implementing. If git refuses to START the merge, commit
   first (`git add -A` + `git commit -m "wip(flow): pre-merge snapshot"`) and
   merge on the clean tree - never stash: the stash stack is SHARED across every
-  worktree (#635). If the merge touched any `.claude/commands/**/*.md`, re-run
-  the LOCAL `python3 scripts/codex-skill-sync.py --write`, then stage
-  `codex/skills/` (issue #506).
+  worktree (#635). Nothing generated needs staging: `codex/skills/` is ignored
+  build output since issue #1670.
 - `current` or `moved-clean` with no overlap: proceed.
 
 #### First, write the plan record (issue #1080)
@@ -453,8 +452,8 @@ Keep Section C as one numbered line per file, in the form ``N. `path` - gist``:
 Step 6 compares the diff against exactly those paths. Markdown only -
 `.gitignore` carries a blanket `*.json`. The approver field comes from the
 actual approval event (issue #775). Do NOT list this record, its `.as-read.md`
-snapshot or the counter-model receipt (issue #1267). For a generated
-`codex/skills/**` mirror, name its SOURCE.
+snapshot or the counter-model receipt (issue #1267). `codex/skills/**` mirrors
+are ignored build output (#1670): name only the SOURCE.
 
 **Then, before any implementation edit**, write the as-read snapshot and stamp
 the approval baseline (issues #1081, #1082):
@@ -986,9 +985,9 @@ Having nothing to store is an ordinary outcome. Do not manufacture a finding.
 1. **Sync with `origin/main` and re-gate (stale-branch guard, issue #462):**
    Bring the branch current and re-run the gate on the **post-merge tree**
    first, so the gate reflects exactly what lands on `main`. The Codex re-sync
-   is called UNCONDITIONALLY here too (keyed on the diff, not the base; never
-   re-gated on a path pattern, #1136), and its COMMIT travels with it, because
-   the squash follows the push with no further commit step:
+   is called UNCONDITIONALLY here too (never re-gated on a path pattern,
+   #1136). It refreshes ignored build output the re-gate reads; there is
+   nothing to commit (#1670):
 
    ```bash
    BRANCH=$(git branch --show-current)
@@ -1006,13 +1005,9 @@ Having nothing to store is an ordinary outcome. Do not manufacture a finding.
    if [ -x scripts/codex-skill-resync.sh ]; then
        bash scripts/codex-skill-resync.sh
    fi
-   if ! git diff --quiet -- codex/skills/; then
-       git add codex/skills/
-       git commit -m "chore(generated): re-sync codex skill copies after a bundled source changed (#506)"
-   fi
    ```
 
-   **If EITHER the merge OR the re-sync changed the branch**, re-run the FULL
+   **If the merge changed the branch**, re-run the FULL
    quality gate - the same Step-6 helper, invoked BARE as a separate call (#613;
    the #581 discipline - never fold it back into a compound block). Test for a
    changed branch, not for a merge:

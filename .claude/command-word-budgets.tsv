@@ -6,11 +6,12 @@
 # steps to execute; rationale and incident history belong in a linked reference.
 #
 # flow/auto.md: the owner's starting target was 10183 (#1669). The declared
-# budget is 10450, argued from measurement: trimmed to 10182, the document had
-# lost or altered 21 instructions that no machine check could see (5 found by
-# two counter-model review passes, 16 by an independent old-versus-new read).
-# With every one restored it measures 10444. Its fenced blocks alone - the
-# commands and report templates - are about 2100 of those words.
+# budget is 10410, argued from measurement and approved by the owner on PR
+# #1681: trimmed to 10182, the document had lost or altered 21 instructions
+# that no machine check could see (5 found by two counter-model review passes,
+# 16 by an independent old-versus-new read). With every one restored, and
+# after #1670 removed its mirror-commit steps, it measures 10402. Its fenced
+# blocks alone - the commands and report templates - are about 2100 words.
 # Every other number is an INTERIM CAP - the document's size when the gate landed - so nothing grows
 # while it waits to be trimmed. Owner targets still owed (#1669): flow/register.md
 # 8208, flow/wave.md 6954, flow/finish.md 1791. Lower a number when you trim;
@@ -40,17 +41,17 @@
 786	cpp/dockers.md
 220	cpp/happy-check.md
 1148	cpp/help.md
-19422	cpp/init.md
+19467	cpp/init.md
 206	cpp/load-best-practices.md
 245	cpp/load-mcp-docs.md
 3817	cpp/status.md
-14442	cpp/update.md
+14479	cpp/update.md
 1123	documentation/c4.md
 290	documentation/help.md
 1218	documentation/pptx.md
 457	evaluate/help.md
 2284	evaluate/issue.md
-10450	flow/auto.md
+10410	flow/auto.md
 1837	flow/check.md
 2258	flow/cleanup.md
 1561	flow/deploy.md

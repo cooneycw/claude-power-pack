@@ -800,7 +800,7 @@ md-relative-links-check:
 	@python3 scripts/check-md-relative-links.py
 
 ## verify-coverage: gate codex-skill-links-check - every relative markdown link in the generated codex/skills/ mirrors resolves FROM THE MIRROR location (issue #1494); ci: runs codex-skill-links-check
-codex-skill-links-check:
+codex-skill-links-check: codex-skills
 	@python3 scripts/check-md-relative-links.py --codex-skills
 
 ## verify-coverage: gate co-authored-by-trailer-check - the Co-Authored-By trailer names a real model; ci: excluded needs-git
@@ -852,7 +852,7 @@ behavioral-eval-check:
 ## verdict to 0; a crash still fails, so "looked and found nothing" is never
 ## confused with "did not look".
 ## verify-coverage: gate skill-coverage-map-check - two-axis staleness over SKILL_FAMILY_MAP, read from a vendored snapshot; advisory, see comment above; ci: runs skill-coverage-map-check
-skill-coverage-map-check:
+skill-coverage-map-check: codex-skills
 	@python3 scripts/check-skill-coverage-map.py --advisory
 
 ## Reads the CPP evaluation-enrollment decision record for flow-check (#1371,
@@ -864,7 +864,7 @@ skill-coverage-map-check:
 ## stale-content 3, stale-aged 4, failing 5, fixture 6), so a future gate can tell
 ## them apart. Reads JSON and the codex/skills tree only - no git, no network.
 ## verify-coverage: gate eval-enrollment-check - reads the flow-check evaluation-enrollment decision record and reports its advisory state; never blocking, refuses a threshold or an unproven blocking decision (#1371, ADR 0011); ci: runs eval-enrollment-check
-eval-enrollment-check:
+eval-enrollment-check: codex-skills
 	@python3 scripts/check-eval-enrollment.py --advisory
 
 ## Regenerates a vendored skill-coverage snapshot (#1370) - the ONLY place
@@ -934,11 +934,16 @@ setup-woodpecker-cli:
 ## deprecated flat codex/prompts/ surface (issue #446) and its codex-prompts /
 ## codex-prompts-check targets were retired at the #556 cutover.
 
-## verify-coverage: gate codex-skills-check - codex/skills/ still matches what the generator produces from .claude/commands/; ci: runs codex-skills-check
-codex-skills-check:
+## codex/skills/ is IGNORED BUILD OUTPUT since issue #1670 (ADR 0013): nothing
+## under it but its README is tracked. Every target that READS the tree lists
+## `codex-skills` as a prerequisite, so it is built from the current sources
+## first - a reader run against yesterday's build, or none, prints a different
+## and equally green answer.
+## verify-coverage: gate codex-skills-check - builds codex/skills/ and checks the built tree against the generator: complete and deterministic, NOT a statement about installed copies; ci: runs codex-skills-check
+codex-skills-check: codex-skills
 	@python3 scripts/codex-skill-sync.py --check
 
-## verify-coverage: utility codex-skills - regenerates codex/skills/; it issues no verdict
+## verify-coverage: gate codex-skills - builds codex/skills/ (ignored build output) for the gates that read it; its red is the generator REFUSING (an unresolvable bundled import, a source line it cannot follow), not drift; ci: runs codex-skills-generate
 codex-skills:
 	@python3 scripts/codex-skill-sync.py --write
 
@@ -948,15 +953,16 @@ codex-skills:
 skills-check:
 	@python3 scripts/skills-check.py
 
-## verify-coverage: utility codex-init - regenerates and installs the Codex skills
+## verify-coverage: utility codex-init - builds codex/skills/ in the checkout, checks it, and installs it
 codex-init:
 	@python3 scripts/codex-skill-sync.py --write --install
 
-## Install the checked-in skills to ~/.codex/skills WITHOUT regenerating them -
-## the host-refresh path used by /cpp:init Tier 5 and /cpp:update Step 7.9,
-## where the repo copy is already current and CI-gated (issue #575). Prunes
-## managed orphans at the destination; never touches unmarked or dotted entries.
-## verify-coverage: utility codex-install - installs the checked-in Codex skills to ~/.codex/skills
+## Build the skills in a PRIVATE tree, check that tree against the sources, and
+## publish it to ~/.codex/skills - the host-refresh path used by /cpp:init Tier 5
+## and /cpp:update Step 7.9 (issue #575). It never reads the checkout's
+## codex/skills/, which is ignored build output since #1670. Prunes managed
+## orphans at the destination; never touches unmarked or dotted entries.
+## verify-coverage: utility codex-install - builds, checks and installs the Codex skills to ~/.codex/skills
 codex-install:
 	@python3 scripts/codex-skill-sync.py --install
 

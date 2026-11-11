@@ -49,7 +49,34 @@ def _make_checkout(root: Path) -> Path:
     (root / "scripts" / "cpp-host-write.sh").write_text(
         "#!/bin/sh\necho stub\n", encoding="utf-8"
     )
+    _install_stub_codex_generator(root)
     return root
+
+
+# The Codex arm no longer READS <checkout>/codex/skills/ - it asks the
+# checkout's generator to build the expectation into a temp tree (issue #1670).
+# The fake checkout therefore needs a generator. This stub "generates" whatever
+# `_make_codex_skill_source` put under <checkout>/generator-output/, which keeps
+# the fixture's meaning ("this is what the checkout ships") and keeps it OUT of
+# codex/skills/, so a test can prove that tree is not what gets compared.
+STUB_CODEX_GENERATOR = """\
+import shutil, sys
+from pathlib import Path
+args = sys.argv[1:]
+if "--write" not in args or "--output-root" not in args:
+    sys.exit(2)
+out = Path(args[args.index("--output-root") + 1])
+src = Path(__file__).resolve().parent.parent / "generator-output"
+out.mkdir(parents=True, exist_ok=True)
+if src.is_dir():
+    shutil.copytree(src, out, dirs_exist_ok=True)
+"""
+
+
+def _install_stub_codex_generator(checkout: Path, *, body: str = STUB_CODEX_GENERATOR) -> Path:
+    dest = checkout / "scripts" / "codex-skill-sync.py"
+    dest.write_text(body, encoding="utf-8")
+    return dest
 
 
 def _make_cache(home: Path, *families: str) -> Path:
@@ -94,8 +121,8 @@ CODEX_SKILL_MARKER = (
 
 
 def _make_codex_skill_source(checkout: Path, name: str, *, body: str = "body\n") -> Path:
-    """A CPP-shipped Codex skill package under <checkout>/codex/skills/<name>/."""
-    pkg = checkout / "codex" / "skills" / name
+    """A Codex skill package the checkout's (stub) generator produces."""
+    pkg = checkout / "generator-output" / name
     pkg.mkdir(parents=True, exist_ok=True)
     (pkg / "SKILL.md").write_text(
         f"---\nname: {name}\n---\n{CODEX_SKILL_MARKER}\n{body}", encoding="utf-8"
@@ -513,6 +540,10 @@ def test_orphaned_codex_skill_is_reported_but_not_drift(tmp_path: Path):
     checkout = _make_checkout(tmp_path / "checkout")
     home = tmp_path / "home"
     _make_codex_skill_installed(home, "cpp-retired-thing", body="gone\n", managed=True)
+    # The checkout still ships SOMETHING. "Orphaned" is a claim that we stopped
+    # shipping this one skill, and it needs a real expectation to stand on: a
+    # generator that produced nothing at all yields `unexamined` instead (#1670).
+    _make_codex_skill_source(checkout, "cpp-help", body="still shipped\n")
 
     report = _run(checkout, home)
     quiet = _run(checkout, home, "--quiet")
@@ -1630,3 +1661,101 @@ def test_skipped_count_adds_nothing_when_managed_is_positive_but_skipped_is_zero
 
     quiet = _run(checkout, home, "--quiet").stdout
     assert "unmarked and never judged" not in quiet, quiet
+
+
+# --- the expectation is generated, never read from codex/skills/ (#1670) ----
+
+
+def test_a_stale_build_tree_in_the_checkout_is_not_what_gets_compared(tmp_path: Path):
+    """<checkout>/codex/skills/ is ignored build output: as stale as its last
+    build. The verdict must come from what the generator produces now."""
+    checkout = _make_checkout(tmp_path)
+    home = tmp_path / "home"
+    _make_codex_skill_source(checkout, "cpp-help", body="current text\n")
+    _make_codex_skill_installed(home, "cpp-help", body="current text\n")
+    left_over = checkout / "codex" / "skills" / "cpp-help"
+    left_over.mkdir(parents=True)
+    (left_over / "SKILL.md").write_text(
+        f"---\nname: cpp-help\n---\n{CODEX_SKILL_MARKER}\nYESTERDAY'S BUILD\n", encoding="utf-8"
+    )
+
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert payload["codex_skills_current"] == 1
+    assert payload["codex_skills_stale"] == 0
+    assert payload["codex_skills_expectation"] == "generated"
+
+
+def test_no_generator_leaves_installed_skills_unexamined_not_orphaned(tmp_path: Path):
+    """Before #1670 a checkout with no codex/skills/ tree made every installed
+    skill an ORPHAN. An expectation that could not be built is not evidence
+    that we stopped shipping anything."""
+    checkout = _make_checkout(tmp_path)
+    home = tmp_path / "home"
+    (checkout / "scripts" / "codex-skill-sync.py").unlink()
+    _make_codex_skill_installed(home, "cpp-help", body="same\n")
+
+    result = _run(checkout, home, "--json")
+    payload = json.loads(result.stdout)
+
+    assert payload["codex_skills_unexamined"] == 1
+    assert payload["codex_skills_orphaned"] == 0
+    assert payload["codex_skills_current"] == 0
+    assert payload["codex_skills_checked"] is False
+    assert payload["codex_skills_expectation"].startswith("unavailable")
+    assert payload["verdict"] != "ok"
+
+
+def test_a_failing_generator_is_unexamined_in_every_output_mode(tmp_path: Path):
+    checkout = _make_checkout(tmp_path)
+    home = tmp_path / "home"
+    _install_stub_codex_generator(checkout, body="import sys\nsys.exit(1)\n")
+    _make_codex_skill_installed(home, "cpp-help", body="same\n")
+
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+    assert payload["codex_skills_unexamined"] == 1
+    assert "--write failed" in payload["codex_skills_expectation"]
+
+    quiet = _run(checkout, home, "--quiet").stdout
+    assert "1 Codex skill(s) NOT checked" in quiet
+    assert "unchecked, not clean" in quiet
+
+    report = _run(checkout, home).stdout
+    assert "NOT CHECKED: 1 CPP-generated skill(s) installed" in report
+    assert "match the checkout" not in report
+    assert "INSTALL_DRIFT: ok" not in report
+
+
+def test_the_generator_is_not_run_when_nothing_of_ours_is_installed(tmp_path: Path):
+    """The build costs about a second and this runs at session start."""
+    checkout = _make_checkout(tmp_path)
+    home = tmp_path / "home"
+    witness = tmp_path / "generator-ran"
+    _install_stub_codex_generator(
+        checkout, body=f"from pathlib import Path\nPath({str(witness)!r}).write_text('ran')\n"
+    )
+    _make_codex_skill_installed(home, "some-other-tool", body="hi\n", managed=False)
+
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert not witness.exists()
+    assert payload["codex_skills_expectation"] == "not-needed"
+    assert payload["codex_skills_unexamined"] == 0
+
+
+def test_a_successful_build_of_nothing_is_unexamined_not_orphaned(tmp_path: Path):
+    """A generator that exits 0 having generated no skill has not told us we
+    stopped shipping anything (counter-model review, #1670)."""
+    checkout = _make_checkout(tmp_path)
+    home = tmp_path / "home"
+    # The stub generator succeeds and creates an EMPTY output directory.
+    assert not (checkout / "generator-output").exists()
+    _make_codex_skill_installed(home, "cpp-help", body="same\n")
+
+    payload = json.loads(_run(checkout, home, "--json").stdout)
+
+    assert payload["codex_skills_orphaned"] == 0
+    assert payload["codex_skills_unexamined"] == 1
+    assert "generated no skills" in payload["codex_skills_expectation"]
+    assert payload["verdict"] != "ok"
+

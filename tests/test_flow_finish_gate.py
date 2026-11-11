@@ -3160,8 +3160,8 @@ def test_coordination_supervises_full_gate_once_only_when_enabled(tmp_path: Path
     supervisor.write_text(
         "#!/usr/bin/env bash\n"
         'printf "%s\\n" "$*" >> "$(dirname "$0")/supervisor.log"\n'
-        '[[ "$1" == run && "$2" == full-suite && "$3" == -- ]] || exit 92\n'
-        'shift 3\nexec "$@"\n'
+        '[[ "$1" == run && "$2" == full-suite && "$3" == --wait && "$4" == 3600 && "$5" == -- ]] || exit 92\n'
+        'shift 5\nexec "$@"\n'
     )
     supervisor.chmod(0o755)
     (tmp_path / "Makefile").write_text("lint:\ntest:\ntypecheck:\nverify:\n")
@@ -3191,11 +3191,98 @@ def test_coordination_refusal_starts_no_gate_work(tmp_path: Path, supervisor_exi
         "CPP_KYLE_COORDINATION_ADMISSION": "1", "CPP_KYLE_LOCK_BIN": str(supervisor)})
     assert proc.returncode == 1, proc.stdout + proc.stderr
     assert not (bindir / "make.log").exists()
-    assert f"FLOW_FINISH_GATE: fail (coordination supervisor exited {supervisor_exit} " in proc.stdout
+    if supervisor_exit == 75:
+        assert "FLOW_FINISH_GATE: fail (coordination unavailable: exit 75; " in proc.stdout
+    else:
+        assert f"FLOW_FINISH_GATE: fail (coordination supervisor exited {supervisor_exit} " in proc.stdout
     assert "FLOW_FINISH_GATE: ok" not in proc.stdout
     exit_lines = [ln for ln in proc.stdout.splitlines() if ln.startswith("FLOW_FINISH_GATE_EXIT=")]
     assert exit_lines == ["FLOW_FINISH_GATE_EXIT=1"], proc.stdout
     assert proc.stdout.splitlines()[-1] == "FLOW_FINISH_GATE_EXIT=1"
+
+
+def _bounded_authority(path: Path, state: str) -> None:
+    """A fake kyle-lock that behaves like the real one around --wait (#1678).
+
+    Unavailable with no --wait never returns, as the real client does; with
+    --wait it gives up at the bound, prints its last answer and exits 75.
+    """
+    path.write_text(
+        "#!/usr/bin/env bash\n"
+        '[[ "$1" == run && "$2" == full-suite ]] || exit 92\n'
+        "shift 2\nwait=\n"
+        'if [[ "$1" == --wait ]]; then wait="$2"; shift 2; fi\n'
+        '[[ "$1" == -- ]] || exit 92\nshift\n'
+        + ('exec "$@"\n' if state == "held" else
+           '[[ -n "$wait" ]] || exec sleep 600\n'
+           'sleep "$wait"\n'
+           'printf \'{"state": "unavailable", "code": "authority_down", "reason": "refused"}\\n\'\n'
+           "exit 75\n")
+    )
+    path.chmod(0o755)
+
+
+@requires_git
+@requires_bash
+def test_coordination_unavailable_authority_ends_within_the_bound_by_name(tmp_path: Path):
+    # Regression for #1678: without a bounded --wait this fake never returns and
+    # the run dies on the subprocess timeout instead of printing a verdict.
+    supervisor = tmp_path / "authority"
+    _bounded_authority(supervisor, "unavailable")
+    (tmp_path / "Makefile").write_text("lint:\ntest:\ntypecheck:\nverify:\n")
+    flag = tmp_path / "coordination-flag"
+    flag.write_text("on\n")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    _make_stub(bindir, "make", 0)
+    env = os.environ.copy()
+    for key in ("CPP_KYLE_FULL_SUITE_ACTIVE", "CPP_FLOW_FINISH_GATE_STATUS_FILE"):
+        env.pop(key, None)
+    env.update({"CPP_COORDINATION_ADMISSION_FILE": str(flag), "CPP_KYLE_LOCK_BIN": str(supervisor),
+                "CPP_KYLE_LOCK_WAIT_SECONDS": "1", "FLOW_GATE_CPP_DIR": "",
+                "PATH": f"{bindir}:{env['PATH']}"})
+    proc = subprocess.run(["bash", str(SCRIPT)], cwd=tmp_path, env=env, stdout=subprocess.PIPE,
+                          stderr=subprocess.STDOUT, text=True, timeout=20)
+    assert proc.returncode == 1, proc.stdout
+    assert ("FLOW_FINISH_GATE: fail (coordination unavailable: authority_down; "
+            "no grant within 1s, no gate work started)") in proc.stdout
+    assert not (bindir / "make.log").exists()
+    assert "FLOW_FINISH_GATE: ok" not in proc.stdout and "skipped" not in proc.stdout
+    assert proc.stdout.splitlines()[-1] == "FLOW_FINISH_GATE_EXIT=1"
+
+
+@requires_git
+@requires_bash
+def test_coordination_held_authority_runs_the_gate_under_the_bound(tmp_path: Path):
+    supervisor = tmp_path / "authority"
+    _bounded_authority(supervisor, "held")
+    (tmp_path / "Makefile").write_text("lint:\ntest:\ntypecheck:\nverify:\n")
+    proc, bindir = _run(tmp_path, cpp_dir="", make_exit=0, extra_env={
+        "CPP_KYLE_COORDINATION_ADMISSION": "1", "CPP_KYLE_LOCK_BIN": str(supervisor),
+        "CPP_KYLE_LOCK_WAIT_SECONDS": "1"})
+    assert proc.returncode == 0, proc.stdout
+    assert (bindir / "make.log").read_text().splitlines() == ["lint", "test", "typecheck", "verify"]
+
+
+@requires_git
+@requires_bash
+@pytest.mark.parametrize("bound", ["0", "-5", "forever", "1.5", ""])
+def test_coordination_wait_bound_is_validated_only_when_admission_is_on(tmp_path: Path, bound: str):
+    supervisor = tmp_path / "authority"
+    _bounded_authority(supervisor, "held")
+    (tmp_path / "Makefile").write_text("lint:\ntest:\ntypecheck:\nverify:\n")
+    extra = {"CPP_KYLE_LOCK_BIN": str(supervisor), "CPP_KYLE_LOCK_WAIT_SECONDS": bound}
+    off, bindir = _run(tmp_path, cpp_dir="", make_exit=0, extra_env=dict(extra))
+    assert off.returncode == 0, off.stdout  # admission off: the variable is inert
+    (bindir / "make.log").unlink()
+    on, _ = _run(tmp_path, cpp_dir="", make_exit=0,
+                 extra_env={**extra, "CPP_KYLE_COORDINATION_ADMISSION": "1"})
+    if bound == "":  # empty means unset: the default applies
+        assert on.returncode == 0, on.stdout
+        return
+    assert on.returncode == 1, on.stdout
+    assert "FLOW_FINISH_GATE: fail (coordination wait bound invalid: " in on.stdout
+    assert not (bindir / "make.log").exists()
 
 
 @requires_git
@@ -3257,7 +3344,7 @@ def test_coordination_writers_outliving_the_parent_cannot_recreate_its_files(tmp
         "#!/usr/bin/env bash\n"
         f'touch "{started}"\n'
         f'while [[ ! -e "{go}" ]]; do sleep 0.05; done\n'
-        'shift 3\n"$@"\n'
+        'shift 5\n"$@"\n'
         f'touch "{done}"\n'
     )
     supervisor.chmod(0o755)
@@ -3308,8 +3395,8 @@ def test_coordination_passes_the_gate_verdict_only_when_the_supervisor_agrees(
     supervisor = tmp_path / "supervisor"
     supervisor.write_text(
         "#!/usr/bin/env bash\n"
-        '[[ "$1 $2 $3" == "run full-suite --" ]] || exit 92\n'
-        f'shift 3\n"$@"\nrc=$?\n{supervisor_tail}\n'
+        '[[ "$1 $2 $3 $5" == "run full-suite --wait --" ]] || exit 92\n'
+        f'shift 5\n"$@"\nrc=$?\n{supervisor_tail}\n'
     )
     supervisor.chmod(0o755)
     (tmp_path / "Makefile").write_text("lint:\ntest:\ntypecheck:\nverify:\n")
@@ -3356,7 +3443,7 @@ def test_coordination_continuation_keeps_one_lease_and_hides_authority_credentia
         "#!/usr/bin/env bash\n"
         'printf "%s\\n" "$*" >> "$(dirname "$0")/supervisor.log"\n'
         '[[ "$KYLE_LOCK_TOKEN" == synthetic-supervisor-only ]] || exit 93\n'
-        'shift 3\nexec "$@"\n'
+        'shift 5\nexec "$@"\n'
     )
     supervisor.chmod(0o755)
     make = bindir / "make"
