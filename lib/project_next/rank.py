@@ -21,7 +21,7 @@ from .models import (
     WorktreeDetail,
 )
 
-CONTRACT_VERSION = "1.8"
+CONTRACT_VERSION = "1.9"
 PHASE = re.compile(r"\b(?:wave|phase)[-\s:]*(?P<number>\d+)\b", re.IGNORECASE)
 SPEC_SYNC_WARNING = re.compile(r": spec-sync mapping is \w+ for \d+ task")
 

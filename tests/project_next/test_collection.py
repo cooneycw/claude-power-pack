@@ -447,3 +447,112 @@ def test_references_beyond_the_lookup_cap_stay_unknown(tmp_path: Path) -> None:
     assert len(looked_up) == MAX_EXTERNAL_LOOKUPS
     assert references[-1] not in states
     assert warnings and "only the first" in warnings[0]
+
+
+def _git(*args: str, cwd: Path) -> str:
+    import subprocess
+
+    env = {
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@example.invalid",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@example.invalid",
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_CONFIG_SYSTEM": "/dev/null",
+        "PATH": __import__("os").environ["PATH"],
+        "HOME": str(cwd),
+    }
+    return subprocess.run(["git", *args], cwd=cwd, env=env, capture_output=True, text=True, check=True).stdout
+
+
+def test_a_prunable_worktree_is_unexamined_and_does_not_take_down_collection(tmp_path: Path) -> None:
+    """A worktree entry whose directory is gone must not crash the collector (#1674).
+
+    Before the fix `git status` was run with the missing directory as cwd, which
+    raises FileNotFoundError out of `subprocess_runner` - not the CollectionError
+    the surrounding `try` catches - so one stale entry exited the whole command
+    with no report. The real runner and a real git repository are used on
+    purpose: a fake runner raising CollectionError would pass on the old code.
+    """
+    import shutil
+
+    from lib.project_next.collect import _parse_worktrees, subprocess_runner
+
+    if shutil.which("git") is None:
+        pytest.skip("git is not installed")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git("init", "-q", "-b", "main", cwd=repo)
+    (repo / "f").write_text("x\n")
+    _git("add", "f", cwd=repo)
+    _git("commit", "-q", "-m", "init", cwd=repo)
+    gone = tmp_path / "gone"
+    _git("worktree", "add", "-q", "-b", "issue-999-gone", str(gone), cwd=repo)
+    shutil.rmtree(gone)
+    # PRECONDITION: git itself reports the entry prunable, and the directory is absent.
+    porcelain = _git("worktree", "list", "--porcelain", cwd=repo)
+    assert "prunable" in porcelain and not gone.exists()
+
+    warnings: list[str] = []
+    result = _parse_worktrees(porcelain, repo, subprocess_runner, warnings)
+
+    by_path = {worktree.path: worktree for worktree in result}
+    stale = by_path[str(gone)]
+    assert stale.dirty is None, "a worktree nothing examined must never read as clean"
+    assert "prunable" in stale.status_unknown_reason and str(gone) in stale.status_unknown_reason
+    assert stale.recent_commits == ()
+    assert any(str(gone) in warning and "prunable" in warning for warning in warnings)
+    # The healthy primary checkout is still examined normally.
+    assert by_path[str(repo)].dirty is False and by_path[str(repo)].status_unknown_reason == ""
+
+
+def test_a_missing_directory_without_a_prunable_line_is_still_unexamined(tmp_path: Path) -> None:
+    """Git older than 2.31 prints no `prunable` line; the real runner must still degrade (#1674).
+
+    With no `prunable` word the collector asks, the command cannot start, and the
+    runner's CollectionError lands in the existing unexamined path.
+    """
+    import shutil
+
+    from lib.project_next.collect import _parse_worktrees, subprocess_runner
+
+    if shutil.which("git") is None:
+        pytest.skip("git is not installed")
+    gone = tmp_path / "never-existed"
+    assert not gone.exists()
+
+    warnings: list[str] = []
+    result = _parse_worktrees(f"worktree {gone}\nbranch refs/heads/issue-28\n", tmp_path, subprocess_runner, warnings)
+    assert result[0].dirty is None
+    assert "could not run" in result[0].status_unknown_reason and str(gone) in result[0].status_unknown_reason
+    assert warnings
+
+
+def test_an_injected_runner_is_still_asked_about_a_path_that_is_not_a_real_directory(tmp_path: Path) -> None:
+    """Only git's `prunable` word skips the runner - never a filesystem probe (#1674, counter-model review).
+
+    controls/project-next-worktree-log feeds `/fixture/worktree` through an
+    injected runner. A guard that tested the directory itself would bypass that
+    runner and report its dirty worktree as unexamined.
+    """
+    from lib.project_next.collect import _parse_worktrees
+
+    fake = tmp_path / "not-a-real-directory"
+    assert not fake.exists()
+
+    def runner(command: list[str], cwd: Path) -> str:
+        return " M tracked.py\n" if command[1] == "status" else ""
+
+    result = _parse_worktrees(f"worktree {fake}\nbranch refs/heads/issue-28\n", tmp_path, runner, [])
+    assert result[0].dirty is True and result[0].status_unknown_reason == ""
+
+
+def test_the_real_runner_reports_an_unstartable_command_as_a_collection_error(tmp_path: Path) -> None:
+    """A command that cannot START (missing cwd) is a collection failure, not a crash (#1674)."""
+    from lib.project_next.collect import subprocess_runner
+
+    missing = tmp_path / "no-such-dir"
+    assert not missing.exists()
+    with pytest.raises(CollectionError) as excinfo:
+        subprocess_runner(["git", "status", "--short"], missing)
+    assert "could not run" in str(excinfo.value) and str(missing) in str(excinfo.value)

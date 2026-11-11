@@ -12,7 +12,7 @@ repository has been private and dormant since 2026-09-22 (#1076), and
 
 ## Version and entry points
 
-Contract version `1.8` accepts a structured `RepositoryState` and emits a
+Contract version `1.9` accepts a structured `RepositoryState` and emits a
 structured `RecommendationResult`. Version 1.8 always names a `recommendation`, separate from the strict `next_startable_issue`, checks partial delivery per issue instead of through a truncated global window, and resolves looked-up cross-repo dependencies (#1626). Run it from a CPP checkout with:
 
 ```bash
@@ -200,7 +200,7 @@ synchronized or a specification group complete.
 Missing mappings produce `sync_spec`; stale or ambiguous identities produce
 `resolve_spec_mapping`. Neither state is silently treated as completed work.
 
-All modes name the `1.8` contract and render the recommendation with its basis. Missing prerequisites and incomplete state
+All modes name the `1.9` contract and render the recommendation with its basis. Missing prerequisites and incomplete state
 are explicit failure states; they never become a confident recommendation.
 
 Renderers cap long collector output: warnings list the first five entries and
@@ -208,6 +208,14 @@ per-issue uncertainty lists the first two reasons, each truncated. `--json`
 always carries the complete lists.
 
 ## Compatibility notes
+
+`1.9` (#1674) keeps every `1.8` field and changes no decision rule. A worktree
+entry whose directory is missing - git lists it `prunable` - is reported
+UNEXAMINED (`dirty: null`, with `status_unknown_reason` naming the path) and adds
+a collector warning, instead of ending the run with no report. A command that
+cannot start (a missing working directory or executable) is a collection
+failure like any other. The command stays read-only: it names
+`git worktree prune`, it never runs it.
 
 `1.8` (#1626) keeps every `1.7` field and adds `recommendation` to the result,
 `external_blocked_by` to the classification, and `external_issue_states` and
