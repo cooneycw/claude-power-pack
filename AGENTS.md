@@ -36,7 +36,8 @@ description is about the other surface; the mechanism here is Codex's.
 
 ## Two obligations this surface carries
 
-**Route supplemental findings to the Nit Store, [cpp#864](https://github.com/cooneycw/claude-power-pack/issues/864).**
+**Route supplemental findings to the Nit Store, the open issue `scripts/nit-store-resolve.sh` prints.**
+Its number changes at each monthly rollover, so ask the resolver and never remember one.
 Something true and worth fixing, found while doing something else, goes there as
 one comment per finding rather than widening the change in hand.
 
