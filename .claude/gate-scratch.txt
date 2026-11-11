@@ -1,0 +1,4 @@
+# Generated Codex skill mirrors: build output of `make codex-skills`, ignored
+# by design since issue #1670 (ADR 0013). Never a swallowed addition - the
+# sources under .claude/commands/, scripts/, lib/ and docs/ are what is tracked.
+codex/skills/

@@ -2135,12 +2135,16 @@ fi
 
 #### 5e. Install CPP Codex Skills (issue #575)
 
-The repo's `codex/skills/` holds a generated, CI-gated skill dir per CPP
-command (`codex-skills-check`) - but until #575 nothing in `/cpp:init` or
-`/cpp:update` copied it to `~/.codex/skills/`, so a freshly initialized Codex
-tier had the MCP servers registered and **not one CPP skill installed**. The
-observed state on the primary box was `~/.codex/skills/` containing only
-`.system`.
+CPP generates one Codex skill dir per CPP command - but until #575 nothing in
+`/cpp:init` or `/cpp:update` installed them to `~/.codex/skills/`, so a freshly
+initialized Codex tier had the MCP servers registered and **not one CPP skill
+installed**. The observed state on the primary box was `~/.codex/skills/`
+containing only `.system`.
+
+Since issue #1670 the skills are not a tracked tree: `--install` builds them
+from the checkout's sources into a private directory, checks that build against
+the sources, and only then publishes it. A build that differs from what the
+sources generate is refused and the destination is left unchanged.
 
 The installer replaces each managed skill dir wholesale and prunes managed
 orphans at the destination, so a skill CPP has dropped stops loading. Ownership

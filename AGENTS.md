@@ -11,11 +11,12 @@ facts that cannot be inferred from the tree, or that are wrong if inferred from
 
 ## What is different here for Codex
 
-**The Codex skill surface is generated.** `codex/skills/` is build output. Edit
-the source under `.claude/commands/**`, then run `make codex-skills`. Never edit
-`codex/skills/` directly: the next regeneration overwrites it, and the parity
-gate reds on the drift in between. This is the one hazard the repository does not
-otherwise announce.
+**The Codex skill surface is generated and not tracked.** `codex/skills/` is
+ignored build output (issue #1670, ADR 0013): only its README is in git. Edit
+the source under `.claude/commands/**`; `make codex-skills` builds the tree when
+you want to read it, and `make codex-install` builds, checks and installs it.
+Never edit `codex/skills/` directly, and never `git add` it: the next build
+overwrites the edit, and an install refuses a tree that differs from its sources.
 
 **Skills arrive as named Codex skills, not slash commands.** Command documents
 are written as `/flow:auto`, `/project:next` and so on. On this surface they are
@@ -41,4 +42,5 @@ one comment per finding rather than widening the change in hand.
 
 **Reciprocal review reaches this surface.** A change generated into
 `codex/skills/` is reviewable here, not only on the Claude side; a review that
-never reads the generated output is not reviewing what ships.
+never reads the generated output is not reviewing what ships. That output is no
+longer in the diff, so build it (`make codex-skills`) and read it there.

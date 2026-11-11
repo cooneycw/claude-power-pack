@@ -45,7 +45,9 @@
 #      ADR 0005 so the operator can migrate them with
 #      `/plugin uninstall <family>@cpp`.
 #   3. Compare installed ~/.codex/skills/<pkg>/ packages against the same
-#      packages under <checkout>/codex/skills/ (issue #823). Unlike jobs 1-2,
+#      packages as the checkout's generator produces them NOW (issue #823;
+#      since #1670 the expectation is generated into a temp tree, because
+#      <checkout>/codex/skills/ is ignored build output). Unlike jobs 1-2,
 #      this tree is a COPY made by `codex-skill-sync.py --install`, not a
 #      symlink - `git pull` cannot refresh it, and nothing else did either:
 #      "the fix is live" is a claim about consumers, but a scan can only ever
@@ -138,7 +140,17 @@
 set -uo pipefail
 
 # Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
-trap 'printf "INSTALL_DRIFT_EXIT=%d\n" "$?" >&2' EXIT
+# ONE EXIT trap for the whole script. The Codex arm's temp tree (#1670) is
+# removed here too: a second `trap ... EXIT` further down would REPLACE this
+# one and silently drop the exit trailer.
+CODEX_EXPECT_TMP=""
+# shellcheck disable=SC2317  # invoked only from the EXIT trap below
+on_exit() {
+    local rc=$?
+    [ -n "$CODEX_EXPECT_TMP" ] && rm -rf "$CODEX_EXPECT_TMP"
+    printf "INSTALL_DRIFT_EXIT=%d\n" "$rc" >&2
+}
+trap on_exit EXIT
 
 SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
 SELF_DIR="$(cd "$(dirname "$SELF")" && pwd)"
@@ -504,13 +516,81 @@ is_managed_codex_skill() {
 }
 
 CODEX_SKILLS_DIR="${HOME_DIR:+$HOME_DIR/.codex/skills}"
-CODEX_SKILLS_SOURCE="$CHECKOUT/codex/skills"
 CODEX_SKILLS_CURRENT=0
 CODEX_SKILLS_STALE=0
 CODEX_SKILLS_ORPHANED=0
+CODEX_SKILLS_UNEXAMINED=0
 STALE_CODEX_SKILLS=()
 ORPHANED_CODEX_SKILLS=()
+
+# THE EXPECTATION IS GENERATED, NOT READ FROM THE CHECKOUT (issue #1670).
+# `<checkout>/codex/skills/` was a tracked tree and this arm compared against
+# it. It is ignored build output now: absent in a fresh clone, and as stale as
+# its last `make codex-skills` everywhere else. Comparing against it would
+# report a host "current" against yesterday's build, or every installed skill
+# "orphaned" against an empty one - both confident, both wrong.
+#
+# So the expectation is built here, into a temp tree, by the checkout's own
+# generator, and only when there is something of OURS installed to judge (the
+# build costs about a second, and this runs at session start).
+#
+# WHEN IT CANNOT BE BUILT - no python3, no generator in the checkout, or the
+# generator failing - the managed installed skills are UNEXAMINED. That is its
+# own count and its own clause: never `current`, never `orphaned`, and it keeps
+# the summary from saying the host matches the checkout.
+CODEX_SKILLS_SOURCE=""
+CODEX_SKILLS_EXPECTATION="not-needed"
+CODEX_GENERATOR="$CHECKOUT/scripts/codex-skill-sync.py"
+CODEX_MANAGED_INSTALLED=0
 if [ -n "$CODEX_SKILLS_DIR" ] && [ -d "$CODEX_SKILLS_DIR" ]; then
+    for installed in "$CODEX_SKILLS_DIR"/*/; do
+        [ -d "$installed" ] || continue
+        case "$(basename "$installed")" in
+            .*) continue ;;
+        esac
+        if is_managed_codex_skill "$installed"; then
+            CODEX_MANAGED_INSTALLED=$(( CODEX_MANAGED_INSTALLED + 1 ))
+        fi
+    done
+fi
+if [ "$CODEX_MANAGED_INSTALLED" -gt 0 ]; then
+    if ! command -v python3 >/dev/null 2>&1; then
+        CODEX_SKILLS_EXPECTATION="unavailable (python3 not found)"
+    elif [ ! -f "$CODEX_GENERATOR" ]; then
+        CODEX_SKILLS_EXPECTATION="unavailable (no scripts/codex-skill-sync.py in the checkout)"
+    elif ! CODEX_EXPECT_TMP="$(mktemp -d 2>/dev/null)"; then
+        CODEX_EXPECT_TMP=""
+        CODEX_SKILLS_EXPECTATION="unavailable (could not create a temp directory)"
+    elif ! python3 "$CODEX_GENERATOR" --write --output-root "$CODEX_EXPECT_TMP/skills" >/dev/null 2>&1 \
+         || [ ! -d "$CODEX_EXPECT_TMP/skills" ]; then
+        CODEX_SKILLS_EXPECTATION="unavailable (codex-skill-sync.py --write failed)"
+    else
+        # A SUCCESSFUL BUILD OF NOTHING IS NOT AN EXPECTATION (counter-model
+        # review, #1670). A generator that exits 0 over an empty or unreadable
+        # source tree leaves an empty directory, and comparing against that
+        # calls every installed skill of ours an ORPHAN - "we stopped shipping
+        # it" - on the strength of having generated nothing at all. The floor
+        # is one skill carrying our marker.
+        CODEX_EXPECTED_COUNT=0
+        for generated in "$CODEX_EXPECT_TMP/skills"/*/; do
+            [ -d "$generated" ] || continue
+            if is_managed_codex_skill "$generated"; then
+                CODEX_EXPECTED_COUNT=$(( CODEX_EXPECTED_COUNT + 1 ))
+            fi
+        done
+        if [ "$CODEX_EXPECTED_COUNT" -gt 0 ]; then
+            CODEX_SKILLS_SOURCE="$CODEX_EXPECT_TMP/skills"
+            CODEX_SKILLS_EXPECTATION="generated"
+        else
+            CODEX_SKILLS_EXPECTATION="unavailable (codex-skill-sync.py --write generated no skills)"
+        fi
+    fi
+fi
+
+if [ -z "$CODEX_SKILLS_SOURCE" ]; then
+    # Nothing to compare against: every skill of ours is unexamined.
+    CODEX_SKILLS_UNEXAMINED="$CODEX_MANAGED_INSTALLED"
+elif [ -n "$CODEX_SKILLS_DIR" ] && [ -d "$CODEX_SKILLS_DIR" ]; then
     for installed in "$CODEX_SKILLS_DIR"/*/; do
         [ -d "$installed" ] || continue
         name="$(basename "$installed")"
@@ -542,6 +622,10 @@ CODEX_SKILLS_TOTAL=$(( CODEX_SKILLS_CURRENT + CODEX_SKILLS_STALE ))
 # Membership floor (#823): "checked" means we found ANY CPP-owned Codex-skill
 # content installed - current, stale, or orphaned. An absent or empty install
 # tree leaves this 0, and 0 must never be read as "checked, clean" downstream.
+#
+# UNEXAMINED (#1670) IS NOT "CHECKED": ours is installed, and nothing could be
+# compared. It keeps its own flag so the global skip below cannot swallow it
+# and no branch can count it toward a clean host.
 CODEX_SKILLS_CHECKED=0
 if [ "$CODEX_SKILLS_TOTAL" -gt 0 ] || [ "$CODEX_SKILLS_ORPHANED" -gt 0 ]; then
     CODEX_SKILLS_CHECKED=1
@@ -698,7 +782,8 @@ fi
 # thing this axis exists to say about that host.
 if [ "$RETIRED" -eq 0 ] && [ "$HELPERS_TOTAL" -eq 0 ] && [ "$HELPERS_MISSING" -eq 0 ] \
    && [ "$HELPERS_ORPHANED" -eq 0 ] && [ "$HELPERS_UNLINKED" -eq 0 ] \
-   && [ "$CODEX_SKILLS_CHECKED" -eq 0 ] && [ "$CLAUDE_SKILLS_MANAGED" -eq 0 ] \
+   && [ "$CODEX_SKILLS_CHECKED" -eq 0 ] && [ "$CODEX_SKILLS_UNEXAMINED" -eq 0 ] \
+   && [ "$CLAUDE_SKILLS_MANAGED" -eq 0 ] \
    && [ "$CLAUDE_SKILLS_UNANSWERED" -eq 0 ] && [ "$CLAUDE_SKILLS_UNJUDGED" -eq 0 ]; then
     emit_skip "no retired CPP marketplace surface, installed checkout helpers, or installed Codex/Claude skills found"
 fi
@@ -712,7 +797,10 @@ VERDICT="ok"
 if [ "$HELPERS_STALE" -gt 0 ] || [ "$HELPERS_MISSING" -gt 0 ] || [ "$CODEX_SKILLS_STALE" -gt 0 ] \
    || [ "$CLAUDE_SKILLS_STALE" -gt 0 ]; then
     VERDICT="drift"
-elif [ "$RETIRED" -eq 1 ] || [ "$CODEX_SKILLS_ORPHANED" -gt 0 ]; then
+elif [ "$RETIRED" -eq 1 ] || [ "$CODEX_SKILLS_ORPHANED" -gt 0 ] \
+     || [ "$CODEX_SKILLS_UNEXAMINED" -gt 0 ]; then
+    # Unexamined Codex skills (#1670) can never be `ok`: `ok` prints "installed
+    # helpers and Codex skills match the checkout", and nothing was compared.
     VERDICT="skipped"
 fi
 
@@ -726,7 +814,9 @@ retired_quiet_clause() {
 }
 
 skipped_reason() {
-    if [ "$RETIRED" -eq 1 ] && [ "$CODEX_SKILLS_ORPHANED" -gt 0 ]; then
+    if [ "$CODEX_SKILLS_UNEXAMINED" -gt 0 ]; then
+        printf 'Codex skills unexamined - %s' "$CODEX_SKILLS_EXPECTATION"
+    elif [ "$RETIRED" -eq 1 ] && [ "$CODEX_SKILLS_ORPHANED" -gt 0 ]; then
         printf 'retired marketplace surface and orphaned Codex skills'
     elif [ "$CODEX_SKILLS_ORPHANED" -gt 0 ]; then
         printf 'orphaned Codex skills'
@@ -748,6 +838,9 @@ if [ "$MODE" = "quiet" ]; then
     fi
     if [ "$CODEX_SKILLS_STALE" -gt 0 ]; then
         clauses+=("${CODEX_SKILLS_STALE} Codex skill(s) stale - run codex-skill-sync.py --install")
+    fi
+    if [ "$CODEX_SKILLS_UNEXAMINED" -gt 0 ]; then
+        clauses+=("${CODEX_SKILLS_UNEXAMINED} Codex skill(s) NOT checked (expectation ${CODEX_SKILLS_EXPECTATION}) - unchecked, not clean")
     fi
     if [ "$HELPERS_ORPHANED" -gt 0 ]; then
         clauses+=("${HELPERS_ORPHANED} installed helper(s) orphaned (no longer in the checkout)")
@@ -873,7 +966,9 @@ if [ "$MODE" = "json" ]; then
         printf '%s"%s"' "$separator" "$(json_escape "$skill")"
         separator=,
     done
-    printf '],"claude_skills_root":%s,"claude_skills_checked":%s,' \
+    printf '],"codex_skills_unexamined":%s,"codex_skills_expectation":"%s' \
+        "$CODEX_SKILLS_UNEXAMINED" "$(json_escape "$CODEX_SKILLS_EXPECTATION")"
+    printf '","claude_skills_root":%s,"claude_skills_checked":%s,' \
         "$([ -n "$CLAUDE_SKILLS_DIR" ] && printf '"%s"' "$CLAUDE_SKILLS_DIR" || printf 'null')" \
         "$([ "$CLAUDE_SKILLS_CHECKED" -eq 1 ] && echo true || echo false)"
     printf '"claude_skills_managed":%s,"claude_skills_clean":%s,"claude_skills_stale":%s,"claude_skills_skipped":%s,"stale_claude_skills":[' \
@@ -928,8 +1023,13 @@ fi
 
 echo ""
 echo "  codex skills       ${CODEX_SKILLS_DIR:-<none>}"
-if [ "$CODEX_SKILLS_CHECKED" -eq 1 ]; then
+if [ "$CODEX_SKILLS_UNEXAMINED" -gt 0 ]; then
+    echo "    NOT CHECKED: ${CODEX_SKILLS_UNEXAMINED} CPP-generated skill(s) installed, expectation ${CODEX_SKILLS_EXPECTATION}"
+    echo "    The expectation is generated from the checkout (issue #1670), not read from it."
+    echo "    Unchecked is not clean."
+elif [ "$CODEX_SKILLS_CHECKED" -eq 1 ]; then
     echo "    ${CODEX_SKILLS_CURRENT} current, ${CODEX_SKILLS_STALE} stale, ${CODEX_SKILLS_ORPHANED} orphaned"
+    echo "    (compared against a fresh generation from the checkout, not its codex/skills/ tree)"
 else
     echo "    not installed or empty - nothing to check (issue #823)"
 fi

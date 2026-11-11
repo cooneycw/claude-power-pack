@@ -2028,11 +2028,14 @@ ended up missing current files AND keeping retired ones. Both halves run in
 this step. It is fail-open throughout: any failure warns and continues, never
 aborting the update.
 
-**7.9a - Install the current Codex skills.** The repo's `codex/skills/` is the
-CI-gated source of truth (`codex-skills-check`), but nothing ever copied it to
-`~/.codex/skills/`, so Codex could not see any CPP skill. The installer prunes
-managed orphans at the destination too, so a skill dropped upstream stops
-loading here. Skip when Codex is not installed on this box.
+**7.9a - Install the current Codex skills.** Until #575 nothing installed
+CPP's generated skills to `~/.codex/skills/`, so Codex could not see any CPP
+skill. Since issue #1670 they are not a tracked tree: `--install` builds them
+from the sources this update just pulled, checks the build against those
+sources, and publishes it - so this step is also what brings the host's copies
+back in line after a pull. The installer prunes managed orphans at the
+destination too, so a skill dropped upstream stops loading here. Skip when
+Codex is not installed on this box.
 
 ```bash
 if command -v codex >/dev/null 2>&1; then
