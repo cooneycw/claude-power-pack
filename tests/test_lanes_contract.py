@@ -41,6 +41,9 @@ ROUTED_SURFACES = {
 }
 
 
+requires_git = pytest.mark.skipif(shutil.which("git") is None, reason="requires git")
+
+
 def normalized(text: str) -> str:
     return " ".join(text.split())
 
@@ -227,6 +230,7 @@ def test_the_lane_file_is_found_from_a_subdirectory(repo: Path) -> None:
     assert "| Session age |" in run_block(sub)
 
 
+@requires_git
 def test_the_lane_file_is_found_from_a_linked_worktree(repo: Path, tmp_path_factory: pytest.TempPathFactory) -> None:
     """The Checkout lane (#1677's shape): a linked worktree reads ITS OWN tree's file."""
     env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
