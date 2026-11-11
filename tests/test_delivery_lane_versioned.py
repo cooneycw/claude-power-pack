@@ -693,7 +693,9 @@ RETRACTED_ABSOLUTE = re.compile(
 #: Prose surfaces that restate the same claim about the same daemon. The mailbox
 #: script is the primary site; docs/scripts.md describes it to a reader who will
 #: never open the script, so an uncorrected copy there is the one that gets read.
-PROSE_SURFACES = [ROOT / "docs" / "scripts.md"]
+#: Since #1672 the mailbox history lives in its own reference file; the index
+#: line in docs/scripts.md carries no prose to guard.
+PROSE_SURFACES = [ROOT / "docs" / "scripts" / "flow-wave-mailbox.md"]
 
 
 #: The block's own bounds. BOTH are sentences this correction owns, so the extent

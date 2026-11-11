@@ -34,6 +34,7 @@ this gives the same verdict in CI's git-less validate container as locally.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from importlib.util import module_from_spec, spec_from_file_location
@@ -102,6 +103,74 @@ def test_every_entry_claim_resolves_to_a_script_or_a_declaration():
     assert len(claims) > 50, f"only {len(claims)} claims parsed - the document is not being read"
     unresolved = sorted(c for c in claims if c not in stems and c not in declared)
     assert not unresolved, f"entr(ies) naming no script and undeclared: {unresolved}"
+
+
+# ---------------------------------------------------------------------------
+# The index stays an index (issue #1672)
+# ---------------------------------------------------------------------------
+#
+# docs/scripts.md held every script's history in one file until it reached
+# 93,000 words. #1672 moved each history to docs/scripts/<name>.md and left one
+# line per script. The gate above answers "is there an entry"; nothing in it
+# stops the history growing back into the index, so that is pinned here. It is
+# a suite test rather than a widening of the gate: `make test` is what reads it.
+
+#: A generous ceiling for one index line. The longest at the split was 22 words.
+INDEX_LINE_WORD_CEILING = 45
+
+_REFERENCE_LINK_RE = re.compile(r"\]\((scripts/[^)#\s]+\.md)\)")
+
+
+def index_shape_findings(doc: str, stems: set[str], docs_dir: Path) -> list[str]:
+    """Every way `doc` fails to be a one-line-per-script index."""
+    findings: list[str] = []
+    lines = sic.prose_lines(doc)
+    for line in lines:
+        heading = sic.HEADING_RE.match(line)
+        if heading and heading.group(1) in stems:
+            findings.append(f"script section in the index: {line.strip()[:60]}")
+    for stem in sorted(stems):
+        own = [ln for ln in lines if (m := sic.BULLET_RE.match(ln)) and m.group(1) == stem]
+        if len(own) != 1:
+            findings.append(f"`{stem}` has {len(own)} index line(s), expected exactly 1")
+            continue
+        words = len(own[0].split())
+        if words > INDEX_LINE_WORD_CEILING:
+            findings.append(f"`{stem}` index line is {words} words; history belongs in its reference")
+        for target in _REFERENCE_LINK_RE.findall(own[0]):
+            if not (docs_dir / target).is_file():
+                findings.append(f"`{stem}` links {target}, which does not exist")
+    return findings
+
+
+def test_the_real_index_is_one_line_per_script():
+    doc = (ROOT / "docs" / "scripts.md").read_text(encoding="utf-8")
+    stems = set(sic.script_stems(ROOT))
+    assert len(stems) > 50, f"only {len(stems)} scripts found - the tree is not being read"
+    linked = len(_REFERENCE_LINK_RE.findall(doc))
+    assert linked > 50, f"only {linked} reference link(s) parsed - the link pattern is not matching"
+    assert not index_shape_findings(doc, stems, ROOT / "docs")
+
+
+@pytest.mark.parametrize(
+    ("doc", "expected"),
+    [
+        ("- `alpha-tool` - does a thing. [reference](scripts/alpha-tool.md)\n", None),
+        ("## `alpha-tool`\n\n- `alpha-tool` - x\n", "script section in the index"),
+        ("- `alpha-tool` - x\n- `alpha-tool` - history\n", "2 index line(s)"),
+        ("- `alpha-tool` - " + "word " * 60 + "\n", "history belongs in its reference"),
+        ("- `alpha-tool` - x. [reference](scripts/gone.md)\n", "does not exist"),
+    ],
+)
+def test_the_index_shape_check_discriminates(tmp_path, doc, expected):
+    """The red cases: each way history regrows in the index is reported."""
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "alpha-tool.md").write_text("x", encoding="utf-8")
+    findings = index_shape_findings(doc, {"alpha-tool"}, tmp_path)
+    if expected is None:
+        assert not findings
+    else:
+        assert any(expected in f for f in findings), findings
 
 
 # ---------------------------------------------------------------------------

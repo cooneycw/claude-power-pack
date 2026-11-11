@@ -23,7 +23,7 @@ helpers own deterministic behavior.
 - Never wrap a read-only command in `cd X && ...`; use `git -C`, an absolute path, or the tool's path argument.
 - Resolve edit paths from `git rev-parse --show-toplevel`; never hand-build an absolute worktree path (#486).
 - In shared checkouts, characterize branch content with ref-scoped reads only; never substitute a working-tree read or cwd-relative pathspec for a branch measurement.
-- Keep one inventory item per line. Per-item history belongs in [the script reference](docs/scripts.md) or [the command reference](docs/commands-reference.md), not this always-loaded file.
+- Keep one inventory item per line. Per-item history belongs in the script's file under `docs/scripts/` (indexed by [the script inventory](docs/scripts.md)) or [the command reference](docs/commands-reference.md), not this always-loaded file.
 
 The detailed rationale, incidents, exceptions, and state transitions behind
 these rules remain in [commands-reference.md](docs/commands-reference.md) and
@@ -34,7 +34,7 @@ these rules remain in [commands-reference.md](docs/commands-reference.md) and
 - `docs/skills/` - topic guidance loaded on demand.
 - `docs/reference/CLAUDE_CODE_BEST_PRACTICES_FULL.md` - full best-practices guide.
 - `docs/commands-reference.md` - command decisions, histories, and workflow detail.
-- `docs/scripts.md` - script inventory and per-script behavioral history; its population is derived from `scripts/` and gated by `make scripts-inventory-check`.
+- `docs/scripts.md` - script inventory, one line per script; its population is derived from `scripts/` and gated by `make scripts-inventory-check`. Per-script behavioral history lives in `docs/scripts/<script>.md`, never in the index (#1672).
 - `docs/decisions/0008-instrument-negative-control-bound.md` - the rule for when an instrument needs a committed negative control; it holds no census (#1671).
 - `controls/census.md` - the instrument census; its MEMBERSHIP is derived from `scripts/` and gated by `make instrument-census-check`, so a new instrument cannot arrive unenumerated. Add or change a row here, not in ADR 0008.
 - `.claude/verify-coverage.json` - how each script no build surface invokes is accounted for; its population is derived from `scripts/` and gated by `make verify-coverage-check`, so a new checker cannot arrive wired to nothing.

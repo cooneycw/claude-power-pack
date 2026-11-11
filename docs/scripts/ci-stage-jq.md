@@ -1,0 +1,9 @@
+# `ci-stage-jq` - script reference
+
+Per-script history, indexed from [the scripts inventory](../scripts.md).
+
+## `ci-stage-jq` (#1017)
+
+- ci-stage-jq - stages a CONTENT-PINNED `jq` into `.ci-bin/` for the CI steps that need one (#1017). `controls/flow-driver-retirement-check` is the first registered control whose gate needs jq, and the CI image (`uv:python3.11-bookworm-slim`) has none - so the gate reported `unknown` on every case, the register reported BLIND, and CI went red. That was the register working: the harness REFUSES to skip a control it cannot run
+- ci-stage-jq THE PYTEST HALF WAS WORSE, and is the reason this exists rather than a `skipif` being deemed sufficient. `tests/test_flow_driver_retirement.py` carried a MODULE-level `skipif(which("jq") is None)`, so all 26 of its tests SKIPPED in CI while `validate` stayed green - a suite load-bearing on a dev box and inert in the one environment a reviewer can re-derive. Two instruments disagreed and only the one that cannot skip was telling the truth. The marker is now per-test, so the assertions needing no jq run everywhere
+- ci-stage-jq PINNED BY SHA256, NOT BY TAG, for the reason `.woodpecker.yml` already states at its shellcheck step: running a gate under two different tool versions makes the control's verdict depend on which container reached it. Not hypothetical for jq - `scripts/flow-wave-registry.sh` carries a "#699 jq-1.6 update trap" comment about an expression that DELETES the key it was told to update on one version and not the other. A hash over the downloaded bytes gives what an image digest gives. The fetch is Python rather than `curl` because the slim image is guaranteed to have python3 and is not guaranteed to have curl or wget - a stager assuming a tool the image may not carry fails in the same shape as the problem it fixes. A download failure or a hash mismatch is a HARD exit 1, never a skip; idempotent, so a re-run of the step costs nothing

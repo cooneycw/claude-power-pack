@@ -509,7 +509,12 @@ class TestWiring:
         # original assertion that still matches current convention - is
         # unchanged and still required.
         memory = (ROOT / "CLAUDE.md").read_text()
-        history = (ROOT / "docs" / "scripts.md").read_text()
+        # #1672 split the inventory: docs/scripts.md is the one-line index and
+        # the history entry lives in docs/scripts/flow-wave-residuals.md.
+        index = (ROOT / "docs" / "scripts.md").read_text()
+        assert "- `flow-wave-residuals` - " in index
+        assert "(scripts/flow-wave-residuals.md)" in index
+        history = (ROOT / "docs" / "scripts" / "flow-wave-residuals.md").read_text()
         assert "## `flow-wave-residuals`" in history
         assert "$XDG_RUNTIME_DIR/cc-flow-wave/<wave>/residuals.json" in history
         assert "docs/scripts.md" in memory

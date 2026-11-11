@@ -4,7 +4,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts/lane-serveability-check.sh"
-DOC = ROOT / "docs/scripts.md"
+DOC = ROOT / "docs/scripts/lane-serveability-check.md"
 
 
 def _assert_value_sets(script: str, doc: str) -> None:

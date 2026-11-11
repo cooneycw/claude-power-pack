@@ -1,0 +1,9 @@
+# `cpp-checkout-freshness` - script reference
+
+Per-script history, indexed from [the scripts inventory](../scripts.md).
+
+## `cpp-checkout-freshness`
+
+- cpp-checkout-freshness - fetch `origin/<branch>`, then say whether the CPP checkout is behind it (#1282). The checkout is the single source for every helper on the host (`~/.claude/scripts` links into it, kyle containers mount it live), so a checkout behind `origin/main` means every session runs superseded helpers with nothing saying so. `/cpp:status` runs it against main; `/cpp:update` runs it with `--branch "$CURRENT_BRANCH"`, replacing an unchecked `git fetch` followed by `git rev-list ... || echo "0"`, which printed "Already up to date!" for an unreachable origin, a missing ref and a detached HEAD alike
+- cpp-checkout-freshness counts ONLY against a ref this run just fetched. A failed fetch is terminal and reads `unknown: fetch failed (...)`; a read-only checkout - a kyle container's view of the host checkout - reads `unknown: fetch failed (checkout not writable)`, because the local `origin/main` there is whatever the host last fetched. There is deliberately no `git ls-remote` fallback: it yields a remote SHA whose objects the checkout may not have. Unlike `toolchain-provenance`, which never fetches and measures the current branch's upstream, this one fetches and measures against a named origin branch; the two answer different questions and neither replaces the other
+- cpp-checkout-freshness contract - `CPP_CHECKOUT_FRESHNESS: current | behind N | ahead N | diverged (ahead A, behind B) | unknown: <reason>` as the last line, exit 0/3/3/3/4 (2 usage). A `Branch:` line names a non-main or detached checkout. `--path <dir>` (declared) / `--branch <name>` (empty is `unknown`) / `--log-cap <n>`. Controls: `tests/test_cpp_checkout_freshness.py` and `controls/cpp-checkout-freshness`, whose anchor is the pre-fix `/cpp:update` block
