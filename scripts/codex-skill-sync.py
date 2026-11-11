@@ -84,7 +84,7 @@ OUTPUT_ROOT = REPO_ROOT / "codex" / "skills"
 # be circular.
 FAMILIES = [
     "browser", "cicd", "claude-md", "cpp", "documentation", "evaluate",
-    "flow", "github", "lane", "project", "qa", "second-opinion", "secrets",
+    "flow", "github", "lane", "monthly", "project", "qa", "second-opinion", "secrets",
     "security", "self-improvement",
 ]
 

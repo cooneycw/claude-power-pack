@@ -79,10 +79,13 @@
 601	lane/create.md
 241	lane/help.md
 494	lane/update.md
+503	monthly/create.md
+277	monthly/help.md
+523	monthly/review.md
 286	project/help.md
-3781	project/init.md
+3848	project/init.md
 580	project/lite.md
-2327	project/next.md
+2443	project/next.md
 499	qa/help.md
 1279	qa/test.md
 8938	qwen/auto.md

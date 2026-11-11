@@ -299,6 +299,8 @@ qualifiers such as `/qa:test` being single-session) are not lost.
 - `/lane:create` - Draft `.claude/lanes.md` from a survey checklist; the owner reads the draft, with each row's evidence, before anything is written (#1696)
 - `/lane:update` - Re-check the lane file against the repository and recent fixes, write only what the owner accepts, and record the review date (#1696)
 - `/project:lite` - Quick project reference (~500-800 tokens)
+- `/monthly:create` - Scan the repository and write this month's monitoring list as a `Monthly review: YYYY-MM` issue (#1703). `/project:next` reports when a month has none; that report is the only trigger, and `/project:init` creates a new project's first one
+- `/monthly:review` - Work the open monthly review item by item, recording what was done or why an item is carried
 ### Spec-Driven Development
 
 - `/spec:help` - Overview of the spec-kit authoring path
