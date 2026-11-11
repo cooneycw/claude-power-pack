@@ -1983,10 +1983,70 @@ def test_wait_for_still_raises_a_predicate_that_never_finds_its_file(
         _wait_for(lambda: target.read_text() == "ready", timeout=0.3)
 
 
+def _pid_from(path: Path, timeout: float = 10.0) -> int:
+    """The pid written to `path`, once it has actually been WRITTEN (issue #1685).
+
+    `echo $pid > file` creates the file - the redirect opens and truncates it -
+    BEFORE it writes the pid, so "the file exists" is true for a short window
+    in which the file is empty. A reader that waits for existence and then
+    reads lands in that window some of the time, and `int('')` raises: that
+    redded `main` on an unrelated merge (push pipeline 3663). The readiness
+    condition is the CONTENT, so this waits for digits. A missing file and an
+    empty one both mean "not yet"; a file that never holds a pid fails here,
+    naming what it held, rather than returning something.
+    """
+
+    def _written() -> bool:
+        return path.read_text().strip().isdigit()
+
+    held = "<missing>"
+    try:
+        ready = _wait_for(_written, timeout=timeout)
+    except FileNotFoundError:
+        ready = False
+    if not ready:
+        try:
+            held = repr(path.read_text())
+        except FileNotFoundError:
+            pass
+        raise AssertionError(f"{path} never held a pid within {timeout}s (held {held})")
+    return int(path.read_text().strip())
+
+
+def test_pid_from_does_not_accept_a_pidfile_that_exists_but_is_still_empty(tmp_path):
+    """THE RED CASE for #1685: the file exists, and the pid is not in it yet.
+
+    This is the window `echo $pid > file` opens. Waiting for `path.exists` and
+    then reading raises `ValueError` here - measured against that logic before
+    this helper replaced it. The writer is released only after the reader has
+    had time to poll the empty file, so the window is certain, not raced for.
+    """
+    pidfile = tmp_path / "child.pid"
+    pidfile.write_text("")
+    assert pidfile.exists() and pidfile.read_text() == "", "precondition: present and empty"
+
+    writer = threading.Timer(0.4, lambda: pidfile.write_text("4242\n"))
+    writer.start()
+    try:
+        assert _pid_from(pidfile, timeout=5) == 4242
+    finally:
+        writer.join()
+
+
+def test_pid_from_fails_at_the_deadline_when_no_pid_is_ever_written(tmp_path):
+    """The other half: an empty file, or none at all, must not return a pid."""
+    empty = tmp_path / "empty.pid"
+    empty.write_text("")
+    with pytest.raises(AssertionError, match="never held a pid"):
+        _pid_from(empty, timeout=0.3)
+    absent = tmp_path / "absent.pid"
+    assert not absent.exists(), "precondition: nothing creates this file"
+    with pytest.raises(AssertionError, match="never held a pid"):
+        _pid_from(absent, timeout=0.3)
+
+
 def _daemon_pid(tmp: Path, wave: str, role: str) -> int:
-    pf = _supervise_pidfile(tmp, wave, role)
-    assert _wait_for(pf.exists, timeout=10), "supervise never wrote a pidfile"
-    return int(pf.read_text().strip())
+    return _pid_from(_supervise_pidfile(tmp, wave, role), timeout=10)
 
 
 def _inner_watch(daemon: int) -> int | None:
@@ -3076,8 +3136,7 @@ class TestWatcherIdentityAcrossDirectories:
             env=env,
         )
         try:
-            assert _wait_for(marker.exists, timeout=10), "child never forked"
-            child_pid = int(marker.read_text().strip())
+            child_pid = _pid_from(marker, timeout=10)
             assert _pid_alive(child_pid)  # precondition: the child is actually alive
 
             parent.kill()
@@ -3540,8 +3599,7 @@ class TestSupervisorNeverAcknowledges:
         """
         self._launch(tmp_path)
         pf = _supervise_pidfile(tmp_path, WAVE, "1")
-        assert _wait_for(pf.exists, timeout=10), "supervise never wrote a pidfile"
-        pid = int(pf.read_text().strip())
+        pid = _pid_from(pf, timeout=10)
         try:
             cwd = Path(os.readlink(f"/proc/{pid}/cwd")).resolve()
             assert cwd != ROOT and ROOT not in cwd.parents, (
