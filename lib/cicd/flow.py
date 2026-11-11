@@ -234,8 +234,16 @@ def status_main(script: str, argv: list[str]) -> int:
     backend_args.insert(0, pinned)
     deadline = time.monotonic() + args.wait
     reports: list[tuple[str, str, dict[str, list[str]]]] = []
+    expired = False
+    # Lanes that have ANSWERED during this wait. Each poll is a fresh backend
+    # process, so a listing that fails after the pipeline was already seen
+    # arrives as a bare `unknown`, identical to a missing tool (counter-model
+    # review, #1684). A lane that answered once and then cannot is having a
+    # transient failure, not a structural one.
+    answered: set[str] = set()
     while True:
         reports = []
+        retry_lanes: set[str] = set()
         for name, lane in lanes:
             try:
                 result = callback(PROVIDERS[name].flow_status)(script, backend_args, lane)
@@ -247,13 +255,30 @@ def status_main(script: str, argv: list[str]) -> int:
                 ) else "unknown"
                 if report.get("FLOW_CI_REF") != [pinned] or report.get("FLOW_CI_PROVIDER") != [name]:
                     state = "unknown"
+                    report.pop("FLOW_CI_RETRYABLE", None)
             except (OSError, ValueError, ImportError, AttributeError, subprocess.SubprocessError):
                 report, state = {}, "unknown"
+            # A validated "found it, could not read it yet" IS an answer: the
+            # lane reached its provider (counter-model review, pass 2).
+            if state != "unknown" or report.get("FLOW_CI_RETRYABLE"):
+                answered.add(name)
+            if state == "unknown" and name in answered:
+                retry_lanes.add(name)
             reports.append((name, state, report))
         verdict = aggregate([state for _, state, _ in reports])
-        if verdict in {"success", "failure", "stalled", "unknown"} or args.wait <= 0:
+        # An `unknown` is worth another look only when EVERY unknown lane
+        # either said its pipeline or listing could not be read yet, or has
+        # already answered during this wait (issue #1684). Any other unknown -
+        # no record, a lane that never answered, a final lane judgement - is
+        # not resolved by polling and still ends the wait at once.
+        unknown_lanes = [name for name, state, _ in reports if state == "unknown"]
+        retryable = verdict == "unknown" and bool(unknown_lanes) and all(
+            name in retry_lanes for name in unknown_lanes)
+        if verdict in {"success", "failure", "stalled"} or (verdict == "unknown" and not retryable) \
+                or args.wait <= 0:
             break
         if time.monotonic() >= deadline:
+            expired = True
             break
         time.sleep(min(15, max(0, deadline - time.monotonic())))
     print("FLOW_CI_SELECTION: recorded")
@@ -269,10 +294,14 @@ def status_main(script: str, argv: list[str]) -> int:
     print("FLOW_CI_PROVIDER: " + ",".join(name for name, _ in lanes))
     print("FLOW_CI_LANES: " + json.dumps({name: {"status": state, "evidence": report}
                                            for name, state, report in reports}, sort_keys=True))
-    wait = "none" if args.wait <= 0 else (
-        f"expired ({args.wait}s)" if verdict in {"running", "not-found"} else "settled")
+    wait = "none" if args.wait <= 0 else f"expired ({args.wait}s)" if expired else "settled"
     print("FLOW_CI_WAIT: " + wait)
     print("FLOW_CI_STATUS: " + verdict)
+    # A wait that ran out is never exit 0, whatever it last saw (issue #1684).
+    if expired:
+        print(f"flow-ci-status: the --wait window of {args.wait}s expired with status "
+              f"'{verdict}' (exit 5)", file=sys.stderr)
+        return 5
     if verdict in {"unknown", "not-found"}:
         return 2
     return 1 if args.exit_code and verdict in {"failure", "stalled"} else 0
