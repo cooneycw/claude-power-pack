@@ -4188,6 +4188,15 @@ def test_fallback_failed_id_parser_agrees_with_the_python_parser() -> None:
     around the separator, a reason that itself starts a new `FAILED` on the
     same line, CRLF line endings, and non-ASCII ids. Add a line to the fixture
     before relying on either parser for one of those.
+
+    KNOWN TO DIFFER, found by the counter-model review and left out on purpose:
+    - a line ending in a bare ` -` followed by another `FAILED` line. Not
+      produced by pytest. Python's `\\s` crosses the newline there and DROPS
+      the second failure; awk reads a line at a time and keeps both.
+    - `FAILED` alone on a line with the id on the next. Not produced by
+      pytest. Python joins the two lines; awk returns nothing.
+    - non-ASCII whitespace (a no-break space) before the ` - `. Not produced
+      by pytest. Python's `\\s` matches it; POSIX `[[:space:]]` does not.
     """
     from lib.cicd.outcomes import parse_failed_node_ids
 
