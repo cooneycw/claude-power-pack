@@ -1252,6 +1252,122 @@ def test_exit_75_from_a_CLONE_step_still_reports_precode_not_double_counted(tmp_
     assert m["FLOW_CI_FAILURE_ORIGIN"] == ["precode"]
 
 
+# ── Image-pull failure (issue #1508) ───────────────────────────────────────
+#
+# A step whose image cannot be pulled never runs the change's code, yet read
+# as `code`. The shapes below are MEASURED, not guessed: CPP repo 1 pipeline
+# 3674 (2026-11-11, Woodpecker 3.19.0), a deliberate bad-image run, reported
+# every such step as `type=commands state=failure exit_code=0` with the Docker
+# daemon's message in `error`. The socket error is kyle repo 17 pipeline 3568.
+
+PULL_NOT_FOUND = (
+    'Error response from daemon: failed to resolve reference '
+    '"ghcr.io/astral-sh/uv:cpp-1508-no-such-tag": '
+    'ghcr.io/astral-sh/uv:cpp-1508-no-such-tag: not found'
+)
+PULL_NO_HOST = (
+    'Error response from daemon: failed to resolve reference '
+    '"registry.cpp-1508.invalid/none:latest": failed to do request: Head '
+    '"https://registry.cpp-1508.invalid/v2/none/manifests/latest": dial tcp: '
+    'lookup registry.cpp-1508.invalid on 127.0.0.53:53: no such host'
+)
+PULL_DENIED = (
+    "Error response from daemon: pull access denied for cpp-1508-no-such-image, "
+    "repository does not exist or may require 'docker login'"
+)
+DOCKER_SOCKET = (
+    'error during connect: Get "http://%2Fvar%2Frun%2Fdocker.sock/v1.51/containers/'
+    'wp_01M5N647S73330TV257S5KM78H/json": received signal: 0xc0002585b0'
+)
+OTHER_DAEMON = (
+    "Error response from daemon: network with name "
+    "wp_01m5mybwr783pr9eag8mkfxy9h_0_default already exists"
+)
+
+
+@requires_bash
+@pytest.mark.parametrize("error", [PULL_NOT_FOUND, PULL_NO_HOST, PULL_DENIED])
+def test_red_case_a_measured_image_pull_failure_is_pre_code(tmp_path, error):
+    """RED on the pre-#1508 script: the error text was read only for the exact
+    `Canceled` marker, so each of these reported `code`."""
+    result = _api_failure(tmp_path, [
+        {"name": "clone", "type": "clone", "state": "success", "exit_code": 0},
+        {"name": "lint", "type": "commands", "state": "failure", "exit_code": 0,
+         "error": error},
+    ])
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_FAILED_STEP"] == ["lint"]
+    assert m["FLOW_CI_PRECODE_FAILURE"] == ["lint"]
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["precode"]
+
+
+@requires_bash
+@pytest.mark.parametrize("exit_code,error", [
+    (126, DOCKER_SOCKET),     # measured: a different infrastructure failure
+    (126, None),              # an exit code alone is never the signal
+    (0, OTHER_DAEMON),        # a daemon error that is not a pull failure
+    (0, None),                # a failed step with exit 0 and no error at all
+    (1, PULL_NOT_FOUND),      # the wording on a step that really ran and failed
+    (126, PULL_DENIED),
+    (0, "x " + PULL_NOT_FOUND),                      # prefix, not substring
+    (0, "pull access denied for something"),         # the daemon prefix is required
+])
+def test_must_not_flip_neighbours_of_a_pull_failure_stay_code(tmp_path, exit_code, error):
+    """The fail-open direction this issue exists to refuse: nothing that is
+    not the measured shape may be excused as pre-code."""
+    step = {"name": "lint", "type": "commands", "state": "failure", "exit_code": exit_code}
+    if error is not None:
+        step["error"] = error
+    m = _markers(_api_failure(tmp_path, [step]).stdout)
+    assert m["FLOW_CI_STATUS"] == ["failure"]
+    assert "FLOW_CI_PRECODE_FAILURE" not in m
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["code"]
+
+
+@requires_bash
+def test_a_pull_failure_whose_error_spans_lines_is_one_step_and_pre_code(tmp_path):
+    """#1508 with #1711: the provider's error may span lines. The newline is
+    folded before parsing (#1711), and the daemon prefix is still at the start,
+    so this is ONE failed step and precode. RED on the script before either
+    change: two failed steps, origin not precode."""
+    result = _api_failure(tmp_path, [
+        {"name": "clone", "type": "clone", "state": "success", "exit_code": 0},
+        {"name": "lint", "type": "commands", "state": "failure", "exit_code": 0,
+         "error": PULL_NOT_FOUND + "\nsecond line from the provider"},
+    ])
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_FAILED_STEP"] == ["lint"], result.stdout
+    assert m["FLOW_CI_PRECODE_FAILURE"] == ["lint"]
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["precode"]
+
+
+@requires_bash
+def test_a_pull_prefix_on_a_LATER_line_is_not_a_pull_failure(tmp_path):
+    """Must-not-flip: the prefix must START the error. Another error whose
+    second line happens to quote the daemon's pull message stays `code`."""
+    result = _api_failure(tmp_path, [
+        {"name": "clone", "type": "clone", "state": "success", "exit_code": 0},
+        {"name": "lint", "type": "commands", "state": "failure", "exit_code": 0,
+         "error": "some other failure\n" + PULL_NOT_FOUND},
+    ])
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_FAILED_STEP"] == ["lint"], result.stdout
+    assert "FLOW_CI_PRECODE_FAILURE" not in m
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["code"]
+
+
+@requires_bash
+def test_a_pull_failure_beside_a_real_code_failure_is_MIXED(tmp_path):
+    result = _api_failure(tmp_path, [
+        {"name": "lint", "type": "commands", "state": "failure", "exit_code": 0,
+         "error": PULL_DENIED},
+        {"name": "validate", "type": "commands", "state": "failure", "exit_code": 2},
+    ])
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_PRECODE_FAILURE"] == ["lint"]
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["mixed"]
+
+
 def _typed_wpcli(
     tmp_path: Path,
     name_state: list[str],

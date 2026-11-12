@@ -1,0 +1,69 @@
+{
+  "_comment": [
+    "Registration for the lane clause on `flow-plan-record.py compliance`'s verdict line (issue #1767).",
+    "",
+    "WHY IT NEEDS COMMITTED CASES (ADR 0008): the PLAN_COMPLIANCE line is what a",
+    "run carries into its PR, and nothing downstream re-derives whether the lanes",
+    "a plan said it would test have anything recorded. While the answer was only a",
+    "note on stderr, five changes merged in three hours without the record.",
+    "",
+    "THE GATE DOES NOT CHANGE ITS EXIT CODE FOR A LANE, by the owner's ruling (the",
+    "verdict line, not a refusal). So run-case.py reads the ONE verdict line the",
+    "gate printed and exits 1 when it carries a LANES clause, 0 when it does not.",
+    "The detection is the gate's own line; only the exit code is the runner's."
+  ],
+  "gate": "scripts/flow-plan-record.py",
+  "invocation": [
+    "python3",
+    "controls/flow-plan-record-lanes-verdict/run-case.py",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^PLAN_COMPLIANCE: (agreement|divergence|unknown), LANES NOT (DEMONSTRATED \\([1-9][0-9]*\\)|CHECKED)( |$)",
+  "good_signal": "^PLAN_COMPLIANCE: (agreement|divergence) - ",
+  "unavailable_signal": "^FLOW_PLAN_RECORD_LANES_VERDICT_CONTROL: unavailable",
+  "limits": "Covers the clause for a missing demonstrated file, a will-test lane with no row, and a demonstrated file that exists and cannot be read, against a run with every lane shown and a project with no lane file. It does not cover the `unknown` verdict word, an unusable lane file at close, a waived plan, or the full combination table - those are pinned by tests/test_flow_plan_record_lanes.py. The exit code scored here is the runner's reading of the verdict line, not the gate's: the gate's own exit code never changes for a lane. It says nothing about whether a demonstrated row is TRUE.",
+  "cases": [
+    {
+      "name": "bad-no-demonstrated-file",
+      "input": "cases/bad-no-demonstrated-file",
+      "expect": "BAD",
+      "why": "Two will-test lanes and no demonstrated file: the state of five merged changes on 2026-11-12. If it scores GOOD the line is silent about it again."
+    },
+    {
+      "name": "bad-one-lane-has-no-row",
+      "input": "cases/bad-one-lane-has-no-row",
+      "expect": "BAD",
+      "why": "The file exists with a row for one of the two lanes. If it scores GOOD a file's existence is being read as every lane shown."
+    },
+    {
+      "name": "bad-demonstrated-file-unreadable",
+      "input": "cases/bad-demonstrated-file-unreadable",
+      "expect": "BAD",
+      "why": "The demonstrated path is a directory. The line must say NOT CHECKED; if it scores GOOD an unreadable answer is being read as a clean one."
+    },
+    {
+      "name": "good-every-lane-demonstrated",
+      "input": "cases/good-every-lane-demonstrated",
+      "expect": "GOOD",
+      "why": "Both will-test lanes have a row. Separates a working check from one wedged at reporting, and holds that writing the file does not itself change the verdict word."
+    },
+    {
+      "name": "good-no-lane-file",
+      "input": "cases/good-no-lane-file",
+      "expect": "GOOD",
+      "why": "A project that has not adopted lanes: the line is what it always was. This is every repository but one today."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "68d5fedf152b4446d35bd42f50e0b6c326ce43cb",
+      "origin": "scripts/flow-plan-record.py",
+      "path": "anchors/pre-1767-flow-plan-record.py",
+      "sha256": "c581dadab2cb0f0482b4e2df1d2022863cf7ed9f89991ae8cc75f175d79f758a",
+      "why": "HISTORICAL: the helper as merged by #1731. It reports the lanes on stderr only, so its verdict line carries no clause in any of the three bad cases."
+    }
+  ]
+}

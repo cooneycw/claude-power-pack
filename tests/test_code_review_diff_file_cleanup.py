@@ -58,11 +58,42 @@ def _env(home: Path) -> dict[str, str]:  # negative-fixture: allow PATH is isola
     }
 
 
-def _run_block(repo: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    script = _extract_diff_block()
-    return subprocess.run(
-        ["bash", "-c", script], cwd=repo, env=env, capture_output=True, text=True,
+# The block's temp file lives in /tmp, a directory every session and every
+# other test on the host shares, and the template is a literal in the frozen
+# command document. Comparing the directory before and after therefore reported
+# a NEIGHBOUR's file as this run's leak (issue #1718, row 2). Instead the block
+# is prefixed with a `mktemp` function that calls the real one and records the
+# path it returned, so each test asserts on the one file its own run created.
+_DIFF_FILE_PREFIX = "/tmp/codex-review-diff-patch."
+_RECORDING_MKTEMP = (
+    'mktemp() {\n'
+    '    local _made\n'
+    '    _made=$(command mktemp "$@") || return\n'
+    '    printf \'%s\\n\' "$_made" >> "$CPP_TEST_MKTEMP_LOG"\n'
+    '    printf \'%s\\n\' "$_made"\n'
+    '}\n'
+)
+
+
+def _run_block(
+    repo: Path, env: dict[str, str], script: str | None = None,
+) -> tuple[subprocess.CompletedProcess[str], Path]:
+    """Run the diff block; returns (proc, the diff temp file THIS run created)."""
+    if script is None:
+        script = _extract_diff_block()
+    log = repo.parent / "mktemp.log"
+    log.write_text("", encoding="utf-8")
+    proc = subprocess.run(
+        ["bash", "-c", _RECORDING_MKTEMP + script], cwd=repo,
+        env={**env, "CPP_TEST_MKTEMP_LOG": str(log)}, capture_output=True, text=True,
     )
+    own = [ln for ln in log.read_text(encoding="utf-8").splitlines()
+           if ln.startswith(_DIFF_FILE_PREFIX)]
+    assert len(own) == 1, (
+        f"the block was expected to create exactly one diff temp file, recorded {own}: "
+        f"{proc.stderr}"
+    )
+    return proc, Path(own[0])
 
 
 def test_the_block_installs_and_disarms_a_trap() -> None:
@@ -77,8 +108,8 @@ def test_the_block_installs_and_disarms_a_trap() -> None:
     )
 
 
-@requires_git
-def test_a_refused_review_leaves_no_diff_file_behind(tmp_path: Path) -> None:
+def _refusing_repo(tmp_path: Path) -> tuple[Path, dict[str, str]]:
+    """A repository on which the block takes its FIRST refusal after the mktemp."""
     env = _env(tmp_path / "home")
     (tmp_path / "home").mkdir()
 
@@ -100,22 +131,44 @@ def test_a_refused_review_leaves_no_diff_file_behind(tmp_path: Path) -> None:
     # `git merge-base HEAD "$BASE"` (BASE defaulting to origin/main) then fails
     # for want of any such ref, reproducing the "no common ancestor" refusal.
 
-    before = set((Path("/tmp")).glob("codex-review-diff-patch.*"))
-    result = _run_block(repo, env)
-    after = set((Path("/tmp")).glob("codex-review-diff-patch.*"))
-    leaked = after - before
+    return repo, env
+
+
+@requires_git
+def test_a_refused_review_leaves_no_diff_file_behind(tmp_path: Path) -> None:
+    repo, env = _refusing_repo(tmp_path)
+    result, own = _run_block(repo, env)
+    leaked = own.exists()
+    own.unlink(missing_ok=True)
 
     assert result.returncode == 3, (
         f"expected the no-common-ancestor refusal (exit 3), got {result.returncode}: "
         f"{result.stderr}"
     )
     assert not leaked, (
-        f"a refused review left its diff temp file behind: {leaked} - this is "
+        f"a refused review left its diff temp file behind: {own} - this is "
         "the exact leak #1494 closes"
     )
 
-    for f in leaked:
-        f.unlink(missing_ok=True)
+
+@requires_git
+def test_the_refusal_check_sees_a_leak_when_the_trap_is_removed(tmp_path: Path) -> None:
+    """The red case for the test above: without the trap, ITS file survives.
+
+    The same refusal, run on the block with its `trap ... EXIT` line stripped,
+    must leave the recorded file behind - otherwise "not leaked" above could be
+    the recorder naming the wrong path rather than the trap doing its job.
+    """
+    repo, env = _refusing_repo(tmp_path)
+    trap_line = "trap 'rm -f \"$DIFF_FILE\"' EXIT\n"
+    block = _extract_diff_block()
+    assert block.count(trap_line) == 1, "precondition: the block installs the trap once"
+    result, own = _run_block(repo, env, block.replace(trap_line, ""))
+    leaked = own.exists()
+    own.unlink(missing_ok=True)
+
+    assert result.returncode == 3, result.stderr
+    assert leaked, f"with the trap stripped, the refused run must leave {own} behind"
 
 
 @requires_git
@@ -147,21 +200,17 @@ def test_a_successful_review_keeps_its_diff_file(tmp_path: Path) -> None:
     assert _git("add", "-A", cwd=repo, env=env).returncode == 0
     assert _git("commit", "-qm", "my change", cwd=repo, env=env).returncode == 0
 
-    before = set((Path("/tmp")).glob("codex-review-diff-patch.*"))
-    result = _run_block(repo, env)
-    after = set((Path("/tmp")).glob("codex-review-diff-patch.*"))
-    created = after - before
+    result, own = _run_block(repo, env)
+    kept = own.exists()
+    own.unlink(missing_ok=True)
 
     assert result.returncode == 0, (
         f"expected a clean run of the diff block, got {result.returncode}: "
         f"{result.stderr}"
     )
-    assert len(created) == 1, (
-        f"a successful run must leave exactly one diff temp file for the later "
-        f"blocks to read and remove themselves - saw {created}. If this is "
-        "empty, the trap-disarm regressed and the happy path now leaks "
-        "nothing because it deletes its own output before anyone reads it."
+    assert kept, (
+        f"a successful run must leave its diff temp file ({own}) for the later "
+        "blocks to read and remove themselves. It is gone, so the trap-disarm "
+        "regressed and the happy path now deletes its own output before anyone "
+        "reads it."
     )
-
-    for f in created:
-        f.unlink(missing_ok=True)

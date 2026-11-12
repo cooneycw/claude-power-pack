@@ -54,6 +54,125 @@ requires_bash = pytest.mark.skipif(
 )
 
 
+# The gate's base environment is built by ALLOWLIST (issue #1718, row 9). Every
+# fixture here used to start from a copy of the suite's own environment, so a
+# knob exported by whoever ran the suite (FLOW_GATE_RERUN=0 is the reported
+# one) reached the gate under test and changed its verdict. Only the names
+# below are copied; a test that wants the gate to see anything else NAMES it.
+# The list holds what the tests demonstrably need: PATH to find bash, git and
+# the stubs' interpreters, and HOME because the gate resolves its fallback
+# install paths under it.
+_BASE_ENV_ALLOWLIST = ("PATH", "HOME")
+
+# Every environment variable scripts/flow-finish-gate.sh reads (and, through
+# scripts/coordination-admission.sh, the admission file and XDG_CONFIG_HOME),
+# plus the two it only forwards to the runner (CPP_GATE_RERUN_FAILED, which it
+# overwrites, and CPP_GATE_TEST_TIMEOUT, which its timeout message names).
+# PATH and HOME are read too and are the allowlist. This list is NOT what keeps
+# a knob out - the allowlist does that for names nobody listed - it is the
+# input for the test that proves it.
+_GATE_KNOBS = (
+    "FLOW_GATE_RERUN",
+    "FLOW_GATE_CPP_DIR",
+    "CPP_GATE_RERUN_FAILED",
+    "CPP_GATE_TEST_TIMEOUT",
+    "PYTEST_ADDOPTS",
+    "PYTHONPATH",
+    "TMPDIR",
+    "UV_PROJECT_ENVIRONMENT",
+    "CLAUDE_PLUGIN_ROOT",
+    "CM_RECEIPT_HELPER",
+    "CPP_KYLE_FULL_SUITE_ACTIVE",
+    "CPP_KYLE_LOCK_BIN",
+    "CPP_KYLE_LOCK_WAIT_SECONDS",
+    "CPP_FLOW_FINISH_GATE_STATUS_FILE",
+    "CPP_COORDINATION_ADMISSION_FILE",
+    "CPP_KYLE_COORDINATION_ADMISSION",
+    "XDG_CONFIG_HOME",
+)
+
+
+#: HOME is inherited, and the gate reads one thing from under it that changes
+#: its behaviour: the coordination admission flag (`$HOME/.config/claude-power-
+#: pack/coordination/admission`, see scripts/coordination-admission.sh). On a
+#: host where the owner has switched it on, every gate test that does not say
+#: otherwise would take the coordination path - and wait for a lock for up to
+#: an hour. So the flag's own test hook points at a path that does not exist,
+#: unless the test names a file itself.
+_NO_ADMISSION_FILE = "/nonexistent/cpp-test-suite/coordination-admission-is-off"
+
+
+def _gate_env(**named: str) -> dict[str, str]:
+    """The base environment for a gate under test: the allowlist, coordination
+    admission off unless the test names the flag or the home it lives under,
+    plus ``named``."""
+    env = {key: os.environ[key] for key in _BASE_ENV_ALLOWLIST if key in os.environ}
+    # A test that names its own HOME or XDG_CONFIG_HOME owns the directory the
+    # flag is looked up under, and is asking for that lookup: leave it alone.
+    if not {"HOME", "XDG_CONFIG_HOME", "CPP_COORDINATION_ADMISSION_FILE"} & set(named):
+        env["CPP_COORDINATION_ADMISSION_FILE"] = _NO_ADMISSION_FILE
+    env.update(named)
+    return env
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="runs the admission helper in bash")
+def test_a_host_with_coordination_admission_on_does_not_switch_it_on_for_the_gate_tests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A HOME whose admission flag says `on` - the state of a host after the
+    joint switch. The helper the gate sources answers `on` for an environment
+    that merely inherits that HOME, and `off` for the one the fixtures build;
+    a test that names its own flag file still gets what it named."""
+    assert not Path(_NO_ADMISSION_FILE).exists(), "precondition: the off path must not exist"
+    home = tmp_path / "home-after-the-switch"
+    flag = home / ".config" / "claude-power-pack" / "coordination" / "admission"
+    flag.parent.mkdir(parents=True)
+    flag.write_text("on\n")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.delenv("CPP_COORDINATION_ADMISSION_FILE", raising=False)
+    helper = ROOT / "scripts" / "coordination-admission.sh"
+
+    def answer(env: dict[str, str]) -> str:
+        return subprocess.run(["bash", str(helper)], env=env, capture_output=True, text=True,
+                              check=True, timeout=30).stdout.strip()
+
+    inherited = {"PATH": os.environ["PATH"], "HOME": str(home)}
+    assert answer(inherited) == "COORDINATION_ADMISSION: on", "precondition: this HOME does switch it on"
+    assert _gate_env()["HOME"] == str(home)
+    assert answer(_gate_env()) == "COORDINATION_ADMISSION: off"
+    assert answer(_gate_env(CPP_COORDINATION_ADMISSION_FILE=str(flag))) == "COORDINATION_ADMISSION: on"
+    # and a test that names the home itself is asking for the lookup under it
+    assert answer(_gate_env(HOME=str(home))) == "COORDINATION_ADMISSION: on"
+
+
+def test_no_gate_knob_in_the_suites_environment_reaches_the_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Row 9 of #1718: the suite's own environment must not configure the gate.
+
+    Red case: with ``_gate_env`` returning a copy of ``os.environ`` (what every
+    fixture did before), each knob below is in the result and this fails.
+    """
+    for knob in _GATE_KNOBS:
+        monkeypatch.setenv(knob, "inherited-from-the-suite")
+    assert not set(_GATE_KNOBS) & set(_BASE_ENV_ALLOWLIST)
+    for knob in _GATE_KNOBS:
+        assert os.environ[knob] == "inherited-from-the-suite", f"precondition: {knob} is set"
+    env = _gate_env()
+    # The one knob the helper sets itself is the admission flag's test hook,
+    # pinned to "off"; it must be the helper's value, never the inherited one.
+    assert env.pop("CPP_COORDINATION_ADMISSION_FILE") == _NO_ADMISSION_FILE
+    leaked = sorted(set(env) & set(_GATE_KNOBS))
+    assert leaked == [], f"knobs inherited from the suite's environment: {leaked}"
+    # Stronger than the list: NOTHING outside the allowlist arrives, so a knob
+    # the script grows later is kept out before anyone adds it above.
+    assert set(env) <= set(_BASE_ENV_ALLOWLIST), sorted(set(env) - set(_BASE_ENV_ALLOWLIST))
+    assert "PATH" in env, "the allowlist still carries what the gate needs"
+    # A knob arrives only by being named.
+    assert _gate_env(FLOW_GATE_RERUN="0")["FLOW_GATE_RERUN"] == "0"
+
+
 def _make_stub(
     bindir: Path, name: str, exit_code: int = 0, stdout: str = ""
 ) -> Path:
@@ -112,11 +231,7 @@ def _run(
         _make_stub(bindir, "uv", uv_exit, stdout=uv_stdout)
     if make_exit is not None:
         _make_stub(bindir, "make", make_exit)
-    env = os.environ.copy()
-    for key in ("CPP_KYLE_COORDINATION_ADMISSION", "CPP_KYLE_FULL_SUITE_ACTIVE", "CPP_KYLE_LOCK_BIN",
-                "CPP_FLOW_FINISH_GATE_STATUS_FILE"):
-        env.pop(key, None)
-    env.pop("CPP_COORDINATION_ADMISSION_FILE", None)
+    env = _gate_env()
     extras = dict(extra_env or {})
     signal = extras.pop("CPP_KYLE_COORDINATION_ADMISSION", None)
     flag = tmp_path / "coordination-flag"
@@ -577,7 +692,7 @@ def _run_with_uv_stub(
     _uv_stub_printing(
         bindir, _with_gates(payload) if inject_gates else payload, exit_code
     )
-    env = os.environ.copy()
+    env = _gate_env()
     env["PATH"] = f"{bindir}:{env['PATH']}"
     env["FLOW_GATE_CPP_DIR"] = str(cpp)
     if flow_gate_rerun is not None:
@@ -750,7 +865,7 @@ def test_disabled_rerun_overrides_an_inherited_opt_in(tmp_path: Path) -> None:
     bindir = tmp_path / "bin"
     bindir.mkdir(exist_ok=True)
     _uv_stub_printing(bindir, _with_gates(_MINIMAL_RUNNER_JSON), 0)
-    env = os.environ.copy()
+    env = _gate_env()
     env["PATH"] = f"{bindir}:{env['PATH']}"
     env["FLOW_GATE_CPP_DIR"] = str(cpp)
     env["FLOW_GATE_RERUN"] = "0"
@@ -927,7 +1042,7 @@ def test_fallback_rerun_appends_to_host_pytest_addopts(tmp_path: Path) -> None:
     bindir.mkdir()
     _fallback_make_stub(bindir, rerun_passes=True)
 
-    env = os.environ.copy()
+    env = _gate_env()
     env["PATH"] = f"{bindir}:{env['PATH']}"
     env["FLOW_GATE_CPP_DIR"] = ""
     env["PYTEST_ADDOPTS"] = "-p no:randomly"
@@ -2228,7 +2343,7 @@ def test_fallback_lane_detects_a_gate_that_examined_nothing(tmp_path: Path) -> N
         bindir, "warning: No Python files found under the given path(s)"
     )
 
-    env = os.environ.copy()
+    env = _gate_env()
     env["PATH"] = f"{bindir}:{env['PATH']}"
     env["FLOW_GATE_CPP_DIR"] = ""
     proc = subprocess.run(
@@ -2258,7 +2373,7 @@ def test_fallback_lane_stays_ok_when_the_gates_examined_something(
     bindir.mkdir()
     _zero_coverage_make_stub(bindir, "checked 40 files")
 
-    env = os.environ.copy()
+    env = _gate_env()
     env["PATH"] = f"{bindir}:{env['PATH']}"
     env["FLOW_GATE_CPP_DIR"] = ""
     proc = subprocess.run(
@@ -2302,7 +2417,7 @@ def test_fallback_lane_still_reports_a_failing_gate(tmp_path: Path) -> None:
     )
     stub.chmod(0o755)
 
-    env = os.environ.copy()
+    env = _gate_env()
     env["PATH"] = f"{bindir}:{env['PATH']}"
     env["FLOW_GATE_CPP_DIR"] = ""
     proc = subprocess.run(
@@ -2357,7 +2472,7 @@ def _write_receipt(repo: Path, head: str, status: str = "ran", reason: str | Non
 
 
 def _gate(repo: Path) -> subprocess.CompletedProcess:
-    env = dict(os.environ)
+    env = _gate_env()
     env["FLOW_GATE_CPP_DIR"] = ""
     env["CM_RECEIPT_HELPER"] = str(ROOT / "scripts" / "counter-model-receipt.py")
     return subprocess.run(
@@ -2594,7 +2709,7 @@ def test_a_missing_gate_lib_is_fatal_not_advisory(tmp_path: Path) -> None:
     lone = tmp_path / "scripts"
     lone.mkdir()
     shutil.copy(SCRIPT, lone / SCRIPT.name)
-    env = dict(os.environ)
+    env = _gate_env()
     env.update(HOME=str(tmp_path / "nohome"), CLAUDE_PLUGIN_ROOT="", FLOW_GATE_CPP_DIR="")
     got = subprocess.run(
         ["bash", str(lone / SCRIPT.name)],
@@ -2659,7 +2774,7 @@ REAL_REPO_MARKER = "RUN-ON-THE-REAL-REPO-PATH"
 def _run_case(case_dir: Path, cpp_mode: str = "empty") -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["sh", str(RUNNER), str(case_dir), str(SCRIPT), cpp_mode],
-        capture_output=True, text=True, check=False, cwd=ROOT,
+        capture_output=True, text=True, check=False, cwd=ROOT, env=_gate_env(),
     )
 
 
@@ -2787,7 +2902,7 @@ def test_the_runner_reports_UNAVAILABLE_rather_than_clean_when_it_cannot_isolate
     runner must say so in its own words and exit non-zero, never fall through to
     the gate and report whatever the enclosing repository happens to produce.
     """
-    env = os.environ.copy()
+    env = _gate_env()
     env["TMPDIR"] = str(tmp_path / "does" / "not" / "exist")
     case = tmp_path / "case"
     case.mkdir()
@@ -2856,7 +2971,7 @@ def test_an_interrupted_gate_leaves_no_runner_json_behind(tmp_path: Path) -> Non
     # $PPID of a pipeline member is the gate's own shell.
     stub.write_text("#!/usr/bin/env bash\nkill -TERM \"$PPID\"\nsleep 5\n")
     stub.chmod(0o755)
-    env = os.environ.copy()
+    env = _gate_env()
     env["PATH"] = f"{bindir}:{env['PATH']}"
     env["FLOW_GATE_CPP_DIR"] = str(cpp)
     env["TMPDIR"] = str(tmpdir)
@@ -2930,7 +3045,7 @@ def test_a_late_tee_cannot_recreate_the_runner_json_after_the_trap(tmp_path: Pat
         f'exec {real_tee} "$@"\n'
     )
     late_tee.chmod(0o755)
-    env = os.environ.copy()
+    env = _gate_env()
     env["PATH"] = f"{bindir}:{env['PATH']}"
     env["FLOW_GATE_CPP_DIR"] = str(cpp)
     env["TMPDIR"] = str(tmpdir)
@@ -2954,7 +3069,7 @@ def test_a_late_tee_cannot_recreate_the_runner_json_after_the_trap(tmp_path: Pat
 @requires_bash
 @requires_git
 def test_an_uninterrupted_run_reads_the_complete_runner_json(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     """The other half of #1313: writing through fd 9 must not change what is read.
 
@@ -2964,10 +3079,11 @@ def test_an_uninterrupted_run_reads_the_complete_runner_json(
     """
     tmpdir = tmp_path / "tmp"
     tmpdir.mkdir()
-    monkeypatch.setenv("TMPDIR", str(tmpdir))
     cpp = _fake_cpp(tmp_path)
     payload = _runner_json(_NO_TESTS_WARNING)
-    proc, _ = _run(tmp_path, cpp_dir=str(cpp), uv_exit=0, uv_stdout=payload)
+    # Named, not inherited: the base environment no longer carries TMPDIR.
+    proc, _ = _run(tmp_path, cpp_dir=str(cpp), uv_exit=0, uv_stdout=payload,
+                   extra_env={"TMPDIR": str(tmpdir)})
     assert proc.returncode == 3
     assert "FLOW_FINISH_GATE: warn" in proc.stdout
     assert _qualified_line(proc.stdout)
@@ -3003,7 +3119,7 @@ def test_fallback_runs_verify_only_for_plans_that_declare_it(tmp_path: Path, pla
         "lint:\n\t@true\ntest:\n\t@echo '1 passed in 0.01s'\ntypecheck:\n\t@true\nverify:\n\t@false\n"
     )
     assert "verify:\n\t@false" in (tmp_path / "Makefile").read_text(), "precondition: verify fails"
-    env = dict(os.environ)
+    env = _gate_env()
     env.update(FLOW_GATE_CPP_DIR="", CLAUDE_PLUGIN_ROOT="")
     got = subprocess.run(
         ["bash", str(SCRIPT), "--plan", plan],
@@ -3059,7 +3175,7 @@ def test_ci_enrolment_step_names_the_source_branch() -> None:
 @requires_bash
 def test_branch_without_enrolment_only_is_a_usage_error(tmp_path: Path) -> None:
     proc = subprocess.run(["bash", str(SCRIPT), "--branch", "x"], cwd=tmp_path,
-                          capture_output=True, text=True)
+                          env=_gate_env(), capture_output=True, text=True)
     assert proc.returncode == 2, proc.stdout + proc.stderr
     assert "--branch is only meaningful with --enrolment-only" in proc.stderr
 
@@ -3071,7 +3187,7 @@ def test_an_empty_branch_is_refused_not_ignored(tmp_path: Path, args: list[str])
     """Counter-model review: an empty override used to be dropped silently, so an
     unset $CI_COMMIT_SOURCE_BRANCH turned the CI step into ancestry-only."""
     proc = subprocess.run(["bash", str(SCRIPT), *args], cwd=tmp_path,
-                          capture_output=True, text=True)
+                          env=_gate_env(), capture_output=True, text=True)
     assert proc.returncode == 2, proc.stdout + proc.stderr
     assert "--branch was given an empty value" in proc.stderr
 
@@ -3081,7 +3197,7 @@ def test_an_empty_branch_is_refused_not_ignored(tmp_path: Path, args: list[str])
 def test_plan_check_does_not_exempt_enrolment_only(tmp_path: Path) -> None:
     """Counter-model red case: `--plan check` exempts a FINISH run (it produces no
     PR), but the CI mode is asked about a PR and must still decide."""
-    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
+    env = {**_gate_env(), "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
            "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"}
     subprocess.run(["git", "init", "-q", "-b", "master"], cwd=tmp_path, env=env, check=True)
     (tmp_path / "docs" / "measurements" / "counter-model").mkdir(parents=True)
@@ -3133,7 +3249,7 @@ def test_resume_stub_requires_exactly_one_state_file(
     assert not list(scratch.glob(".claude/runs/*.json"))
     result = subprocess.run(
         ["bash", str(scratch / "bin/uv"), "--project", str(ROOT), "python3", str(phase_one)],
-        cwd=scratch, env=dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}"),
+        cwd=scratch, env=_gate_env(PATH=f"{bindir}:{os.environ['PATH']}"),
         capture_output=True, text=True, check=False, timeout=30,
     )
     assert len(list(scratch.glob(".claude/runs/*.json"))) == state_count
@@ -3235,9 +3351,7 @@ def test_coordination_unavailable_authority_ends_within_the_bound_by_name(tmp_pa
     bindir = tmp_path / "bin"
     bindir.mkdir()
     _make_stub(bindir, "make", 0)
-    env = os.environ.copy()
-    for key in ("CPP_KYLE_FULL_SUITE_ACTIVE", "CPP_FLOW_FINISH_GATE_STATUS_FILE"):
-        env.pop(key, None)
+    env = _gate_env()
     env.update({"CPP_COORDINATION_ADMISSION_FILE": str(flag), "CPP_KYLE_LOCK_BIN": str(supervisor),
                 "CPP_KYLE_LOCK_WAIT_SECONDS": "1", "FLOW_GATE_CPP_DIR": "",
                 "PATH": f"{bindir}:{env['PATH']}"})
@@ -3302,9 +3416,7 @@ def test_coordination_interrupted_parent_removes_its_temp_files(tmp_path: Path):
     scratch.mkdir()
     flag = tmp_path / "coordination-flag"
     flag.write_text("on\n")
-    env = os.environ.copy()
-    for key in ("CPP_KYLE_FULL_SUITE_ACTIVE", "CPP_FLOW_FINISH_GATE_STATUS_FILE"):
-        env.pop(key, None)
+    env = _gate_env()
     env.update({"CPP_COORDINATION_ADMISSION_FILE": str(flag), "CPP_KYLE_LOCK_BIN": str(supervisor),
                 "TMPDIR": str(scratch), "FLOW_GATE_CPP_DIR": "", "PATH": f"{bindir}:{env['PATH']}"})
     proc = subprocess.Popen(["bash", str(SCRIPT)], cwd=tmp_path, env=env, start_new_session=True,
@@ -3353,9 +3465,7 @@ def test_coordination_writers_outliving_the_parent_cannot_recreate_its_files(tmp
     scratch.mkdir()
     flag = tmp_path / "coordination-flag"
     flag.write_text("on\n")
-    env = os.environ.copy()
-    for key in ("CPP_KYLE_FULL_SUITE_ACTIVE", "CPP_FLOW_FINISH_GATE_STATUS_FILE"):
-        env.pop(key, None)
+    env = _gate_env()
     env.update({"CPP_COORDINATION_ADMISSION_FILE": str(flag), "CPP_KYLE_LOCK_BIN": str(supervisor),
                 "TMPDIR": str(scratch), "FLOW_GATE_CPP_DIR": "", "PATH": f"{bindir}:{env['PATH']}"})
     proc = subprocess.Popen(["bash", str(SCRIPT)], cwd=tmp_path, env=env, start_new_session=True,
@@ -3459,12 +3569,11 @@ def test_coordination_continuation_keeps_one_lease_and_hides_authority_credentia
     (tmp_path / "Makefile").write_text("lint:\ntest:\ntypecheck:\nverify:\n")
     # Run directly: _run's one-marker assertion deliberately excludes a nested
     # invocation, which has its own distinct verdict in this test transcript.
-    env = os.environ.copy()
+    env = _gate_env()
     env.update({"PATH": f"{bindir}:{env['PATH']}", "FLOW_GATE_CPP_DIR": "",
                 "CPP_KYLE_COORDINATION_ADMISSION": "1", "CPP_KYLE_LOCK_BIN": str(supervisor),
                 "KYLE_LOCK_TOKEN": "synthetic-supervisor-only", "KYLE_LOCK_URL": "http://invalid.example",
                 "KYLE_LOCK_TOKEN_FILE": "synthetic-file"})
-    env.pop("CPP_KYLE_FULL_SUITE_ACTIVE", None)
     flag = tmp_path / "coordination-flag"
     flag.write_text("on\n")
     env["CPP_COORDINATION_ADMISSION_FILE"] = str(flag)
@@ -3484,7 +3593,7 @@ def test_coordination_flag_exact_bytes_and_silent_off(tmp_path: Path, content: b
     flag = tmp_path / "flag"
     if content is not None:
         flag.write_bytes(content)
-    env = dict(os.environ, CPP_COORDINATION_ADMISSION_FILE=str(flag))
+    env = _gate_env(CPP_COORDINATION_ADMISSION_FILE=str(flag))
     result = subprocess.run(["bash", "-c", '. "$1"; coordination_admission_on', "probe",
                              str(ROOT / "scripts/coordination-admission.sh")],
                             env=env, capture_output=True, text=True, timeout=5)
@@ -3515,7 +3624,7 @@ def test_coordination_unreadable_flag_is_silently_off():
         command = (ROOT / "scripts/coordination-admission.sh").read_text()
         result = subprocess.run(["bash", "-c", command + '\n[[ ! -r "$CPP_COORDINATION_ADMISSION_FILE" ]] || exit 91; '
                                 'coordination_admission_on'],
-                                env=dict(os.environ, CPP_COORDINATION_ADMISSION_FILE=str(flag)),
+                                env=_gate_env(CPP_COORDINATION_ADMISSION_FILE=str(flag)),
                                 preexec_fn=lower_privileges, capture_output=True, text=True, timeout=5)
         flag.chmod(0o600)
         assert result.returncode == 1
@@ -3530,7 +3639,7 @@ def test_coordination_flag_symlink_is_off_and_changes_are_observed_per_call(tmp_
     flag.symlink_to(target)
     helper = ROOT / "scripts/coordination-admission.sh"
     result = subprocess.run(["bash", "-c", '. "$1"; coordination_admission_on', "probe", str(helper)],
-                            env=dict(os.environ, CPP_COORDINATION_ADMISSION_FILE=str(flag)),
+                            env=_gate_env(CPP_COORDINATION_ADMISSION_FILE=str(flag)),
                             capture_output=True, text=True, timeout=5)
     assert result.returncode == 1
     flag.unlink()
@@ -3538,7 +3647,7 @@ def test_coordination_flag_symlink_is_off_and_changes_are_observed_per_call(tmp_
     # changes its flag; a cached environment snapshot would miss this switch.
     result = subprocess.run(["bash", "-c", '. "$1"; coordination_admission_on && exit 90; '
                              'printf "on\\n" > "$CPP_COORDINATION_ADMISSION_FILE"; coordination_admission_on',
-                             "probe", str(helper)], env=dict(os.environ, CPP_COORDINATION_ADMISSION_FILE=str(flag)),
+                             "probe", str(helper)], env=_gate_env(CPP_COORDINATION_ADMISSION_FILE=str(flag)),
                             capture_output=True, text=True, timeout=5)
     assert result.returncode == 0, result.stderr
 
@@ -3555,9 +3664,8 @@ def test_coordination_off_is_byte_exact_prechange_behavior(tmp_path: Path, conte
     flag = tmp_path / "flag"
     if content is not None:
         flag.write_bytes(content)
-    env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", FLOW_GATE_CPP_DIR="",
+    env = _gate_env(PATH=f"{bindir}:{os.environ['PATH']}", FLOW_GATE_CPP_DIR="",
                CLAUDE_PLUGIN_ROOT=str(ROOT), CPP_COORDINATION_ADMISSION_FILE=str(flag))
-    env.pop("CPP_KYLE_FULL_SUITE_ACTIVE", None)
     anchor = ROOT / "controls/flow-finish-coordination/anchors/6bc585a-flow-finish-gate.sh"
     old = subprocess.run(["bash", str(anchor)], cwd=tmp_path, env=env,
                          capture_output=True, timeout=10)
@@ -3581,9 +3689,7 @@ def test_coordination_default_uses_only_dedicated_folder(tmp_path: Path, xdg: bo
     # control admission after moving to the dedicated directory contract.
     (folder.parent / "coordination-admission").write_bytes(b"garbage\n" if enabled else b"on\n")
     (folder / "admission").write_bytes(b"on\n" if enabled else b"garbage\n")
-    env = dict(os.environ, HOME=str(home))
-    env.pop("CPP_COORDINATION_ADMISSION_FILE", None)
-    env.pop("XDG_CONFIG_HOME", None)
+    env = _gate_env(HOME=str(home))
     if xdg:
         env["XDG_CONFIG_HOME"] = str(config)
     result = subprocess.run(["bash", "-c", '. "$1"; coordination_admission_on', "probe",
@@ -3598,9 +3704,7 @@ def test_coordination_directory_replacement_and_removal_are_observed(tmp_path: P
     home = tmp_path / "operator-home"
     folder = home / ".config" / "claude-power-pack" / "coordination"
     folder.mkdir(parents=True)
-    env = dict(os.environ, HOME=str(home))
-    env.pop("CPP_COORDINATION_ADMISSION_FILE", None)
-    env.pop("XDG_CONFIG_HOME", None)
+    env = _gate_env(HOME=str(home))
     command = ('. "$1"; coordination_admission_on && exit 90; '
                'printf "on\\n" > "$2/replacement"; mv "$2/replacement" "$2/admission"; '
                'coordination_admission_on || exit 91; rm "$2/admission"; '
@@ -3634,7 +3738,8 @@ def test_help_prints_all_four_tables_and_no_code() -> None:
     """A shorter help that silently drops a table is the failure to guard, and
     so is one that runs past the header into the script's code."""
     result = subprocess.run(
-        ["bash", str(SCRIPT), "--help"], capture_output=True, text=True, timeout=30
+        ["bash", str(SCRIPT), "--help"], env=_gate_env(), capture_output=True, text=True,
+        timeout=30,
     )
     assert result.returncode == 0, result.stderr
     out = result.stdout
@@ -3684,12 +3789,9 @@ def _gate_killed_mid_run(
     # onto the stderr the gate shares with it.
     (bindir / "uv").write_text(f'#!/usr/bin/env bash\n: > "{started}"\nexec sleep 30\n')
     (bindir / "uv").chmod(0o755)
-    env = os.environ.copy()
-    env.pop("FLOW_GATE_RERUN", None)
+    env = _gate_env()
     env["PATH"] = f"{bindir}:{env['PATH']}"
     env["FLOW_GATE_CPP_DIR"] = str(cpp)
-    for key in ("CPP_KYLE_FULL_SUITE_ACTIVE", "CPP_FLOW_FINISH_GATE_STATUS_FILE"):
-        env.pop(key, None)
     # A host whose coordination admission is ON would route this gate through
     # the real kyle-lock instead of the stub runner: point it at a file that
     # does not exist, so the fixture owns the answer (counter-model review).
@@ -3792,12 +3894,14 @@ def test_an_announced_exit_never_reports_128(tmp_path: Path) -> None:
     """The must-not-flip side: a deliberate exit keeps its own status. A real
     pass printing 128 would be a worse lie than the one being fixed."""
     usage = subprocess.run(
-        ["bash", str(SCRIPT), "--no-such-flag"], cwd=tmp_path, capture_output=True, text=True,
+        ["bash", str(SCRIPT), "--no-such-flag"], cwd=tmp_path, env=_gate_env(),
+        capture_output=True, text=True,
     )
     assert usage.returncode == 2
     assert usage.stderr.strip().splitlines()[-1] == "FLOW_FINISH_GATE_EXIT=2"
     helped = subprocess.run(
-        ["bash", str(SCRIPT), "--help"], cwd=tmp_path, capture_output=True, text=True,
+        ["bash", str(SCRIPT), "--help"], cwd=tmp_path, env=_gate_env(),
+        capture_output=True, text=True,
     )
     assert helped.returncode == 0
     assert helped.stderr.strip().splitlines()[-1] == "FLOW_FINISH_GATE_EXIT=0"
@@ -3827,11 +3931,9 @@ def _mutated_gate_killed_while_running(tmp_path: Path, injected: str, stub_name:
     if stub_name:
         (bindir / stub_name).write_text("#!/usr/bin/env bash\nexec sleep 30\n")
         (bindir / stub_name).chmod(0o755)
-    env = os.environ.copy()
+    env = _gate_env()
     env["PATH"] = f"{bindir}:{env['PATH']}"
     env["CPP_COORDINATION_ADMISSION_FILE"] = str(tmp_path / "no-coordination-admission")
-    for key in ("CPP_KYLE_FULL_SUITE_ACTIVE", "CPP_FLOW_FINISH_GATE_STATUS_FILE"):
-        env.pop(key, None)
     proc = subprocess.Popen(
         ["bash", str(scripts / "flow-finish-gate.sh")], cwd=tmp_path, env=env,
         start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
@@ -4031,7 +4133,7 @@ def _gate_with_uncountable(repo: Path, tmp_path: Path, uncountable: str) -> subp
         f'exec {real_git} "$@"\n'
     )
     wrapper.chmod(0o755)
-    env = dict(os.environ)
+    env = _gate_env()
     env["FLOW_GATE_CPP_DIR"] = ""
     env["CM_RECEIPT_HELPER"] = str(ROOT / "scripts" / "counter-model-receipt.py")
     env["PATH"] = f"{bindir}:{env['PATH']}"
@@ -4115,7 +4217,7 @@ def test_two_reviewed_sides_of_a_merge_both_usable_pass(tmp_path: Path) -> None:
 
 
 def _enrolment_only(repo: Path) -> subprocess.CompletedProcess:
-    env = dict(os.environ)
+    env = _gate_env()
     env["FLOW_GATE_CPP_DIR"] = ""
     env["CM_RECEIPT_HELPER"] = str(ROOT / "scripts" / "counter-model-receipt.py")
     return subprocess.run(
