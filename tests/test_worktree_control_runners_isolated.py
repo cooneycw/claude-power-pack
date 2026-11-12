@@ -188,6 +188,43 @@ def test_the_claim_helper_really_does_honour_that_override() -> None:
     assert "FLOW_WORKTREE_GIT" in (ROOT / "scripts" / "flow-worktree-guard.sh").read_text()
 
 
+def _tree(root: Path) -> list[tuple[str, str]]:
+    """Every path under `root` with its content (or its kind), for comparing."""
+    found = []
+    for path in sorted(root.rglob("*")):
+        kind = "dir" if path.is_dir() and not path.is_symlink() else (
+            f"link:{os.readlink(path)}" if path.is_symlink() else path.read_bytes().hex())
+        found.append((str(path.relative_to(root)), kind))
+    return found
+
+
+@pytest.mark.parametrize(("control", "case", "gate", "expected"), RUNNERS)
+def test_a_runner_confines_itself_to_its_own_temporary_directory(
+        tmp_path: Path, control: str, case: str, gate: str, expected: str) -> None:
+    """Two of these runners delete. With every FLOW_ variable dropped, nothing
+    inherited confines them - so what does is shown directly: given a
+    FLOW_WORKTREE_BASE aimed at a directory holding a file, a sibling
+    directory, and a temporary directory of the test's own, the runner leaves
+    the first two exactly as they were and its temporary directory empty."""
+    sentinel = tmp_path / "sentinel-base"
+    (sentinel / "kept").mkdir(parents=True)
+    (sentinel / "kept" / "file.txt").write_text("must survive\n")
+    (sentinel / "repo-issue-4242").mkdir()         # the name the sweep fixture's worktree has
+    (sentinel / "repo-issue-4242" / "work.txt").write_text("somebody's work\n")
+    neighbour = tmp_path / "neighbour"
+    neighbour.mkdir()
+    (neighbour / "note.txt").write_text("also must survive\n")
+    scratch = tmp_path / "runner-tmp"
+    scratch.mkdir()
+    before = (_tree(sentinel), _tree(neighbour))
+    env = {**_clean_env(), "FLOW_WORKTREE_BASE": str(sentinel), "TMPDIR": str(scratch)}
+    done = _run(control, case, gate, env)
+    assert expected in done.stdout, done.stdout[-800:] + done.stderr[-400:]
+    assert (_tree(sentinel), _tree(neighbour)) == before, "the runner changed something outside its own directory"
+    assert list(scratch.iterdir()) == [], "the runner left something behind in its temporary directory"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["neighbour", "runner-tmp", "sentinel-base"]
+
+
 # --- a good case requires ITS answer ------------------------------------------
 
 def _case_good_signal(control: str, case: str) -> re.Pattern[str]:
