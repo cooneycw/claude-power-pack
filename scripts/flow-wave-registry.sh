@@ -1254,7 +1254,7 @@ cwd_is_shared_parent() {
   return 1
 }
 
-# _is_checkout_root DIR -> 0 when DIR is itself a git checkout.
+# _is_inside_checkout DIR -> 0 when DIR is at or below a git checkout root.
 #
 # `cwd_is_shared_parent`'s second signature - "contains 2+ git checkouts" - is a
 # heuristic for the ~/Projects shape, and a REAL checkout holding two submodules
@@ -1262,9 +1262,6 @@ cwd_is_shared_parent() {
 # line, which is every other call site. Here it would stand down a worktree
 # warning between a genuine checkout and a role working in a subdirectory of it,
 # and a suppressed TRUE warning is the thing this whole change exists to stop.
-_is_checkout_root() { [ -e "$1/.git" ]; }
-
-# _is_inside_checkout DIR -> 0 when DIR is at or below a git checkout root.
 #
 # Protecting only the checkout ROOT was not enough (re-review). Given /repo/.git
 # with submodules at /repo/modules/one and /repo/modules/two, the directory

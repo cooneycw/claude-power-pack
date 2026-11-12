@@ -937,13 +937,6 @@ ackob_add() {
   done
 }
 
-ackob_count() {
-  local f
-  f="$(ackob_file "$1")"
-  [ -s "$f" ] || { echo 0; return; }
-  grep -c '^[0-9]' "$f" 2>/dev/null || echo 0
-}
-
 # Record REVS (space-separated, already validated non-empty positive integers)
 # as acknowledged for <box>, under the same flock every other read-modify-write
 # in this file uses. Refuses (return 2) any rev that does not exist in the box
@@ -1485,14 +1478,6 @@ watcher_roles_live() {
       fi
       ;;
   esac
-}
-
-# watcher_count ROLE WAVE -> a non-negative integer, or `unknown` when the host
-# gives us no way to enumerate processes. The REPORTING view.
-watcher_count() {
-  local role="$1" wave="$2" roles
-  roles="$(watcher_roles_live "$wave")" || { echo unknown; return; }
-  records_count "$roles" "$role"
 }
 
 # Each live-scan line is `<role> <pid>` (the pid was added for #1228 so a
