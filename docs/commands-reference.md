@@ -146,6 +146,11 @@ The sentence read:
 > CLAUDE.md (and scaffolds skills/hooks) far better than a fixed template. CPP then
 > layers its CI/CD governance directives on top so nothing is lost.
 
+Also from `/project:init`, the line that opened Step 4a, moved by #1697 for the
+same reason (the heading already says "from lib/cicd"):
+
+> The `lib/cicd` library can detect the framework and generate a Makefile:
+
 From `/codex:code_review` Step 2, above the `trap` that removes the diff file:
 
 > Four refusal paths below (no common ancestor, no diff vs BASE, an unreadable
