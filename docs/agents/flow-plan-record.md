@@ -415,11 +415,16 @@ hide a plan edit in the part left out (a heading quoted in a code fence, an
 indented heading, a numbered plan line that contained a pipe), and the design
 was dropped for one with nothing left out.
 
-`compliance` then names, on stderr, each lane answered `will test` with no row
-in that file, says so when the file is missing, and says it is unreadable when
-it is. It reports and does not refuse; its stdout and exit code are unchanged.
-It speaks only where the project lists lanes and the run's section carries a
-lanes table. Headings, tables and the waiver line are read outside code fences
+`compliance` then names each lane answered `will test` with no row in that
+file ON ITS VERDICT LINE, directly after the verdict word (`, LANES NOT
+DEMONSTRATED (...)`), and says `, LANES NOT CHECKED (<why>)` when the lane file
+or that file cannot be read (issue #1767). It first said so on stderr only; in
+three hours five changes merged without the file, because the line is what gets
+read. The stderr note remains and is generated from the same state as the
+clause. It does not refuse and its exit code is unchanged. Where nothing is
+owed - no lane file, a waived plan, no `will test` answer - the line is byte
+for byte what it was. The demonstrated file is not counted as a touched file:
+counted, it turned `agreement` into `divergence` for every run that wrote it. Headings, tables and the waiver line are read outside code fences
 only: a quoted example is not the thing itself.
 
 Not checked: whether an answer is true.

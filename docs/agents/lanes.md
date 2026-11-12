@@ -145,10 +145,17 @@ without one of the four answers, and names the missing lanes (issue #1731;
 committed cases in `controls/flow-plan-record-lanes`). A lane file that exists
 and cannot be read refuses too, as unknown. The one-line form above
 (`Lanes: none - <reason>`) is accepted with a reason and announced on stderr;
-nothing judges the reason. At close, `compliance` names on stderr each lane
-answered `will test` that has no row in
-`docs/flow-runs/issue-<N>.lanes-demonstrated.md`; that is a note and changes no
-verdict.
+nothing judges the reason. At close, `compliance` puts each lane answered
+`will test` that has no row in
+`docs/flow-runs/issue-<N>.lanes-demonstrated.md` on its verdict line, directly
+after the verdict word: `PLAN_COMPLIANCE: agreement, LANES NOT DEMONSTRATED
+(Checkout, Harness) - ...`, or `, LANES NOT CHECKED (<why>)` when the lane file
+or that file exists and cannot be read (issue #1767; committed cases in
+`controls/flow-plan-record-lanes-verdict`). The exit code does not change and
+nothing is refused. A project with no lane file, a waived plan, and a plan with
+no `will test` answer get the line exactly as it was. Writing the file is not
+itself a change to the plan: it is left out of the touched files, like the plan
+record beside it.
 
 The table itself is not machine-checked for truth. A plan can answer every
 lane `will test` and test none of them. Two readers check that:
