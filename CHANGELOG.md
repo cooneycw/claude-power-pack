@@ -4,16 +4,16 @@
 
 ### Behaviour changes you may notice
 
-- **The secret scanner no longer reports a shell substitution as a hardcoded
-  password.** In a shell file, a double-quoted word that is wholly a
-  substitution (`$(...)`, a bare `${NAME}`, or exactly `$NAME`) is fetched at
-  run time and is not a finding. `${NAME:-fallback}` and every other default
-  form still are, as are literals before, after or joined on to a
-  substitution, single-quoted text and the same text outside a shell file. Ids,
-  severity and output lines are unchanged for everything still reported; a
-  consumer's count of `HARDCODED_PASSWORD` findings in shell files goes down.
-  Test passwords and sentinels are still reported: declare them in
-  `.claude/security.yml` (see `lib/security/README.md`) (#1717).
+- **The secret scanner is unchanged, and its false positives are now a
+  documented declaration.** Test passwords, sentinels and shell substitutions
+  such as `pg_password="$(generate_secret)"` are still reported as
+  `HARDCODED_PASSWORD`: a pattern cannot tell a harmless one from a real one.
+  `lib/security/README.md` shows the two declarations a repository makes in
+  `.claude/security.yml`, a path suppression and an exact-value `secret:` pin,
+  with the risk of each. An in-scanner exemption for shell substitutions was
+  built, failed two reviews on five bypasses and was withdrawn; the README
+  lists them. Also corrected: assignment-pattern findings DO carry their value
+  and can be pinned with `secret:` (#1717).
 - **A project can list its lanes, and plans then say which ones they tested.**
   A lane is a route one behaviour travels: main checkout or linked worktree,
   dev or prod, small fixture or real-size data. With a `.claude/lanes.md`, the

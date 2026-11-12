@@ -97,92 +97,6 @@ ASSIGNMENT_PATTERNS = [
     ),
 ]
 
-# Shell substitutions are not hardcoded passwords (issue #1717).
-#
-# `pg_password="$(generate_secret)"` holds no secret: the value is fetched at
-# run time. The password pattern above takes ANY quoted value of 8 or more
-# characters, so each such line was a HIGH finding - 11 in one consumer, beside
-# 49 literals in its tests, enough to block a deploy on noise.
-#
-# THE EXEMPTION IS DRAWN TO THE EVIDENCE AND NO WIDER, because this is a
-# detector and its silence is read as "no secret here":
-#
-#   - only in a file the SHELL reads (the extensions below). `password =
-#     "$(x)"` in a .py file is a literal string, and stays a finding;
-#   - only in DOUBLE quotes. The shell does not substitute inside single
-#     quotes, so `'$(x)'` is a literal there too;
-#   - only when the WHOLE quoted word is a substitution: a `$(...)` followed to
-#     its own closing parenthesis, a bare `${NAME}`, or exactly `$NAME`, with
-#     the closing quote directly after it and nothing joined on after that.
-#
-# `${NAME:-fallback}` IS NOT EXEMPT. A default or alternative carries a literal
-# in the file, and a hardcoded fallback password is one of the commonest real
-# findings in shell. Neither is a literal before or after the substitution
-# (`"hunter2-$(date)"`, `"$(date)-hunter2"`), nor a second segment joined on
-# (`"${NAME}"'tail'`), nor anything inside single quotes.
-#
-# KNOWN MISS, named so it is not read as safe: `password="$(echo a-literal)"`
-# is dropped although it contains a literal. This pattern cannot see inside a
-# command substitution.
-#
-# HARDCODED_SECRET needs no exemption: its value class cannot contain `$`, `(`
-# or `{`, so it never matched a substitution.
-#: NEGATIVE-CONTROL: controls/secret-assignment-shell
-SHELL_EXTENSIONS = {".sh", ".bash", ".zsh"}
-_SHELL_BARE_REFERENCE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*")
-#: What may follow the closing quote of a whole shell word.
-_SHELL_WORD_END = frozenset(" \t\n;&|)")
-#: How far a `$(...)` is followed to find its closing parenthesis.
-_SHELL_SUBSTITUTION_MAX = 4000
-
-
-def _is_shell_substitution(suffix: str, content: str, value_start: int) -> bool:
-    """True when the WHOLE double-quoted word at `value_start` is fetched at run time.
-
-    Asked of the file's text, not of the value the pattern captured (counter-model
-    review, #1717). The pattern stops at the first quote of EITHER kind, so the
-    captured value of each of these is a clean `${DB_PASSWORD}` while the shell
-    assigns a password with a literal in it:
-
-        db_password="${DB_PASSWORD}'fixture-tail-9x"      an apostrophe inside the quotes
-        db_password="${DB_PASSWORD}"'fixture-tail-9x'     a second, adjacent segment
-        export 'db_password="${DB_PASSWORD}"'             all of it inside single quotes
-
-    So the substitution has to be followed to its own end, the closing quote has
-    to be the one that opened, and that quote has to END the shell word. Every
-    doubt resolves to "not exempt": a parenthesis that never closes, an odd
-    number of single quotes earlier on the line, anything after the quote.
-    """
-    if suffix not in SHELL_EXTENSIONS or content[value_start - 1 : value_start] != '"':
-        return False
-    line_start = content.rfind("\n", 0, value_start) + 1
-    if content.count("'", line_start, value_start) % 2:
-        return False  # the apparent assignment sits inside single-quoted text
-    if content.startswith("$(", value_start):
-        depth = 0
-        end = -1
-        for index in range(value_start + 1, min(len(content), value_start + _SHELL_SUBSTITUTION_MAX)):
-            char = content[index]
-            if char == "(":
-                depth += 1
-            elif char == ")":
-                depth -= 1
-                if depth == 0:
-                    end = index + 1
-                    break
-        if end < 0:
-            return False
-    else:
-        reference = _SHELL_BARE_REFERENCE.match(content, value_start)
-        if reference is None:
-            return False
-        end = reference.end()
-    if content[end : end + 1] != '"':
-        return False
-    after = content[end + 1 : end + 2]
-    return after == "" or after in _SHELL_WORD_END
-
-
 # File extensions to scan
 SCAN_EXTENSIONS = {
     ".py", ".js", ".ts", ".jsx", ".tsx", ".rb", ".go", ".java",
@@ -278,10 +192,6 @@ def scan(project_root: str) -> ScanResult:
             for match in re.finditer(pattern, content, re.IGNORECASE):
                 line_num = content[: match.start()].count("\n") + 1
                 value = match.group(1)
-                if finding_id == "HARDCODED_PASSWORD" and _is_shell_substitution(
-                    file_path.suffix, content, match.start(1)
-                ):
-                    continue
                 masked = value[:4] + "*" * min(16, len(value) - 4) if len(value) > 4 else "****"
                 result.findings.append(
                     Finding(
