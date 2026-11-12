@@ -385,3 +385,36 @@ counter-model review (gpt-6-astra) and all reproduced:
   and "I could not look" is rendered as "I looked and it is missing". The
   helper separates the two: `absent` exits 1, `unverified` exits 4, and the
   procedure STOPs on both.
+
+
+## The lanes check at approval (issue #1731)
+
+`approve` reads `.claude/lanes.md`. With no such file it does nothing: its
+output and exit code are byte for byte what they were before the check
+existed, which a test asserts against the previous helper. With one, the run's
+section must carry a `### Lanes for this change` table whose rows answer every
+listed lane with will test, will refuse, not applicable or not covered, or the
+single line `Lanes: none - <reason>`. Otherwise `approve` prints
+`FLOW_PLAN_RECORD: error - ...` naming what is missing, exits 1 and writes
+nothing: no snapshot, no baseline. A lane file that exists and cannot be read,
+or lists nothing, is refused the same way with `unknown:` in the reason. It is
+never treated as a project with no lanes.
+
+The check reads the lane file itself and does not load `lane-file.py`, because
+the Codex `flow-auto` bundle ships this helper without that file. The two
+readers are held together by a test that runs both over every state.
+
+**One block is outside the stability digest.** `### Lanes demonstrated` is
+written at Step 6, after approval. The digest stamped at approval leaves out
+that block, from its heading to the next heading of the same or a higher
+level, and nothing else. A line added below the block, above it, or to the
+approval table still reads as a changed plan. The block is left out so that
+recording results does not look like moving the goalposts; only the block,
+so that it cannot be used to move them.
+
+`compliance` then names, on stderr, each lane answered `will test` with no row
+in that block. It reports and does not refuse, and it speaks only for a record
+whose approval ran the lanes check, so a record approved earlier is never
+re-judged.
+
+Not checked: whether an answer is true.
