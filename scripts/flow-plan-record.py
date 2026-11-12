@@ -792,15 +792,19 @@ def restore_index(root: pathlib.Path | None, marked: list[str]) -> None:
     up. So every path THIS call marked is reset, on every exit - the comparison
     finishing, an UNKNOWN verdict, or an exception.
 
-    ONLY those paths. `marked` is the untracked set computed before the add, so
+    ONLY those entries. `marked` is the untracked set computed before the add, so
     a path the caller had already staged or marked intent-to-add is never in
     it: it was in the index, hence not untracked. A failed reset is said aloud
     and never changes the verdict, which is about the diff, not the cleanup.
     """
     if root is None or not marked:
         return
-    reset = subprocess.run(["git", "-C", str(root), "reset", "-q", "--", *marked],
-                           capture_output=True)
+    # REMOVE the entries, never `git reset` them: reset restores a path's HEAD
+    # entry, which would undo a caller's staged deletion (`git rm --cached f`
+    # leaves f on disk, so f is in the untracked set). And LITERAL pathspecs: a
+    # file named `*.txt` is a name, not a pattern over its neighbours.
+    reset = subprocess.run(["git", "--literal-pathspecs", "-C", str(root), "rm", "--cached",
+                            "--quiet", "--", *marked], capture_output=True)
     if reset.returncode != 0:
         print("flow-plan-record: could not undo the intent-to-add entries compliance created; "
               "`git status` will show new files as added. Undo with `git reset`.",
@@ -851,7 +855,8 @@ def _compliance(issue: str, base: str | None, state: dict[str, Any]) -> int:
     if untracked:
         # Recorded BEFORE the add, so a partly applied add is undone too.
         state["root"], state["marked"] = root, untracked
-        add = subprocess.run(["git", "-C", str(root), "add", "-N", "--", *untracked],
+        add = subprocess.run(["git", "--literal-pathspecs", "-C", str(root), "add", "-N", "--",
+                              *untracked],
                              capture_output=True)
         if add.returncode != 0:
             compliance_unknown("could not mark untracked files intent-to-add; this check "

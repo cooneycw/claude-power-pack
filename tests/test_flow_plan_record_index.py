@@ -162,3 +162,37 @@ def test_a_numbered_line_outside_section_c_is_not_reported(repo) -> None:
             elsewhere="1. Three tests, each red where it can be\n2. make lint before the gate")
     proc = helper(r, "approve", "42")
     assert "will read UNKNOWN" not in proc.stderr, proc.stderr
+
+
+# --- the cleanup must touch ONLY the entries compliance created ---------------
+# Both found by the counter-model review of the first cut, which used `git reset`.
+
+def test_a_staged_deletion_whose_file_is_still_on_disk_survives(repo) -> None:
+    """`git rm --cached f` leaves f on disk, so f is listed as untracked and
+    compliance marks it. `git reset -- f` would then restore f's HEAD entry and
+    undo the caller's staged deletion."""
+    r, base = repo
+    git(r, "rm", "--cached", "-q", "README.md")
+    before = index_state(r)
+    assert "D  README.md" in before[1] and "?? README.md" in before[1], f"precondition:\n{before[1]}"
+    proc = helper(r, "compliance", "42", "--base", base)
+    assert proc.returncode in (0, 3), proc.stdout + proc.stderr
+    assert index_state(r) == before
+
+
+def test_a_file_named_like_a_pattern_does_not_touch_its_neighbours(repo) -> None:
+    """A path is data. An untracked file literally named `*.txt`, passed to git
+    as a pathspec, matches every `.txt` file and would unstage the caller's
+    staged change to a neighbour."""
+    r, base = repo
+    (r / "notes.txt").write_text("v1\n")
+    git(r, "add", "notes.txt")
+    git(r, "commit", "-qm", "notes")
+    (r / "notes.txt").write_text("v2 staged by the caller\n")
+    git(r, "add", "notes.txt")
+    (r / "*.txt").write_text("a file whose name is a glob\n")
+    before = index_state(r)
+    assert "M  notes.txt" in before[1] and "?? *.txt" in before[1], f"precondition:\n{before[1]}"
+    proc = helper(r, "compliance", "42", "--base", base)
+    assert proc.returncode in (0, 3), proc.stdout + proc.stderr
+    assert index_state(r) == before
