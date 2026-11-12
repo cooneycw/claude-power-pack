@@ -11,8 +11,10 @@ What these tests hold still, in order of what would hurt most if it moved:
 - A project with NO lane file gets byte-identical output to the helper before
   this change. That is every repository but one today.
 - A lane file that exists and cannot be used never reads as "no lanes".
-- The stability digest leaves out the `Lanes demonstrated` block and nothing
-  else, so the block cannot be used to hide a plan edit.
+- The stability digest is untouched: the digest code is main's, character for
+  character, and old and new helper stamp the same digest for every record.
+  What was demonstrated goes in a file of its own, so no part of an approved
+  record is ever outside the digest.
 - The close-time note is stderr only and changes no verdict.
 
 Not checked anywhere, by design: whether an answer is true.
@@ -368,116 +370,6 @@ def test_the_lane_file_is_found_from_a_linked_worktree(tmp_path: Path) -> None:
     assert done.returncode == 1 and "has no lanes table" in done.stdout
 
 
-# --- the stability digest leaves out one block and only that block -----------
-
-DEMONSTRATED = """
-### Lanes demonstrated
-
-| Lane | What happened |
-|---|---|
-| Checkout | tested in a linked worktree |
-| Harness | tested through a symlink |
-"""
-
-
-def approved(repo: Path, section: str = PLAN + FULL_TABLE) -> Path:
-    record = begin(repo, section)
-    assert run(repo, "approve", "42").returncode == 0
-    git(repo, "add", "-A")
-    git(repo, "commit", "-qm", "plan")
-    return record
-
-
-def stability(repo: Path) -> str:
-    base = git(repo, "rev-parse", "main").strip()
-    out = run(repo, "compliance", "42", "--base", base).stdout
-    return next(ln for ln in out.splitlines() if ln.startswith("PLAN_RECORD_STABILITY:"))
-
-
-def test_adding_the_demonstrated_block_does_not_read_as_a_changed_plan(repo: Path) -> None:
-    record = approved(repo)
-    assert "unchanged" in stability(repo), "precondition"
-    with record.open("a") as fh:
-        fh.write(DEMONSTRATED)
-    assert "unchanged" in stability(repo)
-
-
-def test_a_plan_line_added_after_the_block_still_reads_as_changed(repo: Path) -> None:
-    """The block must not be a place to hide an edit: only the block itself is
-    outside the digest, not everything below its heading."""
-    record = approved(repo)
-    with record.open("a") as fh:
-        fh.write(DEMONSTRATED + "\n### Section C addendum\n  2. `src/other.py` - slipped in later\n")
-    assert "CHANGED" in stability(repo)
-
-
-def test_a_plan_line_added_before_the_block_still_reads_as_changed(repo: Path) -> None:
-    record = approved(repo)
-    text = record.read_text().replace("Scope: 1 file", "  2. `src/other.py` - slipped in\nScope: 1 file")
-    record.write_text(text + DEMONSTRATED)
-    assert "CHANGED" in stability(repo)
-
-
-def test_an_edit_to_the_approval_table_still_reads_as_changed(repo: Path) -> None:
-    record = approved(repo)
-    record.write_text(record.read_text().replace("| Checkout | will test |", "| Checkout | not covered |")
-                      + DEMONSTRATED)
-    assert "CHANGED" in stability(repo)
-
-
-def test_a_record_stamped_before_this_change_keeps_its_digest(tmp_path: Path) -> None:
-    """Records approved before this lands are not re-judged: the old helper's
-    stamp is the new helper's digest for a section with no demonstrated block."""
-    r = make_repo(tmp_path / "wt", lanes=None)
-    begin(r, PLAN + FULL_TABLE, helper=BEFORE)
-    assert run(r, "approve", "42", helper=BEFORE).returncode == 0
-    git(r, "add", "-A")
-    git(r, "commit", "-qm", "plan")
-    assert "unchanged" in stability(r)
-
-
-# --- the close-time note -----------------------------------------------------
-
-def compliance(repo: Path) -> subprocess.CompletedProcess:
-    return run(repo, "compliance", "42", "--base", git(repo, "rev-parse", "main").strip())
-
-
-def test_a_will_test_lane_with_no_demonstrated_row_is_named_on_stderr(repo: Path) -> None:
-    record = approved(repo)
-    quiet = compliance(repo)
-    assert "has no row under `### Lanes demonstrated` - Checkout" in quiet.stderr
-    assert "- Harness" in quiet.stderr
-    assert "Project state" not in quiet.stderr, "not applicable owes no row"
-    with record.open("a") as fh:
-        fh.write(DEMONSTRATED.replace("| Harness | tested through a symlink |\n", ""))
-    partial = compliance(repo)
-    assert "- Harness" in partial.stderr and "- Checkout" not in partial.stderr
-    assert "Lanes demonstrated" not in partial.stdout, "the note is stderr only"
-    assert partial.returncode == quiet.returncode, "the note changes no verdict"
-
-
-def test_every_will_test_lane_demonstrated_draws_no_note(repo: Path) -> None:
-    record = approved(repo)
-    with record.open("a") as fh:
-        fh.write(DEMONSTRATED)
-    assert "Lanes demonstrated" not in compliance(repo).stderr
-
-
-def test_a_record_approved_before_the_check_draws_no_note(tmp_path: Path) -> None:
-    """Not re-judged: approved by the old helper, checked at close by the new."""
-    r = make_repo(tmp_path / "wt")
-    begin(r, PLAN + FULL_TABLE, helper=BEFORE)
-    assert run(r, "approve", "42", helper=BEFORE).returncode == 0
-    git(r, "add", "-A")
-    git(r, "commit", "-qm", "plan")
-    assert "Lanes demonstrated" not in compliance(r).stderr
-
-
-def test_a_waived_plan_draws_no_note(repo: Path) -> None:
-    approved(repo, PLAN + "\nLanes: none - documentation only\n")
-    assert "Lanes demonstrated" not in compliance(repo).stderr
-
-
 # --- found by the counter-model review ---------------------------------------
 # Each of these was approved, or hidden from the digest, by the first cut.
 
@@ -495,16 +387,6 @@ def test_an_example_inside_a_code_fence_does_not_answer_for_the_plan(repo: Path,
     done = run(repo, "approve", "42")
     assert done.returncode == 1 and "has no lanes table" in done.stdout, done.stdout + done.stderr
     assert "WAIVED" not in done.stderr
-
-
-def test_a_fenced_demonstrated_heading_does_not_open_the_digest(repo: Path) -> None:
-    """A quoted `### Lanes demonstrated` is example text that was approved.
-    Editing what follows it must read as a changed plan."""
-    example = "\n```markdown\n### Lanes demonstrated\n\nthe approved example text\n```\n"
-    record = approved(repo, PLAN + FULL_TABLE + example)
-    assert "unchanged" in stability(repo), "precondition"
-    record.write_text(record.read_text().replace("the approved example text", "something else"))
-    assert "CHANGED" in stability(repo)
 
 
 def test_a_delimiter_row_with_no_header_is_not_a_table(repo: Path) -> None:
@@ -557,85 +439,6 @@ def test_a_lane_file_listing_one_name_twice_is_unknown(tmp_path: Path) -> None:
     assert done.returncode == 1 and "unknown: " in done.stdout and "same name" in done.stdout
 
 
-# The digest changes ONLY for a baseline whose approval ran the lanes check.
-
-WITH_BLOCK = PLAN + FULL_TABLE + DEMONSTRATED
-
-
-def test_with_no_lane_file_the_digest_is_the_old_digest_unmasked(tmp_path: Path) -> None:
-    """One repository, one run, one record that already carries a
-    `Lanes demonstrated` heading: the old helper and the new must stamp the
-    SAME 64 characters. The first cut left the block out for everyone."""
-    r = make_repo(tmp_path / "wt", lanes=None)
-    begin(r, WITH_BLOCK, helper=BEFORE)
-    old = run(r, "approve", "42", helper=BEFORE)
-    new = run(r, "approve", "42")
-    assert old.returncode == 0 and new.returncode == 0
-    assert "baseline stamped" in old.stdout
-    assert old.stdout == new.stdout and old.stderr == new.stderr
-
-
-def test_a_baseline_stamped_by_the_old_helper_is_still_unchanged_for_the_new(tmp_path: Path) -> None:
-    for lanes in (None, LANES):
-        r = make_repo(tmp_path / f"wt-{bool(lanes)}", lanes=lanes)
-        begin(r, WITH_BLOCK, helper=BEFORE)
-        assert run(r, "approve", "42", helper=BEFORE).returncode == 0
-        git(r, "add", "-A")
-        git(r, "commit", "-qm", "plan")
-        assert "unchanged" in stability(r)
-
-
-def test_without_the_lanes_check_the_block_is_digested_like_any_text(tmp_path: Path) -> None:
-    """No lane file, or a waived plan: nothing was promised about that block,
-    so adding one after approval reads as the change it is."""
-    r = make_repo(tmp_path / "wt", lanes=None)
-    record = approved(r, PLAN)
-    with record.open("a") as fh:
-        fh.write(DEMONSTRATED)
-    assert "CHANGED" in stability(r)
-
-
-def test_a_legacy_record_approved_under_the_check_may_gain_the_block(repo: Path) -> None:
-    """A record with no run markers is hashed whole. Approved under the lanes
-    check, it gets the same one-block allowance as a marked run."""
-    record = repo / "docs" / "flow-runs" / "issue-42.md"
-    record.parent.mkdir(parents=True)
-    record.write_text("# Flow run record - issue #42\n" + PLAN + FULL_TABLE)
-    assert not (Path(git(repo, "rev-parse", "--absolute-git-dir").strip()) / "flow-run-42").exists()
-    done = run(repo, "approve", "42")
-    assert "baseline stamped" in done.stdout, done.stdout + done.stderr
-    git(repo, "add", "-A")
-    git(repo, "commit", "-qm", "plan")
-    assert "unchanged" in stability(repo), "precondition"
-    with record.open("a") as fh:
-        fh.write(DEMONSTRATED)
-    assert "unchanged" in stability(repo)
-    with record.open("a") as fh:
-        fh.write("\n### Later\n  2. `src/other.py` - slipped in\n")
-    assert "CHANGED" in stability(repo)
-
-
-# --- second review pass: the digest must not depend on spotting every heading
-
-@pytest.mark.parametrize("addendum", [
-    "\n   ### Section C addendum\n  2. `src/other.py` - slipped in\n",
-    "\nSection C addendum\n------------------\n  2. `src/other.py` - slipped in\n",
-    "\n  2. `src/other.py` - slipped in with no heading at all\n",
-    "\n```\n  2. `src/other.py` - slipped in inside a fence\n```\n",
-    "\n#### A deeper heading\n  2. `src/other.py` - slipped in\n",
-], ids=["indented-heading", "setext-heading", "no-heading", "fenced", "deeper-heading"])
-def test_whatever_follows_the_demonstrated_table_is_digested(repo: Path, addendum: str) -> None:
-    """Only the heading and its table are outside the digest. The end of the
-    exemption is the end of the table, however the next thing is spelled."""
-    record = approved(repo)
-    with record.open("a") as fh:
-        fh.write(DEMONSTRATED)
-    assert "unchanged" in stability(repo), "precondition: the table alone is allowed"
-    with record.open("a") as fh:
-        fh.write(addendum)
-    assert "CHANGED" in stability(repo)
-
-
 def test_an_indented_lanes_heading_is_still_the_heading(repo: Path) -> None:
     begin(repo, PLAN + FULL_TABLE.replace("### Lanes for this change", "  ### Lanes for this change"))
     assert run(repo, "approve", "42").returncode == 0
@@ -651,18 +454,179 @@ def test_a_backtick_line_that_cannot_open_a_fence_does_not_unquote_what_follows(
     assert done.returncode == 1 and "has no lanes table" in done.stdout, done.stdout
 
 
-def test_a_path_in_a_demonstrated_row_is_not_a_planned_file(repo: Path) -> None:
-    """The table rows are the one thing outside the digest, so a planned file
-    written into one is not digested. It is also not a Section C item:
-    compliance still calls the file unplanned, and hiding it there gains
-    nothing."""
+# --- the stability digest is main's, exactly ---------------------------------
+# What a run demonstrated is written to a sibling file. An earlier design kept
+# it inside the record and left that part out of the digest; three review
+# passes each found another way to hide a plan edit in the part left out
+# (a fenced heading, an indented heading, a numbered plan line with a pipe).
+# So nothing is left out, and these tests hold the digest still.
+
+DEMONSTRATED = """# Lanes demonstrated - issue #42
+
+| Lane | What happened |
+|---|---|
+| Checkout | tested in a linked worktree |
+| Harness | tested through a symlink |
+"""
+
+IN_RECORD_BLOCK = "\n### Lanes demonstrated\n\n| Lane | What happened |\n|---|---|\n| Checkout | x |\n"
+
+
+def _function_source(path: Path, name: str) -> str:
+    import ast
+    src = path.read_text()
+    node = next(n for n in ast.parse(src).body if isinstance(n, ast.FunctionDef) and n.name == name)
+    return "\n".join(src.split("\n")[node.lineno - 1:node.end_lineno])
+
+
+@pytest.mark.parametrize("name", ["section_digest", "stability_check", "split_runs", "select_run"])
+def test_the_digest_code_is_the_code_before_this_change(name: str) -> None:
+    """Mechanical, not by reading: the source text of each function the digest
+    runs through is identical in the helper and in the pre-change anchor."""
+    assert _function_source(HELPER, name) == _function_source(BEFORE, name)
+
+
+def test_approve_stamps_the_baseline_with_the_same_statements() -> None:
+    new, old = _function_source(HELPER, "cmd_approve"), _function_source(BEFORE, "cmd_approve")
+    tail = lambda s: s[s.index("    # The baseline is THIS RUN'S SECTION"):]   # noqa: E731
+    assert tail(new) == tail(old)
+
+
+@pytest.mark.parametrize("lanes", [None, LANES], ids=["no-lane-file", "lane-file"])
+@pytest.mark.parametrize("section", [PLAN + FULL_TABLE, PLAN + FULL_TABLE + IN_RECORD_BLOCK,
+                                     PLAN + "\nLanes: none - documentation only\n",
+                                     PLAN + FENCED_TABLE + FULL_TABLE],
+                         ids=["table", "table-and-an-in-record-block", "waived", "fenced-and-real"])
+@pytest.mark.parametrize("sibling", [False, True], ids=["no-demonstrated-file", "demonstrated-file"])
+def test_old_and_new_helper_stamp_the_same_digest(tmp_path: Path, lanes, section, sibling) -> None:
+    """One repository, one run, one record: the old helper's stamp and the new
+    helper's, unmasked, for every record shape the new helper approves."""
+    r = make_repo(tmp_path / "wt", lanes=lanes)
+    begin(r, section, helper=BEFORE)
+    if sibling:
+        (r / "docs" / "flow-runs" / "issue-42.lanes-demonstrated.md").write_text(DEMONSTRATED)
+    old = run(r, "approve", "42", helper=BEFORE)
+    new = run(r, "approve", "42")
+    assert old.returncode == 0 and new.returncode == 0, old.stdout + new.stdout + new.stderr
+    assert re.search(r"baseline stamped [0-9a-f]{64}", old.stdout)
+    assert old.stdout == new.stdout
+
+
+def approved(repo: Path, section: str = PLAN + FULL_TABLE) -> Path:
+    record = begin(repo, section)
+    assert run(repo, "approve", "42").returncode == 0
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "plan")
+    return record
+
+
+def compliance(repo: Path) -> subprocess.CompletedProcess:
+    return run(repo, "compliance", "42", "--base", git(repo, "rev-parse", "main").strip())
+
+
+def stability(repo: Path) -> str:
+    return next(ln for ln in compliance(repo).stdout.splitlines()
+                if ln.startswith("PLAN_RECORD_STABILITY:"))
+
+
+@pytest.mark.parametrize("edit", [
+    IN_RECORD_BLOCK,
+    IN_RECORD_BLOCK + "  2. `src/other.py` - slipped in | evidence\n",
+    "\n   ### Section C addendum\n  2. `src/other.py` - slipped in\n",
+    "\n",
+], ids=["an-in-record-block", "the-pass-3-finding", "indented-heading", "one-blank-line-kept-quiet"])
+def test_any_edit_to_an_approved_record_reads_as_changed(repo: Path, edit: str) -> None:
+    """No part of the record is outside the digest - including a block named
+    `Lanes demonstrated`, which was the exempt one in the earlier design."""
     record = approved(repo)
+    assert "unchanged" in stability(repo), "precondition"
     with record.open("a") as fh:
-        fh.write(DEMONSTRATED + "| Project state | 3. `src/smuggled.py` - a planned file |\n")
-    (repo / "src").mkdir()
-    (repo / "src" / "app.py").write_text("a\n")
-    (repo / "src" / "smuggled.py").write_text("s\n")
+        fh.write(edit)
+    assert ("unchanged" if edit == "\n" else "CHANGED") in stability(repo)
+
+
+def test_writing_the_demonstrated_file_does_not_touch_the_stability_verdict(repo: Path) -> None:
+    approved(repo)
+    (repo / "docs" / "flow-runs" / "issue-42.lanes-demonstrated.md").write_text(DEMONSTRATED)
+    assert "unchanged" in stability(repo)
+
+
+# --- the close-time note -----------------------------------------------------
+
+SIBLING = Path("docs") / "flow-runs" / "issue-42.lanes-demonstrated.md"
+
+
+def test_no_demonstrated_file_is_reported_with_the_lanes_owed(repo: Path) -> None:
+    approved(repo)
     done = compliance(repo)
-    assert "PLAN_RECORD_STABILITY: unchanged" in done.stdout, "precondition: the row is outside the digest"
-    assert "TOUCHED BUT NOT PLANNED: src/smuggled.py" in done.stdout, done.stdout
-    assert "TOUCHED BUT NOT PLANNED: src/app.py" not in done.stdout
+    assert f"no {SIBLING} - this plan answered `will test` for Checkout, Harness" in done.stderr
+    assert "Project state" not in done.stderr, "not applicable owes no row"
+    assert "lanes-demonstrated" not in done.stdout, "the note is stderr only"
+
+
+def test_a_will_test_lane_with_no_row_is_named(repo: Path) -> None:
+    approved(repo)
+    quiet = compliance(repo)
+    (repo / SIBLING).write_text(DEMONSTRATED.replace("| Harness | tested through a symlink |\n", ""))
+    partial = compliance(repo)
+    assert f"has no row in {SIBLING} - Harness" in partial.stderr
+    assert "- Checkout" not in partial.stderr
+    assert partial.stdout.replace("\n", "") != "" and partial.returncode == quiet.returncode
+    (repo / SIBLING).write_text(DEMONSTRATED.replace("tested through a symlink", " "))
+    assert f"has no row in {SIBLING} - Harness" in compliance(repo).stderr, "an empty cell is no row"
+
+
+def test_every_will_test_lane_demonstrated_draws_no_note(repo: Path) -> None:
+    approved(repo)
+    (repo / SIBLING).write_text(DEMONSTRATED)
+    assert "lanes-demonstrated" not in compliance(repo).stderr
+
+
+@pytest.mark.parametrize("kind", ["directory", "dangling symlink", "not text"])
+def test_an_unreadable_demonstrated_file_is_unreadable_not_missing(repo: Path, kind: str) -> None:
+    approved(repo)
+    path = repo / SIBLING
+    if kind == "directory":
+        path.mkdir()
+    elif kind == "dangling symlink":
+        path.symlink_to(repo / "nowhere.md")
+    else:
+        path.write_bytes(b"\xff\xfe\x00\x80")
+    done = compliance(repo)
+    assert f"no {SIBLING}" not in done.stderr, "an unreadable file was reported as missing"
+    assert "cannot be checked against what was demonstrated" in done.stderr
+    assert "Checkout, Harness" in done.stderr
+
+
+def test_rows_quoted_in_a_code_fence_are_not_rows(repo: Path) -> None:
+    approved(repo)
+    (repo / SIBLING).write_text("# Example\n\n```\n" + DEMONSTRATED + "```\n")
+    assert f"has no row in {SIBLING} - Checkout" in compliance(repo).stderr
+
+
+@pytest.mark.parametrize("why", ["no-lane-file", "waived", "nothing-will-test"])
+def test_the_note_is_silent_where_nothing_is_owed(tmp_path: Path, why: str) -> None:
+    section = PLAN + FULL_TABLE
+    if why == "waived":
+        section = PLAN + "\nLanes: none - documentation only\n"
+    elif why == "nothing-will-test":
+        section = PLAN + FULL_TABLE.replace("will test (Claude install); not covered (Codex install)",
+                                            "not covered").replace("| Checkout | will test |",
+                                                                   "| Checkout | will refuse |")
+    r = make_repo(tmp_path / "wt", lanes=None if why == "no-lane-file" else LANES)
+    approved(r, section)
+    done = compliance(r)
+    assert "lanes-demonstrated" not in done.stderr and "demonstrated" not in done.stderr
+
+
+def test_the_note_never_changes_compliances_stdout_or_exit(tmp_path: Path) -> None:
+    """Same record through the old helper's compliance and the new one's:
+    stdout and exit code identical; only stderr differs, by the note."""
+    r = make_repo(tmp_path / "wt")
+    approved(r)
+    base = git(r, "rev-parse", "main").strip()
+    old = run(r, "compliance", "42", "--base", base, helper=BEFORE)
+    new = run(r, "compliance", "42", "--base", base)
+    strip = lambda s: re.sub(r"FLOW_PLAN_RECORD_SELF: .*\n", "", s)   # noqa: E731
+    assert strip(old.stdout) == strip(new.stdout) and old.returncode == new.returncode
+    assert "lanes-demonstrated" in new.stderr and "lanes-demonstrated" not in old.stderr

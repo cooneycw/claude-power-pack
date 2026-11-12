@@ -247,7 +247,6 @@ def select_run(text: str, run_id: str | None) -> tuple[str | None, str]:
 LANE_FILE_REL = pathlib.Path(".claude") / "lanes.md"
 LANE_ANSWERS = ("will test", "will refuse", "not applicable", "not covered")
 LANES_HEADING_RE = re.compile(r"^ {0,3}(#{2,6})[ \t]+Lanes for this change[ \t]*$", re.M)
-DEMONSTRATED_HEADING_RE = re.compile(r"^ {0,3}(#{2,6})[ \t]+Lanes demonstrated[ \t]*$", re.M)
 HEADING_RE = re.compile(r"^ {0,3}(#{1,6})[ \t]+\S", re.M)
 LANES_WAIVED_RE = re.compile(r"^Lanes:[ \t]*none[ \t]*-[ \t]*(\S.*?)[ \t]*$", re.M)
 LANES_WAIVED_BARE_RE = re.compile(r"^Lanes:[ \t]*none[ \t]*-?[ \t]*$", re.M)
@@ -259,10 +258,9 @@ FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 def outside_fences(text: str) -> str:
     """`text` with every line inside a fenced code block blanked, same length.
 
-    A plan record quotes examples. A lanes table, a waiver line or a
-    `Lanes demonstrated` heading inside a code fence is an EXAMPLE of one: it
-    must not answer for the plan, and it must not open a hole in the stability
-    digest. Offsets are preserved, so a span found here indexes the original."""
+    A plan record quotes examples. A lanes table or a waiver line inside a code
+    fence is an EXAMPLE of one and must not answer for the plan. Offsets are
+    preserved, so a span found here indexes the original."""
     out: list[str] = []
     fence: str | None = None
     for line in text.splitlines(keepends=True):
@@ -300,34 +298,6 @@ def heading_block(text: str, heading: re.Pattern[str]) -> tuple[int, int] | None
         if len(nxt.group(1)) <= level:
             return found.start(), nxt.start()
     return found.start(), len(text)
-
-
-def without_demonstrated(section: str) -> str:
-    """`section` minus its `Lanes demonstrated` heading and the table under it,
-    and nothing else.
-
-    That table is written at Step 6, after approval, so it is the one part of a
-    run's section the stability digest of a lanes-checked record does not cover
-    (#1731). What is left out is defined by what it IS, not by where the next
-    heading falls: the heading line, then blank lines and table lines (lines
-    carrying a pipe), stopping at the first line that is neither. Prose, a
-    heading in any spelling, a code fence, a new Section C line - whatever
-    follows the table is digested. Deciding the end by "the next heading" made
-    the digest depend on recognising every way markdown can write one, and each
-    one missed was a place to hide a plan edit."""
-    visible = outside_fences(section)
-    found = DEMONSTRATED_HEADING_RE.search(visible)
-    if not found:
-        return section
-    end = found.end()
-    # Walk the ORIGINAL text: in the fence-blanked copy a quoted line looks
-    # blank and would be swallowed.
-    for line in re.finditer(r"\n([^\n]*)", section[found.end():]):
-        text = line.group(1)
-        if text.strip() and "|" not in text:
-            break
-        end = found.end() + line.end()
-    return section[:found.start()] + section[end:]
 
 
 TABLE_RULE_RE = re.compile(r"^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$")
@@ -378,8 +348,8 @@ class LanesUnusable(Exception):
     """A lane file exists, or may exist, and its list cannot be read."""
 
 
-def read_lane_text(path: pathlib.Path) -> str | None:
-    """The lane file's text, or None when it is ESTABLISHED not to exist.
+def read_text_file(path: pathlib.Path, rel: object) -> str | None:
+    """A file's text, or None when it is ESTABLISHED not to exist.
 
     The same three answers, drawn at the same lines, as `read_lane_file` in
     `lane-file.py` - absent, readable, and everything between, which raises.
@@ -393,21 +363,26 @@ def read_lane_text(path: pathlib.Path) -> str | None:
     except FileNotFoundError:
         return None
     except NotADirectoryError as exc:
-        raise LanesUnusable(f"a parent of {LANE_FILE_REL} is not a directory") from exc
+        raise LanesUnusable(f"a parent of {rel} is not a directory") from exc
     except OSError as exc:
-        raise LanesUnusable(f"{LANE_FILE_REL} could not be examined ({exc.strerror})") from exc
+        raise LanesUnusable(f"{rel} could not be examined ({exc.strerror})") from exc
     if stat.S_ISLNK(info.st_mode):
         try:
             info = os.stat(path)
         except OSError as exc:
             raise LanesUnusable(
-                f"{LANE_FILE_REL} is a symlink whose target cannot be read") from exc
+                f"{rel} is a symlink whose target cannot be read") from exc
     if not stat.S_ISREG(info.st_mode):
-        raise LanesUnusable(f"{LANE_FILE_REL} is not a regular file")
+        raise LanesUnusable(f"{rel} is not a regular file")
     try:
         return path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
-        raise LanesUnusable(f"{LANE_FILE_REL} could not be read ({type(exc).__name__})") from exc
+        raise LanesUnusable(f"{rel} could not be read ({type(exc).__name__})") from exc
+
+
+def read_lane_text(path: pathlib.Path) -> str | None:
+    """The lane file's text; see `read_text_file` for the three answers."""
+    return read_text_file(path, LANE_FILE_REL)
 
 
 def project_lanes(root: pathlib.Path) -> list[str] | None:
@@ -470,38 +445,15 @@ def lanes_refusal(section: str, lanes: list[str]) -> tuple[str | None, str | Non
     return None, None
 
 
-def section_digest(section: str, lanes_checked: bool = False) -> str:
+def section_digest(section: str) -> str:
     """sha256 of a run's section, blind to trailing blank lines ONLY.
 
     A section ends where the next run's marker begins, and appending that run adds
     a separating blank line to the END of this one. Without this, run 2 appending
     tripped run 1's stability check - the exact defect #1320 fixes, reintroduced by
     whitespace. Any other edit inside the section still changes the digest.
-
-    `lanes_checked` selects the digest a lanes-checked approval stamps (#1731):
-    the same, minus the `Lanes demonstrated` block. It is chosen by the
-    baseline's own third word and never by the record's content, so a record
-    approved without the check - every project with no lane file, and every
-    record stamped before the check existed - is hashed exactly as it always
-    was, whatever headings it happens to contain."""
-    if lanes_checked:
-        section = without_demonstrated(section)
+    """
     return hashlib.sha256(section.rstrip("\n").encode("utf-8")).hexdigest()
-
-
-def record_digest(plan: pathlib.Path, run_id: str | None, section: str | None,
-                  lanes_checked: bool) -> str:
-    """The digest approval stamps and the stability check recomputes."""
-    if run_id is None:
-        # A legacy record (no run markers) is hashed whole, raw, as it always was -
-        # unless its approval ran the lanes check, when the one block is left out.
-        if lanes_checked:
-            # Blind to trailing blank lines, like a run's section: the block is
-            # appended after one, and removing the block leaves it behind.
-            return hashlib.sha256(without_demonstrated(plan.read_text()).rstrip("\n")
-                                  .encode("utf-8")).hexdigest()
-        return hashlib.sha256(plan.read_bytes()).hexdigest()
-    return section_digest(section or "", lanes_checked)
 
 
 def run_identity() -> tuple[str, str]:
@@ -805,7 +757,6 @@ def cmd_approve(issue: str) -> int:
     # (#1731). Refused BEFORE anything is written, through the line this
     # subcommand already prints for a record it cannot stamp. No lane file:
     # nothing is read, printed or changed.
-    lanes_checked = False
     try:
         lanes = project_lanes(root)
     except LanesUnusable as exc:
@@ -822,8 +773,6 @@ def cmd_approve(issue: str) -> int:
             # reason is a good one is theirs to judge; nothing here judges it.
             print(f"flow-plan-record: lane table WAIVED for this plan - Lanes: none - {waiver}",
                   file=sys.stderr)
-        else:
-            lanes_checked = True
 
     # Say NOW what Step 6 would otherwise discover (#1713): a numbered Section C
     # line compliance cannot turn into a path makes the whole comparison UNKNOWN.
@@ -896,12 +845,11 @@ def cmd_approve(issue: str) -> int:
     # The baseline is THIS RUN'S SECTION, not the whole file: a later run appending
     # its own section must not trip this run's stability check (w1, #1320). A legacy
     # record keeps the whole-file digest it always had.
-    stamp = record_digest(plan, run_id, section, lanes_checked)
-    # A third word marks a baseline whose lanes table was checked at approval, so
-    # the close-time report speaks only to records approved under the check and
-    # never re-judges an earlier one. Readers take the first two words.
-    mark = " lanes" if lanes_checked else ""
-    (git_dir() / f"flow-plan-baseline-{issue}").write_text(f"{stamp} {run_id or '-'}{mark}\n")
+    if run_id is None:
+        stamp = hashlib.sha256(plan.read_bytes()).hexdigest()
+    else:
+        stamp = section_digest(section)
+    (git_dir() / f"flow-plan-baseline-{issue}").write_text(f"{stamp} {run_id or '-'}\n")
     print(f"FLOW_PLAN_RECORD: baseline stamped {stamp}")
     return code
 
@@ -1115,37 +1063,67 @@ def cmd_compliance(issue: str, base: str | None) -> int:
         report_undemonstrated_lanes(issue)
 
 
-def undemonstrated_lanes(section: str) -> list[str]:
-    """Lanes answered `will test` at approval with no row saying what happened."""
-    planned = lane_answers(section, LANES_HEADING_RE) or {}
-    shown = lane_answers(section, DEMONSTRATED_HEADING_RE) or {}
+def demonstrated_rel(issue: str) -> str:
+    return f"docs/flow-runs/issue-{issue}.lanes-demonstrated.md"
+
+
+def will_test_lanes(section: str) -> list[str]:
+    """Lane names, as the plan wrote them, answered `will test` at approval."""
     span = heading_block(section, LANES_HEADING_RE)
-    names = ({lane_key(r[0]): r[0] for r in table_rows(section[span[0]:span[1]]) if r}
-             if span else {})
-    return [names.get(key, key) for key, cell in planned.items()
-            if re.sub(r"^[`*_ ]+", "", cell).casefold().startswith("will test")
-            and not shown.get(key, "").strip()]
+    if span is None:
+        return []
+    return [row[0] for row in table_rows(section[span[0]:span[1]])
+            if len(row) > 1 and lane_key(row[0])
+            and re.sub(r"^[`*_ ]+", "", row[1]).casefold().startswith("will test")]
 
 
 def report_undemonstrated_lanes(issue: str) -> None:
     """Close-time half of #1731: REPORT, on stderr, never a verdict.
 
-    Compliance's stdout and exit code are what callers read and they do not
-    change. Speaks only for a record whose approval ran the lanes check (the
-    baseline's third word), so nothing approved earlier is re-judged. Any
-    failure to look is silence: this is a note, and a note that can break the
-    step it annotates is worse than no note."""
+    What happened in each lane the plan said it would test is written to
+    `docs/flow-runs/issue-<N>.lanes-demonstrated.md`, a file of its own. It is
+    NOT part of the plan record, so the stability digest never has to decide
+    which part of an approved record may change afterwards: none of it may.
+    (A first design kept the rows inside the record and left them out of the
+    digest; three review passes each found another way to hide a plan edit in
+    the part left out.)
+
+    Speaks only where the project lists lanes and this run's section carries a
+    lanes table. Compliance's stdout and exit code are what callers read and
+    they do not change; any failure to look is silence, because a note that can
+    break the step it annotates is worse than no note."""
     try:
-        words = (git_dir() / f"flow-plan-baseline-{issue}").read_text().split()
-        if len(words) < 3 or words[2] != "lanes":
+        root = toplevel()
+        try:
+            if project_lanes(root) is None:
+                return
+        except LanesUnusable:
             return
-        section, _why = select_run((toplevel() / record_rel(issue)).read_text(),
-                                   current_run_id(issue))
+        section, _why = select_run((root / record_rel(issue)).read_text(), current_run_id(issue))
         if section is None:
             return
-        for lane in undemonstrated_lanes(section):
-            print(f"flow-plan-record: lane answered `will test` at approval has no row under "
-                  f"`### Lanes demonstrated` - {lane}", file=sys.stderr)
+        owed = will_test_lanes(section)
+        if not owed:
+            return
+        rel = demonstrated_rel(issue)
+        try:
+            text = read_text_file(root / rel, rel)
+        except LanesUnusable as exc:
+            print(f"flow-plan-record: {exc}, so the lanes this plan said it would test "
+                  f"({', '.join(owed)}) cannot be checked against what was demonstrated",
+                  file=sys.stderr)
+            return
+        if text is None:
+            print(f"flow-plan-record: no {rel} - this plan answered `will test` for "
+                  f"{', '.join(owed)}. Write that file with a table, one row per lane, saying "
+                  "what was demonstrated", file=sys.stderr)
+            return
+        shown = {lane_key(row[0]) for row in table_rows(text)
+                 if len(row) > 1 and lane_key(row[0]) and row[1].strip()}
+        for lane in owed:
+            if lane_key(lane) not in shown:
+                print(f"flow-plan-record: lane answered `will test` at approval has no row in "
+                      f"{rel} - {lane}", file=sys.stderr)
     except Exception:           # noqa: BLE001 - see the docstring
         return
 
@@ -1521,13 +1499,13 @@ def stability_check(issue: str, plan: pathlib.Path) -> int:
     if stamped_run != run_id:
         return stability_unknown(f"the stability digest belongs to a different run "
                                  f"({stamped_run or 'legacy'}), not this one ({run_id or 'legacy'})")
-    lanes_checked = len(words) > 2 and words[2] == "lanes"
-    section = None
-    if run_id is not None:
+    if run_id is None:
+        current = hashlib.sha256(plan.read_bytes()).hexdigest()
+    else:
         section, why = select_run(plan.read_text(), run_id)
         if section is None:
             return stability_unknown(why)
-    current = record_digest(plan, run_id, section, lanes_checked)
+        current = section_digest(section)
     if current == was:
         print("PLAN_RECORD_STABILITY: unchanged since it was approved at Step 4")
         return OK

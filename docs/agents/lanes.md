@@ -75,12 +75,10 @@ change. In `/flow:auto` the table goes in the plan record under a
 
 ## At close
 
-In `/flow:auto` the plan record gains a `### Lanes demonstrated` table at Step
-6, one row per lane answered `will test`, saying what happened. It is the one
-part of a run's section that may be added after approval without the
-stability check reading the plan as changed. The allowance is the heading and
-the table under it, nothing more: a sentence of prose below the table reads as
-a change to the plan, so put what happened in the table rows.
+In `/flow:auto`, what happened goes in a file of its own at Step 6,
+`docs/flow-runs/issue-<N>.lanes-demonstrated.md`: a table with one row per
+lane answered `will test`. It is deliberately not part of the plan record,
+which must not change after approval.
 
 The closing report's Evidence carries the same rows with what happened. A row
 whose result differs from the approved answer is explained. In
@@ -138,8 +136,9 @@ committed cases in `controls/flow-plan-record-lanes`). A lane file that exists
 and cannot be read refuses too, as unknown. The one-line form above
 (`Lanes: none - <reason>`) is accepted with a reason and announced on stderr;
 nothing judges the reason. At close, `compliance` names on stderr each lane
-answered `will test` that has no row under a `### Lanes demonstrated` heading
-in the same run section; that is a note and changes no verdict.
+answered `will test` that has no row in
+`docs/flow-runs/issue-<N>.lanes-demonstrated.md`; that is a note and changes no
+verdict.
 
 The table itself is not machine-checked for truth. A plan can answer every
 lane `will test` and test none of them. Two readers check that:

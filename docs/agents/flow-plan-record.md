@@ -404,23 +404,22 @@ The check reads the lane file itself and does not load `lane-file.py`, because
 the Codex `flow-auto` bundle ships this helper without that file. The two
 readers are held together by a test that runs both over every state.
 
-**One block is outside the stability digest, for a record approved under the
-check.** `### Lanes demonstrated` is written at Step 6, after approval. When
-approval ran the lanes check it marks the baseline (a third word, `lanes`),
-and the digest for that baseline leaves out that heading and the table under
-it, and nothing else: the exemption ends at the first line after the heading
-that is neither blank nor a table row, however the next thing is spelled. A baseline
-without the mark - every project with no lane file, a waived plan, every
-record stamped before the check existed - is hashed exactly as before,
-whatever headings the record contains. Headings, tables and the waiver line
-are read outside code fences only: a quoted example is not the thing itself. A line added below the table, above the heading, or
-to the approval table still reads as a changed plan. The block is left out so that
-recording results does not look like moving the goalposts; only the block,
-so that it cannot be used to move them.
+**Nothing in the record is outside the stability digest.** What a run
+demonstrated in each lane it said it would test is written at Step 6 to a file
+of its own, `docs/flow-runs/issue-<N>.lanes-demonstrated.md`: a table, one row
+per lane, saying what happened. It is not part of the plan record, so the
+digest code is unchanged from before this check and no part of an approved
+record may change afterwards. A first design kept those rows inside the record
+and left them out of the digest; three review passes each found another way to
+hide a plan edit in the part left out (a heading quoted in a code fence, an
+indented heading, a numbered plan line that contained a pipe), and the design
+was dropped for one with nothing left out.
 
 `compliance` then names, on stderr, each lane answered `will test` with no row
-in that block. It reports and does not refuse, and it speaks only for a record
-whose approval ran the lanes check, so a record approved earlier is never
-re-judged.
+in that file, says so when the file is missing, and says it is unreadable when
+it is. It reports and does not refuse; its stdout and exit code are unchanged.
+It speaks only where the project lists lanes and the run's section carries a
+lanes table. Headings, tables and the waiver line are read outside code fences
+only: a quoted example is not the thing itself.
 
 Not checked: whether an answer is true.

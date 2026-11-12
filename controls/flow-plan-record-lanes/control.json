@@ -27,7 +27,7 @@
   "detect_signal": "^FLOW_PLAN_RECORD: error - (the plan record has no lanes table|the lanes table leaves these listed lanes unanswered|unknown: )",
   "good_signal": "^FLOW_PLAN_RECORD: baseline stamped [0-9a-f]{64}$",
   "unavailable_signal": "^FLOW_PLAN_RECORD_LANES_CONTROL: unavailable",
-  "limits": "Covers the APPROVAL refusal for a readable lane file and for one that lists nothing. It does not cover the one-line waiver (`Lanes: none - <reason>`), a missing sibling lane-file.py, the other unusable-file states, the stability digest's treatment of the `Lanes demonstrated` block, or the close-time stderr report - those are pinned by tests/test_flow_plan_record_lanes.py. It says nothing about whether an answer is TRUE: a plan can answer every lane `will test` and test none of them.",
+  "limits": "Covers the APPROVAL refusal for a readable lane file and for one that lists nothing. It does not cover the one-line waiver (`Lanes: none - <reason>`), the other unusable-file states, code fences, table edge cases, or the close-time stderr report about docs/flow-runs/issue-<N>.lanes-demonstrated.md - those are pinned by tests/test_flow_plan_record_lanes.py. It says nothing about whether an answer is TRUE: a plan can answer every lane `will test` and test none of them.",
   "cases": [
     {
       "name": "bad-no-table",
