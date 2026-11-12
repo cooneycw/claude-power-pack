@@ -184,6 +184,29 @@ From `/codex:code_review` Step 2, the empty-diff rule (issue #1015):
 > whose reason names an inability that did not happen. The reviewer was available
 > and was never asked.
 
+### Text moved out of `/flow:auto` and `/flow:finish` (#1706)
+
+Moved by #1706, to pay for one sentence in each document: when a project's
+own gate needs the pushed head, push the branch first, then run the gate.
+
+From `/flow:auto` Step 6 item 2. The helper "owns the runner invocation and
+its Makefile fallback", and the fallback targets were listed in parentheses:
+
+> (`make lint`, `make test`, `make typecheck`, `make verify`)
+
+The bare-invocation instruction carried its origin, "Invoke it BARE (#581
+discipline):"; the discipline is stated once near the top of the document.
+Exit 126 in the no-verdict list was glossed "(an unset `CPP_SKILL_DIR`)".
+The fuller original of the whole item is in
+[the flow:auto rationale](reference/flow-auto-rationale.md), Step 6.
+
+From `/flow:finish`, the paragraph before the verdict table. After "Each
+verdict now has its OWN exit code (issue #1027)" it read:
+
+> - `ok`, `warn` and `skipped` used to share exit 0, so a caller reading only
+> `$?` could not tell "passed cleanly" from "passed but proved nothing" from
+> "did not run at all".
+
 ## Workflow commands - detail beyond the skill listing
 
   - Optional second arg `PROJECT` targets a repo other than the session cwd (resolved as a path, else `~/Projects/<name>`); such cross-repo runs ride the deterministic git-worktree lane end-to-end instead of `EnterWorktree`, which cannot leave the session repo (#578)
