@@ -246,7 +246,7 @@ def test_a_claude_session_still_adopts_its_own_sessionless_claim(tmp_path, repo)
 
 # --- a release must not unlock a claim it never judged -----------------------
 
-def _racing_git(bindir: Path, wt: Path, proc: Path) -> Path:
+def _racing_git(bindir: Path, wt: Path, proc: Path, newcomer_helper: Path = CLAIM) -> Path:
     """A `git` that, the first time it is asked to list worktrees, lets the
     read finish and then has ANOTHER live session claim the worktree before
     returning - the interleaving between a release's read and its unlock."""
@@ -259,7 +259,7 @@ if [ -z "${{RACE_DONE:-}}" ] && [[ " $* " == *" worktree list "* ]] && [ ! -e "{
   : > "{bindir}/raced"
   ( RACE_DONE=1 FLOW_CLAIM_GIT={real} CLAUDE_PID=7777 CLAUDE_CODE_SESSION_ID=newcomer \
     FLOW_CLAIM_HOST=testhost FLOW_CLAIM_LIVE_PIDS=4242:7777 FLOW_CLAIM_PROC_ROOT={proc} \
-    bash {CLAIM} claim {wt} --issue 42 > "{bindir}/newcomer.out" 2>&1 & )
+    bash {newcomer_helper} claim {wt} --issue 42 > "{bindir}/newcomer.out" 2>&1 & )
   {real} -C {wt} worktree list --porcelain >/dev/null   # give the newcomer a moment
   for _ in 1 2 3 4 5 6 7 8 9 10; do
     grep -q FLOW_CLAIM: "{bindir}/newcomer.out" 2>/dev/null && break
@@ -327,6 +327,32 @@ def test_a_claim_taken_over_meanwhile_is_not_unlocked(tmp_path, repo, serialized
         f"the newcomer's live claim was unlocked:\n{reason}\n{released.stderr}")
     if verb == "claim":
         assert released.returncode == 1 and _verdict(released) == "held", released.stdout
+
+
+def test_the_takeover_then_unlock_race_is_real_on_the_helper_before_this_change(tmp_path, repo) -> None:
+    """The window is not new: BOTH sessions here run the helper as it stood on
+    main before #1709. A release judges a stale claim; a live session takes
+    the claim over; the release then unlocks the live session's lock. The
+    worktree ends UNLOCKED with a live owner who believes it holds it."""
+    main, wt = repo
+    proc = tmp_path / "proc"
+    proc.mkdir()
+    _stat(proc, "7777", "claude", "1", start="77")
+    _lock(main, wt, f"flow-claim issue=42 pid=9999 session=gone host=testhost "
+                    f"ts={int(time.time())} start=111")
+    bindir = tmp_path / "bin"
+    wrapper = _racing_git(bindir, wt, proc, newcomer_helper=BEFORE)
+    env = {"CLAUDE_PID": "4242", "CLAUDE_CODE_SESSION_ID": "the-sweeper",
+           "FLOW_CLAIM_PROC_ROOT": str(proc), "FLOW_CLAIM_LIVE_PIDS": "4242:7777",
+           "FLOW_CLAIM_GIT": str(wrapper)}
+    released = _helper(BEFORE, "release", str(wt), env=env)
+    assert released.returncode == 0, released.stderr
+    assert "FLOW_CLAIM: self" in (bindir / "newcomer.out").read_text(), "the newcomer did claim it"
+    listing = _git(main, "worktree", "list", "--porcelain").stdout
+    block = listing.split(f"worktree {wt.resolve()}", 1)[1].split("\n\n", 1)[0]
+    assert "locked" not in block, (
+        "expected the old helper to have removed the newcomer's live lock; it did not, so "
+        f"the race this change serializes is not shown:\n{block}")
 
 
 @pytest.mark.skipif(shutil.which("flock") is None, reason="needs flock")
