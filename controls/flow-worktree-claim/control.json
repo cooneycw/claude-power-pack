@@ -41,13 +41,15 @@
       "name": "good-owner-alive",
       "input": "cases/good-owner-alive",
       "expect": "GOOD",
-      "why": "The owning process is running and is the one that claimed. Separates a working check from one wedged at stale, which would hand a live session's worktree to the next caller."
+      "why": "The owning process is running and is the one that claimed. Separates a working check from one wedged at stale, which would hand a live session's worktree to the next caller.",
+      "good_signal": "^FLOW_CLAIM_CONTROL: no-finding - held$"
     },
     {
       "name": "good-no-claim",
       "input": "cases/good-no-claim",
       "expect": "GOOD",
-      "why": "An unclaimed worktree reads free, not stale."
+      "why": "An unclaimed worktree reads free, not stale.",
+      "good_signal": "^FLOW_CLAIM_CONTROL: no-finding - free$"
     }
   ],
   "anchors": [

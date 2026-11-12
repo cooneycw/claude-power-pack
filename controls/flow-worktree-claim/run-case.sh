@@ -28,11 +28,28 @@ command -v bash >/dev/null 2>&1 || { echo "FLOW_CLAIM_CONTROL: unavailable - bas
 owner=$(sed -n 's/^owner=//p' "$case_dir/facts.txt" 2>/dev/null | head -1)
 case "$owner" in live|recycled|zombie|none) ;; *) echo "FLOW_CLAIM_CONTROL: cannot-run - bad owner '$owner'"; exit 2 ;; esac
 
+# GIT IS TOLD ABOUT ITS REPOSITORY BY PATH AND BY NOTHING ELSE. A caller's
+# GIT_DIR, GIT_WORK_TREE or GIT_INDEX_FILE would make `git -C <fixture>` act on
+# the CALLER's repository and commit its staged changes; an inherited
+# GIT_CONFIG_COUNT or GIT_TEMPLATE_DIR would run somebody's hooks on the
+# fixture's commits. So every GIT_* variable is dropped, by pattern and not by
+# a list of the ones thought of, configuration is confined to what follows,
+# and hooks are off for the fixture and for the gate alike.
+for inherited in $(env | sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$inherited"; done
+GIT_CONFIG_GLOBAL=/dev/null
+GIT_CONFIG_SYSTEM=/dev/null
+GIT_CONFIG_NOSYSTEM=1
+GIT_CONFIG_COUNT=1
+GIT_CONFIG_KEY_0=core.hooksPath
+GIT_CONFIG_VALUE_0=/dev/null
+export GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_CONFIG_NOSYSTEM GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
+
 T=$(mktemp -d) || { echo "FLOW_CLAIM_CONTROL: unavailable - no tmpdir"; exit 3; }
 trap 'rm -rf "$T"' EXIT
 G() { git -c user.email=fixture@example.invalid -c user.name=fixture -c commit.gpgsign=false "$@"; }
+mkdir "$T/no-template"
 {
-  G init -q -b main "$T/main" &&
+  G init -q -b main --template="$T/no-template" "$T/main" &&
   G -C "$T/main" commit -q --allow-empty -m base &&
   G -C "$T/main" worktree add -q -b issue-42-fixture "$T/wt"
 } >/dev/null 2>&1 || { echo "FLOW_CLAIM_CONTROL: cannot-run - could not build the fixture repository"; exit 2; }

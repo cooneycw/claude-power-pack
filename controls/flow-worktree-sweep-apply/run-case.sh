@@ -37,10 +37,21 @@ PR=$(fact pr)
 OUTSIDE=$(fact outside)
 case "$PR" in merged-at-tip|merged-behind|lookup-fails) ;; *) echo "$N: cannot-run - bad pr '$PR'"; exit 2 ;; esac
 
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR GIT_PREFIX
+# GIT IS TOLD ABOUT ITS REPOSITORY BY PATH AND BY NOTHING ELSE. A caller's
+# GIT_DIR, GIT_WORK_TREE or GIT_INDEX_FILE would make `git -C <fixture>` act on
+# the CALLER's repository and commit its staged changes; an inherited
+# GIT_CONFIG_COUNT or GIT_TEMPLATE_DIR would run somebody's hooks on the
+# fixture's commits. So every GIT_* variable is dropped, by pattern and not by
+# a list of the ones thought of, configuration is confined to what follows,
+# and hooks are off for the fixture and for the gate alike.
+for inherited in $(env | sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$inherited"; done
 GIT_CONFIG_GLOBAL=/dev/null
+GIT_CONFIG_SYSTEM=/dev/null
 GIT_CONFIG_NOSYSTEM=1
-export GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM
+GIT_CONFIG_COUNT=1
+GIT_CONFIG_KEY_0=core.hooksPath
+GIT_CONFIG_VALUE_0=/dev/null
+export GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_CONFIG_NOSYSTEM GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
 
 raw=$(mktemp -d) || { echo "$N: unavailable - no tmpdir"; exit 3; }
 elsewhere=""
@@ -57,8 +68,8 @@ REPO="$T/repo"
 WT="$T/repo-issue-4242"
 BRANCH="issue-4242-fixture"
 {
-  mkdir "$REPO" &&
-  G -C "$REPO" init -q -b main &&
+  mkdir "$REPO" "$T/no-template" &&
+  G -C "$REPO" init -q -b main --template="$T/no-template" &&
   G -C "$REPO" commit -q --allow-empty -m "fixture base" &&
   G -C "$REPO" remote add origin https://github.com/fixture-owner/fixture-repo.git &&
   G -C "$REPO" worktree add -q -b "$BRANCH" "$WT"

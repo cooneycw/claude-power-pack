@@ -23,8 +23,25 @@ command -v git >/dev/null 2>&1 || { echo "FLOW_WORKTREE_GUARD_LEAK_CONTROL: unav
 command -v bash >/dev/null 2>&1 || { echo "FLOW_WORKTREE_GUARD_LEAK_CONTROL: unavailable - bash is not installed"; exit 3; }
 scenario=$(cat "$case_dir/scenario" 2>/dev/null) || { echo "FLOW_WORKTREE_GUARD_LEAK_CONTROL: cannot-run - no scenario"; exit 2; }
 gate_abs=$(cd "$(dirname "$gate")" && pwd)/$(basename "$gate")
+# GIT IS TOLD ABOUT ITS REPOSITORY BY PATH AND BY NOTHING ELSE. A caller's
+# GIT_DIR, GIT_WORK_TREE or GIT_INDEX_FILE would make `git -C <fixture>` act on
+# the CALLER's repository and commit its staged changes; an inherited
+# GIT_CONFIG_COUNT or GIT_TEMPLATE_DIR would run somebody's hooks on the
+# fixture's commits. So every GIT_* variable is dropped, by pattern and not by
+# a list of the ones thought of, configuration is confined to what follows,
+# and hooks are off for the fixture and for the gate alike.
+for inherited in $(env | sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$inherited"; done
+GIT_CONFIG_GLOBAL=/dev/null
+GIT_CONFIG_SYSTEM=/dev/null
+GIT_CONFIG_NOSYSTEM=1
+GIT_CONFIG_COUNT=1
+GIT_CONFIG_KEY_0=core.hooksPath
+GIT_CONFIG_VALUE_0=/dev/null
+export GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_CONFIG_NOSYSTEM GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
+
 T=$(mktemp -d) || { echo "FLOW_WORKTREE_GUARD_LEAK_CONTROL: unavailable - no tmpdir"; exit 3; }
 trap 'rm -rf "$T"' EXIT
+mkdir "$T/no-template"
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 # The guard sources gate-lib.sh from beside itself; an anchor runs from
 # controls/, so both are offered next to a COPY of whichever gate is under test.
@@ -33,7 +50,7 @@ if ! { cp "$gate_abs" "$T/guard.sh" && cp "$repo_root/scripts/gate-lib.sh" "$T/g
 fi
 G() { git -c user.email=fixture@example.invalid -c user.name=fixture -c commit.gpgsign=false "$@"; }
 {
-  G init -q -b main "$T/main" &&
+  G init -q -b main --template="$T/no-template" "$T/main" &&
   printf 'a\n' > "$T/main/a.txt" &&
   G -C "$T/main" add a.txt && G -C "$T/main" commit -q -m base &&
   G -C "$T/main" worktree add -q -b issue-1-x "$T/wt"

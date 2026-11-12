@@ -41,7 +41,8 @@
       "name": "good-merged-and-nothing-left",
       "input": "cases/good-merged-and-nothing-left",
       "expect": "GOOD",
-      "why": "Merged at exactly the local tip, clean, idle: the worktree is removed. Separates a working sweep from one that never removes anything, which is the state #916 found it in."
+      "why": "Merged at exactly the local tip, clean, idle: the worktree is removed. Separates a working sweep from one that never removes anything, which is the state #916 found it in.",
+      "good_signal": "^FLOW_WORKTREE_SWEEP_APPLY_CONTROL: no-finding - removed; run "
     }
   ],
   "anchors": [
