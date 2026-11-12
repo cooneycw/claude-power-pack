@@ -224,7 +224,7 @@ tracked at [#1278](https://github.com/cooneycw/claude-power-pack/issues/1278).
 
 ### v11.0.0 (2026-11-12)
 
-The simplification and lanes series (#1673): 50 merged PRs since v10.2.0. A
+The simplification and lanes series (#1673): 55 merged PRs since v10.2.0. A
 major version because outputs other repositories read, and things a caller
 could run, changed. See [CHANGELOG.md](CHANGELOG.md) for the numbered Breaking
 list and the Upgrading section per consumer.
@@ -240,7 +240,8 @@ list and the Upgrading section per consumer.
   `lib.cicd resume` is removed; `FLOW_FINISH_GATE_EXIT` reads 128 for an
   unannounced exit; `flow-ci-status.sh --wait` never exits 0 without a
   verdict; Codex worktree claims name the `codex` process; receipts can record
-  more than three passes under a recorded ruling.
+  more than three passes under a recorded ruling; `/flow:deploy` and
+  `/flow:finish` stop when the fallback security scan cannot run.
 - **Security:** the secret scan reads extensionless scripts and build files
   and says what it did not examine; two `/cpp:init` deny rules match the
   commands they name; recorded paths no longer carry the host account.

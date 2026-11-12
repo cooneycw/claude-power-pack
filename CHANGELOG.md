@@ -4,8 +4,8 @@
 
 ## [11.0.0] - 2026-11-12
 
-The simplification and lanes series (#1673): 50 merged pull requests since
-10.2.0 (#1675 through #1779). It is a major version because several outputs
+The simplification and lanes series (#1673): 55 merged pull requests since
+10.2.0 (#1675 through #1784). It is a major version because several outputs
 that other repositories read, and several things a caller could run, changed.
 Each is listed under Breaking with the pull request that made it; Upgrading
 says what to do per consumer.
@@ -66,6 +66,17 @@ Each of these changes something a caller reads or runs.
     reported as `Custom/existing`, unverified** (#1770), because two of its
     deny rules changed. Re-run `/cpp:init`, or edit the two rules (see the
     entry below).
+13. **`/flow:deploy` and `/flow:finish` stop when the fallback security scan
+    cannot run** (#1760). The scan is looked for in
+    `~/Projects/claude-power-pack`, `/opt/claude-power-pack` and
+    `~/.claude-power-pack`; with none found, or with a scan that does not
+    exit 0 and print `SECURITY_GATE: <gate> PASS`, the flow stops. It used to
+    say "skip this step". A host with CPP elsewhere can no longer deploy or
+    finish through the fallback without a scan.
+
+Known at release: a gate killed by a signal sent to its whole process group
+printed the `FLOW_FINISH_GATE_EXIT=128` line twice, once, in CI; not
+reproduced (#1783). A reader of that line should take the last one.
 
 ### Upgrading
 
@@ -93,6 +104,10 @@ profile, re-run `/cpp:init` (Breaking 12).
 - with coordination admission on, the finish gate now waits a bounded time for
   the lock (`CPP_KYLE_LOCK_WAIT_SECONDS`, default 3600) and fails by name when
   no grant arrives; it used to wait without limit (#1680)
+- fallback security scan, Breaking 13: kyle #2381
+- `flow-ci-status.sh` now reports a step whose image could not be pulled as
+  `precode` (below). Kyle's `core/ci_status.py` is a port pinned to an older
+  copy and will keep calling it `code` until it is re-ported
 - a lane file is optional; Breaking 10 applies from the day one is committed
   (kyle #2343)
 
@@ -101,17 +116,28 @@ profile, re-run `/cpp:init` (Breaking 12).
 - generated Codex skills, Breaking 1: skillc #704
 - the same seven as kyle: skillc #705 (gate exit line), #706 (claims), #707
   (receipts), #708 (secret scan), #709 (oversized patch), #711
-  (`/flow:deploy`), #712 (`resume`)
+  (`/flow:deploy`), #712 (`resume`), and #713 (fallback security scan)
 - `python -m lib.cicd check` now reports `.PHONY` coverage from continued
   declarations too; skillc reads 16 declared and 0 missing where it read 9 and
   8 (#1750). Field names and the exit code are unchanged.
 
 **kyle-candidate:** kyle-candidate #8 (gate exit line), #9 (claims), #10
 (receipts), #11 (secret scan), #12 (oversized patch), #13 (`/flow:deploy`),
-#14 (`resume`).
+#14 (`resume`), #15 (fallback security scan).
 
 ### Behaviour changes you may notice
 
+- **The `PLAN_COMPLIANCE` line says when a lane the plan promised to test has
+  nothing demonstrated** (#1767): `PLAN_COMPLIANCE: agreement, LANES NOT
+  DEMONSTRATED (2) - ...`, or `, LANES NOT CHECKED`, on all three verdict
+  words. Exit codes are unchanged, and so is every byte of output in a
+  project with no lane file, a waived plan, or no `will test` answer. A reader
+  that matched the whole line must allow the clause; none was found in kyle,
+  skillc or kyle-candidate.
+- **A CI step whose image could not be pulled is `precode`, not `code`**
+  (#1508): `FLOW_CI_FAILURE_ORIGIN: precode` and a `FLOW_CI_PRECODE_FAILURE`
+  line, for exit code 0 with one of two measured Docker daemon messages. No
+  exit code, status word or line name changes.
 - **`/flow:cleanup` deletes a gone-upstream branch only on proof its tip
   landed** (#1729): the merge helper's own record, or a merged pull request
   whose head is that tip. Everything else is kept and named. The command no
@@ -189,7 +215,8 @@ profile, re-run `/cpp:init` (Breaking 12).
   ...)`, exit 1, before any model call. **A change of about 1 MB or more that
   used to pass with a skipped review now stops, and a person decides:** split
   the change, or commit separately the bulk that needs no review. Having the
-  reviewer read such a change from the repository is not built (#1769). Also:
+  reviewer read such a change from the repository is not built (recorded in
+  the Nit Store, #1725). Also:
   the scope probe no longer reads `unverified` under `pipefail` in a large
   checkout, the temporary-file templates end in their `X` run, and a dangling
   or unsearchable `.claude/lanes.md` is reported as unreadable, not treated
@@ -347,7 +374,10 @@ profile, re-run `/cpp:init` (Breaking 12).
 - A stand-in for curl reads the header it is piped (#1777); a pid marker is
   waited for by content, not by existence (#1686).
 - Every refusal in the merge and cleanup helpers has a test that the script
-  stopped there (#1775).
+  stopped there (#1775), and the claim helper and the guard's leak verdict
+  have registered controls (#1781).
+- Gate tests build the gate's environment by allowlist, so a knob set where
+  the suite runs no longer reaches the gate under test (#1782).
 
 ## [10.2.0] - 2026-11-09
 
