@@ -23,39 +23,33 @@ command -v git >/dev/null 2>&1 || { echo "FLOW_WORKTREE_GUARD_LEAK_CONTROL: unav
 command -v bash >/dev/null 2>&1 || { echo "FLOW_WORKTREE_GUARD_LEAK_CONTROL: unavailable - bash is not installed"; exit 3; }
 scenario=$(cat "$case_dir/scenario" 2>/dev/null) || { echo "FLOW_WORKTREE_GUARD_LEAK_CONTROL: cannot-run - no scenario"; exit 2; }
 gate_abs=$(cd "$(dirname "$gate")" && pwd)/$(basename "$gate")
-# GIT IS TOLD ABOUT ITS REPOSITORY BY PATH AND BY NOTHING ELSE. A caller's
-# GIT_DIR, GIT_WORK_TREE or GIT_INDEX_FILE would make `git -C <fixture>` act on
-# the CALLER's repository and commit its staged changes; an inherited
-# GIT_CONFIG_COUNT or GIT_TEMPLATE_DIR would run somebody's hooks on the
-# fixture's commits. So every GIT_* variable is dropped, by pattern and not by
-# a list of the ones thought of, configuration is confined to what follows,
-# and hooks are off for the fixture and for the gate alike.
-for inherited in $(env | sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$inherited"; done
-# The helpers under test take their own overrides from the environment too
-# (FLOW_CLAIM_GIT, FLOW_WORKTREE_GIT, WORKTREE_REMOVE_*, ...): a test stub or a
-# wrapper left there by the session would replace git inside the gate. Those go
-# the same way, by prefix; the ones this runner means to set are set below.
-for inherited in $(env | sed -n -e 's/^\(FLOW_[A-Za-z0-9_]*\)=.*/\1/p' \
-                               -e 's/^\(WORKTREE_REMOVE_[A-Za-z0-9_]*\)=.*/\1/p' \
-                               -e 's/^\(GH_PR_MERGE_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$inherited"; done
-GIT_CONFIG_GLOBAL=/dev/null
-GIT_CONFIG_SYSTEM=/dev/null
-GIT_CONFIG_NOSYSTEM=1
-GIT_CONFIG_COUNT=1
-GIT_CONFIG_KEY_0=core.hooksPath
-GIT_CONFIG_VALUE_0=/dev/null
-export GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_CONFIG_NOSYSTEM GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
 
-T=$(mktemp -d) || { echo "FLOW_WORKTREE_GUARD_LEAK_CONTROL: unavailable - no tmpdir"; exit 3; }
+raw=$(mktemp -d) || { echo "FLOW_WORKTREE_GUARD_LEAK_CONTROL: unavailable - no tmpdir"; exit 3; }
+T=$(cd "$raw" && pwd -P) || { echo "FLOW_WORKTREE_GUARD_LEAK_CONTROL: cannot-run - tmpdir unreadable"; exit 2; }
 trap 'rm -rf "$T"' EXIT
-mkdir "$T/no-template"
+mkdir "$T/home" "$T/tmp" "$T/no-template"
+# EVERYTHING THIS RUNNER STARTS GETS AN ENVIRONMENT BUILT FROM NOTHING.
+# Git and bash are steered by their environment: GIT_DIR or GIT_INDEX_FILE
+# makes `git -C <fixture>` act on the caller's repository, GIT_CONFIG_COUNT
+# runs somebody's hooks, the helpers read their own FLOW_* overrides, and
+# bash sources $BASH_ENV when the gate starts and can put any of it back.
+# Three review passes each found one more name a list had missed. So nothing
+# is inherited but PATH: HOME and TMPDIR are inside this runner's directory,
+# configuration is confined, hooks are off, and a variable reaches the gate
+# only by being written on the line that starts it.
+clean() {
+  env -i PATH="$PATH" HOME="$T/home" TMPDIR="$T/tmp" LC_ALL=C \
+      GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+      GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null \
+      "$@"
+}
+G() { clean git -c user.email=fixture@example.invalid -c user.name=fixture -c commit.gpgsign=false "$@"; }
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 # The guard sources gate-lib.sh from beside itself; an anchor runs from
 # controls/, so both are offered next to a COPY of whichever gate is under test.
 if ! { cp "$gate_abs" "$T/guard.sh" && cp "$repo_root/scripts/gate-lib.sh" "$T/gate-lib.sh"; }; then
   echo "FLOW_WORKTREE_GUARD_LEAK_CONTROL: cannot-run - could not stage the gate"; exit 2
 fi
-G() { git -c user.email=fixture@example.invalid -c user.name=fixture -c commit.gpgsign=false "$@"; }
 {
   G init -q -b main --template="$T/no-template" "$T/main" &&
   printf 'a\n' > "$T/main/a.txt" &&
@@ -75,7 +69,7 @@ case "$scenario" in
   *) echo "FLOW_WORKTREE_GUARD_LEAK_CONTROL: cannot-run - unknown scenario '$scenario'"; exit 2 ;;
 esac
 
-(cd "$T/wt" && env -u FLOW_WORKTREE_GIT FLOW_LEAK_FRESH_MIN=30 bash "$T/guard.sh" --strict) >"$T/out" 2>&1
+(cd "$T/wt" && clean FLOW_LEAK_FRESH_MIN=30 bash "$T/guard.sh" --strict) >"$T/out" 2>&1
 rc=$?
 cat "$T/out"
 marker=$(grep -E '^FLOW_WORKTREE_GUARD: ' "$T/out" | head -1)

@@ -1,4 +1,4 @@
-"""The three worktree controls' runners act on their own fixture and nothing else (issue #1726).
+"""The worktree controls' runners act on their own fixture and nothing else (issue #1726).
 
 Each runner builds a git repository in a temporary directory and commits to
 it. Git, though, is steered by its environment: with a caller's `GIT_DIR`,
@@ -8,14 +8,22 @@ changes - and an inherited `GIT_CONFIG_COUNT` or `GIT_TEMPLATE_DIR` runs
 somebody's hooks on the fixture's commits. A control is run from inside
 other git work (a hook, a rebase, a gate), so that environment is ordinary.
 
+Three review passes each found another variable a name-by-name scrub had not
+listed - GIT_*, then the helpers' own FLOW_* overrides, then BASH_ENV, which
+bash sources when the gate starts and which can put the steering back. So the
+runners build the environment for everything they start from NOTHING (`env
+-i`): a PATH, a HOME and a TMPDIR inside their own directory, and the handful
+of variables they mean to pass.
+
 These tests hand each runner a hostile environment aimed at a decoy
 repository and a recording hook, and check that the decoy is untouched, the
-hook never ran, and the runner still reached its normal verdict.
+hook never ran, and the runner still reached its normal verdict. A third
+control, for the sweep's `--apply`, is not here: its runner deletes, and it
+is held for its own change (issue #1778).
 
 The last tests hold the other half of the review: a good case must require
 ITS answer. `held` and `free` shared one good signal, so a helper that called
-a live owner's claim `free` passed; and the sweep's clean case passed without
-removing anything.
+a live owner's claim `free` passed.
 """
 
 from __future__ import annotations
@@ -46,10 +54,6 @@ RUNNERS = [
      "FLOW_WORKTREE_GUARD_LEAK_CONTROL: finding - "),
     ("flow-worktree-guard-leak", "good-clean-main", "scripts/flow-worktree-guard.sh",
      "FLOW_WORKTREE_GUARD_LEAK_CONTROL: no-finding - "),
-    ("flow-worktree-sweep-apply", "good-merged-and-nothing-left", "scripts/flow-worktree-sweep.sh",
-     "FLOW_WORKTREE_SWEEP_APPLY_CONTROL: no-finding - removed; run "),
-    ("flow-worktree-sweep-apply", "bad-unpushed-commit-after-the-merge", "scripts/flow-worktree-sweep.sh",
-     "FLOW_WORKTREE_SWEEP_APPLY_CONTROL: finding - "),
 ]
 
 _GIT = ["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t", "-c", "commit.gpgsign=false",
@@ -160,7 +164,6 @@ def test_a_runner_never_runs_an_inherited_hook(
 OVERRIDES = {
     "flow-worktree-claim": ("FLOW_CLAIM_GIT",),
     "flow-worktree-guard-leak": ("FLOW_WORKTREE_GIT",),
-    "flow-worktree-sweep-apply": ("FLOW_WORKTREE_SWEEP_GIT", "WORKTREE_REMOVE_GIT", "FLOW_CLAIM_GIT"),
 }
 
 
@@ -225,6 +228,70 @@ def test_a_runner_confines_itself_to_its_own_temporary_directory(
     assert sorted(p.name for p in tmp_path.iterdir()) == ["neighbour", "runner-tmp", "sentinel-base"]
 
 
+def _linked_decoy(tmp_path: Path) -> Path:
+    """The decoy with a linked worktree of its own - the thing a redirected
+    cleanup would remove."""
+    decoy = _decoy(tmp_path)
+    _git(decoy, "worktree", "add", "-q", "-b", "issue-7-somebodys-work", str(tmp_path / "decoy-wt"))
+    (tmp_path / "decoy-wt" / "work.txt").write_text("unpushed work\n")
+    return decoy
+
+
+@pytest.mark.parametrize(("control", "case", "gate", "expected"), RUNNERS)
+def test_a_shell_startup_file_cannot_put_the_steering_back(
+        tmp_path: Path, control: str, case: str, gate: str, expected: str) -> None:
+    """bash sources `$BASH_ENV` when the runner starts the gate - after any
+    variable the runner unset. A startup file that exports GIT_DIR and
+    GIT_WORK_TREE for another repository, and records that it ran, must never
+    run: the decoy and its linked worktree are untouched and the verdict is
+    the ordinary one."""
+    decoy = _linked_decoy(tmp_path)
+    ran = tmp_path / "the-startup-file-ran.log"
+    startup = tmp_path / "startup.sh"
+    startup.write_text(f'echo sourced >> "{ran}"\nexport GIT_DIR="{decoy / ".git"}"\n'
+                       f'export GIT_WORK_TREE="{decoy}"\n')
+    before = (_state(decoy), _tree(tmp_path / "decoy-wt"))
+    env = {**_clean_env(), "BASH_ENV": str(startup), "ENV": str(startup)}
+    # The file really is sourced by a bash that inherits it.
+    subprocess.run(["bash", "-c", "true"], env=env, check=True, capture_output=True)
+    assert ran.exists(), "precondition: bash sources BASH_ENV here"
+    ran.unlink()
+    done = _run(control, case, gate, env)
+    assert not ran.exists(), "the runner started a shell that sourced the inherited startup file"
+    assert (_state(decoy), _tree(tmp_path / "decoy-wt")) == before
+    assert expected in done.stdout, done.stdout[-800:] + done.stderr[-400:]
+
+
+@pytest.mark.parametrize(("control", "case", "gate", "expected"), RUNNERS)
+def test_every_temporary_file_is_made_inside_the_runners_own_directory(
+        tmp_path: Path, control: str, case: str, gate: str, expected: str) -> None:
+    """Watched while it runs, not compared afterwards: a `mktemp` on PATH that
+    records every path it hands out. The runner makes ONE directory in the
+    caller's TMPDIR; everything else anything makes is inside that one."""
+    real = shutil.which("mktemp")
+    if real is None:
+        pytest.skip("requires mktemp")
+    made = tmp_path / "mktemp-made.log"
+    shim_dir = tmp_path / "shim"
+    shim_dir.mkdir()
+    shim = shim_dir / "mktemp"
+    shim.write_text(f'#!/bin/sh\nout=$("{real}" "$@") || exit $?\nprintf "%s\\n" "$out" >> "{made}"\n'
+                    'printf "%s\\n" "$out"\n')
+    shim.chmod(0o755)
+    scratch = tmp_path / "caller-tmp"
+    scratch.mkdir()
+    env = {**_clean_env(), "TMPDIR": str(scratch), "PATH": f"{shim_dir}{os.pathsep}{os.environ['PATH']}"}
+    done = _run(control, case, gate, env)
+    assert expected in done.stdout, done.stdout[-800:] + done.stderr[-400:]
+    paths = [Path(line) for line in made.read_text().splitlines()]
+    top = [p for p in paths if p.parent == scratch]
+    assert len(top) == 1, f"expected exactly one directory made in the caller's TMPDIR: {paths}"
+    own = top[0].resolve()
+    outside = [p for p in paths if p != top[0] and own not in p.resolve().parents]
+    assert outside == [], f"temporary files were made outside the runner's directory: {outside}"
+    assert list(scratch.iterdir()) == []
+
+
 # --- a good case requires ITS answer ------------------------------------------
 
 def _case_good_signal(control: str, case: str) -> re.Pattern[str]:
@@ -258,23 +325,3 @@ def test_the_claim_controls_good_cases_each_require_their_own_verdict(
                               cwd=ROOT, env=_clean_env(), capture_output=True, text=True, timeout=60, check=False)
         assert done.returncode == 0 and f"no-finding - {verdict}" in done.stdout, done.stdout
         assert bool(signal.search(done.stdout)) is (verdict == right), (verdict, done.stdout)
-
-
-def test_the_sweep_controls_clean_case_requires_the_removal(tmp_path: Path) -> None:
-    """A sweep that skips the merged worktree and leaves it on disk exits 0
-    and reads as no finding; the clean case's own good signal refuses it."""
-    signal = _case_good_signal("flow-worktree-sweep-apply", "good-merged-and-nothing-left")
-    lazy = _stub_gate(
-        tmp_path,
-        'repo=""\nwhile [ $# -gt 0 ]; do [ "$1" = --repo ] && repo="$2"; shift; done\n'
-        'echo "SWEEP_WORKTREE: ${repo}-issue-4242 skip pr-none"\necho "FLOW_WORKTREE_SWEEP: ok"\nexit 0\n')
-    directory = ROOT / "controls" / "flow-worktree-sweep-apply"
-    case = directory / "cases" / "good-merged-and-nothing-left"
-    kept = subprocess.run(["sh", str(directory / "run-case.sh"), str(case), str(lazy)], cwd=ROOT,
-                          env=_clean_env(), capture_output=True, text=True, timeout=60, check=False)
-    assert kept.returncode == 0 and "no-finding - kept as having no finished PR" in kept.stdout, kept.stdout
-    assert not signal.search(kept.stdout), "a sweep that removed nothing satisfied the clean case"
-    real = subprocess.run(["sh", str(directory / "run-case.sh"), str(case),
-                           str(ROOT / "scripts" / "flow-worktree-sweep.sh")], cwd=ROOT, env=_clean_env(),
-                          capture_output=True, text=True, timeout=100, check=False)
-    assert real.returncode == 0 and signal.search(real.stdout), real.stdout
