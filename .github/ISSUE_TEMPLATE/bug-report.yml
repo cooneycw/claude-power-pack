@@ -57,6 +57,27 @@ body:
     validations:
       required: true
 
+  - type: dropdown
+    id: origin
+    attributes:
+      label: Origin
+      description: Where did the behaviour that broke come from? Leave this unanswered only if you have not looked. "Not traced" means you looked and could not tell.
+      options:
+        - An earlier issue or pull request delivered it (name it below)
+        - Never worked
+        - Not traced
+    validations:
+      required: false
+
+  - type: input
+    id: origin_ref
+    attributes:
+      label: Origin reference
+      description: The issue or pull request that delivered it, or what you tried when tracing it.
+      placeholder: "e.g., #123, or: read the closed pull requests touching this file, none introduces it"
+    validations:
+      required: false
+
   - type: textarea
     id: error
     attributes:
