@@ -224,7 +224,7 @@ tracked at [#1278](https://github.com/cooneycw/claude-power-pack/issues/1278).
 
 ### v11.0.0 (2026-11-12)
 
-The simplification and lanes series (#1673): 55 merged PRs since v10.2.0. A
+The simplification and lanes series (#1673): 56 merged PRs since v10.2.0. A
 major version because outputs other repositories read, and things a caller
 could run, changed. See [CHANGELOG.md](CHANGELOG.md) for the numbered Breaking
 list and the Upgrading section per consumer.

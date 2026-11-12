@@ -4,8 +4,8 @@
 
 ## [11.0.0] - 2026-11-12
 
-The simplification and lanes series (#1673): 55 merged pull requests since
-10.2.0 (#1675 through #1784). It is a major version because several outputs
+The simplification and lanes series (#1673): 56 merged pull requests since
+10.2.0 (#1675 through #1785). It is a major version because several outputs
 that other repositories read, and several things a caller could run, changed.
 Each is listed under Breaking with the pull request that made it; Upgrading
 says what to do per consumer.
@@ -134,6 +134,10 @@ profile, re-run `/cpp:init` (Breaking 12).
   project with no lane file, a waived plan, or no `will test` answer. A reader
   that matched the whole line must allow the clause; none was found in kyle,
   skillc or kyle-candidate.
+- **A wave role whose owner process has an exited main thread but live worker
+  threads is no longer reported stale** (#1691), in the registry and the
+  mailbox. Two registry usage lines no longer say a lane is preserved on
+  re-register: a re-register with a different issue or repository resets it.
 - **A CI step whose image could not be pulled is `precode`, not `code`**
   (#1508): `FLOW_CI_FAILURE_ORIGIN: precode` and a `FLOW_CI_PRECODE_FAILURE`
   line, for exit code 0 with one of two measured Docker daemon messages. No

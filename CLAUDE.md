@@ -19,7 +19,7 @@ helpers own deterministic behavior.
 - A pattern-matching fixture must not interpolate an absolute path it does not control; use a fixture-owned relative value and assert the intended classification.
 - After any fix, verify through the full pipeline with `make verify`.
 - Use `/cpp:dockers` for container status, health, and project linkages.
-- Use single dashes (-), never Unicode em or en dashes, in markdown, comments, and documentation. Enforced for tracked `.md` files by `scripts/check-unicode-dashes.py` (`make verify`); comments and other non-markdown source are advisory only pending broader tooling (Nit Store #864).
+- Use single dashes (-), never Unicode em or en dashes, in markdown, comments, and documentation. Enforced for tracked `.md` files by `scripts/check-unicode-dashes.py` (`make verify`); comments and other non-markdown source are advisory only pending broader tooling (Nit Store).
 - Never wrap a read-only command in `cd X && ...`; use `git -C`, an absolute path, or the tool's path argument.
 - Resolve edit paths from `git rev-parse --show-toplevel`; never hand-build an absolute worktree path (#486).
 - In shared checkouts, characterize branch content with ref-scoped reads only; never substitute a working-tree read or cwd-relative pathspec for a branch measurement.
