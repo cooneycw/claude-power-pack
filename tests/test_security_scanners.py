@@ -882,105 +882,6 @@ class TestExtensionlessFilesAreRead:
             "1 file(s) with no recognised extension were NOT read (1 a symlink or not a regular file)"
         ]
 
-    # --- a file that changes between being listed and being read ---------------
-    #
-    # The checks and the read share one descriptor, reached from the scan root
-    # one directory at a time. Each test lists the candidates on a sound tree,
-    # swaps something, and only then lets the scan read. Found by the #1737
-    # counter-model review: the first version checked one open and read another.
-
-    @staticmethod
-    def _swap_after_listing(monkeypatch: pytest.MonkeyPatch, swap) -> None:  # type: ignore[no-untyped-def]
-        listed = secrets._find_extensionless_candidates
-
-        def listing(root: Path) -> list[Path]:
-            found = listed(root)
-            swap()
-            return found
-
-        monkeypatch.setattr(secrets, "_find_extensionless_candidates", listing)
-
-    def test_a_file_swapped_for_a_symlink_after_listing_is_not_followed(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        outside = tmp_path / "outside-script"
-        outside.write_text(f"#!/bin/sh\n{self.BODY}")
-        root = tmp_path / "root"
-        root.mkdir()
-        target = root / "deploy"
-        target.write_text("#!/bin/sh\ntrue\n")
-
-        def swap() -> None:
-            target.unlink()
-            target.symlink_to(outside)
-
-        self._swap_after_listing(monkeypatch, swap)
-        result = secrets.scan(str(root))
-        assert target.is_symlink(), "precondition: the swap happened"
-        assert result.findings == [] and result.units_scanned == 0
-        assert result.unexamined == [
-            "1 file(s) with no recognised extension were NOT read (1 a symlink or not a regular file)"
-        ]
-
-    @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs a platform with FIFOs")
-    def test_a_file_swapped_for_a_fifo_after_listing_does_not_hang_the_scan(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        target = tmp_path / "deploy"
-        target.write_text("#!/bin/sh\ntrue\n")
-
-        def swap() -> None:
-            target.unlink()
-            os.mkfifo(target)
-
-        self._swap_after_listing(monkeypatch, swap)
-        result = secrets.scan(str(tmp_path))
-        assert stat.S_ISFIFO(target.lstat().st_mode), "precondition: the swap happened"
-        assert result.units_scanned == 0
-        assert result.unexamined == [
-            "1 file(s) with no recognised extension were NOT read (1 a symlink or not a regular file)"
-        ]
-
-    def test_a_parent_directory_swapped_for_a_symlink_after_listing_is_not_followed(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """`O_NOFOLLOW` on a whole path guards only its last component."""
-        outside = tmp_path / "outside"
-        outside.mkdir()
-        (outside / "deploy").write_text(f"#!/bin/sh\n{self.BODY}")
-        root = tmp_path / "root"
-        (root / "bin").mkdir(parents=True)
-        (root / "bin" / "deploy").write_text("#!/bin/sh\ntrue\n")
-
-        def swap() -> None:
-            (root / "bin" / "deploy").unlink()
-            (root / "bin").rmdir()
-            (root / "bin").symlink_to(outside, target_is_directory=True)
-
-        self._swap_after_listing(monkeypatch, swap)
-        result = secrets.scan(str(root))
-        assert (root / "bin").is_symlink() and (root / "bin" / "deploy").is_file(), "precondition: the swap happened"
-        assert result.findings == [], "a file outside the scan root was read and attributed to this project"
-        assert result.units_scanned == 0
-        assert result.unexamined == [
-            "1 file(s) with no recognised extension were NOT read (1 a symlink or not a regular file)"
-        ]
-
-    def test_a_file_that_grows_past_the_cap_after_listing_is_not_read(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        target = tmp_path / "deploy"
-        target.write_text("#!/bin/sh\ntrue\n")
-
-        def swap() -> None:
-            target.write_text(f"#!/bin/sh\n{self.BODY}" + "x" * secrets.EXTENSIONLESS_MAX_BYTES)
-
-        self._swap_after_listing(monkeypatch, swap)
-        result = secrets.scan(str(tmp_path))
-        assert target.stat().st_size > secrets.EXTENSIONLESS_MAX_BYTES, "precondition: the swap happened"
-        assert result.findings == [] and result.units_scanned == 0
-        assert result.unexamined == ["1 file(s) with no recognised extension were NOT read (1 over 1 MB)"]
-
     @staticmethod
     def _count_reads(monkeypatch: pytest.MonkeyPatch) -> list[int]:
         """Record how many bytes each `os.read` in the scanner returned."""
@@ -1000,11 +901,13 @@ class TestExtensionlessFilesAreRead:
     def test_the_read_is_bounded_even_when_the_size_check_is_passed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A file that grows AFTER `fstat`: at most the cap plus one byte is ever read.
+        """The read itself is capped: at most the cap plus one byte is ever read.
 
-        The verdict alone would not show this: an unlimited read followed by a
-        length check gives the same "over 1 MB" on a file that eventually ends.
-        So the bytes actually read are counted, on a file three times the cap.
+        The size check alone does not bound the read, so the file is made to
+        outgrow it after that check (the only way to hand the reader more than
+        it was promised). The verdict would not show the bound: an unlimited
+        read followed by a length check gives the same "over 1 MB". So the
+        bytes actually read are counted, on a file three times the cap.
         """
         target = tmp_path / "deploy"
         target.write_text("#!/bin/sh\ntrue\n")
@@ -1041,28 +944,6 @@ class TestExtensionlessFilesAreRead:
         assert result.unexamined == [
             "2 file(s) with no recognised extension were NOT read (1 no shebang or known name, 1 binary)"
         ]
-
-    def test_a_scan_root_swapped_for_a_symlink_after_listing_is_not_followed(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The root is opened once, before listing; a later swap of the root's NAME changes nothing."""
-        outside = tmp_path / "outside"
-        outside.mkdir()
-        (outside / "deploy").write_text(f"#!/bin/sh\n{self.BODY}")
-        root = tmp_path / "root"
-        root.mkdir()
-        (root / "deploy").write_text("#!/bin/sh\ntrue\n")
-        moved = tmp_path / "root-moved-aside"
-
-        def swap() -> None:
-            root.rename(moved)
-            root.symlink_to(outside, target_is_directory=True)
-
-        self._swap_after_listing(monkeypatch, swap)
-        result = secrets.scan(str(root))
-        assert root.is_symlink() and (root / "deploy").read_text().count("\n") == 2, "precondition: the swap happened"
-        assert result.findings == [], "a file outside the scan root was read and attributed to this project"
-        assert result.units_scanned == 1, "the original root's own script is what was read"
 
     def test_a_file_under_a_symlinked_directory_is_not_read(self, tmp_path: Path) -> None:
         outside = tmp_path / "outside"

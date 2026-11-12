@@ -230,18 +230,14 @@ Stated answers:
   regular file. A symlink is never followed, inside the scan root or out of
   it; its target is read under its own name if it qualifies. A FIFO or device
   is refused without being opened for reading, so the scan cannot wait on one.
-- **Checked and read through one descriptor.** The scan root is opened once,
-  before the tree is listed. Each of these files is reached from that
-  descriptor one directory at a time, refusing any directory that is a
-  symlink, and the bytes scanned are the bytes that were checked. A file, a
-  parent directory or the root itself swapped after listing cannot redirect a
-  read, and a file that grows past the cap while being read is refused, never
-  read on. A file that does not qualify costs at most its first 8 KB.
-- **Limits of that.** Files selected by extension are read as they always
-  were, without these guards. The tree is still LISTED by name, so a tree
-  being rewritten while it is scanned can be listed inconsistently; what the
-  guards settle is that nothing outside the root that the scan started on is
-  read through this path.
+- **A file that does not qualify costs at most its first 8 KB**, and a
+  qualifying one is read to at most 1 MB.
+
+**Assumption.** The scan reads a tree that is not being modified while it
+runs. It is not hardened against a concurrent writer - a file or directory
+swapped between being listed and being read - for these files or for the ones
+selected by extension. The guards above protect it from an odd file, not from
+a race.
 
 Whenever an extensionless file is left unread, the scan says how many and why,
 on its own line:
