@@ -14,7 +14,10 @@ This pins what the code does, so the corrected sentence cannot drift back:
 - `--consume` acknowledges all three, so a following `read --peek` is empty and
   a second watch times out;
 - `--peek` prints the same three and acknowledges none of them;
-- the contrast: with one message unread, one wake prints one.
+- the contrast: with one message unread, one wake prints one;
+- the orchestrator reads one inbox PER WORKER, and one wake drains every one
+  of them: a watch that stopped after the first box would satisfy every
+  single-box case above.
 """
 
 from __future__ import annotations
@@ -172,3 +175,56 @@ def test_a_message_sent_after_a_wake_is_the_next_wake(tmp_path: Path) -> None:
     assert second.stdout.count(MARKER) == 1, second.stdout
     assert BODIES[2] in second.stdout
     assert BODIES[0] not in second.stdout
+
+
+@requires_bash
+def test_one_orchestrator_wake_drains_every_workers_inbox(tmp_path: Path) -> None:
+    """The orchestrator reads SEVERAL boxes; one wake must drain all of them.
+
+    Every other test here watches a worker, which reads exactly one box. Two
+    workers each write their own inbox, so this is the only case in which a
+    watch that drained the first box and stopped would be caught.
+    """
+    from_worker = {"w1": "from w1: the gate request", "w2": "from w2: the PR is up"}
+    for worker, body in from_worker.items():
+        sent = _run(
+            tmp_path, "send", "--to", "orchestrator", "--from", worker,
+            "--wave", WAVE, "--body", body,
+        )
+        assert _verdict(sent) == "sent", sent.stderr
+
+    def unread_from(worker: str) -> subprocess.CompletedProcess[str]:
+        return _run(
+            tmp_path, "read", "--role", "orchestrator", "--from", worker,
+            "--wave", WAVE, "--peek",
+        )
+
+    # PRECONDITION: two SEPARATE boxes, each holding exactly one unread
+    # message. One box holding both would make this a single-box case again.
+    boxes = sorted(p.name for p in (tmp_path / "mb" / WAVE).glob("inbox-*.md"))
+    assert boxes == ["inbox-w1.md", "inbox-w2.md"], boxes
+    for worker, body in from_worker.items():
+        peeked = unread_from(worker)
+        assert _verdict(peeked) == "read", peeked.stdout + peeked.stderr
+        assert _detail(peeked, "FLOW_MAILBOX_UNREAD") == "1", peeked.stdout
+        assert body in peeked.stdout
+        other = next(b for w, b in from_worker.items() if w != worker)
+        assert other not in peeked.stdout, f"{worker}'s box also holds the other message"
+
+    woke = _run(
+        tmp_path, "watch", "--role", "orchestrator", "--wave", WAVE,
+        "--consume", "--timeout", "0",
+    )
+
+    assert woke.returncode == 0, woke.stderr
+    assert _verdict(woke) == "mail"
+    assert _detail(woke, "FLOW_MAILBOX_UNREAD") == "2"
+    assert woke.stdout.count(MARKER) == 2, woke.stdout
+    for worker, body in from_worker.items():
+        assert body in woke.stdout, f"{worker}'s message was not in the one wake"
+
+    # Both inboxes were acknowledged by that one wake.
+    for worker in from_worker:
+        after = unread_from(worker)
+        assert _verdict(after) == "empty", f"{worker}: {after.stdout}"
+        assert _detail(after, "FLOW_MAILBOX_UNREAD") == "0", f"{worker}: {after.stdout}"
