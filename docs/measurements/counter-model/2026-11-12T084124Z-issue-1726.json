@@ -1,0 +1,70 @@
+{
+  "branch": "issue-1726-controls-for-the-claim-guard-and-sweep",
+  "counts": {
+    "accepted": 6,
+    "deferred": 3,
+    "rejected": 0
+  },
+  "extra_passes_reason": "Granted by the orchestrator (rev 103): pass 2's medium was a route by which a control's verdict depended on session state, its fix was unreviewed, and these runners perform real removals.",
+  "head": "004bd80a69d34225f61f7b0a669fa69a9051099d",
+  "implementer": "claude/claude-fable-5-2",
+  "implementer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-fable-5-2"
+    ],
+    "runtime": "claude",
+    "session_id": "890b3b05-7b6e-481a-bb70-992a65b5e9a0",
+    "sources": [
+      {
+        "bytes": 26098057,
+        "path": "-home-user-Projects/890b3b05-7b6e-481a-bb70-992a65b5e9a0.jsonl",
+        "sha256": "d876065dd3fd6573551ab0eb7e8bd79a64f73920455d198e661a4f1a8f8fcc37"
+      }
+    ],
+    "transcript": "-home-user-Projects/890b3b05-7b6e-481a-bb70-992a65b5e9a0.jsonl"
+  },
+  "issue": "1726",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 3,
+  "recorded_at": "2026-11-12T08:41:24Z",
+  "red_cases": {
+    "already_covered": 11,
+    "proposed": 14
+  },
+  "reviewed_artifact": {
+    "base_sha": "71feea1c5c645141d1aaa177819604e85a447bc0",
+    "merge_base": "5b3af60fe9c328ccf0cea53ec938c3e0696f6ef9",
+    "method": "runtime-head",
+    "patch_sha256": "ab3dd2f93444a4af21e9e3884ee3c2f36576b980d087838e64eb228b682d7913",
+    "report_record": 70,
+    "target_head": "004bd80a69d34225f61f7b0a669fa69a9051099d"
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "exec_log": "codex-review.0nKZCg.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/12/rollout-2026-11-12T03-38-01-01a1cee8-21f5-7820-8f9a-d07898224d35.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 159822,
+        "path": "codex-review.0nKZCg.jsonl",
+        "sha256": "3d9a8b5c4a1706557cb21899906b5830365deaa984540f6f08cb88c0faafce16"
+      },
+      {
+        "bytes": 744208,
+        "path": "2026/11/12/rollout-2026-11-12T03-38-01-01a1cee8-21f5-7820-8f9a-d07898224d35.jsonl",
+        "sha256": "a3da4e6c04d43aaeb3a622b69b76a73ce72f98f1feaff40677c45f4f3eb7b71d"
+      }
+    ],
+    "thread_id": "01a1cee8-21f5-7820-8f9a-d07898224d35"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}
