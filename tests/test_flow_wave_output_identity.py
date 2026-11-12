@@ -119,7 +119,27 @@ class Expected(NamedTuple):
 #: Deliberate changes of printed lines, per script. Anything not listed here
 #: must be byte-identical; anything listed must actually differ.
 EXPECTED_DIFFERENCES: dict[str, frozenset[Expected]] = {
-    REGISTRY: frozenset(),
+    # #1691 item 9: both lines said `--files` "is preserved" by a re-register.
+    # It is not, when the re-register moves the role to other work
+    # (tests/test_flow_wave_reregister_matrix.py pins the rule).
+    REGISTRY: frozenset({
+        Expected(  # `register`, stderr, for a lane declared with no usable repo
+            "  Re-register with --repo <path>. --repo is REWRITTEN by every re-register"
+            " - unlike --files, which is preserved - so it must be passed EVERY time.",
+            "  Re-register with --repo <path>. --repo is REWRITTEN by every re-register,"
+            " so it must be passed EVERY time; --files is kept when omitted, except that"
+            " a change of --issue or --repo between two non-empty values resets the file"
+            " lane unless the same call names it.",
+        ),
+        Expected(  # `list`, stdout, under the UNKNOWN overlap heading
+            "  Each fixes it by re-registering with --repo <path>; --repo is rewritten by"
+            " every re-register (--files is preserved), so it must be passed every time.",
+            "  Each fixes it by re-registering with --repo <path>; --repo is rewritten by"
+            " every re-register, so it must be passed every time (--files is kept when"
+            " omitted, except that a change of --issue or --repo between two non-empty"
+            " values resets the file lane unless the same call names it).",
+        ),
+    }),
     MAILBOX: frozenset(),
     LEXICON: frozenset(),
 }

@@ -3239,7 +3239,7 @@ case "$VERB" in
           echo "flow-wave-registry: role '$ROLE' declares a lane (${DECLARED# }) but repo '$NEW_REPO' does not resolve to a directory - overlap detection is UNSCOPED for it (#891)." >&2
         fi
         echo "  The same-issue and FILE-LANE arms compare same-repo pairs only, so an empty or non-resolving repo matches nothing and 'list' reads CLEAN while this lane goes unchecked." >&2
-        echo "  Re-register with --repo <path>. --repo is REWRITTEN by every re-register - unlike --files, which is preserved - so it must be passed EVERY time." >&2
+        echo "  Re-register with --repo <path>. --repo is REWRITTEN by every re-register, so it must be passed EVERY time; --files is kept when omitted, except that a change of --issue or --repo between two non-empty values resets the file lane unless the same call names it." >&2
       fi
     fi
     # Loud default (#671) - independent of addressing: a silently-defaulted
@@ -4587,7 +4587,7 @@ EOF
     if [ -n "$UNSCOPED_ROLES" ]; then
       echo "  UNKNOWN: overlap NOT computed for live role(s) with a declared lane and NO repo:${UNSCOPED_ROLES}"
       echo "  The same-issue and FILE-LANE arms compare same-repo pairs, so an empty repo matches nothing - these roles are UNCHECKED, not clean."
-      echo "  Each fixes it by re-registering with --repo <path>; --repo is rewritten by every re-register (--files is preserved), so it must be passed every time."
+      echo "  Each fixes it by re-registering with --repo <path>; --repo is rewritten by every re-register, so it must be passed every time (--files is kept when omitted, except that a change of --issue or --repo between two non-empty values resets the file lane unless the same call names it)."
     fi
     [ "$UNSCOPED" -gt 0 ] && echo "flow-wave-registry: overlap detection is UNSCOPED for $UNSCOPED live role(s) - this roster CANNOT be read as clean (#800)." >&2
     # Issue #1403's advisory tail: a live role's OWN diff touched something
