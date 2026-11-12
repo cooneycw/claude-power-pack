@@ -117,3 +117,55 @@ Skip receipts retain their reason contract. Enrolment still accepts reviewed
 head ancestry; it does not claim that later commits were reviewed. The legacy
 rollout-attribution audit examines only Codex reviewers; other schema-5
 reviewers are explicitly outside that instrument's population.
+
+## Escalated reviews: more than three passes (issue #1700)
+
+The cap is two passes; a third is recordable with a reason. A review that
+honestly needed more had no truthful receipt, so a finding accepted on the last
+allowed pass left three bad choices: a false count, a false skip, or a gate left
+red on purpose. By the owner's ruling of 2026-11-11 the cap stays the default,
+and a named authority may raise it mid-run for that run.
+
+- **The receipt.** `status` stays `ran`. `passes` holds the true count. An
+  `escalation` object holds `ruled_by`, `reference` (where the ruling can be
+  read) and `raised_cap`. `extra_passes_reason` is still required. Written with
+  `--passes N --escalated-by ... --escalation-ref ... --raised-cap M
+  --extra-pass-reason ...`.
+- **The bounds.** `passes` may not exceed `raised_cap`, and `raised_cap` may not
+  exceed `PASSES_OUTER_BOUND`, which is 10: a receipt already committed in kyle
+  records 9 passes, and the bound should make every honest history
+  expressible. The bound exists so that "raise the cap" cannot mean "no cap".
+- **Recorded, not authenticated.** The writer requires the fields to be present
+  and non-blank. It cannot check that the named authority exists or ruled. The
+  reference is what lets a reader check it.
+- **The gate does not read the count yet (issue #1765).** `flow-finish-gate.sh`
+  prints `receipt:` for an escalated receipt and passes, as it does for any
+  other `ran` receipt. Nothing on the gate's line says the review was
+  escalated; read the receipt. For the same reason a HAND-MADE receipt above
+  three passes with no ruling still passes the gate, though `validate` and the
+  corpus check reject it.
+- **Exactly three passes** keeps its earlier form: a reason and nothing more,
+  and the line reads `receipt:`.
+- **No new status value, deliberately.** A repository whose CI pins an OLDER
+  gate reads an escalated receipt the same way (`receipt:`, passing). The
+  older VALIDATOR does reject it (`passes is 5, beyond the hard ceiling of 3`),
+  so a consumer that runs the corpus check must move its pin before committing
+  an escalated receipt.
+
+### Asking for a further pass, and what happens on a refusal
+
+The first accepted fix earns one re-review. From then on, every further pass is
+asked for before it is run. The approver is whoever approved the plan at Step
+3: the user, or in a wave the orchestrator.
+
+If the approver declines, the receipt is written for the LAST REVIEWED head
+with its true count, and the approver chooses what happens to the fix made
+after it:
+
+1. It is backed out, and the finding goes to its own issue.
+2. It stays as a commit after the receipt, and the PR names it, in words, as
+   not reviewed by the second model.
+
+A finding of medium severity or higher takes the first route unless the
+approver reads the fix themselves and says so in the PR. There is never a
+receipt for the unreviewed head, never a false count, and never silence.
