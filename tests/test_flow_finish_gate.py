@@ -4372,13 +4372,14 @@ def test_the_gate_reads_the_judge_columns_in_the_script_s_order() -> None:
     assert block, "precondition: JUDGE_COLUMNS is declared in the expected form"
     columns = re.findall(r'"([a-z_]+)"', block.group(1))
     shell_names = {
-        "file": "f", "state": "rstate", "status": "rstatus", "branch": "rbranch", "head": "rhead",
-        "skip_reason": "rreason", "skip_reason_committed": "rskip_ok", "count": "rcount",
-        "passes": "rpasses", "ruled_by": "rruler", "scope": "rscope", "direction": "rdirection",
+        "index": "cm_index", "state": "rstate", "status": "rstatus", "branch": "rbranch",
+        "head": "rhead", "skip_reason": "rreason", "skip_reason_committed": "rskip_ok",
+        "count": "rcount", "passes": "rpasses", "ruled_by": "rruler",
+        "scope_missing": "rscope_missing", "end": "cm_end",
     }
     assert set(columns) == set(shell_names), "precondition: every column has a shell name here"
     expected = "read -r " + " ".join(shell_names[c] for c in columns) + ' <<< "$cm_record"'
-    reads = [line.strip() for line in SCRIPT.read_text().splitlines() if 'read -r f rstate' in line]
+    reads = [line.strip() for line in SCRIPT.read_text().splitlines() if 'read -r cm_index rstate' in line]
     assert len(reads) == 2, "precondition: the selection loop and the judgement loop each read once"
     for line in reads:
         assert line.endswith(expected), line
@@ -4484,3 +4485,89 @@ def test_every_committed_receipt_reads_the_same_on_the_old_gate_and_the_new(
         assert old == new, f"{source.name}: old gate {old} != new gate {new}"
         compared += 1
     assert compared == len(files)
+
+
+# ── The judge transport cannot be steered by a receipt (#1700, review pass 3) ──
+
+def _plain_ran_receipt(repo: Path, head: str, **fields: object) -> dict:
+    receipt: dict[str, object] = {
+        "schema": 2, "recorded_at": "2026-09-21T12:00:00Z", "issue": "1700",
+        "branch": _git(repo, "rev-parse", "--abbrev-ref", "HEAD"), "head": head,
+        "status": "ran", "passes": 1,
+        "reviewer": "codex/gpt-6-astra", "implementer": "claude/claude-opus-5",
+    }
+    receipt.update(fields)
+    return receipt
+
+
+@requires_bash
+@requires_git
+@pytest.mark.parametrize("separator", ["\x1f", "\n"])
+def test_a_receipt_filename_cannot_inject_judge_columns(tmp_path: Path, separator: str) -> None:
+    """Counter-model review pass 3, HIGH: the file path travelled verbatim in
+    the separator-delimited answer, so a filename holding the separator (or a
+    newline) supplied its own `ran`, branch, head, `ordinary` and scope columns
+    for a file whose content was `[]`."""
+    repo, head = _one_reviewed_commit(tmp_path)
+    branch = _git(repo, "rev-parse", "--abbrev-ref", "HEAD")
+    forged = separator.join(["x", "ran", "ran", branch, head, "", "no", "ordinary", "", "", "full", ""])
+    (repo / "docs/measurements/counter-model" / f"{forged}.json").write_text("[]")
+    result = _enrolment_only(repo)
+    assert _verdict(result).startswith("FLOW_FINISH_GATE: fail"), result.stdout + result.stderr
+    assert "receipt: " not in _counter_model_line(result)
+
+
+@requires_bash
+@requires_git
+@pytest.mark.parametrize("direction", [" delegated ", "dele\x00gated", "delegated\n", "Delegated"])
+def test_only_the_exact_delegated_direction_is_exempt_from_scope(tmp_path: Path, direction: str) -> None:
+    """Counter-model review pass 3, MEDIUM: cleaning a value for transport must
+    not manufacture a decision. A scopeless review whose `direction` merely
+    cleans up to `delegated` is still scopeless."""
+    import json
+
+    repo, head = _one_reviewed_commit(tmp_path)
+    receipt = _plain_ran_receipt(repo, head, direction=direction)
+    (repo / "docs/measurements/counter-model/2026-01-01T000000Z-issue-1700.json").write_text(
+        json.dumps(receipt, indent=2)
+    )
+    assert _verdict(_enrolment_only(repo)) == (
+        "FLOW_FINISH_GATE: fail (counter-model line receipt-without-scope)"
+    )
+
+
+@requires_bash
+@requires_git
+def test_the_exact_delegated_direction_is_still_exempt(tmp_path: Path) -> None:
+    """The must-not-flip side."""
+    import json
+
+    repo, head = _one_reviewed_commit(tmp_path)
+    receipt = _plain_ran_receipt(repo, head, direction="delegated")
+    (repo / "docs/measurements/counter-model/2026-01-01T000000Z-issue-1700.json").write_text(
+        json.dumps(receipt, indent=2)
+    )
+    assert _verdict(_enrolment_only(repo)) == "FLOW_FINISH_GATE: ok"
+
+
+@requires_bash
+@requires_git
+@pytest.mark.parametrize("field,value", [
+    ("branch", " master "),          # must not clean up into a match
+    ("branch", "mas\x00ter"),
+    ("head", None),                  # filled in below: the head with a stray space
+])
+def test_a_branch_or_head_that_only_cleans_up_to_a_match_does_not_match(
+    tmp_path: Path, field: str, value: str | None,
+) -> None:
+    import json
+
+    repo, head = _one_reviewed_commit(tmp_path)
+    receipt = _plain_ran_receipt(repo, head, scope="full")
+    receipt[field] = value if value is not None else f" {head} "
+    (repo / "docs/measurements/counter-model/2026-01-01T000000Z-issue-1700.json").write_text(
+        json.dumps(receipt, indent=2)
+    )
+    result = _enrolment_only(repo)
+    assert "receipt: " not in _counter_model_line(result), result.stdout
+    assert _verdict(result).startswith("FLOW_FINISH_GATE: fail")

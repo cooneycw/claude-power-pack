@@ -580,7 +580,8 @@ cm_receipt_matches_head() {
 
 cm_enrolment_evaluate() {
     local root receipts branch f rstate rstatus rbranch rhead rreason rskip_ok
-    local rcount rpasses rruler rscope rdirection cm_records cm_record
+    local rcount rpasses rruler rscope_missing cm_records cm_record cm_index cm_end
+    local -a cm_files=()
     local cm_undecidable=0 cm_best_distance=0 cm_distance="" cm_uncounted=0
     local cm_sha cm_i cm_same_head
     local -a cm_best_records=() cm_best_heads=()
@@ -654,18 +655,32 @@ cm_enrolment_evaluate() {
     # WHERE THE SCRIPT CANNOT BE FOUND OR FAILS, the answer is `unknown` and an
     # enrolled repository's gate reds. That was already so for a `skipped`
     # receipt; it is now so for every receipt, because every judgement is here.
+    # NOTHING A RECEIPT CONTROLS STEERS THE ANSWER (counter-model review). The
+    # script names each file by its POSITION in the arguments, never by its
+    # path (a filename may hold the separator or a newline), every decision
+    # arrives as a fixed word, and each line ends in the literal `end`. So the
+    # answer must hold exactly one line per file, and a line whose index or
+    # last column is not what it must be is a fault of the transport: unknown.
     cm_records=""
+    cm_files=()
     if compgen -G "$receipts/*.json" >/dev/null 2>&1; then
-        if ! cm_records=$(python3 "$CM_RECEIPT_HELPER" judge "$receipts"/*.json 2>/dev/null) \
-                || [[ -z "$cm_records" ]]; then
+        cm_files=("$receipts"/*.json)
+        if ! cm_records=$(python3 "$CM_RECEIPT_HELPER" judge "${cm_files[@]}" 2>/dev/null) \
+                || [[ "$(printf '%s\n' "$cm_records" | grep -c '')" -ne "${#cm_files[@]}" ]]; then
             CM_ENROLMENT_STATE=unknown
             CM_ENROLMENT_LINE="unknown: the receipts in docs/measurements/counter-model could not be judged - counter-model-receipt.py is missing or failed, so no review can be established"
             return
         fi
     fi
     while IFS= read -r cm_record; do
-        IFS=$'\x1f' read -r f rstate rstatus rbranch rhead rreason rskip_ok rcount rpasses rruler rscope rdirection <<< "$cm_record"
-        [[ -n "$f" ]] || continue
+        [[ -n "$cm_record" ]] || continue
+        IFS=$'\x1f' read -r cm_index rstate rstatus rbranch rhead rreason rskip_ok rcount rpasses rruler rscope_missing cm_end <<< "$cm_record"
+        if [[ "$cm_end" != "end" || ! "$cm_index" =~ ^[0-9]+$ ]] || (( cm_index >= ${#cm_files[@]} )); then
+            CM_ENROLMENT_STATE=unknown
+            CM_ENROLMENT_LINE="unknown: counter-model-receipt.py returned an answer this gate cannot read, so no review can be established"
+            return
+        fi
+        f="${cm_files[$cm_index]}"
         # With no branch to compare, ancestry alone decides - see the detached-HEAD
         # note above.
         if [[ -n "$branch" && "$rbranch" != "$branch" ]]; then
@@ -720,7 +735,8 @@ cm_enrolment_evaluate() {
     done <<< "$cm_records"
 
     for cm_record in ${cm_best_records[@]+"${cm_best_records[@]}"}; do
-        IFS=$'\x1f' read -r f rstate rstatus rbranch rhead rreason rskip_ok rcount rpasses rruler rscope rdirection <<< "$cm_record"
+        IFS=$'\x1f' read -r cm_index rstate rstatus rbranch rhead rreason rskip_ok rcount rpasses rruler rscope_missing cm_end <<< "$cm_record"
+        f="${cm_files[$cm_index]}"
         if [[ "$rstate" == "skipped" ]]; then
             # The committed set of skip reasons has ONE declaration, in
             # counter-model-receipt.py (issue #1171); the script says whether
@@ -768,7 +784,8 @@ cm_enrolment_evaluate() {
                 return
                 ;;
         esac
-        if [[ "$rdirection" != "delegated" && -z "$rscope" ]]; then
+        # The script decided this on the exact values; only "delegated" is exempt.
+        if [[ "$rscope_missing" != "no" ]]; then
             CM_ENROLMENT_SCOPELESS+=("$(basename "$f")")
         fi
     done

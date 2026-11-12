@@ -890,8 +890,10 @@ collapse" note above).
      this worktree, under the Step-4 rules), rejected (one-line reason), or
      deferred (real but out of scope - route it to the nit store). If anything
      was accepted and fixed, re-review. A finding accepted on the last allowed
-     pass (pass 2) is still FIXED, and the approver is then asked to raise the
-     cap for that run so the fix is reviewed (issue #1700). There is never a
+     pass (pass 2) is still FIXED, and the approver is then asked for a further
+     pass so the fix is reviewed (issue #1700). Pass 3 is recorded with the
+     reason alone; only a count above 3 needs the cap raised and the ruling
+     recorded. There is never a
      receipt for an unreviewed head, and never a false pass count: before #1700
      this sentence read "re-review once more, never a third time", which left a
      finding accepted on pass 2 with no legal outcome.

@@ -3321,20 +3321,39 @@ def cmd_validate(args: argparse.Namespace) -> int:
 JUDGE_FS = "\x1f"
 #: The columns of one `judge` line, in order. The finish gate reads exactly
 #: these, by position; tests pin the two lists equal.
+#:
+#: NOTHING A RECEIPT CONTROLS CAN STEER THIS TRANSPORT (counter-model review):
+#:   - the FILE is named by its position in the arguments (`index`), never by
+#:     its path, because a filename may hold the separator or a newline;
+#:   - every DECISION is made here, on the exact parsed value, and travels as a
+#:     fixed word (`state`, `count`, `skip_reason_committed`, `scope_missing`).
+#:     Cleaning a value for display must never manufacture a decision: a
+#:     `direction` of " delegated " is not `delegated`;
+#:   - `branch` and `head` are compared by the gate, so they travel only when
+#:     they are a plain printable token, and as nothing at all otherwise;
+#:   - display text (`status`, `skip_reason`, `ruled_by`) has every control
+#:     character removed;
+#:   - the last column is the literal `end`, so a shifted line is detectable.
 JUDGE_COLUMNS = (
-    "file", "state", "status", "branch", "head", "skip_reason", "skip_reason_committed",
-    "count", "passes", "ruled_by", "scope", "direction",
+    "index", "state", "status", "branch", "head", "skip_reason", "skip_reason_committed",
+    "count", "passes", "ruled_by", "scope_missing", "end",
 )
+_JUDGE_TOKEN = re.compile(r"[!-~]+")
 
 
 def _judge_text(value: object) -> str:
-    """A top-level STRING field as one clean cell: anything else is empty."""
+    """A top-level STRING field as DISPLAY text: one line, no control characters."""
     if not isinstance(value, str):
         return ""
-    return " ".join(value.replace(JUDGE_FS, " ").split())
+    return " ".join("".join(ch if ch.isprintable() else " " for ch in value).split())
 
 
-def judge_receipt(path: Path) -> dict[str, str]:
+def _judge_token(value: object) -> str:
+    """A top-level STRING field the gate will COMPARE: exact, or nothing."""
+    return value if isinstance(value, str) and _JUDGE_TOKEN.fullmatch(value) else ""
+
+
+def judge_receipt(path: Path, index: int = 0) -> dict[str, str]:
     """Everything the finish gate needs to know about ONE receipt (issue #1700).
 
     Read from the TOP-LEVEL fields of the parsed JSON only. The gate used to
@@ -3351,7 +3370,10 @@ def judge_receipt(path: Path) -> dict[str, str]:
     NOT AUTHENTICATED.
     """
     row = dict.fromkeys(JUDGE_COLUMNS, "")
-    row["file"] = str(path)
+    row["index"] = str(index)
+    row["end"] = "end"
+    row["skip_reason_committed"] = "no"
+    row["scope_missing"] = "no"
     try:
         receipt = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -3363,9 +3385,16 @@ def judge_receipt(path: Path) -> dict[str, str]:
     status = receipt.get("status")
     row["status"] = _judge_text(status)
     row["state"] = status if status in ("skipped", "ran") else "other"
-    for key in ("branch", "head", "skip_reason", "scope", "direction"):
-        row[key] = _judge_text(receipt.get(key))
+    row["branch"] = _judge_token(receipt.get("branch"))
+    row["head"] = _judge_token(receipt.get("head"))
+    row["skip_reason"] = _judge_text(receipt.get("skip_reason"))
     row["skip_reason_committed"] = "yes" if receipt.get("skip_reason") in SKIP_REASONS else "no"
+    # The enrolment-only scope requirement (issue #1461), decided on the exact
+    # values: only a `direction` that IS "delegated" is exempt, and only a
+    # non-empty string is a scope.
+    scope = receipt.get("scope")
+    exempt = receipt.get("direction") == "delegated"
+    row["scope_missing"] = "no" if exempt or (isinstance(scope, str) and scope != "") else "yes"
     if row["state"] != "ran":
         return row
     if "passes" not in receipt:
@@ -3394,8 +3423,8 @@ def judge_receipt(path: Path) -> dict[str, str]:
 
 def cmd_judge(args: argparse.Namespace) -> int:
     """Print one `judge_receipt` line per receipt, in argument order."""
-    for path in args.receipts:
-        row = judge_receipt(path)
+    for index, path in enumerate(args.receipts):
+        row = judge_receipt(path, index)
         print(JUDGE_FS.join(row[column] for column in JUDGE_COLUMNS))
     return 0
 
