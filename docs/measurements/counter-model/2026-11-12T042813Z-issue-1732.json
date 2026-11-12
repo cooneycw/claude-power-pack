@@ -1,0 +1,70 @@
+{
+  "branch": "issue-1732-check-negative-controls-verify-provenance-has-neve",
+  "counts": {
+    "accepted": 5,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "extra_passes_reason": "Requested by the wave orchestrator (cpp-improvement, outbox rev 49): three MEDIUM findings across two passes were each a way for the provenance check to pass over an anchor it had not examined, the pass-2 fix was unreviewed, and this is an instrument whose green is read by sessions that cannot see what produced it",
+  "head": "284a9748a6df019e46c8daabf9460dbccc55121e",
+  "implementer": "claude/claude-fable-5-2",
+  "implementer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-fable-5-2"
+    ],
+    "runtime": "claude",
+    "session_id": "890b3b05-7b6e-481a-bb70-992a65b5e9a0",
+    "sources": [
+      {
+        "bytes": 15805284,
+        "path": "-home-user-Projects/890b3b05-7b6e-481a-bb70-992a65b5e9a0.jsonl",
+        "sha256": "89380c94f9a57a904c82b0fb8b519ceaa43ed99ec032baec56970e10c23ee891"
+      }
+    ],
+    "transcript": "-home-user-Projects/890b3b05-7b6e-481a-bb70-992a65b5e9a0.jsonl"
+  },
+  "issue": "1732",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 3,
+  "recorded_at": "2026-11-12T04:28:13Z",
+  "red_cases": {
+    "already_covered": 15,
+    "proposed": 22
+  },
+  "reviewed_artifact": {
+    "base_sha": "ee4ca592f6a6c5da9c51750f9afe46abe091761b",
+    "merge_base": "c5ac2e52d604adf3d42c3f58335210016f226c48",
+    "method": "runtime-head",
+    "patch_sha256": "197facc0c59fab425c1a5690edbc6947f35059e760032ea9a2b7171e765e5aea",
+    "report_record": 57,
+    "target_head": "284a9748a6df019e46c8daabf9460dbccc55121e"
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "exec_log": "codex-review.FLGnS6.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/11/rollout-2026-11-11T23-25-24-01a1ce00-d948-7800-bf42-4ba55aad8a17.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 97442,
+        "path": "codex-review.FLGnS6.jsonl",
+        "sha256": "014c494a485a797f4066de991f64f22fbd515172439409075cc373b34acd2720"
+      },
+      {
+        "bytes": 604039,
+        "path": "2026/11/11/rollout-2026-11-11T23-25-24-01a1ce00-d948-7800-bf42-4ba55aad8a17.jsonl",
+        "sha256": "5c4b5a44de95a6de2634223ffafb8314f7058ddbf9dd914e4edbcc6eccbe5f28"
+      }
+    ],
+    "thread_id": "01a1ce00-d948-7800-bf42-4ba55aad8a17"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}
