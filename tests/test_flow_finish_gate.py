@@ -3894,3 +3894,272 @@ def test_the_gate_never_ends_by_running_off_its_last_line() -> None:
     ]
     assert statements[-1].startswith(("gate_exit ", "exit ")), statements[-1]
     assert UNANNOUNCED_EXIT not in {0, 1, 2, 3, 4, 5, 64}, "128 must not be a status the gate announces"
+
+
+# ── Enrolment judges the receipt NEAREST to HEAD (issue #1707) ──────────────
+#
+# The enrolment loop returned on the first receipt that passed its filters, in
+# filename order - the OLDEST. Every matching receipt is now a candidate and the
+# one whose reviewed head has the fewest commits to HEAD is judged; a filename
+# only breaks a tie at one head.
+
+def _named_receipt(
+    repo: Path, name: str, head: str, status: str = "ran", *,
+    scope: str | None = None, skip_reason: str | None = None,
+) -> None:
+    import json
+
+    r = {
+        "schema": 1, "recorded_at": "2026-09-21T12:00:00Z", "issue": "1707",
+        "branch": _git(repo, "rev-parse", "--abbrev-ref", "HEAD"),
+        "head": head, "status": status,
+        "reviewer": "codex/gpt-6-astra", "implementer": "claude/claude-opus-5",
+    }
+    if scope:
+        r["scope"] = scope
+    if skip_reason:
+        r["skip_reason"] = skip_reason
+    (repo / "docs/measurements/counter-model" / name).write_text(json.dumps(r, indent=2))
+
+
+def _repo_with_two_reviewed_commits(tmp_path: Path) -> tuple[Path, str, str]:
+    """An enrolled repo whose branch has an OLDER commit A and HEAD = B."""
+    repo = _enrolled_repo(tmp_path)
+    (repo / "f.txt").write_text("a\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "first reviewed")
+    older = _git(repo, "rev-parse", "HEAD")
+    (repo / "f.txt").write_text("b\n")
+    _git(repo, "commit", "-qam", "second reviewed")
+    return repo, older, _git(repo, "rev-parse", "HEAD")
+
+
+def _verdict(result: subprocess.CompletedProcess) -> str:
+    lines = [line for line in result.stdout.splitlines() if line.startswith("FLOW_FINISH_GATE: ")]
+    assert len(lines) == 1, result.stdout + result.stderr
+    return lines[0]
+
+
+def _counter_model_line(result: subprocess.CompletedProcess) -> str:
+    lines = [
+        line for line in result.stdout.splitlines()
+        if line.startswith("FLOW_FINISH_GATE_COUNTER_MODEL: ")
+    ]
+    assert len(lines) == 1, result.stdout + result.stderr
+    return lines[0]
+
+
+@requires_bash
+@requires_git
+def test_enrolment_names_the_receipt_for_this_head_not_the_oldest(tmp_path: Path) -> None:
+    """The acceptance case. RED before #1707: the line named the older receipt."""
+    repo, older, head = _repo_with_two_reviewed_commits(tmp_path)
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", older)
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", head)
+    line = _counter_model_line(_gate(repo))
+    assert "receipt: 2026-01-02T000000Z-issue-1707.json" in line, line
+
+
+@requires_bash
+@requires_git
+def test_an_older_valid_receipt_cannot_carry_an_unusable_one_at_head(tmp_path: Path) -> None:
+    """The fail-open direction. RED before #1707: the gate passed on the older
+    receipt and never judged the one for the commit being merged."""
+    repo, older, head = _repo_with_two_reviewed_commits(tmp_path)
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", older)
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", head, status="garbage")
+    result = _gate(repo)
+    assert "unknown: receipt 2026-01-02T000000Z-issue-1707.json has status 'garbage'" in _counter_model_line(result)
+    assert _verdict(result) == "FLOW_FINISH_GATE: fail (counter-model line unknown)"
+
+
+@requires_bash
+@requires_git
+def test_an_older_unusable_receipt_no_longer_reds_a_valid_one_at_head(tmp_path: Path) -> None:
+    """The false-red direction. RED before #1707: the older receipt decided."""
+    repo, older, head = _repo_with_two_reviewed_commits(tmp_path)
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", older, status="garbage")
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", head)
+    result = _gate(repo)
+    assert "receipt: 2026-01-02T000000Z-issue-1707.json" in _counter_model_line(result)
+    assert "fail" not in _verdict(result)
+
+
+@requires_bash
+@requires_git
+def test_commit_distance_beats_the_latest_filename(tmp_path: Path) -> None:
+    """A receipt written LATE for an OLDER head must not win. This is the case a
+    simpler "take the last file" rule gets wrong, so it is what pins the rule.
+    Three receipts: the nearest by count is neither first nor last by filename."""
+    repo, older, head = _repo_with_two_reviewed_commits(tmp_path)
+    base = _git(repo, "rev-parse", "HEAD~2")
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", base, status="garbage")
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", head)
+    _named_receipt(repo, "2026-01-03T000000Z-issue-1707.json", older, status="garbage")
+    result = _gate(repo)
+    assert "receipt: 2026-01-02T000000Z-issue-1707.json" in _counter_model_line(result)
+    assert "fail" not in _verdict(result)
+
+
+@requires_bash
+@requires_git
+def test_at_one_head_the_later_file_is_the_later_review(tmp_path: Path) -> None:
+    """The tie-break, and only a tie-break: two receipts for the SAME head."""
+    repo, _older, head = _repo_with_two_reviewed_commits(tmp_path)
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", head, status="garbage")
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", head)
+    assert "receipt: 2026-01-02T000000Z-issue-1707.json" in _counter_model_line(_gate(repo))
+    _named_receipt(repo, "2026-01-03T000000Z-issue-1707.json", head, status="garbage")
+    assert "unknown: receipt 2026-01-03T000000Z-issue-1707.json" in _counter_model_line(_gate(repo))
+
+
+def _gate_with_uncountable(repo: Path, tmp_path: Path, uncountable: str) -> subprocess.CompletedProcess:
+    """Run the gate with a `git` that cannot count the distance from heads whose
+    sha starts with one of the space-separated prefixes in `uncountable`."""
+    real_git = shutil.which("git")
+    assert real_git, "precondition: a real git to wrap"
+    bindir = tmp_path / "git-bin"
+    bindir.mkdir(exist_ok=True)
+    wrapper = bindir / "git"
+    wrapper.write_text(
+        "#!/usr/bin/env bash\n"
+        'if [[ "$1" == rev-list && "$2" == --count ]]; then\n'
+        f"  for p in {uncountable}; do\n"
+        '    [[ "$3" == "$p"* ]] && exit 128\n'
+        "  done\n"
+        "fi\n"
+        f'exec {real_git} "$@"\n'
+    )
+    wrapper.chmod(0o755)
+    env = dict(os.environ)
+    env["FLOW_GATE_CPP_DIR"] = ""
+    env["CM_RECEIPT_HELPER"] = str(ROOT / "scripts" / "counter-model-receipt.py")
+    env["PATH"] = f"{bindir}:{env['PATH']}"
+    return subprocess.run(["bash", str(SCRIPT)], cwd=repo, env=env, capture_output=True, text=True)
+
+
+@requires_bash
+@requires_git
+def test_a_receipt_whose_distance_cannot_be_computed_never_wins(tmp_path: Path) -> None:
+    repo, older, head = _repo_with_two_reviewed_commits(tmp_path)
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", older)
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", head, status="garbage")
+    # The nearest receipt (at HEAD, unusable) cannot be measured, so it is set
+    # aside and the measurable one is judged.
+    result = _gate_with_uncountable(repo, tmp_path, head[:12])
+    assert "receipt: 2026-01-01T000000Z-issue-1707.json" in _counter_model_line(result)
+
+
+@requires_bash
+@requires_git
+def test_when_no_distance_can_be_computed_the_answer_is_undecidable(tmp_path: Path) -> None:
+    """Not a fall back to the first match, which would restore the defect on
+    exactly the checkout that cannot measure."""
+    repo, older, head = _repo_with_two_reviewed_commits(tmp_path)
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", older)
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", head)
+    result = _gate_with_uncountable(repo, tmp_path, f"{older[:12]} {head[:12]}")
+    line = _counter_model_line(result)
+    assert line.startswith("FLOW_FINISH_GATE_COUNTER_MODEL: undecidable: 2 receipt(s) match"), line
+    assert "receipt: " not in line.split("undecidable:")[0]
+
+
+def _diamond_repo(tmp_path: Path) -> tuple[Path, str, str]:
+    """base -> B on one side, C on the other, merged at HEAD: B and C are two
+    DIFFERENT heads at the same distance from HEAD."""
+    repo = _enrolled_repo(tmp_path)
+    _git(repo, "checkout", "-q", "-b", "side")
+    (repo / "side.txt").write_text("c\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "side commit")
+    side = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "checkout", "-q", "master")
+    (repo / "main.txt").write_text("b\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "main commit")
+    main = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "merge", "-q", "--no-ff", "-m", "merge side", "side")
+    assert _git(repo, "rev-list", "--count", f"{main}..HEAD") == _git(
+        repo, "rev-list", "--count", f"{side}..HEAD"
+    ), "precondition: the two reviewed heads are equally far from HEAD"
+    return repo, main, side
+
+
+@requires_bash
+@requires_git
+@pytest.mark.parametrize("valid_first", [True, False])
+def test_two_heads_at_one_distance_are_both_judged_whatever_the_filenames(
+    tmp_path: Path, valid_first: bool,
+) -> None:
+    """Counter-model review: at equal distance the filename chose between two
+    DIFFERENT heads, so renaming a receipt switched the gate between pass and
+    fail. Both are judged now; one unusable receipt reds the gate either way."""
+    repo, main, side = _diamond_repo(tmp_path)
+    first, second = ("ran", "garbage") if valid_first else ("garbage", "ran")
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", main, status=first)
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", side, status=second)
+    result = _gate(repo)
+    assert "unknown: receipt " in _counter_model_line(result), result.stdout
+    assert _verdict(result) == "FLOW_FINISH_GATE: fail (counter-model line unknown)"
+
+
+@requires_bash
+@requires_git
+def test_two_reviewed_sides_of_a_merge_both_usable_pass(tmp_path: Path) -> None:
+    repo, main, side = _diamond_repo(tmp_path)
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", main)
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", side)
+    result = _gate(repo)
+    assert "receipt: " in _counter_model_line(result)
+    assert "fail" not in _verdict(result)
+
+
+def _enrolment_only(repo: Path) -> subprocess.CompletedProcess:
+    env = dict(os.environ)
+    env["FLOW_GATE_CPP_DIR"] = ""
+    env["CM_RECEIPT_HELPER"] = str(ROOT / "scripts" / "counter-model-receipt.py")
+    return subprocess.run(
+        ["bash", str(SCRIPT), "--enrolment-only"], cwd=repo, env=env, capture_output=True, text=True,
+    )
+
+
+@requires_bash
+@requires_git
+@pytest.mark.parametrize("scopeless_first", [True, False])
+def test_enrolment_only_checks_the_scope_of_every_accepted_review(
+    tmp_path: Path, scopeless_first: bool,
+) -> None:
+    """Counter-model review, pass 2: with two reviewed heads at one distance the
+    scope check looked only at the LAST receipt, so a review recorded without a
+    scope passed when the other carried one - and failed with the filenames
+    swapped. Every accepted `ran` receipt is checked, in either order."""
+    repo, main, side = _diamond_repo(tmp_path)
+    first_scope, second_scope = (None, "full") if scopeless_first else ("full", None)
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", main, scope=first_scope)
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", side, scope=second_scope)
+    result = _enrolment_only(repo)
+    assert _verdict(result) == "FLOW_FINISH_GATE: fail (counter-model line receipt-without-scope)"
+    assert result.returncode == 1
+
+
+@requires_bash
+@requires_git
+def test_a_scopeless_review_is_not_excused_by_an_allowed_skip_beside_it(tmp_path: Path) -> None:
+    repo, main, side = _diamond_repo(tmp_path)
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", main)
+    _named_receipt(
+        repo, "2026-01-02T000000Z-issue-1707.json", side, status="skipped", skip_reason="codex-absent",
+    )
+    result = _enrolment_only(repo)
+    assert _verdict(result) == "FLOW_FINISH_GATE: fail (counter-model line receipt-without-scope)"
+
+
+@requires_bash
+@requires_git
+def test_two_scoped_reviews_at_one_distance_pass_enrolment_only(tmp_path: Path) -> None:
+    repo, main, side = _diamond_repo(tmp_path)
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", main, scope="full")
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", side, scope="diff-only")
+    result = _enrolment_only(repo)
+    assert _verdict(result) == "FLOW_FINISH_GATE: ok"
+    assert result.returncode == 0
