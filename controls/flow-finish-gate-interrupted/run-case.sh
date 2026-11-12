@@ -35,6 +35,7 @@ mode=$(cat "$case_dir/mode")
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/flow-finish-gate-interrupted.XXXXXX") || say_unavailable "no isolated directory"
 runner_pid_file="$work/runner.pid"
+# shellcheck disable=SC2317  # invoked only from the trap below
 cleanup() {
     [ -s "$runner_pid_file" ] && kill -KILL "$(cat "$runner_pid_file")" 2>/dev/null
     rm -rf "$work"
