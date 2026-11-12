@@ -5,7 +5,7 @@ runner selected and generated, plus its observed terminal state. It establishes
 neither writer ownership nor inherited gate success. The consumer owns stream
 validation and reconciliation with its earlier controller-held stage evidence.
 
-A JSON-mode run or explicit resume emits an optional `resume_state_evidence`
+A JSON-mode run emits an optional `resume_state_evidence`
 object inside its existing single runner-result document:
 
 ```json
@@ -95,15 +95,16 @@ state does not leave an inheritable surviving cache lease.
 ## Stage facts and errors
 
 Normal success and step failure retain terminal in-memory `step_details` before
-cleanup. Run and explicit resume share that result serialization; a post-run
-filesystem reload never reconstructs missing stages. A nonfailed explicit
-resume is a no-execution result: loaded input, generated none, and all returned
-stage rows marked `executed_in_this_run: false`. It earns no fresh stage fact.
+cleanup. A post-run filesystem reload never reconstructs missing stages. The
+explicit `resume <run_id>` entry point was removed (issue #1727): it carried
+results without comparing the tree. With it went the only producer of a
+no-execution result (loaded input, generated none); `run` resumes a failed run
+itself, after the comparison, and always executes at least one stage.
 
 Direct state/runner APIs and no-JSON mode preserve the original state-operation
-exception. JSON-mode `run_plan`/`resume_run` classify only the exact original
+exception. JSON-mode `run_plan` classifies only the exact original
 exception privately tracked by the current state I/O/parse/serialization
-operation. They emit a single safe failure object and return 1:
+operation. It emits a single safe failure object and returns 1:
 
 ```json
 {

@@ -85,3 +85,42 @@ Risks: a comment that reads as history is the only statement of a live constrain
 | Coordination | not applicable: the supervisor's code is untouched; its control runs in the gate |
 | CI provider | not applicable |
 | Project state | will test: runner lane for real, fallback lane through its stubbed controls; not covered: bash 3.2 and macOS sed for the --help change |
+
+<!-- flow-run n=3 id=38e309fe078b46d3a826d5b356b86ad6 -->
+## Run 3
+
+- Run-id:            38e309fe078b46d3a826d5b356b86ad6
+- Run-start:         68d5fedf152b4446d35bd42f50e0b6c326ce43cb
+- Issue:             #1692
+- Base SHA:          68d5fedf152b4446d35bd42f50e0b6c326ce43cb
+- Necessity verdict: Still needed
+- Approval:          granted
+- Approver:          the wave orchestrator (wave cpp-improvement, authority model orchestrator-only), by mailbox rev 37 to role cpp-1508 at 2026-11-11T23:09:01-05:00: "GATE: GO-WITH-CONDITIONS #1692" (assignment a1700hold-583-1710b-1728-g5, item 1, row 583)
+- Recorded at:       2026-11-12T04:12:00Z
+
+### Section B evidence
+- Row 583 of the #864 dispositions is the last open row joined to #1692. PRs #1722 (545267b9) and #1733 (3eaf643d) did not reach `lib/cicd/makefile.py`.
+- Commits on `lib/cicd/makefile.py` and `lib/cicd/makefile_declaration.py` since 2026-10-25: 802a140a (#1599) only, and it leaves the `.PHONY` block alone.
+- Measured at 68d5fedf, regex against the declaration reader: this repository's Makefile 9 declared names (one a literal backslash) and 78 targets reported missing, against 76 and 10; skillc 9 and 8 against 16 and 0; kyle 84 and 5 both ways.
+- Callers: none in kyle or kyle-candidate; skillc holds only pinned byte copies of this repository's source. One caller here, `lib/cicd/cli.py`.
+
+### Section C - the approved plan
+Conditions attached to the approval: the three new tests fail on 68d5fedf and the still-missing test passes on both; one more test pins `.PHONY: $(VAR)` as a known limit; the 10 targets really missing from this repository's `.PHONY` are not fixed here and go to the Nit Store as one comment; the PR states this repository's own line before and after; one review pass unless it returns a medium or higher; no push without the merge slot.
+
+1. `lib/cicd/makefile.py` - `check_makefile` takes the declared `.PHONY` set from the declaration reader in place of the regex, and builds that reader once.
+2. `tests/test_cicd_makefile.py` - tests on `check_makefile` for a continued declaration, a spaced colon, a trailing comment, a genuinely undeclared target, and the unexpanded-variable limit.
+
+Scope: one function and five tests, about 50 lines.
+
+Risks: a project that relied on the wrong list sees a different one; nothing gates on either list.
+
+### Lanes for this change
+
+| Lane | Answer |
+|---|---|
+| Checkout | will test: pytest on the changed function in this linked worktree, red on 68d5fedf first |
+| Harness | not applicable: no command document or skill text changes |
+| Driver | not applicable: no driver-specific code |
+| Coordination | not applicable: no wave, mailbox or registry code |
+| CI provider | not applicable: no pipeline or CI-status code |
+| Project state | not applicable: no issue, label or board writes beyond the PR |

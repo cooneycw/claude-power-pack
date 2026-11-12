@@ -8,7 +8,7 @@
 # Requires: cargo, clippy, rustfmt
 # Copy to your project root as "Makefile" and customize.
 
-.PHONY: lint test format build build-release deploy clean verify troubleshoot ci-local
+.PHONY: lint test format build build-release clean verify troubleshoot ci-local
 
 ## Quality gates (used by /flow:finish)
 
@@ -35,11 +35,17 @@ verify: lint test
 
 ## Deployment (used by /flow:deploy)
 
-deploy: verify build-release
-	@echo "TODO: Define your deploy steps here"
-	@echo "Examples:"
-	@echo "  scp target/release/$(shell basename $(CURDIR)) prod:/usr/local/bin/"
-	@echo "  docker build -t $(shell basename $(CURDIR)) ."
+# No deploy target is defined yet, on purpose (issue #1712): a target that
+# only printed a TODO would report a successful deployment that deployed
+# nothing. Uncomment the block below, replace its recipe with real steps, and
+# add `deploy` to .PHONY (a .PHONY target with no rule makes `make deploy`
+# exit 0 with "Nothing to be done").
+#
+# deploy: verify build-release
+# 	<your deploy command>
+# Examples:
+#    scp target/release/$(shell basename $(CURDIR)) prod:/usr/local/bin/
+#    docker build -t $(shell basename $(CURDIR)) .
 
 ## Troubleshooting (single-command diagnostic pass)
 

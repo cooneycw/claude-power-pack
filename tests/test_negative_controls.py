@@ -3035,6 +3035,10 @@ def test_the_real_historical_anchors_are_byte_verified_against_git_history() -> 
     MISMATCH under this check (see its comment) - a synthetic, constructed
     or vendored anchor's placeholder `sha` never resolves either way.
     """
+    # In CI's partial clone every read below is a network fetch (issue #1718).
+    from tests.conftest import skip_in_partial_clone
+
+    skip_in_partial_clone(ROOT)
     harness = _load_harness_module()
     for control in _HISTORICAL_ANCHOR_CONTROLS:
         manifest_path = ROOT / "controls" / control / "control.json"
@@ -4420,9 +4424,10 @@ def test_the_real_resume_control_judges_its_good_case_by_the_resume_signal(
 
     `scripts/` and `lib/` are symlinked, so the gate and the runner that execute
     are the shipped ones; the resume control is COPIED so one case can be altered
-    without touching the tree. Removing the case's `app.py` leaves its secrets
-    scan nothing to examine (#1341), so it exits 3 with `warn (zero coverage:
-    security_scan)` - the same exit code, the wrong reason. The `committed`
+    without touching the tree. The altered case exits 3 with a `warn (zero
+    coverage: ...)` - the same exit code, the wrong reason. Until #1737 that was
+    reached by removing the case's `app.py`, which left the secrets scan nothing
+    to examine (#1341); see the note at the alteration below. The `committed`
     variant is this setup's own positive control: if the scratch root could not
     run the case at all, it would not read PASS.
     """
@@ -4438,6 +4443,24 @@ def test_the_real_resume_control_judges_its_good_case_by_the_resume_signal(
     manifest = json.loads((ctl / "control.json").read_text(encoding="utf-8"))
     if variant != "committed":
         source.unlink()
+        # Since #1737 the scan also reads the case's `Makefile` and its shebang
+        # driver `bin/uv`, so removing `app.py` no longer leaves it nothing to
+        # examine: a tree that can run `make` always has a scanned file. The
+        # same wrong reason is reached through lint instead - ruff's own words
+        # for "no Python files", which the runner reads as zero coverage.
+        for makefile in ("Makefile", "Makefile.phase2"):
+            path = ctl / "cases" / "good-fail-fix-resume" / makefile
+            text = path.read_text(encoding="utf-8")
+            assert text.startswith("lint:\n\t@true\n"), f"precondition: {makefile}'s lint target is the bare stub"
+            path.write_text(
+                text.replace(
+                    "lint:\n\t@true\n",
+                    'lint:\n\t@echo "warning: No Python files found under the given path(s)" >&2;'
+                    ' echo "All checks passed!"\n',
+                    1,
+                ),
+                encoding="utf-8",
+            )
     if variant == "no-source-unset":
         manifest.pop("good_signal", None)
     if variant == "no-source-any-warn":

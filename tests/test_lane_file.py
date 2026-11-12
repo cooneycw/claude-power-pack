@@ -386,7 +386,7 @@ def test_no_lane_command_files_issues() -> None:
 
 def test_the_plan_step_relays_the_advisory_and_continues() -> None:
     text = read("flow/eli5.md")
-    pointer = normalized(text[text.index("answer the lane file") :])
+    pointer = normalized(text[text.index("CPP integration: lanes and readers") :])
     assert "lane-file.py age" in pointer
     assert "LANE_FILE_AGE:" in pointer
     assert "never a stop" in pointer, "the plan step no longer says the advisory cannot stop a plan"

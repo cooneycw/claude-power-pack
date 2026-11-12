@@ -65,6 +65,10 @@ def format_results(result: ScanResult, verbose: bool = False) -> str:
     for skipped in result.skipped:
         lines.append(f"\u26aa SKIP: {skipped}")
 
+    # Files left unread (issue #1737): not a skipped check, so not a SKIP line
+    for unexamined in result.unexamined:
+        lines.append(f"\u26aa NOT READ: {unexamined}")
+
     # Errors
     for error in result.errors:
         lines.append(f"{RED}ERROR: {error}{NC}")

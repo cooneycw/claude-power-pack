@@ -9,6 +9,7 @@ import shutil
 import sys
 import tempfile
 import textwrap
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -573,3 +574,203 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config) -> None:  # no
             terminalreporter.write_line(
                 f"    {first[:160]}{'...' if len(first) > 160 else ''}", yellow=True
             )
+
+
+# --------------------------------------------------------------------------- #
+# An owned CPP checkout for tests that run the REAL gate (issue #1718)
+# --------------------------------------------------------------------------- #
+# Two tests run the shipped finish path, which does
+# `uv run --python 3.11 --no-python-downloads --project "$CPP_DIR"`. They used
+# to pass the checkout the suite itself is running from as that directory. uv
+# then makes that checkout's `.venv` match the 3.11 pin: where the `.venv` was
+# first built by a plain `uv run` on another minor (3.12 on a host that has
+# both), uv REMOVES it and recreates it - mid-suite, under the feet of every
+# test still to run. One of the two runs offline with an empty cache, so the
+# rebuilt environment stayed empty and 274 later tests failed with
+# "No module named 'yaml'". The other rebuilt it without the dev extra and
+# passed, having removed pytest from the environment running it.
+#
+# A test must not rebuild the environment it is running in. So the gate is
+# pointed at a COPY of the working tree's `lib/`, `scripts/`, `pyproject.toml`
+# and `uv.lock`, with its own 3.11 environment built once per session. It is a
+# copy of the WORKING TREE, not of HEAD, so it still tests what is being edited.
+
+_OWNED_CPP_PARTS = ("pyproject.toml", "uv.lock", "lib", "scripts")
+
+
+def venv_fingerprint(venv: Path) -> tuple[str, tuple[tuple[str, int], ...]] | None:
+    """What a virtual environment holds, read without running anything through
+    uv: the interpreter its `pyvenv.cfg` names (version and home), and each
+    site-packages entry with the number of files under it. None when there is
+    no environment at that path. Read from the files directly - `uv run`
+    repairs an environment before running a check in it, so a check made
+    through uv cannot see one that was emptied.
+
+    Two equal readings say the version, the home, the entry names and their
+    file counts did not change between them. They do not say the environment
+    works, and a difference does not say which process made it."""
+    cfg = venv / "pyvenv.cfg"
+    if not cfg.is_file():
+        return None
+    fields = {}
+    for line in cfg.read_text().splitlines():
+        key, sep, value = line.partition("=")
+        if sep:
+            fields[key.strip()] = value.strip()
+    version = fields.get("version_info") or fields.get("version") or "?"
+    interpreter = f"{version} at {fields.get('home', '?')}"
+    entries: dict[str, int] = {}
+    for site in venv.glob("lib/python*/site-packages"):
+        for entry in site.iterdir():
+            # Bytecode caches are written by the interpreter as it imports, so
+            # they are not evidence of anything a test did.
+            if entry.name == "__pycache__":
+                continue
+            if entry.is_dir():
+                count = sum(1 for p in entry.rglob("*")
+                            if p.is_file() and p.suffix != ".pyc")
+            else:
+                count = 1
+            entries[entry.name] = entries.get(entry.name, 0) + count
+    return interpreter, tuple(sorted(entries.items()))
+
+
+# --- a partial clone turns a read of git history into a network request -------
+#
+# CI clones with `--depth=1 --filter=tree:0`. In such a clone, reading an
+# object that is not present makes git fetch it from the remote, per read, so
+# a test that reads real history there takes as long as the remote takes to
+# answer (issue #1718: pipeline 3760 lost a test to its 120 second limit that
+# takes 0.4 seconds in a full checkout). The comparison that needs the network
+# belongs to the `negative-controls` CI step, where it is counted.
+
+PARTIAL_CLONE_SKIP_REASON = (
+    "partial clone: real-history comparison is done by the negative-controls CI step on pull requests"
+)
+
+
+def is_partial_clone(root: Path) -> bool:
+    """Whether `root`'s repository is a partial clone, read from git's own
+    configuration: a promisor remote, or `extensions.partialclone`. Only those
+    two facts answer yes. A configuration git cannot read, or any other
+    failure of the question, is an error - never a quiet no, and never a skip."""
+    import subprocess
+
+    # Outside a repository `git config` still answers, from the user's own
+    # configuration, with a clean "no such key". That is not an answer about
+    # `root`, so ask first whether there is a repository there at all.
+    inside = subprocess.run(["git", "-C", str(root), "rev-parse", "--git-dir"],
+                            capture_output=True, text=True, timeout=30, check=False)
+    assert inside.returncode == 0, (
+        f"git could not say whether {root} is a partial clone: it is not a repository git can read "
+        f"(exit {inside.returncode}): {inside.stderr.strip()[-300:]}")
+    for args in (["--get-regexp", r"^remote\..*\.promisor$"], ["--get", "extensions.partialclone"]):
+        asked = subprocess.run(["git", "-C", str(root), "config", *args],
+                               capture_output=True, text=True, timeout=30, check=False)
+        if asked.returncode == 0:
+            if args[0] == "--get" or any(line.split()[-1].lower() == "true"
+                                         for line in asked.stdout.splitlines() if line.split()):
+                return True
+            continue
+        # `git config` exits 1 for "no such key": the one clean no.
+        assert asked.returncode == 1 and not asked.stderr.strip(), (
+            f"git could not say whether {root} is a partial clone "
+            f"(exit {asked.returncode}): {asked.stderr.strip()[-300:]}")
+    return False
+
+
+def skip_in_partial_clone(root: Path) -> None:
+    """Skip the calling test, with the reason that names who compares instead,
+    when and only when `root` is a partial clone."""
+    if is_partial_clone(root):
+        pytest.skip(PARTIAL_CLONE_SKIP_REASON)
+
+
+# What a child that runs uv on a project of the test's own may INHERIT. Built
+# from nothing, by name: stripping the uv settings one knows about leaves the
+# ones one does not, and uv reads more than fifty.
+_UV_CHILD_INHERITS = (
+    "PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TMPDIR",
+    # where uv keeps its installed interpreters and its download cache
+    "UV_PYTHON_INSTALL_DIR", "XDG_DATA_HOME", "XDG_CACHE_HOME",
+    # reaching the package index from behind a proxy or a private CA
+    "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
+    "SSL_CERT_FILE", "SSL_CERT_DIR",
+)
+
+
+def uv_child_env(environ: Mapping[str, str] | None = None) -> dict[str, str]:
+    """The environment for a child that runs uv on a project of the test's
+    own: only the names in `_UV_CHILD_INHERITS`, taken from `environ`. Nothing
+    inherited can then tell uv WHICH project, directory, environment,
+    interpreter or configuration to use - an inherited `UV_PROJECT` or
+    `UV_WORKING_DIR` sends a nested `uv run` back to the checkout the suite
+    runs from, whatever `--project` the outer call named. A test then sets the
+    uv settings it means to."""
+    source = os.environ if environ is None else environ
+    return {key: source[key] for key in _UV_CHILD_INHERITS if key in source}
+
+
+def find_python(uv: str, env: Mapping[str, str], minor: str) -> Path:
+    """The host's Python `minor`, or a skip when uv says it has none. Any
+    OTHER failure of the question (a configuration uv cannot read, a crash) is
+    an error: read as "no interpreter" it would turn the tests off."""
+    import subprocess
+
+    probe = subprocess.run(
+        [uv, "python", "find", minor, "--no-python-downloads"],
+        env=dict(env), capture_output=True, text=True, timeout=60, check=False,
+    )
+    if probe.returncode != 0 and "No interpreter found" in probe.stderr:
+        pytest.skip(f"requires a Python {minor} interpreter; discovery forbids downloads")
+    assert probe.returncode == 0, (
+        f"uv could not answer whether Python {minor} is installed (exit {probe.returncode}): "
+        f"{probe.stderr.strip()[-400:]}")
+    return Path(probe.stdout.strip())
+
+
+def find_python_311(uv: str, env: Mapping[str, str]) -> Path:
+    return find_python(uv, env, "3.11")
+
+
+def build_owned_cpp_checkout(root: Path, dest: Path) -> Path:
+    """Copy `root`'s CPP runtime to `dest` and build its Python 3.11
+    environment there. Skips ONLY for a missing prerequisite (uv, or a 3.11
+    interpreter); once both are present a build that fails is an error."""
+    import shutil
+    import subprocess
+
+    uv = shutil.which("uv")
+    if uv is None:
+        pytest.skip("requires uv to build an owned CPP environment")
+    dest.mkdir()
+    for part in _OWNED_CPP_PARTS:
+        source = root / part
+        if source.is_dir():
+            shutil.copytree(source, dest / part, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        else:
+            shutil.copy2(source, dest / part)
+    env = uv_child_env()
+    # The ONE prerequisite that may skip: no Python 3.11 on this host. Asked
+    # separately, so that a build that fails for any other reason (a broken
+    # lock, an unsatisfiable dependency) is an ERROR and not a quiet skip.
+    find_python_311(uv, env)
+    built = subprocess.run(
+        [uv, "sync", "--python", "3.11", "--no-python-downloads", "--project", str(dest)],
+        env=env, capture_output=True, text=True, timeout=110, check=False,
+    )
+    assert built.returncode == 0, (
+        "uv and Python 3.11 are present, but the owned CPP environment did not build "
+        f"(exit {built.returncode}): {built.stderr.strip()[-600:]}"
+    )
+    assert venv_fingerprint(dest / ".venv") is not None, "the owned environment was not created"
+    return dest
+
+
+@pytest.fixture(scope="session")
+def owned_cpp_checkout(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A copy of this checkout's CPP runtime with its own Python 3.11
+    environment, for a test that must run the real gate."""
+    return build_owned_cpp_checkout(
+        Path(__file__).resolve().parents[1],
+        tmp_path_factory.mktemp("owned-cpp") / "claude-power-pack")

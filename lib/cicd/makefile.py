@@ -158,11 +158,11 @@ def check_makefile(
         t for t in result.missing_recommended if t not in result.missing_required
     ]
 
-    # Check .PHONY declarations
-    phony_set = set()
+    # `.PHONY` from the declaration reader, as `parse_makefile` reads it: a
+    # regex here missed continued declarations (issue #1692).
     content = makefile_path.read_text()
-    for match in re.finditer(r"^\.PHONY:\s*(.+)$", content, re.MULTILINE):
-        phony_set.update(match.group(1).split())
+    declared = MakefileDeclaration(content)
+    phony_set = set(declared.special.get(".PHONY", ()))
     result.phony_declared = sorted(phony_set)
 
     for target in targets:
@@ -176,7 +176,7 @@ def check_makefile(
     # the report makes. The reader already tracks these; carrying them here is
     # what stops a clean report meaning "I looked at everything" when it means
     # "I looked at everything I could parse".
-    for name, line in MakefileDeclaration(content).unsupported:
+    for name, line in declared.unsupported:
         result.issues.append(
             f"Line {line}: rule name '{name}' is not one this reader can "
             f"validate, so it is NOT included in the checks below - they "
@@ -352,7 +352,9 @@ def _generate_inline(info: FrameworkInfo) -> str:
         "#",
         f"# Detected: {info.framework.label} ({info.package_manager.label})",
         "",
-        f".PHONY: {' '.join(targets)}",
+        # `deploy` is left out while its rule is commented out below: a .PHONY
+        # target with no rule makes `make deploy` exit 0 ("Nothing to be done").
+        f".PHONY: {' '.join(t for t in targets if t != 'deploy')}",
         "",
         "## Quality gates (used by /flow:finish)",
         "",
@@ -385,8 +387,16 @@ def _generate_inline(info: FrameworkInfo) -> str:
     # Deploy targets
     lines.append("## Deployment (used by /flow:deploy)")
     lines.append("")
-    lines.append("deploy:")
-    lines.append('\t@echo "Define your deploy steps here"')
+    # Commented out on purpose (issue #1712): a live target that only printed
+    # a placeholder exited 0, and /flow:deploy and /flow:auto read that as a
+    # successful deployment of nothing. With no target, they say there is none.
+    lines.append("# No deploy target is defined yet, on purpose (issue #1712): a target that")
+    lines.append("# only printed a TODO would report a successful deployment that deployed")
+    lines.append("# nothing. Uncomment the block below and replace its recipe with real steps.")
+    lines.append("# If this Makefile declares .PHONY targets, add `deploy` there too.")
+    lines.append("#")
+    lines.append("# deploy: verify")
+    lines.append("# \t<your deploy command>")
     lines.append("")
 
     # Framework-specific extra targets

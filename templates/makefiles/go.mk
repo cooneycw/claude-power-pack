@@ -11,7 +11,7 @@
 BINARY_NAME ?= $(shell basename $(CURDIR))
 BUILD_DIR   ?= bin
 
-.PHONY: lint test vet build deploy clean verify troubleshoot tidy ci-local
+.PHONY: lint test vet build clean verify troubleshoot tidy ci-local
 
 ## Quality gates (used by /flow:finish)
 
@@ -38,11 +38,17 @@ verify: lint test vet
 
 ## Deployment (used by /flow:deploy)
 
-deploy: verify build
-	@echo "TODO: Define your deploy steps here"
-	@echo "Examples:"
-	@echo "  scp $(BUILD_DIR)/$(BINARY_NAME) prod:/usr/local/bin/"
-	@echo "  docker build -t $(BINARY_NAME) . && docker push $(BINARY_NAME)"
+# No deploy target is defined yet, on purpose (issue #1712): a target that
+# only printed a TODO would report a successful deployment that deployed
+# nothing. Uncomment the block below, replace its recipe with real steps, and
+# add `deploy` to .PHONY (a .PHONY target with no rule makes `make deploy`
+# exit 0 with "Nothing to be done").
+#
+# deploy: verify build
+# 	<your deploy command>
+# Examples:
+#    scp $(BUILD_DIR)/$(BINARY_NAME) prod:/usr/local/bin/
+#    docker build -t $(BINARY_NAME) . && docker push $(BINARY_NAME)
 
 ## Troubleshooting (single-command diagnostic pass)
 

@@ -10,7 +10,6 @@ and only re-engage the LLM when code fixes are needed.
 Usage:
     python -m lib.cicd run --plan finish
     python -m lib.cicd run --plan deploy
-    python -m lib.cicd resume <run_id>
     python -m lib.cicd status <run_id>
 """
 
@@ -721,42 +720,6 @@ class DeterministicRunner:
 
         self._log(f"Starting plan '{plan_name}' with {len(step_defs)} steps")
         state.save(self.project_root)
-
-        return self._execute(state, step_defs)
-
-    def resume(self, run_id: str) -> RunResult:
-        """Resume a specific failed run by ID."""
-        self._resume_evidence = ResumeStateEvidence()
-        self._last_state = None
-        self._executed_from = None
-        self._settled_here = set()
-        state = RunState.load(run_id, self.project_root, evidence=self._resume_evidence)
-        self._last_state = state
-        if state.status != "failed":
-            details = state.summary(executed_from=len(state.step_records))["steps"]
-            for entry in details:
-                entry["executed_in_this_run"] = False
-            plan_steps = get_plan_steps(state.plan_name, project_root=str(self.project_root))
-            return RunResult(
-                step_details=copy.deepcopy(details),
-                resume_state_evidence=state.resume_state_evidence(),
-                success=state.status == "success",
-                run_id=run_id,
-                plan_name=state.plan_name,
-                steps_completed=state.current_index,
-                steps_total=len(state.step_records),
-                gates=plan_gate_ids(state.plan_name, plan_steps),
-                dropped_gates=dropped_gate_ids(state.plan_name, plan_steps),
-                error=f"Run is {state.status}, not resumable" if state.status != "success" else None,
-            )
-
-        self._log(f"Resuming run {run_id} from step {state.current_index + 1}")
-        self._warn_carried_over(state)
-        # Reset state to running for resume
-        state.status = "running"
-
-        # Load step definitions for the plan
-        step_defs = get_plan_steps(state.plan_name, project_root=str(self.project_root))
 
         return self._execute(state, step_defs)
 
@@ -1999,30 +1962,6 @@ def run_plan(
         # All terminal facts come from the in-memory result. Never reopen
         # mutable state to reconstruct an empty/no-op invocation's stage report.
         print(json.dumps(output, indent=2))
-
-    return 0 if result.success else 1
-
-
-def resume_run(
-    run_id: str,
-    project_root: Optional[str] = None,
-    json_output: bool = True,
-) -> int:
-    """Resume a failed run and return exit code."""
-    root = Path(project_root) if project_root else Path(".")
-    # Match run_plan's cross-version-safe env opt-in when resuming the same gate.
-    rerun_failed = os.environ.get("CPP_GATE_RERUN_FAILED") == "1"
-    runner = DeterministicRunner(project_root=root, rerun_failed=rerun_failed)
-
-    try:
-        result = runner.resume(run_id)
-    except Exception as error:
-        if _emit_state_error(runner, error, json_output):
-            return 1
-        raise
-
-    if json_output:
-        print(json.dumps(result.to_dict(), indent=2))
 
     return 0 if result.success else 1
 
