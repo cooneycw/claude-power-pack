@@ -94,6 +94,58 @@ and the rest of the Step 4b comment on `hooks.json` (issue #1206):
 > .claude/hooks.json, so shipping it only created the impression of a
 > protection that was not running.
 
+From `/github:issue-create`, moved by #1697 to pay for the defect-origin
+question. It is the worked example that closed the document; Steps 1 to 4 carry
+every instruction it illustrates:
+
+> ## Example Interaction
+>
+> ```
+> User: /github:issue-create
+>
+> Claude: What type of issue would you like to create?
+> 1. Best Practice Suggestion
+> 2. Documentation Correction
+> 3. Feature Request
+> 4. Bug Report
+>
+> User: 1
+>
+> Claude: Great! Let's create a best practice suggestion.
+>
+> What's the title of this practice?
+>
+> User: Use session resets after git commits
+>
+> Claude: Which category does this practice belong to?
+> - Skills & Activation
+> - MCP Optimization
+> - Session Management
+> - Context Efficiency
+> - CLAUDE.md Configuration
+> - Hooks & Automation
+> - Workflow Patterns
+> - Plan Mode
+> - Code Quality
+> - Other
+>
+> User: Session Management
+>
+> Claude: Please describe the practice and why it's useful.
+>
+> User: After completing a feature and committing, reset your Claude Code session...
+>
+> [Claude creates the issue and returns the URL]
+> ```
+
+From `/project:init` Step 4c, moved by #1697 to pay for the bug-form install.
+The sentence read:
+
+> Delegate this half to Claude Code's
+> native `/init`, which interviews the project and generates a codebase-aware
+> CLAUDE.md (and scaffolds skills/hooks) far better than a fixed template. CPP then
+> layers its CI/CD governance directives on top so nothing is lost.
+
 From `/codex:code_review` Step 2, above the `trap` that removes the diff file:
 
 > Four refusal paths below (no common ancestor, no diff vs BASE, an unreadable
