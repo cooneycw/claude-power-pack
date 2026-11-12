@@ -74,6 +74,7 @@ def _step3_block() -> str:
 
 
 def _run(tmp_path: Path, tracked: bool = True, subdir: bool = False, delete_first: bool = False,
+         many_files: int = 0, shell_prefix: str = "",
          **extra: str) -> tuple[subprocess.CompletedProcess[str], str]:
     stub_dir = tmp_path / "stub"
     stub_dir.mkdir(exist_ok=True)
@@ -97,6 +98,8 @@ def _run(tmp_path: Path, tracked: bool = True, subdir: bool = False, delete_firs
         (work / "a_first.txt").write_text("x\n", encoding="utf-8")
         (work / "sub").mkdir(exist_ok=True)
         (work / "sub" / "inner.txt").write_text("y\n", encoding="utf-8")
+        for index in range(many_files):
+            (work / f"padding-file-with-a-long-name-{index:06d}.txt").write_text("", encoding="utf-8")
         subprocess.run(["git", "add", "-A"], cwd=work, env=genv, check=True, capture_output=True)
         if delete_first:
             (work / "a_first.txt").unlink()
@@ -107,7 +110,7 @@ def _run(tmp_path: Path, tracked: bool = True, subdir: bool = False, delete_firs
     for k in ("CODEX_REVIEW_SANDBOX",):
         if k not in extra:
             env.pop(k, None)
-    proc = subprocess.run(["bash", "-c", _step3_block() + '\necho "EXIT=$CODEX_EXIT"'],
+    proc = subprocess.run(["bash", "-c", shell_prefix + _step3_block() + '\necho "EXIT=$CODEX_EXIT"'],
                           cwd=work / "sub" if subdir else work, env=env, capture_output=True, text=True)
     args = args_file.read_text(encoding="utf-8") if args_file.exists() else ""
     return proc, args
@@ -179,3 +182,20 @@ def test_any_other_sandbox_value_is_refused_not_defaulted(tmp_path: Path) -> Non
 
 def test_the_sandbox_flag_is_no_longer_hardcoded() -> None:
     assert "--sandbox read-only \\" not in _step3_block()
+
+
+@requires_git
+def test_the_probe_survives_pipefail_in_a_large_checkout(tmp_path: Path) -> None:
+    """Issue #1714, seq 609. The probe stops reading after the first readable file.
+
+    Written as `git ls-files -z | while ...; break`, the producer was killed by
+    SIGPIPE once its output outran the pipe, and under `set -o pipefail` that
+    141 became the pipeline's status: scope read `unverified` in exactly the
+    large checkouts where a full review matters. The listing below is several
+    times a pipe buffer, so the producer is still writing when the reader stops.
+    """
+    files = 8000
+    proc, args = _run(tmp_path, STUB_SANDBOX_RC="0", many_files=files, shell_prefix="set -o pipefail\n")
+    listed = subprocess.run(["git", "ls-files", "-z"], cwd=tmp_path / "work", capture_output=True, check=True)
+    assert len(listed.stdout) > 4 * 65536, "precondition: the listing must outrun a pipe buffer"
+    assert "CODEX_REVIEW_SCOPE: full" in proc.stdout, proc.stdout + proc.stderr

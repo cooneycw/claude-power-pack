@@ -23,6 +23,8 @@ pytestmark = pytest.mark.skipif(shutil.which("bash") is None, reason="requires b
 # changed here; it is recorded with the other scripts that share the pattern.
 CASES = [
     ("scripts/flow-start-resolve.sh", ["bash"]),
+    # issue #1726: `sed -n '2,36p'` of a 100-line header cut off before Usage.
+    ("scripts/flow-worktree-guard.sh", ["bash"]),
 ]
 
 
@@ -59,4 +61,29 @@ def test_help_follows_the_header_when_it_grows(rel, shell, tmp_path):
     marker = "# A-NEW-HEADER-LINE-ADDED-AT-THE-END\n"
     copy = tmp_path / script.name
     copy.write_text("".join(lines[:end] + [marker] + lines[end:]), encoding="utf-8")
+    # A helper that sources a library beside itself needs it beside the copy too.
+    for sibling in ("gate-lib.sh",):
+        if (script.parent / sibling).exists():
+            shutil.copy(script.parent / sibling, tmp_path / sibling)
     assert "A-NEW-HEADER-LINE-ADDED-AT-THE-END" in _help(copy, shell)
+
+
+def test_the_guards_help_includes_its_usage_and_its_exit_codes():
+    """What the line range cut off: the part a reader runs --help for."""
+    out = _help(ROOT / "scripts/flow-worktree-guard.sh", ["bash"])
+    assert "--strict" in out
+    assert "no-leak | leak | unknown | not-applicable" in out
+    assert not any(line.startswith("#") for line in out.splitlines())
+
+
+def test_the_guards_help_works_through_an_installed_symlink(tmp_path):
+    """Lane: Harness, Claude install. The help reads the script's own text
+    through `$0`, and the installed helper is a symlink into the checkout."""
+    link = tmp_path / "installed" / "flow-worktree-guard.sh"
+    link.parent.mkdir()
+    link.symlink_to(ROOT / "scripts/flow-worktree-guard.sh")
+    # The install links the library the guard sources beside it, too.
+    (link.parent / "gate-lib.sh").symlink_to(ROOT / "scripts/gate-lib.sh")
+    assert link.is_symlink(), "precondition: invoked through a symlink"
+    out = _help(link, ["bash"])
+    assert "--strict" in out and "no-leak | leak | unknown | not-applicable" in out

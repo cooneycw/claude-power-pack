@@ -700,7 +700,7 @@ instead.
    before the receipt is written. See
    [counter-model evidence](../../../docs/agents/counter-model-evidence.md).
    A collector `CODEX_REVIEW: blocked` or missing artifact binding is a failed
-   precondition: correct the checkpoint/evidence and retry. It is not a skip.
+   precondition: correct what it names; retry. It is not a skip.
 
    **Then probe the reviewer (issue #1015).** The ONLY condition that skips a
    review is the inability to run codex:

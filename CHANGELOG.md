@@ -23,6 +23,37 @@
   column loosely, which was accidentally right while every target ran
   `make deploy` and would have skipped the real deploy once it did not
   (#1759).
+- **A newly scaffolded Makefile no longer has a `deploy` target that does
+  nothing and reports success.** The templates, `Makefile.example` and the
+  inline generator shipped a `deploy` whose recipe only printed a TODO; it
+  exited 0, and `/flow:deploy` and `/flow:auto` recorded a deployment. The
+  block is now commented out with its instructions, and `deploy` is out of
+  `.PHONY`, so `/flow:deploy` stops with "No 'deploy' target in Makefile" and
+  `/flow:auto` skips its deploy step until you write one. Run by hand,
+  `make deploy` fails with "No rule to make target", unless the project has a
+  file or directory named `deploy`, where make itself answers "up to date";
+  neither flow gets that far, because both test for a deploy rule first and
+  `/flow:deploy` runs only the target it is given (#1759). **A Makefile you
+  already generated is not rewritten: if it still has the TODO target, it
+  still reports a successful deployment of nothing until you edit it.**
+  Nothing tells an existing project to regenerate (#1712).
+- **Generated infrastructure workflows pin `actions/checkout` to the same
+  commit as every other generated workflow**, not the moving `@v4`.
+  Regenerate to get it (#1712).
+- **`/codex:code_review` blocks a patch that is too large for Codex, where it
+  used to record "reviewer unavailable".** Codex refuses input over 1,048,576
+  characters; the run used to exit 1 with no findings and be recorded as a
+  skipped review, which the finish gate accepts. The patch is now measured
+  first, in bytes, against that limit less a margin for the prompt. Over it,
+  at every scope, the run stops with `CODEX_REVIEW: blocked (patch too large
+  ...)`, exit 1, before any model call. **A change of about 1 MB or more that
+  used to pass with a skipped review now stops, and a person decides:** split
+  the change, or commit separately the bulk that needs no review. Having the
+  reviewer read such a change from the repository is not built (#1769). Also:
+  the scope probe no longer reads `unverified` under `pipefail` in a large
+  checkout, the temporary-file templates end in their `X` run, and a dangling
+  or unsearchable `.claude/lanes.md` is reported as unreadable, not treated
+  as absent (#1714).
 - **The flow documents say what to do when a project's gate needs the pushed
   head.** `/flow:auto` Step 6 and `/flow:finish` still run the gate before the
   push. When a project's own gate clones the ref under test from the remote,
