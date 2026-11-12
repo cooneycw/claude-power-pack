@@ -177,6 +177,66 @@ def test_a_digest_mismatch_never_reached_git_and_is_not_counted_as_compared(tmp_
     done = harness(root, "--strict", "--verify-provenance")
     assert "NEGATIVE_CONTROL_PROVENANCE: MISMATCH" in done.stdout and done.returncode == 1
     assert counts(done.stdout) == (0, 0), "the bytes disagreed with the manifest before any commit was read"
+    # ...and that is NOT "none registered": the population is the registrations.
+    assert "no historical anchor is registered" not in done.stdout
+    assert "of 1 historical anchor(s) registered" in done.stdout
+    assert "1 never reached the comparison" in done.stdout
+
+
+def _make_unavailable(root: Path) -> None:
+    """Turn the fixture's toy gate into one whose tool is absent, and commit."""
+    (root / "scripts" / "toy-gate.sh").write_text(
+        "#!/bin/sh\n#: NEGATIVE-CONTROL: controls/toy\n"
+        "echo 'toy-gate: UNAVAILABLE - the toy tool is not installed'\nexit 3\n")
+    manifest = root / "controls" / "toy" / "control.json"
+    spec = json.loads(manifest.read_text())
+    spec["unavailable_signal"] = "^toy-gate: UNAVAILABLE - the toy tool is not installed"
+    manifest.write_text(json.dumps(spec))
+
+
+def _commit(root: Path) -> None:
+    for args in (("add", "-A"), ("commit", "-qm", "later")):
+        subprocess.run(["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@e.com",
+                        "-c", "commit.gpgsign=false", *args], check=True, capture_output=True, timeout=60)
+
+
+def test_a_control_that_cannot_run_here_still_has_its_anchor_compared(tmp_path: Path) -> None:
+    """Found by the counter-model review. `make verify` excuses a control whose
+    own tool is absent (UNAVAILABLE). The comparison used to live inside the
+    scoring path, which returns before it for such a control - so a tampered
+    anchor on a control that could not run here was never examined and the
+    gate passed. Provenance does not depend on the gate's tool being installed."""
+    import hashlib
+    root = _fixture(tmp_path, "good-anchor-matches-its-commit", shallow=False)
+    _make_unavailable(root)
+    _commit(root)
+    posture = ("--strict", "--allow-unavailable")
+    clean = harness(root, *posture, "--verify-provenance")
+    assert "NEGATIVE_CONTROL_VERDICT: UNAVAILABLE" in clean.stdout, clean.stdout
+    assert clean.returncode == 0 and counts(clean.stdout) == (1, 0), "precondition: excused, and still compared"
+
+    anchor = root / "controls" / "toy" / "anchors" / "first-commit-toy-gate.sh"
+    anchor.write_text(anchor.read_text() + "# edited after it was vendored\n")
+    manifest = root / "controls" / "toy" / "control.json"
+    spec = json.loads(manifest.read_text())
+    spec["anchors"][0]["sha256"] = hashlib.sha256(anchor.read_bytes()).hexdigest()
+    manifest.write_text(json.dumps(spec))
+    _commit(root)
+    assert harness(root, *posture).returncode == 0, "precondition: without the flag it is excused and green"
+    done = harness(root, *posture, "--verify-provenance")
+    assert "NEGATIVE_CONTROL_PROVENANCE: MISMATCH" in done.stdout, done.stdout
+    assert done.returncode == 1, "an excused verdict must not excuse a tampered anchor"
+
+
+def test_an_unavailable_control_in_a_shallow_clone_is_uncompared_and_fails_strict(tmp_path: Path) -> None:
+    root = _fixture(tmp_path, "good-anchor-matches-its-commit", shallow=False)
+    _make_unavailable(root)
+    _commit(root)
+    clone = tmp_path / "shallow2"
+    subprocess.run(["git", "clone", "-q", "--depth", "1", f"file://{root}", str(clone)], check=True,
+                   capture_output=True, timeout=60)
+    done = harness(clone, "--strict", "--allow-unavailable", "--verify-provenance")
+    assert counts(done.stdout) == (0, 1) and done.returncode == 1, done.stdout
 
 
 def test_with_no_git_a_historical_anchor_is_uncompared(tmp_path: Path) -> None:
