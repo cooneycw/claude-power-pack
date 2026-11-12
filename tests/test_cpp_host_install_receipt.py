@@ -212,10 +212,12 @@ def test_observation_failure_invalidates_old_green_metadata_before_receipt_save(
 @pytest.mark.skipif(any(shutil.which(name) is None for name in ('bash', 'env', 'python3', 'git')),
                     reason='registered control requires bash/env/python3/git')
 def test_registered_host_control_preserves_fresh_shell_mcp_receipt_integration():
+    # Bounded by the suite's own per-test limit. A private 30 second limit here
+    # reddened pipelines 3689 and 3754 under load (issue #1718).
     result = subprocess.run([
         sys.executable, str(ROOT / 'scripts/check-negative-controls.py'), '--root', str(ROOT),
         '--strict', '--control', 'controls/cpp-host-install-receipt',
-    ], capture_output=True, text=True)  # bounded by the suite's own per-test limit; a private 30s limit reddened pipelines 3689 and 3754 under load (#1718)
+    ], capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr
     assert 'NEGATIVE_CONTROL_VERDICT: PASS' in result.stdout
     for name in ('good-written', 'good-missing-provider-written', 'good-unknown-provider-written'):
