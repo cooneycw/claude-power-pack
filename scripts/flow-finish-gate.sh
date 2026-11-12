@@ -723,7 +723,6 @@ cm_enrolment_evaluate() {
             return
         fi
         CM_ENROLMENT_STATE=receipt
-        CM_ENROLMENT_RECEIPT_FILE="$f"
         CM_ENROLMENT_RAN_FILES+=("$f")
         CM_ENROLMENT_LINE="receipt: $(basename "$f")$_cm_where"
     done
