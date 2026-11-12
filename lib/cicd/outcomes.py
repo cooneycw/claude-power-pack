@@ -61,11 +61,8 @@ class SuiteOutcome:
     #
     # NAMED FOR WHAT IT HOLDS. `_parse_tests` always EXAMINES both streams, so
     # a stream missing here was read and carried no recognizable summary - it
-    # was not skipped. An earlier name, `streams_read`, said the other thing
-    # and would have let a reader conclude the parser had gone back to
-    # examining one stream, which is the exact misreading #939 exists to end.
-    # The denominator is therefore "both, always"; this field is which of them
-    # spoke, and the pair is what separates "nothing there" from "did not
+    # was not skipped. The denominator is "both, always"; this field is which of
+    # them spoke, and the pair is what separates "nothing there" from "did not
     # look" (#952).
     summary_streams: tuple[str, ...] = ()
 

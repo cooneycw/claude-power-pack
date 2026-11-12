@@ -21,3 +21,46 @@ Per-script history, indexed from [the scripts inventory](../scripts.md).
 - gh-pr-merge (#1300) A WAIT THAT RAN OUT IS ITS OWN VERDICT, AND THE BASE IS RE-READ AT THE SQUASH. CI here takes 15-20 minutes and the required-check wait was a fixed 60 x 10s; on expiry it printed "never reported" and exited 1 - the same code as a red check or a failed merge, and the wrong words for a pipeline that was visibly running. Expiry is now exit 10 (CLEAN STOP, never a merge) in every declared path, naming contexts still RUNNING apart from any that never POSTED a status; `--wait-ci[=SECS]` (bare: 1800; it never consumes the next argument, since the PR number is numeric too) makes the wait a deadline, read through `GH_PR_MERGE_CLOCK` so tests drive it without sleeping; `GH_PR_MERGE_CI_WAIT: green|red|expired (<budget>)|none-required|none-observed|observed-fail-open` reports every wait (an empty observed rollup is `none-observed`, never `green`). The #610 observed path keeps its deliberate fail-open. The base is re-read IMMEDIATELY before `run_squash` (`GH_PR_MERGE_BASE_AT_SQUASH`), because the post-wait read was followed by several network reads in which a sibling merge could land; and the #502 "Base branch was modified" retry now re-checks that the branch CONTAINS the new tip immediately before squashing again (after its sleep and re-poll) - it used to retry after a refetch alone, landing a tree nobody gated, which defeated #767. No auto update-branch (a CI-budget decision the caller owns) and no merge queue. Caller audit: `/flow:merge` and `/flow:auto` Step 7 are the only surfaces that branch on the exit code; both document 10 (and merge.md gained the 9 that #1262 had documented only in auto.md)
 - gh-pr-merge cross-repo closing keyword (#1412) - both close-keyword guards' shared `keyword_re` matched only a bare `#N`, so GitHub's cross-repo syntax `owner/repo#N` matched NOTHING: "Does not close cooneycw/kyle#99" was invisible to the #726 negated-close guard, and the merge proceeded, silently closing a DIFFERENT repository's issue on merge despite the disclaimer - the exact #726 hazard, just unreachable by the regex rather than defeated by negation. Both guards' `keyword_re` now accept an optional `(?:[\w.-]+/[\w.-]+)?` repo qualifier before `#`; the trailing `${match##*#}` issue-number extraction is unaffected (it strips to the last `#` regardless of what precedes it), so no other guard logic changed. A plain (non-negated, non-incidental) cross-repo directive still merges normally.
 - gh-pr-merge base-move exit-6 message (#1412) - the literal ask ("tell a genuinely moved base from ordinary churn on a busy repo") was DECLINED after measuring, not guessed at: merging PR #1417 was itself refused by GitHub with "the head branch is not up to date with the base branch", so CPP main's own branch protection already enforces the up-to-date rule the guard exists to anticipate - relaxing exit 6 for a disjoint (non-overlapping) base advance would only move the identical refusal from this helper to the server, with a worse message. The ancestry check (#767/#1300) is unchanged and still the sole determinant of the exit code. What changed is legibility: a new shared `_report_base_advance()` prints the old/new tip, the commit count and one-line subjects of what moved, and - INFORMATIONAL ONLY, never altering the exit - whether any of those commits touch a file this PR's own branch also changes, before the existing remedy (fetch + merge the base, re-run). Tested in isolation against a real git repo (`_report_base_advance` extracted from the script text and sourced directly), since the rest of this file's tests drive a fully synthetic git/gh stub with no real commit graph to diff against.
+
+## Commentary moved out of the script (#1693)
+
+Everything below was in `scripts/gh-pr-merge.sh` at `4c8aa79a` and was removed or condensed there by issue #1693. It is kept here verbatim, with the line numbers it had at that commit, so the script reads shorter and nothing is lost.
+
+Lines 61-65:
+
+````text
+#   caller did not pass --admin, and the actor is a repo admin - a single
+#   automatic retry with --admin. The override only ever fires for a repo admin,
+#   only once, and the MERGED-state check below stays authoritative. --admin
+#   bypasses every protection at once (including a red required check), so the
+#   auto-retry is deliberately bounded and admin-gated.
+````
+
+Lines 135-136:
+
+````text
+#                    gate. Without it, an admin override is applied automatically
+#                    only for the residual ADMINISTRATIVE protection family
+````
+
+Lines 138-139:
+
+````text
+#                    blocks) - never for a required status check (#577) and never
+#                    for a required review (#579): automation must not bypass a
+````
+
+Lines 1085-1088:
+
+````text
+#
+# That is also the answer to "measure before designing": you cannot wait for a
+# second observation using an instrument that cannot observe. This adds the
+# instrument, not a fix for a cause nobody has seen.
+````
+
+Lines 1210-1210:
+
+````text
+    # surviving, and the `push --delete` three lines below removes it. This
+````

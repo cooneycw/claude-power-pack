@@ -42,15 +42,13 @@ _CPP_ROOT = str(Path(__file__).resolve().parents[2])
 # basename that names the runner - which is all #621 needs to recognize a
 # `make test` recipe hiding under an unhelpful step id.
 #
-# This REVERSES a pinned trade-off. #621/#704 scanned paths too and called the
-# cost accepted; #704 only moved fixtures out of its way. But the finish plan's
-# own typecheck fallback embeds `_CPP_ROOT`, and a flow worktree is named for
-# its issue slug - so any issue with "test" in its title turned typecheck into
-# a test step with no summary and the gate into `warn`, a local verdict CI (at
-# a different path) could never see. A directory name is not evidence that a
-# test runner runs. Residual, stated: a path's FINAL component is still read,
-# since a bare token cannot be told from a program name. Pinned by
-# tests/test_cicd_outcomes.py::TestStepGating.
+# A directory name is not evidence that a test runner runs (#1294, reversing
+# #621/#704): a flow worktree is named for its issue slug, so any issue with
+# "test" in its title would turn typecheck into a test step (the finish plan's
+# typecheck fallback embeds `_CPP_ROOT`), a local verdict CI at a different path
+# could never see. Residual, stated:
+# a path's FINAL component is still read, since a bare token cannot be told
+# from a program name. Pinned by tests/test_cicd_outcomes.py::TestStepGating.
 _TEST_STEP_HINT = re.compile(
     r"(?:^|[^a-z])(?:tests?|pytest|jest|vitest|unittest|nose)(?:[^a-z]|$)",
     re.IGNORECASE,
@@ -817,19 +815,9 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
             skip_if="! python3 -c 'import lib.security' 2>/dev/null",
             env={"PYTHONPATH": _CPP_ROOT},
         ),
-        # `make verify`, THE GATE THIS HELPER WAS ALREADY SPEAKING FOR (#1147).
-        #
-        # `/flow:auto` clears a PR on this plan's verdict, and CLAUDE.md's own
-        # directive is "after any fix, verify through the full pipeline with
-        # `make verify`" - but the plan ran three of verify's prerequisites and
-        # nothing else, so the gate consumed verify's authority without running
-        # it. Measured on af348f8: 25 verify gates, 3 run, 22 never. #1145 is
-        # the instance - `claude-md-behavior-check` exited 2 on that tree while
-        # this gate reported `ok` and cleared PR #1144.
-        #
-        # A TEST OF AN INSTRUMENT IS NOT A RUN OF IT. That checker's own tests
-        # passed in the same suite, because the checker works; its verdict on
-        # the real tree was never asked for.
+        # `make verify`, the full pipeline CLAUDE.md names (#1147): a plan that
+        # runs only three of verify's prerequisites consumes verify's authority
+        # without running it (#1145). A test of an instrument is not a run of it.
         #
         # No `uv run` fallback, unlike the three above: `verify` is a Makefile
         # aggregate with no tool equivalent, so a repo without the target has
@@ -931,16 +919,10 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
 # the #628 false green, so the runner names skipped gates and
 # flow-finish-gate.sh reports `warn` rather than flattening the run to `ok`.
 #
-# DERIVED from the step declarations above, never hand-written (issue #890).
-# The literal it replaces said {"lint", "test", "typecheck"} and omitted
-# `security_scan` for three releases. That omission was not a typo - it was a
-# CATEGORICAL reading of the word "gate" (the three #617 quality gates) rather
-# than an answer to the question the set is actually consulted for. The two
-# readings agree for lint/test/typecheck and disagree for security_scan, whose
-# skip_if is `! python3 -c 'import lib.security'`: it skips exactly when the
-# scanner is not installed, which is precisely when a warn is warranted. A
-# containerised session has no CPP checkout, so it could run its gate, skip the
-# security scan and report a bare `ok`.
+# DERIVED from the step declarations above, never hand-written (issue #890):
+# a hand-written literal omitted `security_scan`, whose skip_if skips exactly
+# when the scanner is not installed, which is precisely when a warn is
+# warranted.
 #
 # Deriving it is what makes a repeat impossible rather than merely corrected:
 # there is no second place to update, so a gate cannot be declared and left out
@@ -1169,13 +1151,9 @@ def make_declares_target(
 
 #: THE POSITIVE GRAMMAR (issue #1165, orchestrator ratification of option B).
 #:
-#: Two counter-model passes produced FIFTEEN findings against this derivation,
-#: every one of them a way for a quality gate to be recorded as covered while
-#: never running, and every one a construct the reader had not anticipated:
-#: inactive conditionals, MAKECMDGOALS, MAKEFLAGS, recursive `$(MAKE)`,
-#: target-specific variables, escaped hashes, escaped spaces, `$(error)`. A
-#: sixteenth was always going to exist, because a list of FORBIDDEN constructs
-#: can only ever name the ones somebody already thought of.
+#: A list of FORBIDDEN constructs can only ever name the ones somebody already
+#: thought of (inactive conditionals, MAKECMDGOALS, MAKEFLAGS, recursive
+#: `$(MAKE)`, target-specific variables, escaped hashes and spaces, `$(error)`).
 #:
 #: So the set is what is ALLOWED, and it is CLOSED. A makefile is queried only
 #: when every one of its logical lines is one of four shapes; anything else -
@@ -1737,18 +1715,10 @@ def get_plan_steps(plan_name: str, project_root: Optional[str] = None) -> list[S
 
     root = Path(project_root) if project_root else Path(".")
 
-    # A MANIFEST THAT EXISTS AND CANNOT BE READ IS A HARD FAILURE (issue #1163,
-    # counter-model review post-merge). This used to catch ImportError and fall
-    # through to BUILTIN_PLANS, which was harmless only because the CLI could
-    # not START without pydantic - the process died before reaching here.
-    #
-    # #1163 deliberately removed that: `python3 -m lib.cicd run` now starts on
-    # the stdlib alone, so the fall-through became reachable, and it SILENTLY
-    # SUBSTITUTES A DIFFERENT PLAN. Measured on this repository with pydantic
-    # blocked: `deploy` returned the built-in steps, losing `drift_check` and
-    # gaining `stale_commit_check`, with no warning and a successful run. A
-    # loud failure had been turned into a quiet change of which checks execute,
-    # by a change whose whole purpose was to make a lane reachable.
+    # A MANIFEST THAT EXISTS AND CANNOT BE READ IS A HARD FAILURE (issue #1163).
+    # Falling through to BUILTIN_PLANS on an ImportError would SILENTLY
+    # SUBSTITUTE A DIFFERENT PLAN: a quiet change of which checks execute. The
+    # branch IS reachable: `python3 -m lib.cicd run` starts on the stdlib alone.
     #
     # So the two cases are separated. No manifest FILE means there is nothing
     # to lose and the built-in plans are the right answer. A manifest that is
