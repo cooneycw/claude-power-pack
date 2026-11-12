@@ -247,6 +247,7 @@ def test_with_no_git_a_historical_anchor_is_uncompared(tmp_path: Path) -> None:
         found = shutil.which(tool)
         if found:
             (nogit / tool).symlink_to(found)
+    assert shutil.which("git", path=str(nogit)) is None, "precondition: no git on this PATH"
     done = subprocess.run([sys.executable, str(HARNESS), "--root", str(root), "--strict",
                            "--verify-provenance"], capture_output=True, text=True, timeout=300,
                           check=False, env={"PATH": str(nogit)})
@@ -350,6 +351,7 @@ esac
     sleeper.write_text("#!/bin/sh\nexit 0\n")
     sleeper.chmod(0o755)
     env = {"PATH": f"{work / '.ci-bin'}:/usr/bin:/bin"}
+    assert shutil.which("git", path=env["PATH"]) == str(git), "precondition: the stub git is the one found"
     if event is not None:
         env["CI_PIPELINE_EVENT"] = event
     done = subprocess.run(["sh", "-c", script], cwd=work, env=env, capture_output=True, text=True,
