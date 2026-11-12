@@ -96,7 +96,7 @@ suppressions:
     reason: "Test fixtures with fake credentials"
 ```
 
-If no `.claude/security.yml` exists, the defaults above are used. If `lib/security` is not available, the gate is skipped with a warning.
+If no `.claude/security.yml` exists, the defaults above are used. Without `lib/security` the flow stops; the scan is never skipped (#1760).
 
 This gate does not read `.gitleaks.toml`; a canary declared in that file's
 own allowlist is recognized there only - a second copy of the same canary

@@ -248,17 +248,20 @@ covered the final diff belongs to #1082.
 
 ### Step 2b: Run Security Quick Scan (fallback only - runner includes this)
 
-**Skip this step if the deterministic runner was used above** (it already includes security_scan).
-
-Only run manually if the runner was unavailable:
+**Skip this step if the deterministic runner was used above** (it includes security_scan). Otherwise it must PASS (#1760):
 
 ```bash
-PYTHONPATH="${HOME}/Projects/claude-power-pack" uv run --project "${HOME}/Projects/claude-power-pack" python -m lib.security gate flow_finish
+CPP_DIR=""
+for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+  [ -f "$dir/lib/security/__init__.py" ] && { CPP_DIR="$dir"; break; }
+done
+[ -n "$CPP_DIR" ] || { echo "STOP: no scanner in ~/Projects/claude-power-pack, /opt/claude-power-pack, ~/.claude-power-pack" >&2; exit 1; }
+GATE_OUT=$(PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.security gate flow_finish 2>&1); GATE_EXIT=$?
+printf '%s\n' "$GATE_OUT"
+[ "$GATE_EXIT" -eq 0 ] && grep -q '^SECURITY_GATE: flow_finish PASS' <<<"$GATE_OUT" || { echo "STOP: scan did not pass (exit $GATE_EXIT)" >&2; exit 1; }
 ```
 
-- If the gate **fails** (critical findings): **stop and report**. Show findings and remediation.
-- If the gate produces **warnings** (high findings): display them but proceed.
-- If `lib/security` is not available, skip this step (warn the user).
+- `STOP`: **stop and report** findings and remediation. Never skip it.
 
 **Gate behavior by severity (defaults - configurable in `.claude/security.yml`):**
 
@@ -266,21 +269,19 @@ PYTHONPATH="${HOME}/Projects/claude-power-pack" uv run --project "${HOME}/Projec
 |----------|--------------------------|------------|
 | CRITICAL | **BLOCKS** - flow stops, no PR created | Fix the finding, then re-run `/flow:finish` |
 | HIGH | **WARNS** - displayed, flow continues | Review finding; fix if real, suppress if false positive |
-| MEDIUM | Passes silently | No action needed |
-| LOW | Passes silently | No action needed |
+| MEDIUM, LOW | Passes silently | No action needed |
 
-To suppress a known false positive, add it to `.claude/security.yml`:
+Suppress a false positive in `.claude/security.yml`:
 ```yaml
 suppressions:
   - id: HARDCODED_SECRET
     path: tests/fixtures/.*
-    secret: 'AKIA[A-Z0-9]{16}'   # optional: pin to this exact value only
-    reason: "Test fixtures with fake credentials"
+    secret: 'AKIA[A-Z0-9]{16}'
+    reason: "fake test credentials"
 ```
 
-This gate does not read `.gitleaks.toml` (issue #935); a canary declared in
-that file's own allowlist is recognized there, but a second copy of it
-elsewhere needs its own `secret:` suppression (issue #1405, `/security:help`).
+This gate does not read `.gitleaks.toml`: a second copy of its canary needs
+its own `secret:` suppression (issues #935, #1405; `/security:help`).
 
 ### Step 2d: Documentation Update Check (optional, non-blocking)
 
