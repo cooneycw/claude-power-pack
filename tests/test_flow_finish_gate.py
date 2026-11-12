@@ -4200,18 +4200,6 @@ def _one_reviewed_commit(tmp_path: Path) -> tuple[Path, str]:
     return repo, _git(repo, "rev-parse", "HEAD")
 
 
-def test_the_gate_and_the_writer_agree_on_the_pass_ceiling() -> None:
-    """The gate keeps a COPY of the ceiling only to decide when to ask the
-    receipt script. A drift would make it stop asking, or ask for everything."""
-    shell = re.search(r"^readonly CM_PASSES_HARD_CEILING=(\d+)$", SCRIPT.read_text(), re.M)
-    python = re.search(
-        r"^PASSES_HARD_CEILING = (\d+)$",
-        (ROOT / "scripts" / "counter-model-receipt.py").read_text(), re.M,
-    )
-    assert shell and python, "precondition: both constants are declared in the expected form"
-    assert shell.group(1) == python.group(1)
-
-
 @requires_bash
 @requires_git
 def test_an_escalated_receipt_is_its_own_passing_state(tmp_path: Path) -> None:
@@ -4251,8 +4239,10 @@ def test_a_count_above_the_ceiling_without_a_usable_ruling_reds_the_gate(
     repo, head = _one_reviewed_commit(tmp_path)
     _receipt_fields(repo, "2026-01-01T000000Z-issue-1700.json", head, scope="full", **fields)
     result = _gate(repo)
-    assert "unknown: receipt 2026-01-01T000000Z-issue-1700.json claims" in _counter_model_line(result)
-    assert "with no usable recorded ruling" in _counter_model_line(result)
+    assert (
+        "unknown: receipt 2026-01-01T000000Z-issue-1700.json records a pass count that needs "
+        "a recorded ruling and has no usable one"
+    ) in _counter_model_line(result)
     assert _verdict(result) == "FLOW_FINISH_GATE: fail (counter-model line unknown)"
     assert _verdict(_enrolment_only(repo)).startswith("FLOW_FINISH_GATE: fail")
 
@@ -4283,3 +4273,42 @@ def test_an_escalated_review_still_owes_a_scope_in_enrolment_only(tmp_path: Path
     assert _verdict(_enrolment_only(repo)) == (
         "FLOW_FINISH_GATE: fail (counter-model line receipt-without-scope)"
     )
+
+
+@requires_bash
+@requires_git
+@pytest.mark.parametrize("passes_text", [
+    '"passes":  5,',                       # two spaces: valid JSON a shell pattern missed
+    '"passes": 5 ,',                       # a space before the comma
+    '"passes": 18446744073709551617,',     # wraps to 1 in 64-bit shell arithmetic
+    '"passes": 5.0,',                      # not an integer at all
+    '"passes": true,',
+    '"passes": "5",',
+])
+def test_no_spelling_of_a_count_above_the_ceiling_passes_without_a_ruling(
+    tmp_path: Path, passes_text: str,
+) -> None:
+    """Counter-model review: the first cut read `passes` with sed and compared it
+    in bash, so an unusual spelling or an oversized integer read as "within the
+    ceiling" and passed with no ruling. The count is parsed as JSON by the
+    receipt script, for every `ran` receipt."""
+    repo, head = _one_reviewed_commit(tmp_path)
+    name = "2026-01-01T000000Z-issue-1700.json"
+    _receipt_fields(repo, name, head, scope="full", extra_passes_reason="x", passes=1)
+    path = repo / "docs/measurements/counter-model" / name
+    text = path.read_text()
+    assert text.count('"passes": 1') == 1, "precondition: one passes line to respell"
+    path.write_text(text.replace('"passes": 1', passes_text.rstrip(",")))
+    result = _gate(repo)
+    assert "unknown: receipt " in _counter_model_line(result), result.stdout
+    assert _verdict(result) == "FLOW_FINISH_GATE: fail (counter-model line unknown)"
+
+
+@requires_bash
+@requires_git
+def test_a_receipt_with_no_passes_field_is_still_an_ordinary_receipt(tmp_path: Path) -> None:
+    """The must-not-flip side: the gate never required the field of an ordinary
+    receipt, and absence claims no count beyond the ceiling."""
+    repo, head = _one_reviewed_commit(tmp_path)
+    _receipt_fields(repo, "2026-01-01T000000Z-issue-1700.json", head)
+    assert "receipt: 2026-01-01T000000Z-issue-1700.json" in _counter_model_line(_gate(repo))

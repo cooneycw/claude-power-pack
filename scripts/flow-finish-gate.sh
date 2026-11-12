@@ -551,12 +551,6 @@ fi
 # move this evaluation above that block. Pinned by the control case
 # `good-check-summary-mode-not-enforced`.
 
-# The pass ceiling above which a receipt must carry a recorded ruling (issue
-# #1700). A COPY of PASSES_HARD_CEILING in counter-model-receipt.py, kept only
-# to decide WHEN to ask that script; tests/test_flow_finish_gate.py pins the two
-# equal. Everything else about an escalation is read from the script.
-readonly CM_PASSES_HARD_CEILING=3
-
 cm_field() {
     # One flat JSON string field out of a receipt. Receipts are written by
     # json.dump(indent=2) with string values only at this level, so a line-scoped
@@ -597,7 +591,7 @@ cm_receipt_matches_head() {
 cm_enrolment_evaluate() {
     local root receipts branch f rbranch rhead rstatus rreason reasons
     local cm_undecidable=0 cm_best_distance=0 cm_distance="" cm_uncounted=0
-    local cm_sha cm_i cm_same_head cm_passes cm_ruling
+    local cm_sha cm_i cm_same_head cm_ruling
     local -a cm_best_files=() cm_best_heads=()
     # EVERY `ran` receipt the judgement accepted, not only the last one named on
     # the line: when two reviewed heads tie on distance both are accepted, and
@@ -762,22 +756,34 @@ cm_enrolment_evaluate() {
         # its own ONLY with a recorded ruling: who raised the cap for that run,
         # where the ruling can be read, and the cap it was raised to. The rule
         # lives in counter-model-receipt.py and is asked for, never restated
-        # here; an answer that cannot be had fails closed. Before this the gate
-        # did not read `passes` at all, so a hand-made receipt claiming five
-        # passed as an ordinary one. `ruled by` is RECORDED, NOT AUTHENTICATED:
-        # this line repeats what the receipt says and vouches for nothing.
-        cm_passes=$(sed -n 's/^  "passes": \([0-9][0-9]*\),\{0,1\}$/\1/p' "$f" | head -1)
-        if [[ "$cm_passes" =~ ^[0-9]+$ ]] && (( cm_passes > CM_PASSES_HARD_CEILING )); then
-            if ! cm_ruling=$(python3 "$CM_RECEIPT_HELPER" escalation "$f" 2>/dev/null) \
-                    || [[ "$cm_ruling" != "$cm_passes"$'\t'?* ]]; then
-                CM_ENROLMENT_STATE=unknown
-                CM_ENROLMENT_LINE="unknown: receipt $(basename "$f") claims $cm_passes passes with no usable recorded ruling"
-                return
-            fi
+        # here. Before this the gate did not read `passes` at all, so a
+        # hand-made receipt claiming five passed as an ordinary one. `ruled by`
+        # is RECORDED, NOT AUTHENTICATED: this line repeats what the receipt
+        # says and vouches for nothing.
+        #
+        # THE COUNT IS NEVER READ IN SHELL, and every `ran` receipt is asked
+        # about (counter-model review). A first cut pulled `passes` out with sed
+        # and compared it in bash, asking the script only above the ceiling:
+        # `"passes":  5,` (two spaces) is valid JSON the pattern missed, and
+        # `"passes": 18446744073709551617` wraps to 1 in bash arithmetic, so
+        # both read as "within the ceiling" and passed with no ruling. Python
+        # parses the JSON; an answer that cannot be had, or that is neither
+        # `ordinary` nor a count and a ruler, fails closed.
+        if ! cm_ruling=$(python3 "$CM_RECEIPT_HELPER" escalation "$f" 2>/dev/null); then
+            CM_ENROLMENT_STATE=unknown
+            CM_ENROLMENT_LINE="unknown: receipt $(basename "$f") records a pass count that needs a recorded ruling and has no usable one"
+            return
+        fi
+        if [[ "$cm_ruling" =~ ^([0-9]+)$'\t'(.+)$ ]]; then
             CM_ENROLMENT_STATE=escalated
             CM_ENROLMENT_RAN_FILES+=("$f")
-            CM_ENROLMENT_LINE="escalated: $cm_passes passes, ruled by ${cm_ruling#*$'\t'} ($(basename "$f"))$_cm_where"
+            CM_ENROLMENT_LINE="escalated: ${BASH_REMATCH[1]} passes, ruled by ${BASH_REMATCH[2]} ($(basename "$f"))$_cm_where"
             continue
+        fi
+        if [[ "$cm_ruling" != "ordinary" ]]; then
+            CM_ENROLMENT_STATE=unknown
+            CM_ENROLMENT_LINE="unknown: receipt $(basename "$f") could not be judged for its pass count"
+            return
         fi
         CM_ENROLMENT_STATE=receipt
         CM_ENROLMENT_RAN_FILES+=("$f")

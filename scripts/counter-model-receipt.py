@@ -3319,10 +3319,11 @@ def cmd_validate(args: argparse.Namespace) -> int:
 def cmd_escalation(args: argparse.Namespace) -> int:
     """Judge ONE receipt's pass count for `flow-finish-gate.sh` (issue #1700).
 
-    The gate asks this only for a receipt claiming more passes than the
-    ceiling, and reads the answer from HERE rather than re-implementing the
-    rule in shell - the same reason `skip-reasons` exists. Prints `ordinary`
-    for a count within the ceiling, or `<passes><TAB><ruled_by>` for a valid
+    The gate asks this for EVERY `ran` receipt it would accept, and reads the
+    answer from HERE rather than parsing the count in shell - the same reason
+    `skip-reasons` exists, and a shell read of `passes` was bypassed two ways
+    in review. Prints `ordinary` for a count within the ceiling (or a receipt
+    with no `passes` field at all), or `<passes><TAB><ruled_by>` for a valid
     escalated review. Anything else exits 1 with the reasons on stderr, and the
     gate fails closed on it. `ruled_by` is RECORDED, NOT AUTHENTICATED.
     """
@@ -3331,7 +3332,15 @@ def cmd_escalation(args: argparse.Namespace) -> int:
     except (OSError, ValueError) as error:
         print(f"counter-model-receipt: cannot read {args.receipt}: {error}", file=sys.stderr)
         return 1
-    passes = receipt.get("passes") if isinstance(receipt, dict) else None
+    if not isinstance(receipt, dict):
+        print(f"counter-model-receipt: {args.receipt} is not a JSON object", file=sys.stderr)
+        return 1
+    if "passes" not in receipt:
+        # The gate never required the field of an ordinary receipt (older ones
+        # omit it), and absence claims no count beyond the ceiling.
+        print("ordinary")
+        return 0
+    passes = receipt["passes"]
     if not isinstance(passes, int) or isinstance(passes, bool) or passes < 1:
         print(f"counter-model-receipt: passes is {passes!r}, expected a positive integer", file=sys.stderr)
         return 1
