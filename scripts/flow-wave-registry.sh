@@ -761,7 +761,10 @@ emit() {
 # `/proc/<pid>` is consulted first where it exists because it answers directly
 # and without ambiguity: the kernel keeps an entry for every live process on the
 # host regardless of who owns it. A present pid may have exited but remain
-# unreaped; a readable stat state Z/X is terminal despite its retained pid.
+# unreaped: a readable stat state X is terminal despite its retained pid, and so
+# is Z when the process has one thread left. Z with other threads still running
+# is a LIVE process whose main thread exited (issues #1709, #1691), and reads
+# `alive`.
 #
 # `unknown` is a real third answer, not a polite `gone`: a host with no /proc
 # whose `kill` reports something we do not recognise has an UNENUMERABLE process
@@ -797,7 +800,23 @@ pid_state() {
       case "$stat" in
         *") "*)
           rest="${stat##*) }"
-          case "$rest" in Z\ *|X\ *) echo zombie; return ;; esac
+          case "$rest" in
+            X\ *) echo zombie; return ;;
+            Z\ *)
+              # State Z on the thread-group leader is NOT proof of death (issue
+              # #1709, ported from flow-worktree-claim.sh for #1691): a process
+              # whose main thread exited while other threads still run reads Z
+              # here too, and it is still a session that holds its role. A
+              # reaped-pending zombie has exactly one thread left. Field 20 of
+              # the line (18 after the comm) is the thread count; an unreadable
+              # count is treated as one, which keeps the old answer.
+              # shellcheck disable=SC2086
+              set -- $rest
+              case "${18:-1}" in
+                *[!0-9]* | "" | 0 | 1) echo zombie; return ;;
+              esac
+              ;;
+          esac
           ;;
       esac
     fi
