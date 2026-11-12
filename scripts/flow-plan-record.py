@@ -44,7 +44,7 @@ import subprocess
 import sys
 import traceback
 import uuid
-from typing import NoReturn
+from typing import Any, NoReturn
 
 CAP = 16384
 OK, ERROR, USAGE, FINDING, UNKNOWN = 0, 1, 2, 3, 4
@@ -549,6 +549,15 @@ def cmd_approve(issue: str) -> int:
               f"{issue}` and write this run's approved plan below its header first.")
         return ERROR
 
+    # Say NOW what Step 6 would otherwise discover (#1713): a numbered Section C
+    # line compliance cannot turn into a path makes the whole comparison UNKNOWN.
+    # A note on stderr only - stdout and the exit code are what callers read,
+    # and they are unchanged. Scoped to Section C: a numbered line elsewhere in
+    # the record (gate conditions, evidence) is not a planned file.
+    for item in unparseable_section_c(section):
+        print(f"flow-plan-record: Section C line will read UNKNOWN at compliance - {item}",
+              file=sys.stderr)
+
     base = store_base(issue)
     body_p, meta_p, upd_p = (base.with_suffix(s) for s in (".body", ".meta", ".updated"))
     meta: dict[str, str] = {}
@@ -774,8 +783,57 @@ def parse_plan_paths(line: str) -> list[str]:
     return [segment] if separator is not None and re.fullmatch(r"\S+", segment) else []
 
 
+def restore_index(root: pathlib.Path | None, marked: list[str]) -> None:
+    """Take back the intent-to-add entries compliance itself created (#1713).
+
+    `git add -N` makes a new file visible to `git diff <ref>`, and it also
+    leaves an entry in the index. Left there, a later `git merge` refuses to
+    start ("would be overwritten") and a later `git commit -a` picks the file
+    up. So every path THIS call marked is reset, on every exit - the comparison
+    finishing, an UNKNOWN verdict, or an exception.
+
+    ONLY those paths. `marked` is the untracked set computed before the add, so
+    a path the caller had already staged or marked intent-to-add is never in
+    it: it was in the index, hence not untracked. A failed reset is said aloud
+    and never changes the verdict, which is about the diff, not the cleanup.
+    """
+    if root is None or not marked:
+        return
+    reset = subprocess.run(["git", "-C", str(root), "reset", "-q", "--", *marked],
+                           capture_output=True)
+    if reset.returncode != 0:
+        print("flow-plan-record: could not undo the intent-to-add entries compliance created; "
+              "`git status` will show new files as added. Undo with `git reset`.",
+              file=sys.stderr)
+
+
+def section_c_items(section: str) -> list[str]:
+    """The numbered lines of a run's Section C, up to its Scope/Risks trailer."""
+    if "## Section C" not in section:
+        return []
+    items: list[str] = []
+    for line in section.split("## Section C", 1)[1].splitlines():
+        if re.match(r"^\s*(Scope|Risks):", line):
+            break
+        if re.match(r"^\s*\d+\.\s", line):
+            items.append(line)
+    return items
+
+
+def unparseable_section_c(section: str) -> list[str]:
+    return [line.strip() for line in section_c_items(section) if not parse_plan_paths(line)]
+
+
 def cmd_compliance(issue: str, base: str | None) -> int:
     """Compare the diff's FILE SET against Section C. Reports; never blocks."""
+    state: dict[str, Any] = {"root": None, "marked": []}
+    try:
+        return _compliance(issue, base, state)
+    finally:
+        restore_index(state["root"], state["marked"])
+
+
+def _compliance(issue: str, base: str | None, state: dict[str, Any]) -> int:
     print(f"FLOW_PLAN_RECORD_SELF: {self_stamp()}")
     # Make new files visible first: `git diff <ref>` skips untracked paths, so
     # without intent-to-add an entire unplanned new file reports agreement.
@@ -791,6 +849,8 @@ def cmd_compliance(issue: str, base: str | None) -> int:
                            "invisible to the comparison")
     untracked = [p.decode("utf-8", "surrogateescape") for p in listing.split(b"\0") if p]
     if untracked:
+        # Recorded BEFORE the add, so a partly applied add is undone too.
+        state["root"], state["marked"] = root, untracked
         add = subprocess.run(["git", "-C", str(root), "add", "-N", "--", *untracked],
                              capture_output=True)
         if add.returncode != 0:
