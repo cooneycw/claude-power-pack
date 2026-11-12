@@ -8,7 +8,9 @@ reviewer `codex/gpt-5.5`, copied out of a worked example in
 `.claude/commands/flow/auto.md` rather than observed (#1045 removed the literal,
 #1059 made the writer derive instead of accept). The forward half is fixed. What
 remained was the disposition of the 13, and it was blocked on a premise recorded
-in `docs/scripts.md`: that "real receipts carry no field connecting them back to
+in `docs/scripts.md` at the time (the quote is kept in
+`docs/measurements/counter-model-reviewer-attribution.md`): that "real receipts
+carry no field connecting them back to
 the exec log or thread_id that produced them, so retroactively verifying
 anything already on disk is structurally impossible".
 

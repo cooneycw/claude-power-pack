@@ -362,7 +362,7 @@ def test_create_refuses_to_overwrite_and_shows_the_draft_first() -> None:
 def test_update_stamps_even_when_nothing_changed() -> None:
     text = normalized(read("lane/update.md"))
     assert "lane-file.py stamp" in text
-    assert "even when nothing changed" in text
+    assert "even when no row changed" in text
     assert "only what the owner accepts" in text
 
 
@@ -421,7 +421,31 @@ def test_update_treats_a_full_page_of_fixes_as_truncated() -> None:
     text = normalized(read("lane/update.md"))
     assert "A full page is a truncated list." in text
     assert "until a query returns fewer than its limit" in text
-    assert "leave the review date where it was" in text
+
+
+def test_update_does_not_stamp_over_a_listing_that_was_not_read() -> None:
+    """One rule, two triggers (#1723): truncated, or not readable at all.
+
+    Before #1723 the unreadable case said only that the list "was not examined"
+    and Step 5 stamped anyway, so every later review started after the unread
+    interval. The rule is stated ONCE in Step 3 and both triggers sit under it,
+    and Step 5 carries the exception for a reader who jumps straight there.
+    """
+    text = read("lane/update.md")
+    step3 = normalized(text[text.index("## Step 3:") : text.index("## Step 4:")])
+    step5 = normalized(text[text.index("## Step 5:") :])
+    rule = "The review date moves only over a listing that was read in full."
+    assert step3.count(rule) == 1
+    after_rule = step3[step3.index(rule) :]
+    assert "A full page is a truncated list." in after_rule
+    assert "An unreadable listing is not an empty one." in after_rule
+    assert "skip Step 5" in after_rule
+    assert "not recorded as a review" in after_rule
+    assert "which period went unread" in after_rule
+    assert step3.count("skip Step 5") == 1, "the no-stamp rule is stated twice and can drift"
+    assert "Not when Step 3's listing went unread or truncated" in step5
+    assert step5.index("Not when Step 3's listing went unread or truncated") < step5.index("lane-file.py stamp")
+    assert "leave the date where it was" in step5
 
 
 def test_update_says_what_to_search_when_the_file_is_undated() -> None:
@@ -474,3 +498,10 @@ def test_the_bundled_helper_gives_the_same_verdict_as_the_source(codex_tree: Pat
     )
     assert result.returncode == 3
     assert result.stdout.strip().splitlines()[-1] == age(tmp_path)[1]
+
+
+def test_the_generated_update_skill_carries_the_no_stamp_rule(codex_tree: Path) -> None:
+    """The Harness lane for #1723: a Codex run reads the same rule."""
+    text = normalized((codex_tree / "lane-update" / "SKILL.md").read_text(encoding="utf-8"))
+    assert "The review date moves only over a listing that was read in full." in text
+    assert "Not when Step 3's listing went unread or truncated" in text

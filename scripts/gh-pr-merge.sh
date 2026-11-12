@@ -58,11 +58,11 @@
 #   every owner merge otherwise stalls at a manual `gh pr merge --squash --admin`.
 #   Handle it two ways: an opt-in --admin flag that forces the override from the
 #   first attempt, and - when a squash fails with a protection-block message, the
-#   caller did not pass --admin, and the actor is a repo admin - a single
-#   automatic retry with --admin. The override only ever fires for a repo admin,
-#   only once, and the MERGED-state check below stays authoritative. --admin
-#   bypasses every protection at once (including a red required check), so the
-#   auto-retry is deliberately bounded and admin-gated.
+#   caller did not pass --admin, the actor is a repo admin AND the caller passed
+#   --allow-admin-retry (issue #1489) - a single retry with --admin. The override
+#   only ever fires for a repo admin, only once, and the MERGED-state check below
+#   stays authoritative. --admin bypasses every protection at once (including a
+#   red required check), so the retry is deliberately bounded and admin-gated.
 #
 # Required status checks are WAITED FOR, never overridden (issue #577, ADR 0004):
 #   With a required status check on the base branch (CPP's posture makes the
@@ -132,12 +132,15 @@
 #           --admin  force `gh pr merge --admin` from the first attempt - the
 #                    conscious, HUMAN-TYPED branch-protection override (issues
 #                    #517/#579). It skips the required-check wait AND the review
-#                    gate. Without it, an admin override is applied automatically
-#                    only for the residual ADMINISTRATIVE protection family
+#                    gate. Without it, a repo admin's squash that is
+#                    blocked by the residual ADMINISTRATIVE protection family
 #                    (protected-branch / push-authorization / base-branch-policy
-#                    blocks) - never for a required status check (#577) and never
-#                    for a required review (#579): automation must not bypass a
+#                    blocks) is retried once with --admin ONLY when
+#                    --allow-admin-retry is passed (issue #1489) - never for a
+#                    required status check (#577) and never for a required
+#                    review (#579): automation must not bypass a
 #                    human-approval control.
+#           --allow-admin-retry  permit that single admin retry (issue #1489).
 #           --allow-negated-close  consciously bypass the issue #726 refusal
 #                    after the detected trigger and surrounding text are printed;
 #                    this is a loud, per-merge override, never persistent config.
@@ -1068,13 +1071,6 @@ wait_out_woodpecker_queue() {
     return 0
 }
 
-# Post-merge completeness verification (issue #657): the landed squash commit
-# must touch ONLY paths in the PR's own file list. A violation is LOUD but never
-# flips the exit code - the merge already landed, so this is a signal to
-# investigate, not a failure to report (the #610 loud-never-obstructive posture).
-# Honestly scoped: it catches base-race/squash contamination, NOT a collapse
-# whose damage is inside the file list - that guard lives at collapse time.
-# Fail-open per component: any unreadable input prints `skipped`, never silence.
 # Issue #852: say whether the post-merge CLEANUP completed, as a marker a
 # caller can read, because `MERGE_EXIT=0` answers "did the merge happen" and
 # not "did the merge complete". #851 closed the one known cause of an
@@ -1082,10 +1078,6 @@ wait_out_woodpecker_queue() {
 # anyone a way to notice a DIFFERENT cause, and until now the delete's result
 # was discarded by `|| true` and printed nothing at all - so a second cause
 # would have been found the way the first was, by accident.
-#
-# That is also the answer to "measure before designing": you cannot wait for a
-# second observation using an instrument that cannot observe. This adds the
-# instrument, not a fix for a cause nobody has seen.
 #
 # NEVER flips the exit code. The merge has already landed and is not undone by
 # a leftover branch, so turning this into a failure would make callers treat a
@@ -1121,6 +1113,13 @@ report_branch_cleanup() {
     return 0
 }
 
+# Post-merge completeness verification (issue #657): the landed squash commit
+# must touch ONLY paths in the PR's own file list. A violation is LOUD but never
+# flips the exit code - the merge already landed, so this is a signal to
+# investigate, not a failure to report (the #610 loud-never-obstructive posture).
+# Honestly scoped: it catches base-race/squash contamination, NOT a collapse
+# whose damage is inside the file list - that guard lives at collapse time.
+# Fail-open per component: any unreadable input prints `skipped`, never silence.
 verify_completeness() {
     local root merge_sha files landed extras path
     local expected listed
@@ -1182,24 +1181,6 @@ finish_merged() {
              "post-merge step failed, not the merge itself. Continuing." >&2
     fi
 
-    # Verify the remote branch is actually gone rather than predicting it from
-    # which worktree invoked us (issue #848) - --delete-branch silently can't
-    # reach it from a sibling worktree holding the same branch, and a local
-    # post-merge failure above can mask our own manual delete too. One check
-    # replaces both the old in_linked_worktree-gated sites; it runs whenever
-    # the PR actually merged, regardless of exit code or invoking worktree.
-    #
-    # `ls-remote --exit-code` has THREE outcomes, not two, and they must NOT
-    # collapse into one branch: exit 0 means the ref is still there (delete
-    # it); exit 2 is git's own signal for "no such ref" (already gone,
-    # nothing to do); anything else (128 for an unreachable remote, a
-    # transient auth failure, ...) means we don't actually know - and reading
-    # "unknown" as "already gone" would silently reintroduce the very orphan
-    # this fix exists to close. So only a DEFINITIVE absence (rc == 2) skips
-    # the delete; every other outcome attempts it, and the attempt is
-    # harmless (`|| true`) if the branch really was already gone. Do not
-    # simplify this to `-eq 0` or `! ... ; then` - that puts 2 and 128 back
-    # on the same branch, which is the bug.
     # Record that the PR's head commit LANDED, before the delete below destroys
     # the only other evidence (issue #916).
     #
@@ -1207,7 +1188,7 @@ finish_merged() {
     # `git log HEAD --not --remotes`. After a SQUASH merge the branch's commits
     # are rewritten onto main under a different sha, so they are ancestors of
     # nothing; the verdict then rests entirely on `refs/remotes/origin/<branch>`
-    # surviving, and the `push --delete` three lines below removes it. This
+    # surviving, and the `push --delete` further below removes it. This
     # repository squash-merges exclusively, so every merged worktree read as
     # holding unreachable commits and #887's sweep removed NOTHING.
     #
@@ -1250,6 +1231,24 @@ finish_merged() {
         "$GIT_BIN" config "branch.${BRANCH}.cpp-merged-head" "$pr_head_oid" 2>/dev/null || true
     fi
 
+    # Verify the remote branch is actually gone rather than predicting it from
+    # which worktree invoked us (issue #848) - --delete-branch silently can't
+    # reach it from a sibling worktree holding the same branch, and a local
+    # post-merge failure above can mask our own manual delete too. One check
+    # replaces both the old in_linked_worktree-gated sites; it runs whenever
+    # the PR actually merged, regardless of exit code or invoking worktree.
+    #
+    # `ls-remote --exit-code` has THREE outcomes, not two, and they must NOT
+    # collapse into one branch: exit 0 means the ref is still there (delete
+    # it); exit 2 is git's own signal for "no such ref" (already gone,
+    # nothing to do); anything else (128 for an unreachable remote, a
+    # transient auth failure, ...) means we don't actually know - and reading
+    # "unknown" as "already gone" would silently reintroduce the very orphan
+    # this fix exists to close. So only a DEFINITIVE absence (rc == 2) skips
+    # the delete; every other outcome attempts it, and the attempt is
+    # harmless (`|| true`) if the branch really was already gone. Do not
+    # simplify this to `-eq 0` or `! ... ; then` - that puts 2 and 128 back
+    # on the same branch, which is the bug.
     rc=0
     remote_line=$("$GIT_BIN" ls-remote --exit-code --heads origin "$BRANCH" 2>/dev/null) || rc=$?
     remote_tip="${remote_line%%[[:space:]]*}"
