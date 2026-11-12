@@ -202,12 +202,50 @@ def test_the_enumeration_of_uv_variables_finds_the_ones_known_to_matter() -> Non
     """The test below is only as good as this list; an extractor that found
     nothing would make it pass over an empty set."""
     documented = _documented_uv_variables()
-    assert {"UV_PROJECT", "UV_WORKING_DIR", "UV_PYTHON", "UV_CONFIG_FILE", "UV_CACHE_DIR"} <= documented
+    _assert_documented_uv_variables(documented)
+    working = documented & {"UV_WORKING_DIR", "UV_WORKING_DIRECTORY"}
+    print(f"uv help working-directory variable(s): {', '.join(sorted(working))}")
+
+
+def _assert_documented_uv_variables(documented: set[str]) -> None:
+    # uv 0.9.14 renamed the documented variable while retaining the old alias:
+    # https://github.com/astral-sh/uv/blob/0.9.14/CHANGELOG.md#0914
+    # https://github.com/astral-sh/uv/pull/16884
     assert len(documented) >= 40, sorted(documented)
+    assert {"UV_PROJECT", "UV_PYTHON", "UV_CONFIG_FILE", "UV_CACHE_DIR"} <= documented
+    assert documented & {"UV_WORKING_DIR", "UV_WORKING_DIRECTORY"}, sorted(documented)
+
+
+@pytest.mark.parametrize("working", ["UV_WORKING_DIR", "UV_WORKING_DIRECTORY"])
+def test_the_enumeration_control_accepts_either_documented_spelling(working: str) -> None:
+    documented = {"UV_PROJECT", "UV_PYTHON", "UV_CONFIG_FILE", "UV_CACHE_DIR", working}
+    documented.update(f"UV_FIXTURE_{index}" for index in range(40))
+    _assert_documented_uv_variables(documented)
+
+
+@pytest.mark.parametrize("damage", ["empty", "below-floor", "missing-required", "missing-working"])
+def test_the_enumeration_control_refuses_an_empty_or_broken_extractor(damage: str) -> None:
+    documented = {"UV_PROJECT", "UV_PYTHON", "UV_CONFIG_FILE", "UV_CACHE_DIR", "UV_WORKING_DIR"}
+    documented.update(f"UV_FIXTURE_{index}" for index in range(40))
+    if damage == "empty":
+        documented.clear()
+        assert not documented
+    elif damage == "below-floor":
+        documented = {name for name in documented if not name.startswith("UV_FIXTURE_")}
+        assert len(documented) < 40
+    elif damage == "missing-required":
+        documented.remove("UV_PROJECT")
+        assert len(documented) >= 40 and "UV_PROJECT" not in documented
+    else:
+        documented.remove("UV_WORKING_DIR")
+        assert len(documented) >= 40 and not documented & {"UV_WORKING_DIR", "UV_WORKING_DIRECTORY"}
+    with pytest.raises(AssertionError):
+        _assert_documented_uv_variables(documented)
 
 
 def test_only_named_variables_are_inherited() -> None:
-    kept = uv_child_env({"UV_PROJECT": str(ROOT), "VIRTUAL_ENV": "/v", "UV_ANYTHING_NEW": "1",
+    kept = uv_child_env({"UV_PROJECT": str(ROOT), "UV_WORKING_DIR": str(ROOT),
+                         "UV_WORKING_DIRECTORY": str(ROOT), "VIRTUAL_ENV": "/v", "UV_ANYTHING_NEW": "1",
                          "LANG": "C", "UV_PYTHON_INSTALL_DIR": "/opt/py", "HOME": "/h", "PYTHONPATH": "/p"})
     assert kept == {"LANG": "C", "UV_PYTHON_INSTALL_DIR": "/opt/py", "HOME": "/h"}
 

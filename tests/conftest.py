@@ -723,7 +723,8 @@ def uv_child_env(environ: Mapping[str, str] | None = None) -> dict[str, str]:
     own: only the names in `_UV_CHILD_INHERITS`, taken from `environ`. Nothing
     inherited can then tell uv WHICH project, directory, environment,
     interpreter or configuration to use - an inherited `UV_PROJECT` or
-    `UV_WORKING_DIR` sends a nested `uv run` back to the checkout the suite
+    `UV_WORKING_DIR` (or older `UV_WORKING_DIRECTORY`) sends a nested `uv run`
+    back to the checkout the suite
     runs from, whatever `--project` the outer call named. A test then sets the
     uv settings it means to."""
     source = os.environ if environ is None else environ
