@@ -56,7 +56,7 @@ def test_the_sentence_sits_in_the_gate_step_before_the_first_push(name: str) -> 
 def test_the_default_order_is_still_gate_then_push(name: str) -> None:
     """#1706 documents an exception. It must not have reordered the default."""
     text = (COMMANDS / name).read_text(encoding="utf-8")
-    assert text.index(GATE_CALL) < text.index("git push -u origin"), f"flow/{name}: the gate no longer precedes the push"
+    assert text.index(GATE_CALL) < text.index("git push -u origin"), f"flow/{name}: the push now precedes the gate"
 
 
 def test_the_rationale_says_why_the_order_stays() -> None:
