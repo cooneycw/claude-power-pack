@@ -2,6 +2,36 @@
 
 Per-script history, indexed from [the scripts inventory](../scripts.md).
 
+## CPP environment preservation (#1768)
+
+CPP commits `.python-version` as `3.11`, so plain `uv sync --extra dev`
+selects the same interpreter minor as the finish gate. Before invoking uv for
+the outer CPP runner, both normal and `--check-summary` modes inspect the
+checkout's `.venv/pyvenv.cfg` and run `.venv/bin/python` directly. A different
+minor fails with `cpp-runtime-environment-mismatch`, naming the found and
+wanted versions. Missing, unreadable, malformed or disagreeing interpreter
+evidence in an existing environment fails with
+`cpp-runtime-environment-unverified`. Neither refusal falls back to Makefile
+gates or invokes uv. An absent `.venv` still bootstraps automatically.
+
+Stop processes using an incompatible environment before intentionally syncing
+it to Python 3.11. Alternatively, set `FLOW_GATE_REBUILD_CPP_VENV=1` on the
+gate invocation to explicitly permit uv's in-place rebuild of a verified
+mismatched environment. This opt-in does not authorize repairing an
+unverified/broken environment. Matching environments retain normal uv
+dependency syncing; this check does not lock against another process that
+concurrently changes the environment after inspection.
+
+The pin belongs to CPP's checkout. Installed helpers and generated projects
+that vendor scripts do not acquire CPP's root pin: their own interpreter
+policy remains independent. CPP's marketplace plugin distribution was retired
+by ADR 0005; there is no maintained marketplace install path to test. On a
+host with only Python 3.12 and downloads disabled, plain sync now refuses
+explicitly for the unavailable pinned Python 3.11. Install 3.11 beforehand;
+the gate does not download Python. Automatic interpreter download during a
+plain sync is governed by the caller's uv policy and is not covered by that
+no-download test.
+
 ## `flow-finish-gate` re-run verdict (#900)
 
 - flow-finish-gate / runner re-run verdict (#900) - the #769 targeted re-run appends `--last-failed`, so the second execution runs ONLY the failed ids, alone. Passing alone is the signature of a flake AND of an order-dependent real failure, because the re-run changes TWO variables at once - WHEN it ran and WHAT ran before it - so the experiment cannot separate them. `lib/cicd/runner.py` resolved that ambiguity in the reassuring direction: it logged "first attempt was a flake" and recorded the outcome as `passed`. An order-dependent failure in cooneycw/kyle survived WEEKS of being cleared by it (`tests/test_enrollment.py` asserted `"tok" not in rendered` against an ssh argv whose absoluteness depended on whether an earlier test had imported `core.fleet_authz`; alone green, in company red)

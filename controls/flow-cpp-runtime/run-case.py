@@ -57,6 +57,18 @@ with tempfile.TemporaryDirectory() as directory:
     (binaries / "git").write_text("#!/bin/bash\nexit 128\n")
     (binaries / "git").chmod(0o755)
     mode = case["mode"]
+    venv = cpp / ".venv"
+    if mode in ("existing-runtime", "mismatched-environment", "broken-environment"):
+        (venv / "bin").mkdir(parents=True)
+        version = "3.12.3" if mode == "mismatched-environment" else "3.11.9"
+        (venv / "pyvenv.cfg").write_text(f"version_info = {version}\n")
+        interpreter = venv / "bin/python"
+        interpreter.write_text("#!/bin/bash\n" + ("exit 7\n" if mode == "broken-environment" else f"echo {version}\n"))
+        interpreter.chmod(0o755)
+        assert interpreter.is_file() and (venv / "pyvenv.cfg").read_text().strip().endswith(version)
+        probe = subprocess.run([str(interpreter)], capture_output=True, text=True)
+        assert (probe.returncode != 0) if mode == "broken-environment" else probe.stdout.strip() == version
+        before = {str(p.relative_to(venv)): p.read_bytes() for p in venv.rglob("*") if p.is_file()}
     trace = owned / "uv.argv"
     download = owned / "would-download"
     payload = json.dumps(
@@ -104,6 +116,12 @@ fi
     )
     result = subprocess.run(["bash", str(helper)], cwd=target, env=env, capture_output=True, text=True, timeout=30)
     text = result.stdout + result.stderr
+    if mode in ("mismatched-environment", "broken-environment") and result.returncode == 1:
+        reason = "mismatch" if mode == "mismatched-environment" else "unverified"
+        assert f"cpp-runtime-environment-{reason}" in text, text
+        assert "3.11" in text and ("3.12" in text if reason == "mismatch" else True)
+        assert not trace.exists(), "an existing unsafe environment must be refused before invoking uv"
+        assert before == {str(p.relative_to(venv)): p.read_bytes() for p in venv.rglob("*") if p.is_file()}
     if result.returncode == 0 and "FLOW_FINISH_GATE: ok" in text:
         verdict = "ready"
     elif result.returncode == 1 and "FLOW_FINISH_GATE: fail" in text:

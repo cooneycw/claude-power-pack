@@ -27,8 +27,8 @@ def test_actual_finish_preserves_dual_native_runtime_policy(
     tmp_path, monkeypatch, owned_cpp_checkout, explicit_user_policy, target_environment
 ):
     # The gate is pointed at an OWNED copy of the CPP runtime, never at the
-    # checkout this suite is running from: its 3.11 pin makes uv rebuild the
-    # environment of whatever directory it is given (issue #1718).
+    # checkout this suite is running from. The outer CPP environment and the
+    # target's independent environment both belong to this test (issue #1718).
     #
     # CI skips all six cases: this needs Python 3.11 AND 3.12, and the CI image
     # carries only 3.11. So it runs on developer hosts only - which is exactly
