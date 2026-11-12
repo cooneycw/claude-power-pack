@@ -84,9 +84,9 @@ def test_the_real_line_is_read_by_the_passage_as_written(tmp_path: Path, word: s
     prefixes = [prefix for prefix in documented_verdicts(passage) if line.startswith(prefix)]
     assert prefixes == [f"PLAN_COMPLIANCE: {word}"], line
     after_word = line[len(prefixes[0]):]
-    kinds = {"no clause": None, "not demonstrated": "DEMONSTRATED (", "not checked": "CHECKED"}
+    kinds = {"not demonstrated": "DEMONSTRATED (", "not checked": "CHECKED"}
     opening = documented_clause(passage)
-    if kinds[state] is None:
+    if state == "no clause":
         assert "LANES" not in line
     else:
         assert after_word.startswith(opening + kinds[state]), line
