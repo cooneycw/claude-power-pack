@@ -1,0 +1,70 @@
+{
+  "branch": "issue-1767-a-will-test-lane-with-nothing-demonstrated-shows-o",
+  "counts": {
+    "accepted": 4,
+    "deferred": 2,
+    "rejected": 0
+  },
+  "extra_passes_reason": "Granted by the orchestrator (rev 85): pass 2 found a MEDIUM in the new line's own shape and its fix was unreviewed; the clause was reduced to a state and a count before this pass.",
+  "head": "8030c301717b99e3c326d2f049b9ec7344bd0635",
+  "implementer": "claude/claude-fable-5-2",
+  "implementer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-fable-5-2"
+    ],
+    "runtime": "claude",
+    "session_id": "890b3b05-7b6e-481a-bb70-992a65b5e9a0",
+    "sources": [
+      {
+        "bytes": 23755630,
+        "path": "-home-user-Projects/890b3b05-7b6e-481a-bb70-992a65b5e9a0.jsonl",
+        "sha256": "79f64da28f0b5bd15c9af1388a896da07826d55785d90abd29a91b773e2975a0"
+      }
+    ],
+    "transcript": "-home-user-Projects/890b3b05-7b6e-481a-bb70-992a65b5e9a0.jsonl"
+  },
+  "issue": "1767",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 3,
+  "recorded_at": "2026-11-12T07:28:16Z",
+  "red_cases": {
+    "already_covered": 10,
+    "proposed": 13
+  },
+  "reviewed_artifact": {
+    "base_sha": "76dc471ce4e6653eab56f4b5fb2d72b050a612e5",
+    "merge_base": "3701621ea031f3a1c93853cabeebc36c70877278",
+    "method": "runtime-head",
+    "patch_sha256": "d8367a2fd1461b3ec580ac5f054866341817c017272df822b5ea9a7ca1d7d894",
+    "report_record": 45,
+    "target_head": "8030c301717b99e3c326d2f049b9ec7344bd0635"
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "exec_log": "codex-review.r1Z4hd.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/12/rollout-2026-11-12T02-26-22-01a1cea6-864a-7982-96e7-14a4a7a8e7f4.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 34574,
+        "path": "codex-review.r1Z4hd.jsonl",
+        "sha256": "d11765687a0fd5c0d333d1242225f092b474cbe85dcb2938d5eede989b021a65"
+      },
+      {
+        "bytes": 612067,
+        "path": "2026/11/12/rollout-2026-11-12T02-26-22-01a1cea6-864a-7982-96e7-14a4a7a8e7f4.jsonl",
+        "sha256": "ff5b9bff35675f24b0b1e2fd66a024268123006151f23ffef4b60ba274f12e73"
+      }
+    ],
+    "thread_id": "01a1cea6-864a-7982-96e7-14a4a7a8e7f4"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}
