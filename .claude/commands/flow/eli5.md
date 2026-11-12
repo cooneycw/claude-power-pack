@@ -263,6 +263,10 @@ Section C answers EVERY listed lane - will test, will refuse, not applicable or
 not covered - per [the lanes reference](../../../docs/agents/lanes.md). No lane
 file asks nothing.
 
+First run `~/.claude/scripts/lane-file.py age` and relay a stale or unknown
+`LANE_FILE_AGE:` line. It is a notice, never a stop: continue on every exit
+code.
+
 ## CPP integration: Section B also asks this host, not only GitHub (issue #1262)
 
 This section is CPP-owned and sits OUTSIDE the vendored core above. It adds one
@@ -297,7 +301,6 @@ nothing about another machine's checkouts.
 
 ## Notes
 
-- This command is the communication and approval checkpoint: intent in the reviewer's language, an honest necessity verdict, and the plan that is about to be executed.
 - It never writes implementation code; the only mutating action it suggests is `gh issue close` on a `No longer needed` verdict, and that is a recommendation for the reviewer to run.
 - The staleness check is only meaningful when it inspects history *after* the issue's `createdAt`; always anchor `git log --since` and the PR/issue searches to that timestamp.
 - For step-by-step control outside the full lifecycle, run `/flow:eli5 <ISSUE>` on its own before deciding whether to `/flow:start`.

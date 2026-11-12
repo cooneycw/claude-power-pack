@@ -46,6 +46,11 @@ Reviewed: 2026-11-11
 - Keep it short enough to answer on every plan. If answering it is a burden,
   the list is wrong, not the rule.
 
+`/lane:create` drafts the file from a survey checklist and shows the draft,
+with the evidence for each row, before writing; `/lane:update` reviews it. Both
+record the `Reviewed:` date with `scripts/lane-file.py stamp`, so the date is
+never typed by hand. `/project:init` runs `/lane:create` for a new project.
+
 **No lane file means nothing is asked.** A project that has not adopted lanes
 gets no table, no question and no failure.
 
@@ -81,6 +86,19 @@ Tier 2 and Tier 3 work that changes behaviour. A typo, a docs-only change or
 anything else with no behavioural lanes says so in one line, for example
 `Lanes: none - documentation only`, and carries no table.
 
+## When the list was last reviewed
+
+The plan step runs `scripts/lane-file.py age` and relays its `LANE_FILE_AGE:`
+line when the list was last reviewed more than 60 days ago (`stale`) or exists
+and cannot be dated (`unknown`). It is a notice with a remedy, `/lane:update`.
+It never stops a plan, a gate or a merge, and a project with no lane file sees
+nothing.
+
+Age is a proxy. A list goes stale when the product changes, not when the
+calendar does, and a freshly reviewed list can still be missing a lane. The
+stronger signal is the growth rule below. If the notice is routinely dismissed
+with no change to the list, drop the notice and keep the rule.
+
 ## Growing the list
 
 When a miss turns out to be a lane nobody listed, adding that lane to
@@ -97,6 +115,13 @@ document exists and states the four answers, that the issue contract, the
 closing-report contract, `/flow:eli5` and `/codex:code_review` each link here,
 that the review prompt still carries the lane question, and that this
 repository's own lane file parses and carries a review date.
+
+**The age verdict has a committed control.** `controls/lane-file-age` runs
+`lane-file.py age` at a pinned date: a list reviewed 61 days earlier is flagged,
+one reviewed exactly 60 days earlier is not, and an undated list is `unknown`.
+Its blind anchor - "the project has a lane file" - misses both bad cases.
+`tests/test_lane_file.py` pins the rest: absence, every way a file can exist
+and be undatable, the stamp, and root resolution.
 
 **The table itself is not machine-checked.** There is no gate (issue #1695
 forbids one). Two readers check it:

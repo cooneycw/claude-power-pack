@@ -1,0 +1,61 @@
+{
+  "_comment": [
+    "Registration for the age verb of scripts/lane-file.py (issue #1696).",
+    "",
+    "WHY AN ADVISORY NEEDS A COMMITTED CASE (ADR 0008): its verdict is read by",
+    "an owner and by a planning session that will not re-derive the lane file's",
+    "age. A blind version prints the same 'fresh' line over a list nobody has",
+    "read in a year, and the plan table built from that list still looks complete.",
+    "",
+    "THE DATE IS PINNED. Every case is run with --today 2026-03-02, so the",
+    "verdict does not move with the calendar. 2025-12-31 is 61 days before it",
+    "and 2026-01-01 is exactly 60; the default threshold is 60.",
+    "",
+    "TWO BAD CASES, because the advisory has two ways to be owed: a review that",
+    "is old, and a list whose review nobody can date. The second must read",
+    "unknown, never fresh."
+  ],
+  "gate": "scripts/lane-file.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "age",
+    "--root",
+    "{case}",
+    "--today",
+    "2026-03-02"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^LANE_FILE_AGE: (stale|unknown) - ",
+  "limits": "Covers the AGE VERDICT for a readable lane file against the default 60-day threshold, at a pinned date. It does not cover the absent state, the unusable-file states (unreadable, directory, dangling symlink, unsearchable parent, future or impossible date, disagreeing dates), the stamp verb, or root resolution - those are pinned by tests/test_lane_file.py. It says nothing about whether the lane list is COMPLETE: a freshly stamped list can still omit a lane.",
+  "cases": [
+    {
+      "name": "bad-one-day-past",
+      "input": "cases/bad-one-day-past",
+      "expect": "BAD",
+      "why": "Reviewed 2025-12-31, 61 days before the pinned date - ONE day over the threshold, the #1696 acceptance case. If it scores GOOD the advisory cannot see an old review."
+    },
+    {
+      "name": "bad-no-review-date",
+      "input": "cases/bad-no-review-date",
+      "expect": "BAD",
+      "why": "A lane file with no Reviewed: line. Its age is unknown; if it scores GOOD an undated list is being read as a fresh one."
+    },
+    {
+      "name": "good-at-threshold",
+      "input": "cases/good-at-threshold",
+      "expect": "GOOD",
+      "why": "Reviewed 2026-01-01, exactly 60 days before the pinned date. Separates a working advisory from one wedged at 'stale', and pins the boundary as inclusive."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/lane-file.py",
+      "path": "anchors/constructed-always-fresh-lane-file-age.py",
+      "sha256": "7c289d2f0826497b257511a94a78bc3ad470919fe7578df3c80a79ade68c693a",
+      "why": "CONSTRUCTED: the plausible weaker check - the project has a lane file - with the review date never read. 'It keeps a lane list' mistaken for 'the list was reviewed recently'. It reports fresh on cases/bad-one-day-past and on cases/bad-no-review-date."
+    }
+  ]
+}
