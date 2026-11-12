@@ -245,8 +245,6 @@ trim() { # trim STRING -> leading/trailing whitespace removed
   printf '%s' "$s"
 }
 
-lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
-
 # ---- parse ------------------------------------------------------------------
 #
 # Populates the parallel arrays TR_KIND/TR_DETAIL (recognized transitions) and

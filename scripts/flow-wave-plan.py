@@ -752,7 +752,7 @@ if __name__ == "__main__":
     _code = 1
     try:
         _code = main(sys.argv)
-    except SystemExit as _exc:          # argparse --help and argparse errors
+    except SystemExit as _exc:          # an exit raised below main keeps its code
         _code = _exc.code if isinstance(_exc.code, int) else int(bool(_exc.code))
     except BaseException:               # noqa: BLE001 - re-reported, then exited
         traceback.print_exc()

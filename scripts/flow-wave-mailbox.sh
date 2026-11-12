@@ -937,13 +937,6 @@ ackob_add() {
   done
 }
 
-ackob_count() {
-  local f
-  f="$(ackob_file "$1")"
-  [ -s "$f" ] || { echo 0; return; }
-  grep -c '^[0-9]' "$f" 2>/dev/null || echo 0
-}
-
 # Record REVS (space-separated, already validated non-empty positive integers)
 # as acknowledged for <box>, under the same flock every other read-modify-write
 # in this file uses. Refuses (return 2) any rev that does not exist in the box
@@ -1485,14 +1478,6 @@ watcher_roles_live() {
       fi
       ;;
   esac
-}
-
-# watcher_count ROLE WAVE -> a non-negative integer, or `unknown` when the host
-# gives us no way to enumerate processes. The REPORTING view.
-watcher_count() {
-  local role="$1" wave="$2" roles
-  roles="$(watcher_roles_live "$wave")" || { echo unknown; return; }
-  records_count "$roles" "$role"
 }
 
 # Each live-scan line is `<role> <pid>` (the pid was added for #1228 so a
@@ -2115,14 +2100,29 @@ path_state() {
 # can never disagree about what "the session that armed me died" means. A
 # reused pid has a different start time, so it reads gone, not alive. A ZOMBIE
 # has exited and merely awaits reaping: its /proc entry and start time survive,
-# so its state letter decides (counter-model review, #1228). An owner whose
-# start time could not be read (`-`) is judged on the pid alone, which can only
-# err toward staying up.
+# so its state letter decides (counter-model review, #1228) - together with its
+# thread count, below. An owner whose start time could not be read (`-`) is
+# judged on the pid alone, which can only err toward staying up.
 owner_gone() {
-  local own_pid="${1%%:*}" own_start="${1#*:}" own_now own_state
+  local own_pid="${1%%:*}" own_start="${1#*:}" own_now own_state own_threads
   own_now="$(proc_starttime "$own_pid")"
   own_state="$(sed -n 's/^State:[[:space:]]*\([A-Z]\).*/\1/p' "/proc/$own_pid/status" 2>/dev/null)"
-  [ ! -d "/proc/$own_pid" ] || [ "$own_state" = "Z" ] || [ "$own_state" = "X" ] ||
+  case "$own_state" in
+    X) return 0 ;;
+    Z)
+      # State Z on the thread-group leader is NOT proof of death (issue #1709,
+      # ported from flow-worktree-claim.sh for #1691): a process whose main
+      # thread exited while other threads still run reads Z here too, and it is
+      # still the session this watch exists to wake. A reaped-pending zombie
+      # has exactly one thread left. An unreadable count is treated as one,
+      # which keeps the old answer.
+      own_threads="$(sed -n 's/^Threads:[[:space:]]*//p' "/proc/$own_pid/status" 2>/dev/null)"
+      case "$own_threads" in
+        *[!0-9]* | "" | 0 | 1) return 0 ;;
+      esac
+      ;;
+  esac
+  [ ! -d "/proc/$own_pid" ] ||
     { [ "$own_start" != "-" ] && [ "$own_now" != "-" ] && [ "$own_now" != "$own_start" ]; }
 }
 
