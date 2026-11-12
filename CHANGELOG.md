@@ -17,7 +17,12 @@
   whose CPP checkout is not at `~/Projects/claude-power-pack`, a non-default
   target's security gate cannot find CPP and the document says to skip it
   (#1760). The deploy log's status column now carries the deployment's own
-  exit status (#1759).
+  exit status. And `/flow:auto` no longer treats a successful
+  `/flow:deploy deploy-staging` (or any other `deploy-*` target) as a
+  deployment of `deploy`: its already-deployed check matched the log's target
+  column loosely, which was accidentally right while every target ran
+  `make deploy` and would have skipped the real deploy once it did not
+  (#1759).
 - **The flow documents say what to do when a project's gate needs the pushed
   head.** `/flow:auto` Step 6 and `/flow:finish` still run the gate before the
   push. When a project's own gate clones the ref under test from the remote,

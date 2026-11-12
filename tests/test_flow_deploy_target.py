@@ -203,3 +203,54 @@ def test_a_failed_runner_stops_before_the_log_and_does_not_fall_back(tmp_path: P
     assert result["calls"] == ["runner"], "a failed runner must not be followed by the fallback path"
     assert result["markers"] == []
     assert result["logged"] == []
+
+
+# --- the reader of the log line: /flow:auto's already-deployed check ---------
+#
+# Step 9 of /flow:auto skips `make deploy` when `.claude/deploy.log` already
+# records a successful deployment of HEAD. Its match on the target column was
+# unanchored, so a `deploy-other` line counted as a deployment of `deploy`.
+# That was accidentally true while /flow:deploy ran `make deploy` for every
+# target; once the named target runs, it is a skipped production deploy.
+
+def _already_deployed_check() -> str:
+    text = (REPO / ".claude" / "commands" / "flow" / "auto.md").read_text(encoding="utf-8")
+    lines = [line for line in text.splitlines() if "awk -F'|'" in line and ".claude/deploy.log" in line]
+    assert len(lines) == 1, "auto.md's already-deployed check moved; this test extracts that one line"
+    condition = re.search(r"&& (awk -F'\|'.*\.claude/deploy\.log); then", lines[0])
+    assert condition, lines[0]
+    return condition.group(1)
+
+
+@pytest.mark.parametrize(
+    ("logged_target", "status", "deployed"),
+    [
+        ("deploy", "0", True),
+        ("deploy-other", "0", False),   # the defect: another target's success read as this one's
+        ("deploy-staging", "0", False),
+        ("predeploy", "0", False),
+        ("deploy", "2", False),         # a failed deploy is not a deployment
+    ],
+)
+def test_only_a_successful_deploy_of_the_default_target_marks_head_as_deployed(
+    tmp_path: Path, logged_target: str, status: str, deployed: bool
+) -> None:
+    (tmp_path / ".claude").mkdir()
+    line = f"2026-11-12T00:00:00-05:00 | {logged_target} | abc1234 | main | {status}\n"
+    (tmp_path / ".claude" / "deploy.log").write_text(line, encoding="utf-8")
+    script = 'HEAD_SHA=abc1234\n' + _already_deployed_check()
+    ran = subprocess.run(["bash", "-c", script], cwd=tmp_path, capture_output=True, text=True, check=False)
+    assert (ran.returncode == 0) is deployed, f"{logged_target} | {status}: awk exited {ran.returncode}"
+
+
+def test_a_deploy_line_and_another_targets_line_for_the_same_commit(tmp_path: Path) -> None:
+    """Both in one log: the `deploy` line is what marks HEAD deployed, in either order."""
+    (tmp_path / ".claude").mkdir()
+    other = "2026-11-12T00:00:00-05:00 | deploy-other | abc1234 | main | 0\n"
+    real = "2026-11-12T00:05:00-05:00 | deploy | abc1234 | main | 0\n"
+    script = "HEAD_SHA=abc1234\n" + _already_deployed_check()
+    log = tmp_path / ".claude" / "deploy.log"
+    for content, deployed in ((other, False), (other + real, True), (real + other, True)):
+        log.write_text(content, encoding="utf-8")
+        ran = subprocess.run(["bash", "-c", script], cwd=tmp_path, capture_output=True, text=True, check=False)
+        assert (ran.returncode == 0) is deployed, content
