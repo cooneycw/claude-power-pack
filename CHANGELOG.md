@@ -11,8 +11,8 @@
   same-repository pull request the pipeline file is the change's own too.
   `docs/skills/woodpecker-ci.md` says so, names the control that does the job
   (review of four paths, enforced by the provider where it can be), and gives
-  the baseline procedure for adopting the scan in a repository with findings
-  already in its history. Taking the scanner's config from the base branch
+  a baseline procedure for adopting the scan in a repository with findings
+  already in its history, including why the raw report must not be committed. Taking the scanner's config from the base branch
   was designed, measured and not built;
   `docs/measurements/gitleaks-self-allowlist-2026-11.md` records why.
   Nothing generated changes. The same document's example step no longer

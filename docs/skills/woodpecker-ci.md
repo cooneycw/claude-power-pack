@@ -161,11 +161,12 @@ ways (measured on the pinned gitleaks v8.30.1; the record is
 | The change adds | Effect | A flag that switches it off |
 |---|---|---|
 | a `.gitleaks.toml` that allowlists the file (when no `--config` is given), or an entry in the configured one | the finding disappears | an explicit `--config` pointing elsewhere |
-| a `.gitleaksignore` with the finding's fingerprint, even untracked | the finding disappears | none; only removing the file |
-| an inline `gitleaks:allow` comment on the line | the finding disappears | `--ignore-gitleaks-allow` |
+| a `.gitleaksignore` with the finding's fingerprint, even untracked | the finding disappears | none found: neither `-i` form tried switched it off; removing the file did |
+| an inline `gitleaks:allow` comment on the line | the finding disappears for that version of the line; a history scan still reports an earlier commit that has the value without the comment | `--ignore-gitleaks-allow` |
 
 And a fourth: on a same-repository pull request the pipeline file itself comes
-from the pull request, so the scan step can be edited or removed.
+from the pull request, so the scan step can be edited or removed. (That is how
+both providers are understood to behave; it was not part of the measurement.)
 
 Taking the scanner's configuration from the base branch does not close this;
 the measurement record says why.
@@ -185,12 +186,21 @@ fails on its first run, long after the value was removed from the tree.
 
 1. **Rotate first.** A value that was ever pushed is compromised whatever the
    scanner says.
-2. Run the scan once and write its findings to a baseline:
+2. Run the scan once and write its findings to a report:
    `gitleaks detect --source . --redact --report-path gitleaks-baseline.json`.
-3. Commit the baseline and pass it on every run with
-   `--baseline-path gitleaks-baseline.json`: findings already in the baseline
-   are ignored, new ones fail.
-4. Burn the baseline down. It is an allowlist like the three above, and the
+3. **Do not commit that report as it is.** `--redact` is not a guarantee: it
+   cannot mask a secret that sits inside another rule's match (issue #1288,
+   which is why CPP's own pipeline prints rule, file and line only), and the
+   report also carries each commit's author name and email. Remove the `Match`
+   and `Secret` fields from every entry first. Measured: a baseline without
+   those two fields still ignores the recorded findings and still fails on a
+   new one; a baseline cut down further, to rule, file, line, commit and
+   fingerprint, no longer matches anything. Then read what is left before it
+   goes anywhere, or keep the baseline in protected CI storage and out of the
+   repository.
+4. Pass it on every run with `--baseline-path`: findings already in the
+   baseline are ignored, new ones fail.
+5. Burn the baseline down. It is an allowlist like the three above, and the
    same review applies to it.
 
 A change to any of these files takes effect for the scan as soon as it is in
@@ -202,9 +212,13 @@ CPP's own pipeline is in the same position. `.woodpecker.yml` (the
 `secret-scan` step, `gitleaks detect --source . --config .gitleaks.toml ...`)
 and `make secret-scan` (the same command with `--no-git`) read `.gitleaks.toml`
 from the tree being scanned, and both honour a `.gitleaksignore` and inline
-`gitleaks:allow` comments. Those lines are deliberately unchanged. What stands
-between a change here and a hidden leak is review of the same four paths,
-under the branch protection declared in `.claude/branch-protection.json`.
+`gitleaks:allow` comments. Those lines are deliberately unchanged. (The
+measurement used the history scan; that `--no-git` and the GitHub Actions
+container form honour the same three channels is expected, not measured.)
+
+Nothing enforces review of those four paths here today:
+`.claude/branch-protection.json` declares zero required approvals and no
+code-owner review. Whether to require it is the owner's decision.
 
 ### 2. Image security (Trivy)
 
