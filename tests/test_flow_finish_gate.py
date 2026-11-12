@@ -4163,3 +4163,151 @@ def test_two_scoped_reviews_at_one_distance_pass_enrolment_only(tmp_path: Path) 
     result = _enrolment_only(repo)
     assert _verdict(result) == "FLOW_FINISH_GATE: ok"
     assert result.returncode == 0
+
+
+# --- issue #1728: the fallback lane's failed-id parser -----------------------
+FAILED_SUMMARY = ROOT / "tests" / "fixtures" / "pytest-failed-summary.txt"
+
+
+def _shell_function(name: str) -> str:
+    """The text of one top-level function in the gate script."""
+    match = re.search(
+        rf"^{name}\(\) \{{\n.*?^\}}\n", SCRIPT.read_text(), re.MULTILINE | re.DOTALL
+    )
+    assert match, f"{name} is not a top-level function in {SCRIPT.name}"
+    return match.group(0)
+
+
+@requires_bash
+def test_fallback_failed_id_parser_agrees_with_the_python_parser() -> None:
+    """One shared input, two parsers, the same ids in the same order.
+
+    NOT COMPARED, because the fixture has no such line: an id whose parameter
+    contains `]` before a ` - ` (`t[a] - b]`), a parameter with ` - ` and no
+    closing bracket anywhere on the line, tabs or other non-space whitespace
+    around the separator, a reason that itself starts a new `FAILED` on the
+    same line, CRLF line endings, and non-ASCII ids. Add a line to the fixture
+    before relying on either parser for one of those.
+
+    KNOWN TO DIFFER, found by the counter-model review and left out on purpose:
+    - a line ending in a bare ` -` followed by another `FAILED` line. Not
+      produced by pytest. Python's `\\s` crosses the newline there and DROPS
+      the second failure; awk reads a line at a time and keeps both.
+    - `FAILED` alone on a line with the id on the next. Not produced by
+      pytest. Python joins the two lines; awk returns nothing.
+    - non-ASCII whitespace (a no-break space) before the ` - `. Not produced
+      by pytest. Python's `\\s` matches it; POSIX `[[:space:]]` does not.
+    """
+    from lib.cicd.outcomes import parse_failed_node_ids
+
+    expected = parse_failed_node_ids(FAILED_SUMMARY.read_text())
+    assert expected == [
+        "tests/test_x.py::test_v[hello world]",
+        "tests/test_x.py::test_v[hello there]",
+        "tests/test_x.py::test_plain",
+        "tests/test_w.py::test_setup",
+        "tests/test_x.py::TestC::test_z[param-1]",
+        "tests/x.py::t[a - b]",
+        "tests/test_broken.py",
+    ]
+    proc = subprocess.run(
+        [
+            "bash",
+            "-c",
+            _shell_function("parse_fallback_failed_ids")
+            + 'parse_fallback_failed_ids "$1"',
+            "bash",
+            str(FAILED_SUMMARY),
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+        check=True,
+    )
+    assert proc.stdout.splitlines() == expected
+
+
+def _fallback_make_stub_failing_with(bindir: Path, summary: str) -> None:
+    """A `make` whose `test` fails with `summary` first and passes on re-run."""
+    (bindir / "summary").write_text(summary)
+    stub = bindir / "make"
+    stub.write_text(
+        "#!/usr/bin/env bash\n"
+        'if [[ "$1" != "test" ]]; then exit 0; fi\n'
+        f"printf x >> \"{bindir / 'test-attempts'}\"\n"
+        f"if [[ -f \"{bindir / 'test-marker'}\" ]]; then exit 0; fi\n"
+        f": > \"{bindir / 'test-marker'}\"\n"
+        f"cat \"{bindir / 'summary'}\"\n"
+        "exit 1\n"
+    )
+    stub.chmod(0o755)
+
+
+@requires_bash
+@requires_git
+def test_fallback_cap_counts_ids_that_differ_only_after_a_space(
+    tmp_path: Path,
+) -> None:
+    """26 distinct failures are over the cap of 25 and are NOT re-run. Cut at
+    the space they were one id, and the run was admitted to the re-run."""
+    (tmp_path / "Makefile").write_text("lint:\n\ntest:\n\ntypecheck:\n\nverify:\n")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    _fallback_make_stub_failing_with(
+        bindir,
+        "".join(f"FAILED tests/a.py::t[case {n}] - AssertionError\n" for n in range(26)),
+    )
+
+    proc, _ = _run(tmp_path, cpp_dir="", uv_exit=None, cwd=tmp_path)
+
+    assert (bindir / "test-attempts").read_text() == "x"
+    assert proc.returncode == 1
+    assert "FLOW_FINISH_GATE: fail" in proc.stdout
+    assert "RERUN_PASSED:" not in proc.stdout
+
+
+@requires_bash
+@requires_git
+def test_fallback_warning_counts_ids_not_words(tmp_path: Path) -> None:
+    (tmp_path / "Makefile").write_text("lint:\n\ntest:\n\ntypecheck:\n\nverify:\n")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    _fallback_make_stub_failing_with(
+        bindir,
+        "FAILED tests/a.py::t[hello world] - AssertionError\n"
+        "FAILED tests/a.py::t[hello there] - AssertionError\n",
+    )
+
+    proc, _ = _run(tmp_path, cpp_dir="", uv_exit=None, cwd=tmp_path)
+
+    assert proc.returncode == 3
+    assert (
+        "RERUN_PASSED: tests/a.py::t[hello world] tests/a.py::t[hello there]"
+        in proc.stdout
+    )
+    assert "WARNING: 2 test(s) FAILED on the first attempt" in proc.stdout
+
+
+@requires_bash
+@requires_git
+def test_runner_warning_counts_ids_not_words(tmp_path: Path) -> None:
+    cpp = _fake_cpp(tmp_path)
+    payload = """{
+  "success": true,
+  "reruns": [
+    {
+      "step": "test",
+      "ids": [
+        "tests/a.py::t[hello world]",
+        "tests/a.py::t1"
+      ],
+      "outcome": "passed-in-isolation",
+      "first_attempt": null,
+      "rerun": null
+    }
+  ]
+}"""
+    proc = _run_with_uv_stub(tmp_path, cpp, payload)
+
+    assert proc.returncode == 3
+    assert "RERUN_PASSED: tests/a.py::t[hello world] tests/a.py::t1" in proc.stdout
+    assert "WARNING: 2 test(s) FAILED on the first attempt" in proc.stdout

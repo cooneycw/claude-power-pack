@@ -144,9 +144,11 @@ REQUIRED lane, then merge in the same breath:
 ~/.claude/scripts/flow-ci-status.sh <pr-head-sha> --path "$(git rev-parse --show-toplevel)" --strict-event --wait 1800
 ```
 
+Exit 2 (`unknown`) or 5 (expired): do not merge.
+
 On `FLOW_CI_STATUS: stalled` (issue #1552) the pipeline is dead, not slow: the
-server lists it `running` past the repository's own timeout, so its agent lost
-it. Do not merge and do not keep waiting; report the `FLOW_CI_URL` and the
+server lists it `running` past the repository's timeout. Do not merge or
+wait; report the `FLOW_CI_URL` and the
 `FLOW_CI_STALLED_STEP` lines and stop - cancel the reported run using its provider: GitHub Actions (`gh run cancel <id>`),
 or the Woodpecker server/operator. Then re-run CI.
 

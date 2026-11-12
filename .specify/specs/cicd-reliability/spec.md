@@ -25,11 +25,10 @@ Replace prompt-driven CI/CD orchestration with a deterministic Python runner bac
 **Acceptance Criteria:**
 - [ ] Runner executes steps sequentially with typed results (success/fail/skip)
 - [ ] State persisted to `.claude/runs/<run_id>.json` after each step
-- [ ] Resume from last failed step via `python -m lib.cicd resume <run_id>`
 - [ ] Retry policy per step (max attempts, backoff)
 - [ ] Timeout enforcement per step
 - [ ] Structured JSON output for LLM consumption
-- [ ] CLI: `python -m lib.cicd run --plan <name>` and `resume`
+- [ ] CLI: `python -m lib.cicd run --plan <name>`, which resumes a failed run itself when the tree is unchanged (the explicit `resume` command was removed under issue #1727)
 
 ### US2: Typed Task Manifest [P1 - High]
 

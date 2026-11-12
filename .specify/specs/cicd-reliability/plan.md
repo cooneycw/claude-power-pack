@@ -68,7 +68,7 @@ lib/cicd/
     docker_compose.py # DockerComposeStrategy
   sync.py             # Drift detection (cpp sync)
   # Existing files modified:
-  cli.py              # Add run/resume/validate/sync subcommands
+  cli.py              # Add run/validate/sync subcommands (explicit resume removed, issue #1727)
   config.py           # Migrate to Pydantic v2
   models.py           # Add StepStatus, StepResult, RunResult
 ```

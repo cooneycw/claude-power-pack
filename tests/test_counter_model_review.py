@@ -1155,6 +1155,12 @@ def test_an_exec_log_without_a_matching_rollout_is_refused(tmp_path: Path) -> No
     )
     assert proc.returncode == CM.EXIT_INVALID
     assert "expected one Codex rollout" in proc.stderr
+    # Zero rollouts for the thread, though others exist (issue #1710): the
+    # refusal names the ephemeral launch as a thing to CHECK, not as what
+    # happened - a wrong thread id, as here, reads the same way.
+    assert "found 0" in proc.stderr
+    assert "first check whether" in proc.stderr and "--ephemeral" in proc.stderr
+    assert "wrong thread id" in proc.stderr
     assert list(tmp_path.glob("*.json")) == []
 
 
@@ -1192,6 +1198,8 @@ def test_multiple_matching_reviewer_rollouts_are_refused(tmp_path: Path) -> None
     )
     assert proc.returncode == CM.EXIT_INVALID, proc.stderr
     assert "expected one Codex rollout" in proc.stderr
+    # Two rollouts is not the ephemeral case, and must not be described as it.
+    assert "--ephemeral" not in proc.stderr
     assert list(tmp_path.glob("*.json")) == []
 
 
@@ -2987,6 +2995,7 @@ def test_a_codex_thread_with_no_rollout_is_refused(tmp_path: Path) -> None:  # b
                       "--codex-sessions-dir", str(sessions))
     assert proc.returncode == CM.EXIT_INVALID
     assert "no rollout matching thread_id 'no-such-thread'" in proc.stderr
+    assert "first check whether" in proc.stderr and "--ephemeral" in proc.stderr
 
 
 def test_both_implementer_flags_is_a_usage_error(tmp_path: Path) -> None:  # binary-guard: allow unscoped
@@ -4153,3 +4162,65 @@ def test_1580_uniformity_reader_counts_schema_four_by_its_scalar_reviewer(
     )
     assert proc.returncode == 2, proc.stdout + proc.stderr
     assert "examined=1 verifiable=0 distinct=1" in proc.stdout
+
+
+# --------------------------------------------------------------------------- #
+# A context-window tag is not model identity (issue #1710).
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize(
+    "name,bare",
+    [
+        ("claude-opus-5-5[1m]", "claude-opus-5-5"),
+        ("claude-opus-5-5[200k]", "claude-opus-5-5"),
+        ("claude/claude-opus-5-5[1m]", "claude/claude-opus-5-5"),
+        # NOT stripped: anything that is not exactly one trailing size tag.
+        ("claude-opus-5-5", "claude-opus-5-5"),
+        ("foo[beta]", "foo[beta]"),
+        ("foo[1m]bar", "foo[1m]bar"),
+        ("foo[1M]", "foo[1M]"),
+        ("foo[]", "foo[]"),
+        ("foo[m]", "foo[m]"),
+        ("foo[1m][1m]", "foo[1m][1m]"),
+        ("foo[beta][1m]", "foo[beta][1m]"),
+        ("foo [1m]", "foo [1m]"),
+        ("[1m]", "[1m]"),
+        ("claude/[1m]", "claude/[1m]"),
+    ],
+)
+def test_only_one_trailing_size_tag_is_removed_from_a_model_name(name: str, bare: str) -> None:
+    """The harness is known to write `[1m]` and nothing else in brackets:
+    measured 2026-11-11 over the local Claude transcripts (71 records of
+    `claude-opus-5-5[1m]`, no other bracketed model name). `[200k]` is covered
+    by the rule's shape, not by an observation."""
+    assert CM._bare_model(name) == bare
+
+
+def test_the_legacy_validator_refuses_a_pair_that_differs_only_by_the_tag(  # binary-guard: allow unscoped
+    tmp_path: Path,
+) -> None:
+    proc = _ran_receipt(tmp_path, tmp_path / "out", "--branch", "b")
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next((tmp_path / "out").glob("*.json")).read_text(encoding="utf-8"))
+    assert CM.validate(receipt, "legacy") == []
+    receipt["implementer"] = receipt["reviewer"] + "[1m]"
+    assert any("the same model" in problem for problem in CM.validate(receipt, "legacy"))
+
+
+def test_a_claude_implementer_is_recorded_without_its_context_window_tag(  # binary-guard: allow unscoped
+    tmp_path: Path,
+) -> None:
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, "opus-5[1m]")
+    exec_log, sessions_dir = _reviewer_derivation_fixture(tmp_path, "gpt-5.5")
+    proc = subprocess.run(
+        [
+            sys.executable, str(WRITE_SCRIPT), "write", "--dir", str(tmp_path / "out"),
+            "--issue", "1710", "--branch", "b", "--status", "ran", "--scope", "unverified", "--passes", "1",
+            *_reviewer_evidence_args(exec_log, sessions_dir),
+            *_implementer_evidence_args(session_id, projects_dir),
+        ],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next((tmp_path / "out").glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["implementer"] == "claude/opus-5"

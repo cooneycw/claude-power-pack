@@ -5,6 +5,10 @@
       "diagnostic": "overlaps"
     },
     {
+      "mutation": "same-model-context-tag",
+      "diagnostic": "overlaps"
+    },
+    {
       "mutation": "missing",
       "diagnostic": "missing captured reviewer patch"
     },

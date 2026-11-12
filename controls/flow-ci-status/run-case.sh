@@ -51,6 +51,14 @@ if [ -f "$case_dir/step_name" ]; then
     esac
 fi
 
+# An optional `error` file is the failed step's error text, as the provider
+# reports it; it may span lines (issue #1711). jq encodes it, so the case file
+# holds the raw text.
+error_json='""'
+if [ -f "$case_dir/error" ]; then
+    error_json=$(jq -Rs . < "$case_dir/error") || { echo "FLOW_CI_CONTROL: cannot-run - error file could not be encoded"; exit 3; }
+fi
+
 T=$(mktemp -d "${TMPDIR:-/tmp}/flow-ci-status-control.XXXXXX") || { echo "FLOW_CI_CONTROL: cannot-run - no tmpdir"; exit 3; }
 trap 'rm -rf "$T"' EXIT INT TERM
 mkdir "$T/bin"
@@ -79,7 +87,7 @@ JSON
         cat <<JSON
 {"workflows": [{"name": "woodpecker", "children": [
     {"name": "clone", "type": "clone", "state": "success", "exit_code": 0},
-    {"name": "$step_name", "type": "commands", "state": "failure", "exit_code": $exit_code}
+    {"name": "$step_name", "type": "commands", "state": "failure", "exit_code": $exit_code, "error": $error_json}
 ]}]}
 JSON
         ;;

@@ -240,6 +240,78 @@ verdict now has its OWN exit code (issue #1027)" it read:
 > `$?` could not tell "passed cleanly" from "passed but proved nothing" from
 > "did not run at all".
 
+### Text moved out of `/flow:deploy` (#1759)
+
+Moved by #1759, to pay for the condition that keeps the deterministic runner
+for the default target only.
+
+Step 4b opened with a sentence restating its heading:
+
+> **Primary path:** Use the deterministic CI/CD runner for reproducible deploy with security gate:
+
+and its block began with the comment `# Locate CPP source for lib/cicd` above
+the loop that does exactly that.
+### Text moved out of `/cpp:init` (#1716)
+
+Moved by #1716, to pay for what the wizard now says about deny rules, the
+capability question asked as two questions, and step 8b skipped after 5d.
+
+From the Tier 2 installer block, the comment after the host-write seam prints
+its status (`echo "Host-write seam: $SEAM_STATUS"`). It recorded why that
+status line claims only what its own call measured:
+
+> THE STATUS SAYS WHAT IT MEASURED (counter-model review). An earlier draft
+> announced that a deferred bootstrap meant "every host write below will
+> report deferred", which this call does not establish: --defer
+> ~/.claude/scripts defers the SEAM'S OWN INSTALL and says nothing about
+> ~/.claude/settings.json or ~/.bashrc, each of which consults its own
+> defer-set entry and reports its own verdict below. Overclaiming from one
+> surface to all of them is this issue's defect wearing the fix's clothes.
+### Text moved out of `/codex:code_review` (#1714)
+
+Moved by #1714, to pay for measuring the patch before the review run and
+blocking one that is over Codex's input limit. (A first version of #1714 also
+built a route for reading such a patch from the repository; it was withdrawn
+to #1769, and these paragraphs were not put back.)
+
+From Step 2, the comment above the `git add -N` block (issue #1030). Four of
+its paragraphs explained why the block is written as it is:
+
+> `git add -N` (--intent-to-add) marks each untracked, non-ignored path in
+> the index without staging its CONTENT, which is enough for `git diff <ref>`
+> to treat it as a real addition. It is deliberately not undone afterward: the
+> markers are inert until something actually stages content over them, and
+> this command's own caller (`/flow:auto` Step 6) already runs `git add -A`
+> before its commit, which supersedes them harmlessly - a blind `git reset`
+> here would risk discarding unrelated work staged earlier in that same run.
+
+> The count doubles as a membership floor, not just transparency: `git add -N .`
+> marks EVERY untracked non-ignored path from the worktree root, so a count
+> larger than what this change actually added means the review is about to
+> see files nobody intended to include - worth surfacing before the review
+> runs, not after.
+
+> A FAILED intent-to-add MUST NOT become a review that reports itself
+> complete (codex review, Codex-flagged): swallowing the exit status left a
+> locked or unwritable index looking identical to success, so new files
+> stayed invisible while the count message still claimed they were included.
+
+> ENUMERATED PATHS ONLY, never a bare `git add -N .` (codex review,
+> Codex-flagged, re-review): `-N .` walks the whole pathspec, which includes
+> tracked files DELETED from the working tree but not yet `git rm`'d - and
+> `add -N` stages that deletion into the index, not merely a placeholder for
+> it. A deletion nobody asked this review to stage would then ride along into
+> whatever the caller commits next. Untracked additions are the only thing
+> this step needs to fix (a tracked deletion is already visible in a plain
+> `git diff <ref>` with no staging at all), so mark exactly those paths -
+> NUL-delimited, to survive a filename containing a space or newline.
+
+From the prose before Step 3:
+
+> For very large diffs (thousands of lines), note it and proceed - Codex can also
+> open files itself in the read-only sandbox - but name the most important files in
+> the prompt so the review focuses where the risk is.
+
 ## Workflow commands - detail beyond the skill listing
 
   - Optional second arg `PROJECT` targets a repo other than the session cwd (resolved as a path, else `~/Projects/<name>`); such cross-repo runs ride the deterministic git-worktree lane end-to-end instead of `EnterWorktree`, which cannot leave the session repo (#578)

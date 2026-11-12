@@ -4,6 +4,56 @@
 
 ### Behaviour changes you may notice
 
+- **`/flow:deploy <target>` now runs the target you name.** With a CPP
+  checkout on the host, `/flow:deploy deploy-staging` validated
+  `deploy-staging`, then ran the deterministic runner's deploy plan, whose
+  last step is the literal `make deploy`, and logged `deploy-staging`: ask for
+  one target, deploy another. The runner path is now taken only when the
+  target is exactly `deploy` (or none is given); any other target runs the
+  deploy security gate and then `make <target>`. `/flow:deploy` with no
+  argument, and every `/flow:auto` run, behave as before: `/flow:auto` runs
+  `make deploy` itself and never passes a target. A non-default target no
+  longer gets the runner's bootstrap check or its execution record. On a host
+  whose CPP checkout is not at `~/Projects/claude-power-pack`, a non-default
+  target's security gate cannot find CPP and the document says to skip it
+  (#1760). The deploy log's status column now carries the deployment's own
+  exit status. And `/flow:auto` no longer treats a successful
+  `/flow:deploy deploy-staging` (or any other `deploy-*` target) as a
+  deployment of `deploy`: its already-deployed check matched the log's target
+  column loosely, which was accidentally right while every target ran
+  `make deploy` and would have skipped the real deploy once it did not
+  (#1759).
+- **A newly scaffolded Makefile no longer has a `deploy` target that does
+  nothing and reports success.** The templates, `Makefile.example` and the
+  inline generator shipped a `deploy` whose recipe only printed a TODO; it
+  exited 0, and `/flow:deploy` and `/flow:auto` recorded a deployment. The
+  block is now commented out with its instructions, and `deploy` is out of
+  `.PHONY`, so `/flow:deploy` stops with "No 'deploy' target in Makefile" and
+  `/flow:auto` skips its deploy step until you write one. Run by hand,
+  `make deploy` fails with "No rule to make target", unless the project has a
+  file or directory named `deploy`, where make itself answers "up to date";
+  neither flow gets that far, because both test for a deploy rule first and
+  `/flow:deploy` runs only the target it is given (#1759). **A Makefile you
+  already generated is not rewritten: if it still has the TODO target, it
+  still reports a successful deployment of nothing until you edit it.**
+  Nothing tells an existing project to regenerate (#1712).
+- **Generated infrastructure workflows pin `actions/checkout` to the same
+  commit as every other generated workflow**, not the moving `@v4`.
+  Regenerate to get it (#1712).
+- **`/codex:code_review` blocks a patch that is too large for Codex, where it
+  used to record "reviewer unavailable".** Codex refuses input over 1,048,576
+  characters; the run used to exit 1 with no findings and be recorded as a
+  skipped review, which the finish gate accepts. The patch is now measured
+  first, in bytes, against that limit less a margin for the prompt. Over it,
+  at every scope, the run stops with `CODEX_REVIEW: blocked (patch too large
+  ...)`, exit 1, before any model call. **A change of about 1 MB or more that
+  used to pass with a skipped review now stops, and a person decides:** split
+  the change, or commit separately the bulk that needs no review. Having the
+  reviewer read such a change from the repository is not built (#1769). Also:
+  the scope probe no longer reads `unverified` under `pipefail` in a large
+  checkout, the temporary-file templates end in their `X` run, and a dangling
+  or unsearchable `.claude/lanes.md` is reported as unreadable, not treated
+  as absent (#1714).
 - **The flow documents say what to do when a project's gate needs the pushed
   head.** `/flow:auto` Step 6 and `/flow:finish` still run the gate before the
   push. When a project's own gate clones the ref under test from the remote,
@@ -19,6 +69,24 @@
   name, and a lane or reader test that uses a stand-in where the real thing
   could be used or that could not fail. The reader rows apply with or without a
   lane file. See `docs/agents/changed-output-readers.md` (#1697).
+- **The secret scan now reads scripts and build files with no extension, so
+  finding counts can go up.** A file with no suffix that starts with `#!`, and
+  `Makefile`, `GNUmakefile`, `makefile`, `Dockerfile`, `Containerfile` and
+  `Dockerfile.<x>`, were never opened before. Files the scan already read are
+  selected and reported exactly as they were. Binary files, files over 1 MB,
+  symlinks and non-regular files in the new group are left unread, and the
+  scan says how many extensionless files it did not read on a new `NOT READ:`
+  line (`unexamined` in `--json`). The `SECURITY_GATE` line keeps its shape;
+  only `secrets-scanned=` rises. A Makefile's `PASSWORD=$(VAR)` lines are
+  reported like any other assignment: declare them with a path suppression in
+  `.claude/security.yml`, which can be added before upgrading (#1737).
+- **Two `/cpp:init` deny rules now match the commands they name.** In the
+  Trusted and YOLO permission profiles, `Bash(dd if=:*)` matched only `dd if=`
+  followed by a space, so `dd if=/dev/zero ...` was not denied, and
+  `Bash(mkfs:*)` did not match `mkfs.ext4`. They are now `Bash(dd if=*)` and
+  `Bash(mkfs*)`. If you installed either profile, re-run `/cpp:init` or edit
+  the two rules in your settings. The wizard also now says a deny rule is not
+  a boundary: the same program run another way is not matched (#1716).
 - **A defect now says where it came from.** A defect report carries an
   `Origin:` line - the issue or pull request that delivered the behaviour that
   broke, `never worked`, or `not traced - <what was tried>` - and the pull
