@@ -92,11 +92,58 @@ _GATE_KNOBS = (
 )
 
 
+#: HOME is inherited, and the gate reads one thing from under it that changes
+#: its behaviour: the coordination admission flag (`$HOME/.config/claude-power-
+#: pack/coordination/admission`, see scripts/coordination-admission.sh). On a
+#: host where the owner has switched it on, every gate test that does not say
+#: otherwise would take the coordination path - and wait for a lock for up to
+#: an hour. So the flag's own test hook points at a path that does not exist,
+#: unless the test names a file itself.
+_NO_ADMISSION_FILE = "/nonexistent/cpp-test-suite/coordination-admission-is-off"
+
+
 def _gate_env(**named: str) -> dict[str, str]:
-    """The base environment for a gate under test: the allowlist, plus ``named``."""
+    """The base environment for a gate under test: the allowlist, coordination
+    admission off unless the test names the flag or the home it lives under,
+    plus ``named``."""
     env = {key: os.environ[key] for key in _BASE_ENV_ALLOWLIST if key in os.environ}
+    # A test that names its own HOME or XDG_CONFIG_HOME owns the directory the
+    # flag is looked up under, and is asking for that lookup: leave it alone.
+    if not {"HOME", "XDG_CONFIG_HOME", "CPP_COORDINATION_ADMISSION_FILE"} & set(named):
+        env["CPP_COORDINATION_ADMISSION_FILE"] = _NO_ADMISSION_FILE
     env.update(named)
     return env
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="runs the admission helper in bash")
+def test_a_host_with_coordination_admission_on_does_not_switch_it_on_for_the_gate_tests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A HOME whose admission flag says `on` - the state of a host after the
+    joint switch. The helper the gate sources answers `on` for an environment
+    that merely inherits that HOME, and `off` for the one the fixtures build;
+    a test that names its own flag file still gets what it named."""
+    assert not Path(_NO_ADMISSION_FILE).exists(), "precondition: the off path must not exist"
+    home = tmp_path / "home-after-the-switch"
+    flag = home / ".config" / "claude-power-pack" / "coordination" / "admission"
+    flag.parent.mkdir(parents=True)
+    flag.write_text("on\n")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.delenv("CPP_COORDINATION_ADMISSION_FILE", raising=False)
+    helper = ROOT / "scripts" / "coordination-admission.sh"
+
+    def answer(env: dict[str, str]) -> str:
+        return subprocess.run(["bash", str(helper)], env=env, capture_output=True, text=True,
+                              check=True, timeout=30).stdout.strip()
+
+    inherited = {"PATH": os.environ["PATH"], "HOME": str(home)}
+    assert answer(inherited) == "COORDINATION_ADMISSION: on", "precondition: this HOME does switch it on"
+    assert _gate_env()["HOME"] == str(home)
+    assert answer(_gate_env()) == "COORDINATION_ADMISSION: off"
+    assert answer(_gate_env(CPP_COORDINATION_ADMISSION_FILE=str(flag))) == "COORDINATION_ADMISSION: on"
+    # and a test that names the home itself is asking for the lookup under it
+    assert answer(_gate_env(HOME=str(home))) == "COORDINATION_ADMISSION: on"
 
 
 def test_no_gate_knob_in_the_suites_environment_reaches_the_gate(
@@ -113,6 +160,9 @@ def test_no_gate_knob_in_the_suites_environment_reaches_the_gate(
     for knob in _GATE_KNOBS:
         assert os.environ[knob] == "inherited-from-the-suite", f"precondition: {knob} is set"
     env = _gate_env()
+    # The one knob the helper sets itself is the admission flag's test hook,
+    # pinned to "off"; it must be the helper's value, never the inherited one.
+    assert env.pop("CPP_COORDINATION_ADMISSION_FILE") == _NO_ADMISSION_FILE
     leaked = sorted(set(env) & set(_GATE_KNOBS))
     assert leaked == [], f"knobs inherited from the suite's environment: {leaked}"
     # Stronger than the list: NOTHING outside the allowlist arrives, so a knob
