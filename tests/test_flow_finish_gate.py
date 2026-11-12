@@ -3629,6 +3629,7 @@ HELP_CODE_SENTINELS = ("set -uo pipefail", "coordination_admission_on()", "END-H
 
 
 @requires_bash
+@requires_git
 def test_help_prints_all_four_tables_and_no_code() -> None:
     """A shorter help that silently drops a table is the failure to guard, and
     so is one that runs past the header into the script's code."""
