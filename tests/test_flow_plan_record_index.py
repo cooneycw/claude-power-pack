@@ -213,7 +213,9 @@ def test_the_index_is_restored_in_a_linked_worktree(repo, tmp_path: Path) -> Non
     before = index_state(wt)
     assert "?? src/app.py" in before[1], "precondition: the new file is untracked"
     proc = helper(wt, "compliance", "42", "--base", base)
-    assert proc.returncode in (0, 3), proc.stdout + proc.stderr
+    # Exit 4 here is the stability line (this fixture stamps no baseline); the
+    # comparison itself ran, and saw the new file, which is what matters.
+    assert "PLAN_COMPLIANCE: agreement" in proc.stdout, proc.stdout + proc.stderr
     assert index_state(wt) == before
     assert index_state(r)[1] == "", "the main checkout's index was not touched either"
 
