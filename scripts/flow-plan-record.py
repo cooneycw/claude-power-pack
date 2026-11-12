@@ -441,7 +441,8 @@ def lanes_refusal(section: str, lanes: list[str]) -> tuple[str | None, str | Non
     missing = [name for name in lanes if not answered(table.get(lane_key(name), ""))]
     if missing:
         return (f"the lanes table leaves these listed lanes unanswered: {', '.join(missing)}. "
-                f"Each needs a row whose answer starts with one of: {choices}"), None
+                f"Each needs a row whose first cell is the lane's name exactly as "
+                f"{LANE_FILE_REL} lists it and whose answer starts with one of: {choices}"), None
     return None, None
 
 

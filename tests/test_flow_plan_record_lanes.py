@@ -630,3 +630,14 @@ def test_the_note_never_changes_compliances_stdout_or_exit(tmp_path: Path) -> No
     strip = lambda s: re.sub(r"FLOW_PLAN_RECORD_SELF: .*\n", "", s)   # noqa: E731
     assert strip(old.stdout) == strip(new.stdout) and old.returncode == new.returncode
     assert "lanes-demonstrated" in new.stderr and "lanes-demonstrated" not in old.stderr
+
+
+def test_a_lane_name_with_something_appended_is_unanswered_and_the_refusal_says_why(repo: Path) -> None:
+    """Exact names are the rule (A_B is not AB), so the refusal has to say so:
+    a real plan wrote the lane's values after its name and was told only that
+    the lane was unanswered."""
+    table = FULL_TABLE.replace("| Checkout |", "| Checkout (main checkout / linked worktree) |")
+    begin(repo, PLAN + table)
+    done = run(repo, "approve", "42")
+    assert done.returncode == 1 and "unanswered: Checkout." in done.stdout
+    assert "first cell is the lane's name exactly as .claude/lanes.md lists it" in done.stdout
