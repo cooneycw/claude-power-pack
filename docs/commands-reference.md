@@ -151,6 +151,31 @@ same reason (the heading already says "from lib/cicd"):
 
 > The `lib/cicd` library can detect the framework and generate a Makefile:
 
+Moved by #1697 Part 2, to pay for the reader question and the test-quality
+question in `/codex:code_review` and one sentence in `/flow:eli5`.
+
+From `/codex:code_review` Step 3, the network-fence paragraph (issue #1450).
+After "posted to an issue as the owner." it read:
+
+> The cause was not confirmed. Three candidates were left: the
+> read-only sandbox did not fence the network there, a host configuration let a
+> sandbox-denied command be approved to run outside it, or the caller supplied
+> `danger-full-access`. So the fix does not rely on any one of them:
+
+From `/codex:code_review` Notes, the middle of the `## Red cases` bullet
+(issue #1030):
+
+> it was previously
+> supplied only by `/flow:auto`'s call site, which meant a document reading
+> this contract alone and following "Return ONLY a findings report" would
+> silently get no red cases.
+
+From `/flow:eli5`, the opening of the closing-report section (issue #965). The
+first sentence ended ", like its sibling below.", and was followed by:
+
+> It adds no rule to the gate and changes nothing inside the
+> markers.
+
 From `/codex:code_review` Step 2, above the `trap` that removes the diff file:
 
 > Four refusal paths below (no common ancestor, no diff vs BASE, an unreadable
@@ -183,6 +208,37 @@ From `/codex:code_review` Step 2, the empty-diff rule (issue #1015):
 > `unparseable` and recorded the run as `skipped / reviewer-unavailable`: a skip
 > whose reason names an inability that did not happen. The reviewer was available
 > and was never asked.
+
+### Text moved out of `/flow:auto` and `/flow:finish` (#1706)
+
+Moved by #1706, to pay for one sentence in each document: when a project's
+own gate needs the pushed head, push the branch first, then run the gate.
+
+From `/flow:auto` Step 6 item 2. The helper "owns the runner invocation and
+its Makefile fallback", and the fallback targets were listed in full:
+
+> (`make lint`, `make test`, `make typecheck`, `make verify`)
+
+They are now listed in a compact form, `make lint`/`test`/`typecheck`/`verify`.
+A first trim removed the list altogether, and
+`tests/test_flow_worktree_native.py::test_moat_preserved_in_auto` went red: it
+reads the document for the gate targets.
+
+The bare-invocation instruction carried its origin, "Invoke it BARE (#581
+discipline):"; the discipline is stated once near the top of the document.
+The helper's name carried "(issue #613)". Two guard headings in the same item
+carried their history: "**Ignored-additions guard** (issue #430; blocking in a
+worktree since #1258)" and "**Worktree-leak guard** (issue #486; blocking since
+#576)"; each keeps its issue number and loses the "since" clause.
+The fuller original of the whole item is in
+[the flow:auto rationale](reference/flow-auto-rationale.md), Step 6.
+
+From `/flow:finish`, the paragraph before the verdict table. After "Each
+verdict now has its OWN exit code (issue #1027)" it read:
+
+> - `ok`, `warn` and `skipped` used to share exit 0, so a caller reading only
+> `$?` could not tell "passed cleanly" from "passed but proved nothing" from
+> "did not run at all".
 
 ## Workflow commands - detail beyond the skill listing
 

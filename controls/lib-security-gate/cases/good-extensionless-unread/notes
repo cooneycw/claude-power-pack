@@ -1,0 +1,4 @@
+Synthetic: the same planted value, in a file with no extension, no shebang and
+no known name (issue #1737). The gate must NOT read it: only scripts and the
+named build files join the scan.
+AWS_ACCESS_KEY_ID = "AKIAIOSFODNN7EXAMPLE"
