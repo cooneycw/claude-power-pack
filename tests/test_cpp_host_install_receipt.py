@@ -215,7 +215,7 @@ def test_registered_host_control_preserves_fresh_shell_mcp_receipt_integration()
     result = subprocess.run([
         sys.executable, str(ROOT / 'scripts/check-negative-controls.py'), '--root', str(ROOT),
         '--strict', '--control', 'controls/cpp-host-install-receipt',
-    ], capture_output=True, text=True, timeout=30)
+    ], capture_output=True, text=True)  # bounded by the suite's own per-test limit; a private 30s limit reddened pipelines 3689 and 3754 under load (#1718)
     assert result.returncode == 0, result.stdout + result.stderr
     assert 'NEGATIVE_CONTROL_VERDICT: PASS' in result.stdout
     for name in ('good-written', 'good-missing-provider-written', 'good-unknown-provider-written'):
