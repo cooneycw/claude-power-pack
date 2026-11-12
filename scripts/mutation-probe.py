@@ -227,7 +227,7 @@ BLOCKED_BY_MASKED_BY_SIBLING = "masked-by-sibling"
 BLOCKED_BY_ANCHOR_WOULD_ALSO_CATCH = "anchor-would-also-catch"
 
 #: name -> one-line definition, for `--strict`'s error text and for
-#: docs/scripts.md to quote verbatim rather than restate.
+#: docs/scripts/mutation-probe.md to quote verbatim rather than restate.
 BLOCKED_BY_REASONS = {
     BLOCKED_BY_INPUT_CANNOT_BE_COMMITTED: (
         "no case tree can construct an input that exercises only this "
