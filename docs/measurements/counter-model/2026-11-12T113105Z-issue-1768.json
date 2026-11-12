@@ -1,0 +1,75 @@
+{
+  "branch": "issue-1768-preserve-gate-venv",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "escalation": {
+    "raised_cap": 4,
+    "reference": "https://github.com/cooneycw/claude-power-pack/issues/1768#issuecomment-6822272434",
+    "ruled_by": "master:kyle"
+  },
+  "extra_passes_reason": "Pass 2 followed the orchestrator review change in mailbox 23332; pass 3 followed the accepted MEDIUM from pass 2 under cr-orch approval 23342; pass 4 followed both accepted findings from pass 3 under master:kyle escalation 23364.",
+  "head": "8f4f34076308d6a73de9234df156aff946eb1d6d",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/12/rollout-2026-11-12T11-03-27-01a1cf6d-46f2-7b22-b50e-5d1fe22a52e1.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 1919665,
+        "path": "2026/11/12/rollout-2026-11-12T11-03-27-01a1cf6d-46f2-7b22-b50e-5d1fe22a52e1.jsonl",
+        "sha256": "92a002639bff4aaceb9f1c891257be6d810059cc73854a0335246dece6f32201"
+      }
+    ],
+    "thread_id": "01a1cf6d-46f2-7b22-b50e-5d1fe22a52e1"
+  },
+  "issue": "1768",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 4,
+  "recorded_at": "2026-11-12T11:31:05Z",
+  "red_cases": {
+    "already_covered": 12,
+    "proposed": 12
+  },
+  "reviewed_artifact": {
+    "base_sha": "a573238d3c9c186ec2b4be953fcbe7248852b64b",
+    "merge_base": "a573238d3c9c186ec2b4be953fcbe7248852b64b",
+    "method": "captured-patch",
+    "patch_sha256": "2fd5ad724aadf0d152650f4bdc3c5596fd4570b2cd69baeec9ce2d2e226554c1",
+    "report_record": 17,
+    "target_head": "8f4f34076308d6a73de9234df156aff946eb1d6d"
+  },
+  "reviewer": "codex/gpt-6.1-terra",
+  "reviewer_evidence": {
+    "exec_log": "review-stream.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.1-terra"
+    ],
+    "rollout": "2026/11/12/rollout-2026-11-12T11-30-18-01a1cf85-da26-7400-8376-63770fb0699a.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 1762,
+        "path": "review-stream.jsonl",
+        "sha256": "41ad4472e3aa8b9ea3638bda81478ecba2b92bbc49f3e89e6c5b978201518cf5"
+      },
+      {
+        "bytes": 219220,
+        "path": "2026/11/12/rollout-2026-11-12T11-30-18-01a1cf85-da26-7400-8376-63770fb0699a.jsonl",
+        "sha256": "30dda0a09cc4794bf3247da313a0108770f6cb49f9186b67dc026d280631dac6"
+      }
+    ],
+    "thread_id": "01a1cf85-da26-7400-8376-63770fb0699a"
+  },
+  "schema": 5,
+  "scope": "diff-only",
+  "status": "ran"
+}
