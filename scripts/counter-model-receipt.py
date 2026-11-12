@@ -101,9 +101,11 @@ NETWORKS = ("blocked", "open", "unverified")
 # /codex:code_review's CODEX_REVIEW_LOCAL_CREDENTIALS verdict (issue #1459).
 LOCAL_CREDENTIALS = ("present", "absent", "unknown")
 
-#: WHICH WAY ROUND THE TWO MODELS SAT (issue #1383). The default direction -
-#: Claude implements, Codex reviews - is what every receipt before #1383
-#: records, and a receipt with no `direction` field still means exactly that.
+#: WHICH WAY ROUND THE TWO MODELS SAT (issue #1383). In the default direction
+#: the reviewer is Codex. The implementer is whoever the evidence flags
+#: attribute: a Claude session (`--implementer-session-id`) or a Codex thread
+#: (`--implementer-thread-id`, issue #1453). A receipt with no `direction`
+#: field is in the default direction.
 #: `delegated` is the /codex:auto lane: Codex implements, and the supervising
 #: Claude session reviews the diff in that lane's Step 5. Before this, the
 #: writer could only model the first direction, so a delegated run had two
@@ -1146,7 +1148,7 @@ def _derive_codex_from_thread(
     if not matches:
         return None, None, (
             f"no rollout matching thread_id {thread_id!r} under Codex sessions "
-            f"directory {sessions_dir}"
+            f"directory {sessions_dir}{_NO_ROLLOUT_HINT}"
         )
     if len(matches) > 1:
         # Mirrors _derive_implementer_from_session's equivalent refusal
@@ -1442,7 +1444,7 @@ def _derive_implementer_from_session(
         # declarations without an identity - they are eligible records, so
         # their presence is reported, but they never overwrite a real value.
         if value and not value.startswith("<"):
-            model = value
+            model = _bare_model(value)
     if model is None:
         return None, (
             f"matching transcript {transcript} contains no real-shaped model entry "
@@ -1490,6 +1492,15 @@ def _snapshot(path: Path, root: Path | None = None) -> tuple[dict, list[dict], s
         records,
         raw.decode("utf-8"),
     )
+
+
+#: Appended when NO Codex rollout is found for a thread (issue #1710). It names
+#: a thing to check, not a diagnosis: the three causes read the same from here.
+_NO_ROLLOUT_HINT = (
+    "; first check whether the run was launched with `codex exec --ephemeral`, "
+    "which writes no rollout (re-run it without that flag); a wrong thread id "
+    "or a moved sessions directory reads the same way"
+)
 
 
 def _one(paths: list[Path], description: str) -> Path:
@@ -1556,9 +1567,10 @@ def _adapter(args: argparse.Namespace, role: str) -> tuple[list[str], dict, list
             source, records, text = _snapshot(path)
             value = _codex_rollout_identity(records)
         else:
-            path = _one(
-                [p for p in root.rglob("*.jsonl") if p.name.endswith(f"{value}.jsonl")], f"Codex rollout for {value!r}"
-            )
+            rollouts = [p for p in root.rglob("*.jsonl") if p.name.endswith(f"{value}.jsonl")]
+            if not rollouts:
+                raise EvidenceUnknown(f"expected one Codex rollout for {value!r}, found 0{_NO_ROLLOUT_HINT}")
+            path = _one(rollouts, f"Codex rollout for {value!r}")
             source, records, text = _snapshot(path, root)
             _codex_rollout_identity(records, value)
         sources.append(source)
@@ -1597,7 +1609,7 @@ def _adapter(args: argparse.Namespace, role: str) -> tuple[list[str], dict, list
                     f"unresolved assistant turn declared model {model!r}, and an unresolved "
                     "turn is refused rather than dropped)"
                 )
-            models.add(model.strip())
+            models.add(_bare_model(model.strip()))
         if not models or (role == "reviewer" and len(models) != 1):
             raise EvidenceUnknown(
                 "contains no real-shaped model entry or has ambiguous reviewer models "
@@ -1707,9 +1719,23 @@ def _redact_home_account(recorded: str, home: Path | None = None) -> str:
     return "/".join(parts)
 
 
+#: A trailing context-window tag: `claude-opus-5-5[1m]` is `claude-opus-5-5`
+#: with a larger window, not a second model (issue #1710). Exactly one tag of
+#: digits then `k` or `m`, at the very end, directly after the name.
+_CONTEXT_WINDOW_TAG = re.compile(r"(?<=[^\]\s/])\[[0-9]+[km]\]\Z")
+
+
+def _bare_model(name: str) -> str:
+    """A model name without its context-window tag. Nothing else is removed."""
+    return _CONTEXT_WINDOW_TAG.sub("", name)
+
+
 def _model_key(identity: str) -> str:
-    """Harness is not model identity. Do not invent model-name aliases."""
-    return identity.split("/", 2)[-1] if identity.startswith("opencode/") else identity.split("/", 1)[-1]
+    """What two identities are compared by: the model name, without the harness
+    prefix and without a context-window tag. No aliases between different
+    model names: `opus-5` and `claude-opus-5` stay two names (issue #1747)."""
+    name = identity.split("/", 2)[-1] if identity.startswith("opencode/") else identity.split("/", 1)[-1]
+    return _bare_model(name)
 
 
 def _review_inputs(records: list[dict], runtime: str) -> list[tuple[int, str]]:
@@ -2346,7 +2372,7 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
         # a counter-model review at all - it is the author agreeing with
         # themselves, recorded as independent evidence. Worse than no receipt,
         # because it is counted.
-        if reviewer.strip() in implementers:
+        if _bare_model(reviewer.strip()) in {_bare_model(i) for i in implementers}:
             if has_implementer_set:
                 bad.append(
                     f"{source}: reviewer overlaps the implementer set "

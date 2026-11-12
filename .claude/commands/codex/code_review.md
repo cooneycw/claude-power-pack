@@ -559,6 +559,8 @@ CODEX_EXIT=${PIPESTATUS[1]}
 rm -rf "$REVIEW_HOME"
 ```
 
+Never add `--ephemeral`: it writes no rollout, so no receipt can be written (issue #1710).
+
 Deep reviews of large diffs can run for many minutes; for anything non-trivial
 run the command in the background and poll, exactly as documented in
 `/codex:ask` under "Long-running delegations".
@@ -607,8 +609,7 @@ measurement of the review itself (issue #1494).** The probe above runs through
 `codex exec` (Step 3). The two invocation paths are not asserted to apply
 identical network fencing, so this verdict characterizes the PROBE's
 reachability, which stands in for the reviewer's rather than measuring it
-directly - say so when relaying the verdict, the same way `diff-only` is
-relayed as "cannot open files" rather than "a lesser review."
+directly - say so when relaying the verdict.
 An `open` or `unverified` network is never described as read-only or
 network-fenced: say which it was, and check the target repository for anything
 the reviewer posted itself (issue #1450). A caller recording a receipt passes
