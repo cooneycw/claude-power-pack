@@ -88,7 +88,7 @@ legitimately about something other than one script is declared on the marker bel
 - `flow-stale-check` - detects a stale base early in the flow (#473). [reference](scripts/flow-stale-check.md)
 - `flow-start-resolve` - the Step-1 resolver for `/flow:auto` and `/flow:start` (#581). [reference](scripts/flow-start-resolve.md)
 - `flow-vantage` - says which side of the container boundary a session is on (#959). [reference](scripts/flow-vantage.md)
-- `flow-wave-completion` - assignment-bound receipts and deadline recovery for `/flow:wave`. [reference](scripts/flow-wave-lexicon.md)
+- `flow-wave-completion` - assignment-bound terminal receipts and one-extension UTC deadlines for `/flow:wave` (#1658); needs an explicit state root, and missing or unreadable evidence stays UNKNOWN. [reference](agents/flow-wave-completion.md)
 - `flow-wave-lexicon` - reserved vocabulary for wave state transitions (#701). [reference](scripts/flow-wave-lexicon.md)
 - `flow-wave-mailbox` - host-local delivery lane for multi-session flow waves (#676). [reference](scripts/flow-wave-mailbox.md)
 - `flow-wave-plan` - the deterministic wave planner for `/flow:wave` (#637). [reference](scripts/flow-wave-plan.md)
