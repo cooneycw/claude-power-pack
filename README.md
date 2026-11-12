@@ -229,7 +229,8 @@ major version because outputs other repositories read, and things a caller
 could run, changed. See [CHANGELOG.md](CHANGELOG.md) for the numbered Breaking
 list and the Upgrading section per consumer.
 
-- **Upgrade step:** run `/cpp:update`, then `codex-skill-sync.py --install`.
+- **Upgrade step:** run `/cpp:update`, then `make codex-install` from the CPP
+  checkout (it runs `scripts/codex-skill-sync.py --install`).
   Generated Codex skills are no longer tracked; the install builds and checks
   them. Re-run `/cpp:init` if you use the Trusted or YOLO profile.
 - **Lanes:** `.claude/lanes.md` lists a project's lanes; in a project that has

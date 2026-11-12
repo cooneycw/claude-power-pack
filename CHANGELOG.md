@@ -17,7 +17,8 @@ Each of these changes something a caller reads or runs.
 1. **Generated Codex skills are no longer in the repository** (#1679, ADR
    0013). `codex/skills/` holds only its README; the rest is build output.
    Anything that read the tracked tree must build it (`make codex-skills`) or
-   install it (`codex-skill-sync.py --install`, which is now the fidelity
+   install it (`make codex-install`, which runs
+   `scripts/codex-skill-sync.py --install` and is now the fidelity
    gate). `codex-skill-sync.py --check` on a tree with nothing generated exits
    3, `NOT GENERATED`.
 2. **`python -m lib.cicd resume <run_id>` is removed** (#1773), with
@@ -68,7 +69,9 @@ Each of these changes something a caller reads or runs.
 
 ### Upgrading
 
-**Every host, once.** Run `/cpp:update`, then `codex-skill-sync.py --install`.
+**Every host, once.** Run `/cpp:update`, then `make codex-install` from the CPP
+checkout (it runs `scripts/codex-skill-sync.py --install`; the helper is not on
+PATH).
 The first links the two new helpers (`lane-file.py`, `monthly-review.py`) and
 brings the `/flow:deploy` correction; the second rebuilds the Codex skills,
 which no longer come from the checkout. If you use the Trusted or YOLO
