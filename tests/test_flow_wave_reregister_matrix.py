@@ -7,11 +7,19 @@ a live wave.
 
 `/flow:wave` and `/flow:register` said flatly that `--files` is PRESERVED by a
 re-register. It is, with one deliberate exception (issue #1222, extended to
-repositories by #1266): a re-register naming a DIFFERENT `--issue`, or a
-different `--repo`, is a move to other work, and the preserved lane facts -
-the file lane and the merge observation (PR, base, diff, overtaken) - reset
-unless that same call supplies them. The registry reports the reset as
-`FLOW_WAVE_FILES_DROPPED` and on stderr. Omitting `--issue` is not a move.
+repositories by #1266): a re-register whose `--issue` differs from the recorded
+one, or whose `--repo` does, is a move to other work, and the preserved lane
+facts - the file lane and the merge observation (PR, base, diff, overtaken) -
+reset unless that same call supplies them. The registry reports the dropped
+lane as `FLOW_WAVE_FILES_DROPPED` and on stderr.
+
+THE MOVE NEEDS TWO NON-EMPTY VALUES. The recorded value and the supplied one
+must both be non-empty and differ. So omitting `--issue` is not a move, and
+neither is naming an issue when none is recorded: a role re-briefed without
+`--issue` and then given a different issue keeps its lane, its PR and its
+overtake count. The same holds for `--repo`. The table pins both transitions,
+from empty and to empty, because the flat sentence "a different issue resets
+the lane" is wrong for exactly those.
 
 The rules the table below pins:
 
@@ -24,11 +32,19 @@ The rules the table below pins:
 - The merge observation is preserved when omitted, replaced by a complete
   `--pr/--base/--diff`, withdrawn by `--clear-pr`, and reset by a move unless
   the same call supplies one.
+- The overtake count is preserved by a re-brief, goes up by one when the same
+  PR is seen on a new base with an unchanged diff, and returns to zero on a
+  move, on `--clear-pr` and when a different PR is observed.
 
-Each case starts from the same fully-declared role and is run from three
-working directories - the fixture's main checkout, a linked worktree of it,
-and a plain directory outside any repository - because `register` takes its
-lane from its flags and must answer the same wherever it is run.
+EVERY CASE STARTS FROM A NONZERO OVERTAKE COUNT. A role that was never
+overtaken reads `overtaken=0` whether a re-registration reset the count or
+wrongly preserved it, so the count is driven to 1 first (the same PR, a new
+base, the same diff) and asserted nonzero before the call under test.
+
+Each case is run from three working directories - the fixture's main checkout,
+a linked worktree of it, and a plain directory outside any repository -
+because `register` takes its lane from its flags and must answer the same
+wherever it is run.
 
 `get` is the read-back for the fields it prints. It does not print the merge
 observation, so those five fields are read from the stored entry.
@@ -40,6 +56,7 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 
@@ -58,31 +75,50 @@ requires_tools = pytest.mark.skipif(
 WAVE = "reregister-matrix"
 ROLE = "w1"
 
-#: The role every case starts from. `{repo}` and `{wt}` are filled in from the
-#: fixture, so no test interpolates a path it does not own.
-BASE_ARGS = (
-    "--repo", "{repo}", "--cwd", "{wt}", "--issue", "1710",
-    "--branch", "issue-1710-x", "--driver", "flow:auto", "--model", "opus",
-    "--permission-mode", "bypassPermissions", "--capacity", "2",
-    "--files", "a.py,b.py", "--pr", "55", "--base", "base-1", "--diff", "diff-1",
-)
+#: Where a case's role starts, unless the case says otherwise. `{repo}`, `{wt}`
+#: and the other places are filled in from the fixture, so no test interpolates
+#: a path it does not own.
+START_ISSUE = "1710"
+START_REPO = "{repo}"
 
-#: What the base registration reads back as. A case's expectation is this
-#: table with only the fields that case is expected to change.
+
+def _lane(issue: str = START_ISSUE, repo: str = START_REPO) -> tuple[str, ...]:
+    """The lane description a registration repeats; an empty value is OMITTED."""
+    flags: tuple[str, ...] = ("--cwd", "{wt}", "--branch", "issue-1710-x")
+    if repo:
+        flags = ("--repo", repo, *flags)
+    if issue:
+        flags = (*flags, "--issue", issue)
+    return flags
+
+
+def _first(issue: str, repo: str) -> tuple[str, ...]:
+    """The fully-declared first registration."""
+    return (
+        *_lane(issue, repo), "--driver", "flow:auto", "--model", "opus",
+        "--permission-mode", "bypassPermissions", "--capacity", "2",
+        "--files", "a.py,b.py", "--pr", "55", "--base", "base-1", "--diff", "diff-1",
+    )
+
+
+def _overtake(issue: str, repo: str) -> tuple[str, ...]:
+    """The same PR seen again on a new base with the same diff: one overtake."""
+    return (*_lane(issue, repo), "--pr", "55", "--base", "base-2", "--diff", "diff-1")
+
+
+#: What the role reads back as once it has been registered and overtaken once.
+#: A case's expectation is this table with only the fields that case changes.
 BASE_STATE = {
     "CWD": "{wt}", "REPO": "{repo}", "ISSUE": "1710", "BRANCH": "issue-1710-x",
     "MODEL": "opus", "PERMISSION_MODE": "bypassPermissions", "CAPACITY": "2",
     "DRIVER": "flow:auto", "FILES": "a.py,b.py",
-    "pr": "55", "base": "base-1", "diff": "diff-1", "obs_repo": "{repo}",
-    "overtaken": 0,
-    # register's own lines for the RE-registration, and its stderr notice
+    "pr": "55", "base": "base-2", "diff": "diff-1", "obs_repo": "{repo}",
+    "overtaken": 1,
+    # register's own lines for the registration under test, and its stderr notice
     "FILES_DROPPED": "-", "FILES_ADDED": "-", "dropped_notice": False,
 }
 
-#: The lane description a routine re-brief repeats.
-SAME_LANE = (
-    "--repo", "{repo}", "--cwd", "{wt}", "--issue", "1710", "--branch", "issue-1710-x",
-)
+SAME_LANE = _lane()
 
 #: A move to other work: the lane and the merge observation reset.
 MOVED = {
@@ -90,76 +126,129 @@ MOVED = {
     "pr": "", "base": "", "diff": "", "obs_repo": "", "overtaken": 0,
 }
 
-#: name -> (the re-register's flags, the fields it changes)
-CASES: dict[str, tuple[tuple[str, ...], dict[str, object]]] = {
+
+class Case(NamedTuple):
+    """One re-registration: its flags and the fields it changes from BASE_STATE.
+
+    `setup` is re-registrations run AFTER the overtake and before the call
+    under test (a re-brief that clears the issue, say). `start_issue` and
+    `start_repo` are what the role is first registered with; an empty one is
+    omitted from the first registration and from the overtake.
+    """
+
+    flags: tuple[str, ...]
+    changes: dict[str, object]
+    setup: tuple[tuple[str, ...], ...] = ()
+    start_issue: str = START_ISSUE
+    start_repo: str = START_REPO
+
+
+CASES: dict[str, Case] = {
     # --- the lane is KEPT -------------------------------------------------
-    "same issue, no --files": (SAME_LANE, {}),
-    "nothing but the role": (
-        (),
-        {"CWD": "-", "REPO": "-", "ISSUE": "-", "BRANCH": "-"},
+    "same issue, no --files": Case(SAME_LANE, {}),
+    "nothing but the role": Case(
+        (), {"CWD": "-", "REPO": "-", "ISSUE": "-", "BRANCH": "-"}
     ),
-    "--repo alone, no --issue": (
-        ("--repo", "{repo}"),
-        {"CWD": "-", "ISSUE": "-", "BRANCH": "-"},
+    "--repo alone, no --issue": Case(
+        ("--repo", "{repo}"), {"CWD": "-", "ISSUE": "-", "BRANCH": "-"}
     ),
-    "a different --branch": (
+    "the lane without --repo": Case(_lane(repo=""), {"REPO": "-"}),
+    "a different --branch": Case(
         ("--repo", "{repo}", "--cwd", "{wt}", "--issue", "1710", "--branch", "other-branch"),
         {"BRANCH": "other-branch"},
     ),
-    "a different --cwd": (
+    "a different --cwd": Case(
         ("--repo", "{repo}", "--cwd", "{plain}", "--issue", "1710", "--branch", "issue-1710-x"),
         {"CWD": "{plain}"},
     ),
     # --- a different --issue is a MOVE (#1222) -----------------------------
-    "a different --issue": (
+    "a different --issue": Case(
         ("--repo", "{repo}", "--issue", "1711"),
         {**MOVED, "CWD": "-", "ISSUE": "1711", "BRANCH": "-"},
     ),
-    "a different --issue with --cwd and --branch": (
-        ("--repo", "{repo}", "--cwd", "{wt}", "--issue", "1711", "--branch", "issue-1711-y"),
-        {**MOVED, "ISSUE": "1711", "BRANCH": "issue-1711-y"},
+    "a different --issue with --cwd and --branch": Case(
+        _lane(issue="1711"), {**MOVED, "ISSUE": "1711"}
     ),
-    "a different --issue with a new observation": (
+    "a different --issue with a new observation": Case(
         ("--repo", "{repo}", "--issue", "1711", "--pr", "77", "--base", "base-9", "--diff", "diff-9"),
         {**MOVED, "CWD": "-", "ISSUE": "1711", "BRANCH": "-",
          "pr": "77", "base": "base-9", "diff": "diff-9", "obs_repo": "{repo}"},
     ),
-    "a different --issue WITH --files": (
+    "a different --issue repeating the same PR on a new base": Case(
+        # The move wins over the overtake rule: the count restarts at zero.
+        ("--repo", "{repo}", "--issue", "1711", "--pr", "55", "--base", "base-3", "--diff", "diff-1"),
+        {**MOVED, "CWD": "-", "ISSUE": "1711", "BRANCH": "-",
+         "pr": "55", "base": "base-3", "diff": "diff-1", "obs_repo": "{repo}"},
+    ),
+    "a different --issue WITH --files": Case(
         ("--repo", "{repo}", "--issue", "1711", "--files", "c.py"),
         {**MOVED, "CWD": "-", "ISSUE": "1711", "BRANCH": "-",
          "FILES": "c.py", "FILES_ADDED": "c.py"},
     ),
     # --- a different --repo is a MOVE too (#1266) --------------------------
-    "a different --repo, same issue": (
-        ("--repo", "{other}", "--cwd", "{wt}", "--issue", "1710", "--branch", "issue-1710-x"),
-        {**MOVED, "REPO": "{other}"},
+    "a different --repo, same issue": Case(
+        _lane(repo="{other}"), {**MOVED, "REPO": "{other}"}
     ),
-    "a different --repo WITH --files": (
+    "a different --repo WITH --files": Case(
         ("--repo", "{other}", "--issue", "1710", "--files", "a.py,b.py"),
         {**MOVED, "REPO": "{other}", "CWD": "-", "BRANCH": "-",
          "FILES": "a.py,b.py", "FILES_DROPPED": "-", "dropped_notice": False},
     ),
+    # --- FROM EMPTY: naming an issue or repo where none is recorded is NOT a
+    # --- move, so the lane, the PR and the overtake count all survive ------
+    "no --issue at first, then an issue": Case(SAME_LANE, {}, start_issue=""),
+    "an --issue after a re-brief cleared it": Case(
+        _lane(issue="1711"), {"ISSUE": "1711"}, setup=(_lane(issue=""),)
+    ),
+    "no --repo at first, then a repo": Case(
+        # The observation was recorded with no repo and stays that way.
+        SAME_LANE, {"obs_repo": ""}, start_repo=""
+    ),
+    "a --repo after a re-brief cleared it": Case(
+        _lane(repo="{other}"), {"REPO": "{other}"}, setup=(_lane(repo=""),)
+    ),
+    "issue and repo both cleared, then both different": Case(
+        ("--repo", "{other}", "--issue", "1711"),
+        {"CWD": "-", "BRANCH": "-", "ISSUE": "1711", "REPO": "{other}"},
+        setup=((),),
+    ),
+    "an --issue cleared, then a different issue in a different repo": Case(
+        # The issue side is from-empty, but the REPO side is two non-empty
+        # values that differ - which is a move on its own.
+        _lane(issue="1711", repo="{other}"),
+        {**MOVED, "ISSUE": "1711", "REPO": "{other}"},
+        setup=(_lane(issue=""),),
+    ),
     # --- explicit changes to one preserved fact ----------------------------
-    "--files with an empty value": (
+    "--files with an empty value": Case(
         (*SAME_LANE, "--files", ""),
         {"FILES": "-", "FILES_DROPPED": "a.py,b.py", "dropped_notice": True},
     ),
-    "a different --model": ((*SAME_LANE, "--model", "sonnet"), {"MODEL": "sonnet"}),
-    "--model with an empty value": ((*SAME_LANE, "--model", ""), {"MODEL": "-"}),
-    "a different --permission-mode": (
-        (*SAME_LANE, "--permission-mode", "default"),
-        {"PERMISSION_MODE": "default"},
+    "a different --model": Case((*SAME_LANE, "--model", "sonnet"), {"MODEL": "sonnet"}),
+    "--model with an empty value": Case((*SAME_LANE, "--model", ""), {"MODEL": "-"}),
+    "a different --permission-mode": Case(
+        (*SAME_LANE, "--permission-mode", "default"), {"PERMISSION_MODE": "default"}
     ),
-    "a different --capacity": ((*SAME_LANE, "--capacity", "5"), {"CAPACITY": "5"}),
-    "a different --driver": ((*SAME_LANE, "--driver", "codex:auto"), {"DRIVER": "codex:auto"}),
-    # --- the merge observation ---------------------------------------------
-    "--clear-pr": (
+    "a different --capacity": Case((*SAME_LANE, "--capacity", "5"), {"CAPACITY": "5"}),
+    "a different --driver": Case(
+        (*SAME_LANE, "--driver", "codex:auto"), {"DRIVER": "codex:auto"}
+    ),
+    # --- the merge observation and its overtake count -----------------------
+    "--clear-pr": Case(
         (*SAME_LANE, "--clear-pr"),
         {"pr": "", "base": "", "diff": "", "obs_repo": "", "overtaken": 0},
     ),
-    "the same PR on a new base with the same diff": (
-        (*SAME_LANE, "--pr", "55", "--base", "base-2", "--diff", "diff-1"),
-        {"base": "base-2", "overtaken": 1},
+    "the same PR on a new base with the same diff": Case(
+        (*SAME_LANE, "--pr", "55", "--base", "base-3", "--diff", "diff-1"),
+        {"base": "base-3", "overtaken": 2},
+    ),
+    "the same PR on the same base with a new diff": Case(
+        (*SAME_LANE, "--pr", "55", "--base", "base-2", "--diff", "diff-2"),
+        {"diff": "diff-2"},
+    ),
+    "a different PR, same issue": Case(
+        (*SAME_LANE, "--pr", "56", "--base", "base-2", "--diff", "diff-1"),
+        {"pr": "56", "overtaken": 0},
     ),
 }
 
@@ -171,8 +260,15 @@ STORED_FIELDS = ("pr", "base", "diff", "obs_repo", "overtaken")
 
 
 def _git(where: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """Run git for the FIXTURE, with the host's hooks switched off.
+
+    A developer's `core.hooksPath`, or hooks copied in from a template
+    directory, would otherwise run inside this throwaway repository on commit
+    and on `worktree add` - the host deciding what a fixture does.
+    """
     return subprocess.run(
-        ["git", "-C", str(where), *args], capture_output=True, text=True, check=False
+        ["git", "-c", "core.hooksPath=/dev/null", "-C", str(where), *args],
+        capture_output=True, text=True, check=False,
     )
 
 
@@ -182,10 +278,14 @@ def places(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
     plain directory outside any repository - each shape asserted, not assumed."""
     top = tmp_path_factory.mktemp("reregister").resolve()
     repo, wt, other, plain = top / "repo", top / "wt", top / "other", top / "plain"
-    for d in (repo, other, plain):
+    template = top / "empty-template"
+    for d in (repo, other, plain, template):
         d.mkdir()
     for d in (repo, other):
-        assert _git(d, "init", "-q", "-b", "main").returncode == 0
+        made = _git(d, "init", "-q", "-b", "main", f"--template={template}")
+        assert made.returncode == 0, made.stderr
+        # An empty template leaves no hooks directory behind at all.
+        assert not (d / ".git" / "hooks").exists(), sorted((d / ".git" / "hooks").iterdir())
     (repo / "a.py").write_text("x = 1\n", encoding="utf-8")
     assert _git(repo, "add", "a.py").returncode == 0
     committed = _git(
@@ -210,13 +310,21 @@ def _fill(value: object, places: dict[str, Path]) -> object:
     return value.format(**places) if isinstance(value, str) else value
 
 
+def _args(flags: tuple[str, ...], places: dict[str, Path]) -> list[str]:
+    return [str(_fill(a, places)) for a in flags]
+
+
+def _stored(tmp: Path) -> dict[str, object]:
+    registry = json.loads((tmp / "reg" / "registry.json").read_text(encoding="utf-8"))
+    return registry[WAVE]["roles"][ROLE]
+
+
 def _state(tmp: Path, registered: subprocess.CompletedProcess[str]) -> dict[str, object]:
     """Every tracked field after a registration: `get`'s lines, the stored
     merge observation, and what `register` itself said about the lane."""
     got = _run(tmp, "get", ROLE, "--wave", WAVE)
     assert got.returncode == 0, got.stderr
-    stored = json.loads((tmp / "reg" / "registry.json").read_text(encoding="utf-8"))
-    entry = stored[WAVE]["roles"][ROLE]
+    entry = _stored(tmp)
     state: dict[str, object] = {f: _detail(got, f"FLOW_WAVE_{f}") for f in GET_FIELDS}
     state.update({f: entry[f] for f in STORED_FIELDS})
     # `get` and `register` must agree about the lane as now recorded.
@@ -229,44 +337,76 @@ def _state(tmp: Path, registered: subprocess.CompletedProcess[str]) -> dict[str,
 
 @requires_tools
 @pytest.mark.parametrize("run_from", ["repo", "wt", "plain"])
-@pytest.mark.parametrize("case", sorted(CASES))
+@pytest.mark.parametrize("name", sorted(CASES))
 def test_a_reregistration_changes_only_what_the_table_says(
-    tmp_path: Path, places: dict[str, Path], run_from: str, case: str
+    tmp_path: Path, places: dict[str, Path], run_from: str, name: str
 ) -> None:
+    case = CASES[name]
     cwd = places[run_from]
-    base_args = [str(_fill(a, places)) for a in BASE_ARGS]
 
-    first = _run(tmp_path, "register", ROLE, "--wave", WAVE, *base_args, cwd=cwd)
-    assert _verdict(first) == "registered", first.stderr
-    # PRECONDITION: the role really holds everything a case may be said to
-    # drop, so a "dropped" below is a drop and not a field that never arrived.
-    before = _state(tmp_path, first)
-    expected_base = {k: _fill(v, places) for k, v in BASE_STATE.items()}
-    assert before == {**expected_base, "FILES_ADDED": "a.py,b.py"}, before
+    def register(flags: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+        done = _run(tmp_path, "register", ROLE, "--wave", WAVE, *_args(flags, places), cwd=cwd)
+        assert done.returncode == 0, done.stderr
+        return done
 
-    flags, changes = CASES[case]
-    again = _run(
-        tmp_path, "register", ROLE, "--wave", WAVE,
-        *[str(_fill(a, places)) for a in flags], cwd=cwd,
-    )
-    assert again.returncode == 0, again.stderr
+    first = register(_first(case.start_issue, case.start_repo))
+    assert _verdict(first) == "registered", first.stdout
+    register(_overtake(case.start_issue, case.start_repo))
+    for step in case.setup:
+        register(step)
+
+    # PRECONDITION, read from the stored entry just before the call under
+    # test: the role really holds a lane, a PR and a NONZERO overtake count.
+    # Without this a "dropped" below could be a field that never arrived, and
+    # an `overtaken` of 0 could not tell a reset from a count never raised.
+    before = _stored(tmp_path)
+    assert before["files"] == "a.py,b.py", before
+    assert (before["pr"], before["base"], before["diff"]) == ("55", "base-2", "diff-1"), before
+    assert before["overtaken"] == 1, before
+    # ...and it is in the issue/repo state this case is ABOUT: a from-empty
+    # case must really start from an empty value.
+    cleared_issue = any("--issue" not in step for step in case.setup)
+    cleared_repo = any("--repo" not in step for step in case.setup)
+    expect_issue = "" if cleared_issue else case.start_issue
+    expect_repo = "" if cleared_repo else _fill(case.start_repo, places)
+    assert before["issue"] == expect_issue, before
+    assert before["repo"] == expect_repo, before
+
+    again = register(case.flags)
     assert _verdict(again) == "updated", again.stdout
 
-    expected = {**expected_base, **{k: _fill(v, places) for k, v in changes.items()}}
+    expected = {k: _fill(v, places) for k, v in {**BASE_STATE, **case.changes}.items()}
     after = _state(tmp_path, again)
     differing = {k: (after[k], expected[k]) for k in expected if after[k] != expected[k]}
-    assert not differing, f"{case!r} from {run_from}: (actual, expected) {differing}"
+    assert not differing, f"{name!r} from {run_from}: (actual, expected) {differing}"
 
 
 @requires_tools
-def test_the_table_covers_both_directions_of_the_lane_rule() -> None:
-    """The matrix must hold cases that KEEP the lane and cases that DROP it.
+def test_the_table_is_two_sided_for_the_lane_and_for_the_count() -> None:
+    """The matrix must hold cases on BOTH sides of each rule it pins.
 
     A table of nothing but preserved lanes would pass against a registry that
-    could never reset one, and the reverse; this keeps the two populations from
-    quietly becoming one.
+    could never reset one, and the reverse; the same goes for the overtake
+    count, and for the from-empty transitions against the real moves. This
+    keeps each pair of populations from quietly becoming one.
     """
-    kept = [n for n, (_, ch) in CASES.items() if "FILES" not in ch]
-    dropped = [n for n, (_, ch) in CASES.items() if ch.get("FILES_DROPPED") == "a.py,b.py"]
+    def overtaken(case: Case) -> object:
+        return case.changes.get("overtaken", BASE_STATE["overtaken"])
+
+    kept = [n for n, c in CASES.items() if "FILES" not in c.changes]
+    dropped = [n for n, c in CASES.items() if c.changes.get("FILES_DROPPED") == "a.py,b.py"]
     assert len(kept) >= 5, kept
     assert len(dropped) >= 5, dropped
+
+    count_kept = [n for n, c in CASES.items() if overtaken(c) == 1]
+    count_reset = [n for n, c in CASES.items() if overtaken(c) == 0]
+    count_raised = [n for n, c in CASES.items() if overtaken(c) == 2]
+    assert len(count_kept) >= 5, count_kept
+    assert len(count_reset) >= 5, count_reset
+    assert count_raised, "no case raises the overtake count"
+
+    from_empty = [n for n, c in CASES.items() if c.setup or not c.start_issue or not c.start_repo]
+    from_empty_kept = [n for n in from_empty if overtaken(CASES[n]) == 1]
+    from_empty_moved = [n for n in from_empty if overtaken(CASES[n]) == 0]
+    assert len(from_empty_kept) >= 4, from_empty_kept
+    assert from_empty_moved, "no from-empty case is paired with a real move"
