@@ -21,6 +21,7 @@ line says so; it never reads as checked.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shlex
 import subprocess
@@ -64,6 +65,10 @@ class Report:
     #: means NOT CHECKED (no git, or the root is not a checkout root), never
     #: "all tracked".
     tracked_checked: bool = False
+    #: Promised paths inside a SUBMODULE. The index of this checkout records
+    #: only the submodule's commit, so whether such a path is tracked there is
+    #: not checked here: reported, never counted as tracked or as untracked.
+    in_submodule: int = 0
 
     @property
     def supplied(self) -> set[str]:
@@ -78,15 +83,24 @@ def clean(token: str) -> str:
 
 
 def _relative(candidate: Path, root: Path) -> str:
-    return candidate.resolve().relative_to(root.resolve()).as_posix()
+    """The candidate's NAME below the root, as the index would spell it.
+
+    Lexical on purpose: resolving first would judge an untracked symlink by the
+    tracked file it points at, and would raise on one that points outside the
+    checkout. Where a path leads is the escape check's question, not this one.
+    """
+    return Path(os.path.normpath(candidate.relative_to(root))).as_posix()
 
 
-def tracked_paths(root: Path) -> frozenset[str] | None:
-    """Every tracked path and every directory holding one, or None when unknown.
+def tracked_paths(root: Path) -> tuple[frozenset[str], frozenset[str]] | None:
+    """``(tracked, submodules)`` for the checkout at ``root``, or None when unknown.
 
-    None covers: git is not installed, the call fails, or ``root`` is not the
-    ROOT of a checkout. The last matters: a scratch directory nested inside
-    some other repository would otherwise read as a tree of untracked files.
+    ``tracked`` holds every tracked path and every directory holding one;
+    ``submodules`` holds the paths of gitlinks, whose contents this index does
+    not list. None covers: git is not installed, the call fails, or ``root`` is
+    not the ROOT of a checkout. The last matters: a scratch directory nested
+    inside some other repository would otherwise read as a tree of untracked
+    files.
     """
     try:
         top = subprocess.run(
@@ -96,25 +110,43 @@ def tracked_paths(root: Path) -> frozenset[str] | None:
         if top.returncode != 0 or Path(top.stdout.strip()).resolve() != root.resolve():
             return None
         listed = subprocess.run(
-            ["git", "-C", str(root), "ls-files", "-z"], capture_output=True, text=True, timeout=60, check=False
+            ["git", "-C", str(root), "ls-files", "-s", "-z"], capture_output=True, text=True, timeout=60, check=False
         )
     except (OSError, subprocess.SubprocessError):
         return None
     if listed.returncode != 0:
         return None
     known: set[str] = set()
-    for name in listed.stdout.split("\0"):
-        if not name:
+    gitlinks: set[str] = set()
+    for entry in listed.stdout.split("\0"):
+        if not entry:
             continue
+        meta, _, name = entry.partition("\t")
+        if meta.startswith("160000 "):
+            gitlinks.add(name)
         known.add(name)
         known.update(parent.as_posix() for parent in Path(name).parents if parent.as_posix() != ".")
-    return frozenset(known)
+    return frozenset(known), frozenset(gitlinks)
+
+
+def _under_submodule(name: str, submodules: frozenset[str]) -> bool:
+    return any(name.startswith(module + "/") for module in submodules)
 
 
 def scan(text: str, root: Path, minimum: int) -> Report:
     report = Report([], [])
-    tracked = tracked_paths(root)
-    report.tracked_checked = tracked is not None
+    index = tracked_paths(root)
+    report.tracked_checked = index is not None
+    tracked, submodules = index if index is not None else (None, frozenset())
+
+    def ships(candidate: Path) -> bool:
+        """Tracked here; a path inside a submodule is counted apart and not judged."""
+        assert tracked is not None
+        name = _relative(candidate, root)
+        if _under_submodule(name, submodules):
+            report.in_submodule += 1
+            return True
+        return name in tracked
     generated: dict[str, str] = {}
     disclosure = False
     scripts = False
@@ -148,7 +180,7 @@ def scan(text: str, root: Path, minimum: int) -> Report:
             # A glob promises what SHIPS under it. Local debris it also happens
             # to match (`scripts/__pycache__`) is not a promise, so the glob is
             # judged on its tracked matches - and one with none is a finding.
-            shipped = [c for c in candidates if _relative(c, root) in tracked]
+            shipped = [c for c in candidates if ships(c)]
             if not shipped:
                 report.findings.append(
                     f"untracked promised path at {DOCUMENT}:{line}: {target} -> {relative} "
@@ -160,7 +192,7 @@ def scan(text: str, root: Path, minimum: int) -> Report:
                 report.findings.append(f"escaping promised path at {DOCUMENT}:{line}: {target}")
             elif not candidate.exists():
                 report.findings.append(f"missing promised path at {DOCUMENT}:{line}: {target} -> {relative}")
-            elif tracked is not None and _relative(candidate, root) not in tracked:
+            elif tracked is not None and not is_glob and not ships(candidate):
                 report.findings.append(
                     f"untracked promised path at {DOCUMENT}:{line}: {target} -> {relative} "
                     "(present in this checkout but not tracked, so it does not ship)"
@@ -362,8 +394,11 @@ def main(argv: list[str] | None = None) -> int:
             f"{len(report.supplied)} CPP-supplied paths examined"
         )
         return 1
+    tracked_words = "each is tracked"
+    if report.in_submodule:
+        tracked_words += f" ({report.in_submodule} inside a submodule: NOT checked against that submodule's index)"
     shipped = (
-        "each is tracked"
+        tracked_words
         if report.tracked_checked
         else "tracked check NOT RUN (the root is not a git checkout root), so whether they ship is unverified"
     )

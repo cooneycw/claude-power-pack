@@ -196,6 +196,56 @@ def test_a_glob_is_judged_on_its_tracked_matches(tmp_path):
     assert len(findings) == 1 and "nothing it matches is tracked" in findings[0]
 
 
+@requires_git
+def test_an_untracked_symlink_to_a_tracked_file_is_still_untracked(tmp_path):
+    """Judged by its own name, not by what it points at (counter-model review)."""
+    _helper_tree(tmp_path)
+    (tmp_path / "scripts" / "local-alias.sh").symlink_to("helper.sh")
+    _checkout(tmp_path, "scripts/helper.sh")
+    assert (tmp_path / "scripts" / "local-alias.sh").resolve() == (tmp_path / "scripts" / "helper.sh").resolve()
+    findings = checker.scan('cp "$CPP_DIR/scripts/local-alias.sh" /consumer/destination', tmp_path, 1).findings
+    assert len(findings) == 1 and findings[0].startswith("untracked promised path")
+
+
+@requires_git
+def test_an_untracked_symlink_out_of_the_checkout_does_not_break_a_glob(tmp_path):
+    """Local debris beside shipped files: ignored, whatever it points at (counter-model review)."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    root = tmp_path / "root"
+    root.mkdir()
+    _helper_tree(root)
+    (root / "scripts" / "local-external").symlink_to(outside)
+    _checkout(root, "scripts/helper.sh")
+    assert not (root / "scripts" / "local-external").resolve().is_relative_to(root.resolve())  # precondition
+    assert not checker.scan('Copies: "$CPP_DIR"/scripts/*', root, 1).findings
+
+
+@requires_git
+def test_a_path_inside_a_submodule_is_reported_as_not_checked_never_as_untracked(tmp_path, capsys):
+    """This index records a submodule's commit, not its files (counter-model review)."""
+    root = tmp_path / "root"
+    module = root / "scripts" / "module"
+    module.mkdir(parents=True)
+    (module / "helper.sh").write_text("#!/bin/sh\n")
+    identity = ["-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+    subprocess.run(["git", "init", "-q", str(module)], check=True)
+    subprocess.run(["git", "-C", str(module), "add", "helper.sh"], check=True)
+    subprocess.run(["git", "-C", str(module), *identity, "commit", "-q", "-m", "x"], check=True)
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    subprocess.run(["git", "-C", str(root), "add", "scripts/module"], check=True, capture_output=True)
+    staged = subprocess.run(["git", "-C", str(root), "ls-files", "-s"], capture_output=True, text=True, check=True)
+    assert staged.stdout.startswith("160000 "), "precondition: scripts/module is recorded as a gitlink"
+    text = 'cp "$CPP_DIR/scripts/module/helper.sh" /consumer/destination'
+    report = checker.scan(text, root, 1)
+    assert not report.findings and report.in_submodule == 1
+    document = root / checker.DOCUMENT
+    document.parent.mkdir(parents=True)
+    document.write_text(text)
+    assert checker.main(["--root", str(root), "--min-promises", "1"]) == 0
+    assert "1 inside a submodule: NOT checked" in capsys.readouterr().out
+
+
 def test_outside_a_git_checkout_the_tracked_check_does_not_run_and_says_so(tmp_path, capsys):
     """Not "each is tracked", and not silence: the summary names the check it did not run."""
     cases.populate(tmp_path, "good-fixed")
