@@ -196,7 +196,10 @@ its Makefile fallback", and the fallback targets were listed in parentheses:
 
 The bare-invocation instruction carried its origin, "Invoke it BARE (#581
 discipline):"; the discipline is stated once near the top of the document.
-Exit 126 in the no-verdict list was glossed "(an unset `CPP_SKILL_DIR`)".
+The helper's name carried "(issue #613)". Two guard headings in the same item
+carried their history: "**Ignored-additions guard** (issue #430; blocking in a
+worktree since #1258)" and "**Worktree-leak guard** (issue #486; blocking since
+#576)"; each keeps its issue number and loses the "since" clause.
 The fuller original of the whole item is in
 [the flow:auto rationale](reference/flow-auto-rationale.md), Step 6.
 
