@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -492,3 +493,25 @@ def test_expansion_handles_pathspec_metacharacters_in_a_directory_name(
     assert result.returncode == 3, result.stderr
     assert "config[1]/manifest.json" in result.stderr
     assert "weird*dir/manifest.json" in result.stderr
+
+
+def test_the_generated_codex_bundles_carry_the_hint(tmp_path: Path) -> None:
+    """The Harness lane for #1706: a Codex run executes its skill's bundled copy.
+
+    The mirrors are build output, so they are generated here instead of read
+    from a tree that may not have been built.
+    """
+    out = tmp_path / "codex-skills"
+    repo = Path(__file__).resolve().parent.parent
+    built = subprocess.run(
+        [sys.executable, str(repo / "scripts" / "codex-skill-sync.py"), "--write", "--output-root", str(out)],
+        capture_output=True, text=True, cwd=repo, check=False,
+    )
+    assert built.returncode == 0, built.stdout + built.stderr
+    bundles = sorted(out.glob("*/scripts/check-ignored-additions.sh"))
+    assert bundles, "no generated skill bundles the guard - the glob has stopped matching"
+    source = (repo / "scripts" / "check-ignored-additions.sh").read_text(encoding="utf-8")
+    for bundled in bundles:
+        text = bundled.read_text(encoding="utf-8")
+        assert text == source, f"{bundled.parent.parent.name} bundles a different guard"
+        assert "declare the directory in $GATE_SCRATCH_FILE (one path prefix per line)." in text
