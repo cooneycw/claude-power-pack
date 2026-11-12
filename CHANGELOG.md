@@ -114,7 +114,7 @@ profile, re-run `/cpp:init` (Breaking 12).
 **skillc:**
 
 - generated Codex skills, Breaking 1: skillc #704
-- the same seven as kyle: skillc #705 (gate exit line), #706 (claims), #707
+- the same eight as kyle: skillc #705 (gate exit line), #706 (claims), #707
   (receipts), #708 (secret scan), #709 (oversized patch), #711
   (`/flow:deploy`), #712 (`resume`), and #713 (fallback security scan)
 - `python -m lib.cicd check` now reports `.PHONY` coverage from continued
