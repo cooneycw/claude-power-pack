@@ -77,8 +77,10 @@ change. In `/flow:auto` the table goes in the plan record under a
 
 In `/flow:auto` the plan record gains a `### Lanes demonstrated` table at Step
 6, one row per lane answered `will test`, saying what happened. It is the one
-block of a run's section that may be added after approval without the
-stability check reading the plan as changed.
+part of a run's section that may be added after approval without the
+stability check reading the plan as changed. The allowance is the heading and
+the table under it, nothing more: a sentence of prose below the table reads as
+a change to the plan, so put what happened in the table rows.
 
 The closing report's Evidence carries the same rows with what happened. A row
 whose result differs from the approved answer is explained. In

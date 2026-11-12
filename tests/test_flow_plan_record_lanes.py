@@ -649,3 +649,20 @@ def test_a_backtick_line_that_cannot_open_a_fence_does_not_unquote_what_follows(
     begin(repo, PLAN + quoted)
     done = run(repo, "approve", "42")
     assert done.returncode == 1 and "has no lanes table" in done.stdout, done.stdout
+
+
+def test_a_path_in_a_demonstrated_row_is_not_a_planned_file(repo: Path) -> None:
+    """The table rows are the one thing outside the digest, so a planned file
+    written into one is not digested. It is also not a Section C item:
+    compliance still calls the file unplanned, and hiding it there gains
+    nothing."""
+    record = approved(repo)
+    with record.open("a") as fh:
+        fh.write(DEMONSTRATED + "| Project state | 3. `src/smuggled.py` - a planned file |\n")
+    (repo / "src").mkdir()
+    (repo / "src" / "app.py").write_text("a\n")
+    (repo / "src" / "smuggled.py").write_text("s\n")
+    done = compliance(repo)
+    assert "PLAN_RECORD_STABILITY: unchanged" in done.stdout, "precondition: the row is outside the digest"
+    assert "TOUCHED BUT NOT PLANNED: src/smuggled.py" in done.stdout, done.stdout
+    assert "TOUCHED BUT NOT PLANNED: src/app.py" not in done.stdout
