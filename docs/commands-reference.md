@@ -240,6 +240,18 @@ verdict now has its OWN exit code (issue #1027)" it read:
 > `$?` could not tell "passed cleanly" from "passed but proved nothing" from
 > "did not run at all".
 
+### Text moved out of `/flow:deploy` (#1759)
+
+Moved by #1759, to pay for the condition that keeps the deterministic runner
+for the default target only.
+
+Step 4b opened with a sentence restating its heading:
+
+> **Primary path:** Use the deterministic CI/CD runner for reproducible deploy with security gate:
+
+and its block began with the comment `# Locate CPP source for lib/cicd` above
+the loop that does exactly that.
+
 ## Workflow commands - detail beyond the skill listing
 
   - Optional second arg `PROJECT` targets a repo other than the session cwd (resolved as a path, else `~/Projects/<name>`); such cross-repo runs ride the deterministic git-worktree lane end-to-end instead of `EnterWorktree`, which cannot leave the session repo (#578)
