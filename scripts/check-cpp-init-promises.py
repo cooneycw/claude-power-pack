@@ -92,30 +92,42 @@ def _relative(candidate: Path, root: Path) -> str:
     return Path(os.path.normpath(candidate.relative_to(root))).as_posix()
 
 
+class IndexUnreadable(Exception):
+    """The root is a git checkout root and its index could not be listed."""
+
+
 def tracked_paths(root: Path) -> tuple[frozenset[str], frozenset[str]] | None:
     """``(tracked, submodules)`` for the checkout at ``root``, or None when unknown.
 
     ``tracked`` holds every tracked path and every directory holding one;
     ``submodules`` holds the paths of gitlinks, whose contents this index does
-    not list. None covers: git is not installed, the call fails, or ``root`` is
-    not the ROOT of a checkout. The last matters: a scratch directory nested
-    inside some other repository would otherwise read as a tree of untracked
-    files.
+    not list. None covers: git is not installed, or ``root`` is not the ROOT of
+    a checkout. The last matters: a scratch directory nested inside some other
+    repository would otherwise read as a tree of untracked files. Raises
+    `IndexUnreadable` when the root IS a checkout root and the index cannot be
+    listed: that is unknown, never "not a checkout".
     """
     try:
         top = subprocess.run(
             ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
             capture_output=True, text=True, timeout=30, check=False,
         )
-        if top.returncode != 0 or Path(top.stdout.strip()).resolve() != root.resolve():
-            return None
+    except (OSError, subprocess.SubprocessError):
+        return None
+    # Only git's own terminating newline is removed: a directory name may end in a space.
+    if top.returncode != 0 or Path(top.stdout.removesuffix("\n")).resolve() != root.resolve():
+        return None
+    # From here the root IS a checkout root, so an index that cannot be read is
+    # not "no checkout": it is a check that was due and could not run. That
+    # must not fall back to the untracked-tolerant path.
+    try:
         listed = subprocess.run(
             ["git", "-C", str(root), "ls-files", "-s", "-z"], capture_output=True, text=True, timeout=60, check=False
         )
-    except (OSError, subprocess.SubprocessError):
-        return None
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise IndexUnreadable(type(exc).__name__) from exc
     if listed.returncode != 0:
-        return None
+        raise IndexUnreadable(f"git ls-files exited {listed.returncode}")
     known: set[str] = set()
     gitlinks: set[str] = set()
     for entry in listed.stdout.split("\0"):
@@ -371,6 +383,9 @@ def main(argv: list[str] | None = None) -> int:
         report = scan(text, args.root, args.min_promises)
     except (OSError, UnicodeError) as exc:
         print(f"cpp-init-promises: UNKNOWN - cannot read population ({type(exc).__name__})")
+        return 2
+    except IndexUnreadable as exc:
+        print(f"cpp-init-promises: UNKNOWN - this is a git checkout and its index could not be read ({exc})")
         return 2
     for claim in report.claims:
         if claim.kind != "cpp":

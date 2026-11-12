@@ -246,6 +246,34 @@ def test_a_path_inside_a_submodule_is_reported_as_not_checked_never_as_untracked
     assert "1 inside a submodule: NOT checked" in capsys.readouterr().out
 
 
+@requires_git
+def test_an_unreadable_index_in_a_checkout_is_unknown_not_a_pass(tmp_path, capsys):
+    """A checkout whose index cannot be listed is not "no checkout" (counter-model review)."""
+    text = _helper_tree(tmp_path)
+    _checkout(tmp_path)  # helper.sh exists and is NOT tracked: it must never pass
+    (tmp_path / ".git" / "index").write_bytes(b"not an index")
+    broken = subprocess.run(["git", "-C", str(tmp_path), "ls-files"], capture_output=True, check=False)
+    assert broken.returncode != 0  # precondition: git itself cannot read it
+    with pytest.raises(checker.IndexUnreadable):
+        checker.scan(text, tmp_path, 1)
+    document = tmp_path / checker.DOCUMENT
+    document.parent.mkdir(parents=True)
+    document.write_text(text)
+    assert checker.main(["--root", str(tmp_path), "--min-promises", "1"]) == 2
+    assert "UNKNOWN - this is a git checkout and its index could not be read" in capsys.readouterr().out
+
+
+@requires_git
+def test_a_checkout_whose_name_ends_in_a_space_is_still_checked(tmp_path):
+    root = tmp_path / "checkout "
+    root.mkdir()
+    text = _helper_tree(root)
+    _checkout(root)
+    report = checker.scan(text, root, 1)
+    assert report.tracked_checked, "the tracked check was switched off by trimming the root's own name"
+    assert any(f.startswith("untracked promised path") for f in report.findings)
+
+
 def test_outside_a_git_checkout_the_tracked_check_does_not_run_and_says_so(tmp_path, capsys):
     """Not "each is tracked", and not silence: the summary names the check it did not run."""
     cases.populate(tmp_path, "good-fixed")

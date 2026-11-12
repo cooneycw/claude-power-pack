@@ -30,7 +30,8 @@ judged on its tracked matches, so local debris it also matches
 A path is judged by its own name: an untracked symlink to a tracked file is
 untracked. A path inside a submodule is neither: this index records only the
 submodule's commit, so the summary counts it as `inside a submodule: NOT
-checked`. Where the root is not a git checkout root - the control's scratch cases, an
+checked`. A checkout whose index cannot be read is `UNKNOWN` (exit 2), never a
+pass. Where the root is not a git checkout root - the control's scratch cases, an
 unpacked archive - the tracked check does not run, and the summary line says
 `tracked check NOT RUN ... whether they ship is unverified` in place of `each is
 tracked`. Tests: `tests/test_cpp_init_promises.py`.
