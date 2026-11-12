@@ -156,12 +156,16 @@ that do not carry the line - so search for candidates and keep the exact lines:
 ```bash
 gh pr list --state merged --limit 200 --search '"Missed because:" in:body' \
     --json number,title,body \
-    --jq '.[] | select(.body | test("(?m)^Missed because: ")) | "#\(.number) \([.body | scan("(?m)^(?:Origin|Missed because): .*$")] | join(" | "))"'
+    --jq '"CANDIDATES: \(length)", (.[] | select(.body | test("(?m)^Missed because: ")) | "#\(.number) \([.body | scan("(?m)^(?:Origin|Missed because): .*$")] | join(" | "))")'
 ```
 
-A result of exactly 200 pull requests is a truncated list, not a complete one:
-narrow the search by date and run it again. An empty result means no merged pull
-request carries the line yet; it does not show that fixes had no origin.
+The first line it prints is `CANDIDATES: <n>`, the number of pull requests the
+search returned BEFORE the exact lines were kept. **`CANDIDATES: 200` is a
+truncated list, whatever follows it:** the limit applies to the loose matches,
+so 200 of them can hide every real record and print none. Narrow the search by
+date (`merged:<from>..<to>`) and run it again until the count is under 200. An
+empty list under a count below 200 means no merged pull request carries the
+line yet; it does not show that fixes had no origin.
 
 **What this cannot do.** It records what the session fixing the defect
 concluded. Nothing checks that conclusion except the counter-model review of the

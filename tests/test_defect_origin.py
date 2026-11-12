@@ -325,14 +325,33 @@ def test_the_read_back_filter_keeps_exact_lines_and_drops_loose_matches() -> Non
         ["jq", "-r", search_filter()], input=json.dumps(bodies), capture_output=True, text=True, check=True
     )
     assert result.stdout.splitlines() == [
+        "CANDIDATES: 4",
         "#1 Origin: #1696 | Missed because: no test covered it",
         "#3 Missed because: lane not exercised",
     ]
 
 
+@requires_jq
+def test_a_full_page_of_loose_matches_is_visible_as_truncation() -> None:
+    """The limit applies BEFORE the filter: 200 loose matches print no record at all.
+
+    Without the candidate count that output is identical to "nothing found".
+    """
+    loose = [{"number": n, "title": "loose", "body": "we missed because: of rain"} for n in range(200)]
+    result = subprocess.run(
+        ["jq", "-r", search_filter()], input=json.dumps(loose), capture_output=True, text=True, check=True
+    )
+    assert result.stdout.splitlines() == ["CANDIDATES: 200"]
+    nothing = subprocess.run(
+        ["jq", "-r", search_filter()], input="[]", capture_output=True, text=True, check=True
+    )
+    assert nothing.stdout.splitlines() == ["CANDIDATES: 0"]
+
+
 def test_the_contract_says_an_empty_or_full_result_proves_little() -> None:
     text = normalized(CONTRACT.read_text(encoding="utf-8"))
-    assert "A result of exactly 200 pull requests is a truncated list" in text
+    assert "`CANDIDATES: 200` is a truncated list, whatever follows it:" in text
+    assert "--limit 200" in CONTRACT.read_text(encoding="utf-8")
     assert "it does not show that fixes had no origin" in text
 
 
