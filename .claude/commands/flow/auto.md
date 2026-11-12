@@ -1363,11 +1363,12 @@ Act on `FLOW_CI_STATUS`:
   evidence gap; an unexamined lane is not green, and a fallback probe's result
   never establishes recorded-provider completeness.
 
-`--wait` defaults to 600s, polling every 15s; `--wait <seconds>` changes it and
-omitting it gives a single-shot read. Without `--event` the preferred event is
+`--wait` defaults to 600s, polling every 15s; `--wait <seconds>` changes it;
+omitted, one read. Without `--event` the preferred event is
 derived from the default branch's required contexts (issue #1262;
 `FLOW_CI_EVENT` names the source); a PR into a differently-protected base
-should pass `--event`. `--exit-code` makes a `failure` verdict exit 1.
+should pass `--event`. `--exit-code` exits 1 on `failure`. `--wait` exits 2
+(`unknown`), 5 (expired).
 
 On exit 127 fall back to `${CLAUDE_PLUGIN_ROOT}/scripts/flow-ci-status.sh`
 (#590), else the CPP-checkout copy; tell the user to run **`/flow:repair`**. If
@@ -1408,7 +1409,7 @@ DEPLOY_MODE=$(grep -oP '^\s*mode:\s*\K\S+' .claude/deploy.yaml 2>/dev/null | hea
 
 HEAD_SHA=$(git rev-parse --short HEAD)
 ALREADY_DEPLOYED=0
-if [ -f .claude/deploy.log ] && awk -F'|' -v sha="$HEAD_SHA" '$2 ~ /deploy/ && $3 ~ ("^[[:space:]]*" sha "[[:space:]]*$") && $5 ~ /^[[:space:]]*0[[:space:]]*$/ { found = 1 } END { exit !found }' .claude/deploy.log; then
+if [ -f .claude/deploy.log ] && awk -F'|' -v sha="$HEAD_SHA" '$2 ~ /^[[:space:]]*deploy[[:space:]]*$/ && $3 ~ ("^[[:space:]]*" sha "[[:space:]]*$") && $5 ~ /^[[:space:]]*0[[:space:]]*$/ { found = 1 } END { exit !found }' .claude/deploy.log; then
     ALREADY_DEPLOYED=1
 fi
 

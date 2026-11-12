@@ -23,23 +23,33 @@ SCRIPT = ROOT / "scripts" / "flow-finish-gate.sh"
 )
 @pytest.mark.parametrize("explicit_user_policy", [False, True])
 @pytest.mark.parametrize("target_environment", [None, "relative", "absolute"])
-def test_actual_finish_preserves_dual_native_runtime_policy(tmp_path, explicit_user_policy, target_environment):
-    env = os.environ.copy()
-    env.pop("UV_PYTHON", None)
-    env.pop("UV_PROJECT_ENVIRONMENT", None)
+def test_actual_finish_preserves_dual_native_runtime_policy(
+    tmp_path, monkeypatch, owned_cpp_checkout, explicit_user_policy, target_environment
+):
+    # The gate is pointed at an OWNED copy of the CPP runtime, never at the
+    # checkout this suite is running from: its 3.11 pin makes uv rebuild the
+    # environment of whatever directory it is given (issue #1718).
+    #
+    # CI skips all six cases: this needs Python 3.11 AND 3.12, and the CI image
+    # carries only 3.11. So it runs on developer hosts only - which is exactly
+    # where it used to be destructive. That is a known gap, stated on purpose:
+    # the test is about a dual-runtime policy the CI image does not have.
+    from tests.conftest import find_python, uv_child_env, venv_fingerprint
+
+    surrounding = venv_fingerprint(ROOT / ".venv")
+    # Every case runs with the inherited environment aimed at this checkout:
+    # the target Makefile's own `uv run` would follow an inherited UV_PROJECT
+    # back here, past the owned copy. The child environment is built from
+    # nothing, so none of it arrives.
+    for hostile in ("UV_PROJECT", "UV_WORKING_DIR"):
+        monkeypatch.setenv(hostile, str(ROOT))
+    monkeypatch.setenv("UV_PROJECT_ENVIRONMENT", str(ROOT / ".venv"))
+    env = uv_child_env()
+    assert not {"UV_PROJECT", "UV_WORKING_DIR", "UV_PROJECT_ENVIRONMENT"} & set(env)
     env.update(UV_PYTHON_DOWNLOADS="never", UV_OFFLINE="1", UV_CACHE_DIR=str(tmp_path / "cache"), CPP_OFFLINE="1")
     interpreters = {}
     for minor in ("3.11", "3.12"):
-        probe = subprocess.run(
-            ["uv", "python", "find", "--no-python-downloads", minor],
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        if probe.returncode:
-            pytest.skip(f"native Python {minor} unavailable; discovery forbids downloads")
-        path = Path(probe.stdout.strip())
+        path = find_python("uv", env, minor)
         version = subprocess.check_output([str(path), "-c", "import sys;print(sys.version_info[:3])"], text=True)
         assert version.startswith("(" + minor.replace(".", ", ") + ","), (path, version)
         interpreters[minor] = path
@@ -60,7 +70,7 @@ def test_actual_finish_preserves_dual_native_runtime_policy(tmp_path, explicit_u
         "lint:\n\t@echo owned-lint\ntest:\n\t@uv run --no-python-downloads python probe.py\n"
         "typecheck:\n\t@echo owned-typecheck\n"
     )
-    env["FLOW_GATE_CPP_DIR"] = str(ROOT)
+    env["FLOW_GATE_CPP_DIR"] = str(owned_cpp_checkout)
     policy = str(interpreters["3.12"]) if explicit_user_policy else None
     if policy is not None:
         env["UV_PYTHON"] = policy
@@ -107,8 +117,13 @@ def test_actual_finish_preserves_dual_native_runtime_policy(tmp_path, explicit_u
     assert runtime["uv_python"] == policy
     assert runtime["uv_project_environment"] == environment_policy
     assert runtime["handoff_keys"] == []
-    outer = subprocess.check_output([str(ROOT / ".venv/bin/python"), "--version"], text=True).strip()
+    outer = subprocess.check_output(
+        [str(owned_cpp_checkout / ".venv/bin/python"), "--version"], text=True
+    ).strip()
     assert outer.startswith("Python 3.11."), outer
+    assert venv_fingerprint(ROOT / ".venv") == surrounding, (
+        "the environment this suite is running from changed while the gate ran"
+    )
     print(json.dumps(dict(outer=outer, target=runtime, helper_exit=result.returncode)))
 
 

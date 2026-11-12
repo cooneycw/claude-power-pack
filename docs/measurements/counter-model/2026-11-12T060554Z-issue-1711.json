@@ -1,0 +1,70 @@
+{
+  "branch": "issue-1711-flow-ci-status-hardening-failure-origin-poll-state",
+  "counts": {
+    "accepted": 1,
+    "deferred": 2,
+    "rejected": 0
+  },
+  "extra_passes_reason": "Requested by the wave orchestrator (mailbox rev 61, 2026-11-12): pass 2 found a real defect in the fix itself (a failed mktemp turned 'no classic rule' into 'unreadable' and moved a verdict), in the one place of this change that could move an exit code; the replacement was unreviewed.",
+  "head": "4e2e35767e24cc90a1963b28c01935e7814e9c95",
+  "implementer": "claude/claude-fable-5-2",
+  "implementer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-fable-5-2"
+    ],
+    "runtime": "claude",
+    "session_id": "813e8da8-6824-48fb-833a-ef59067edd8c",
+    "sources": [
+      {
+        "bytes": 14186907,
+        "path": "-home-user-Projects/813e8da8-6824-48fb-833a-ef59067edd8c.jsonl",
+        "sha256": "594bd955ed9ce2e4a5fdd42bc8eb0937644e4cd8449b22f944952990b018411c"
+      }
+    ],
+    "transcript": "-home-user-Projects/813e8da8-6824-48fb-833a-ef59067edd8c.jsonl"
+  },
+  "issue": "1711",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 3,
+  "recorded_at": "2026-11-12T06:05:54Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 5
+  },
+  "reviewed_artifact": {
+    "base_sha": "5d7a9d5918b0b4c6f50e77a524218badea015c27",
+    "merge_base": "5d7a9d5918b0b4c6f50e77a524218badea015c27",
+    "method": "runtime-head",
+    "patch_sha256": "ef59df00750960533f92acb0fdf5b804a4983d9f174898ce70f60c7a0fbfe3cd",
+    "report_record": 52,
+    "target_head": "4e2e35767e24cc90a1963b28c01935e7814e9c95"
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "exec_log": "codex-review.6DM04L.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/12/rollout-2026-11-12T01-04-16-01a1ce5b-5ba1-70c0-91b8-1249066e1b53.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 79711,
+        "path": "codex-review.6DM04L.jsonl",
+        "sha256": "c10c0542337871b720c0d6830f4372c7e990610bc8ce0608b193188e187a2f90"
+      },
+      {
+        "bytes": 403147,
+        "path": "2026/11/12/rollout-2026-11-12T01-04-16-01a1ce5b-5ba1-70c0-91b8-1249066e1b53.jsonl",
+        "sha256": "7f5a627cea1094b72a4e9867e37966d7763d43240ae16d3aa926c2d386b933aa"
+      }
+    ],
+    "thread_id": "01a1ce5b-5ba1-70c0-91b8-1249066e1b53"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}
