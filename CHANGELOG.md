@@ -14,6 +14,21 @@
   and `/project:init` now installs a bug form in a new repository (it
   installed no issue templates before). Nothing checks the answer; `not
   traced` is allowed and silence is not (#1697).
+- **The ignored-additions guard now names its own remedy.** When
+  `check-ignored-additions.sh` reports files the quality gate itself wrote
+  (kyle's `dashboard-runs/`, skillc's `reports/`), its message says to declare
+  the directory in `.claude/gate-scratch.txt`. One added stderr line; exit
+  codes and markers are unchanged (#1706).
+- **`codex-skill-sync.py --install` publishes exactly what it checked, and
+  says more about where.** It no longer copies `__pycache__` from a named tree
+  (`--write --install`, `--output-root DIR --install`); a bare `--install`
+  never did. Its "skill(s) in sync" line names the real output root when that
+  is outside the checkout, which includes the private build a bare `--install`
+  checks; the in-checkout line is unchanged. When `CODEX_HOME` points somewhere
+  other than `~/.codex` it prints one stderr `NOTE` that the install wrote
+  `~/.codex/skills` and did not use it. A command description over the
+  150-character cap now fails the tests unless it has a recorded exemption
+  (#1715).
 - **A project can list its lanes, and plans then say which ones they tested.**
   A lane is a route one behaviour travels: main checkout or linked worktree,
   dev or prod, small fixture or real-size data. With a `.claude/lanes.md`, the
