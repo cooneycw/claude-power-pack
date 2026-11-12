@@ -14,6 +14,7 @@ import yaml
 from lib.cicd.manifest import StepModel, step_model_to_step_def
 from lib.cicd.runner import DeterministicRunner
 from lib.cicd.steps import StepDef
+from tests.conftest import find_python, uv_child_env
 
 QUIET_TEST = Path(__file__).parent / "fixtures" / "silent-test-success" / "quiet_harness.py"
 PYTHON = shlex.quote(str(Path(sys.executable).resolve()))
@@ -114,12 +115,30 @@ def test_direct_step_def_also_requires_a_nonempty_explanation(value):
         StepDef(id="test", command="true", silent_success=value)
 
 
+@pytest.fixture
+def host_python_311() -> Path:
+    """The Python 3.11 the real finish helper pins, with downloads off.
+
+    The helper runs `uv run --python 3.11 --no-python-downloads`, so on a host
+    with uv and bash but no 3.11 the test below FAILED instead of skipping
+    (issue #1718, row 14). The shared probe skips only on uv's own "No
+    interpreter found" answer; any other failure of the question is an error
+    at setup, so a broken uv cannot turn the test off quietly.
+    """
+    uv = shutil.which("uv")
+    if uv is None:
+        pytest.skip("requires uv for the real finish helper")
+    return find_python(uv, uv_child_env(), "3.11")
+
+
 @pytest.mark.skipif(
     shutil.which("bash") is None or shutil.which("uv") is None,
     reason="requires bash and uv for the real finish helper",
 )
 @pytest.mark.parametrize("declared, expected_exit", [(False, 3), (True, 0)])
-def test_actual_finish_helper_preserves_the_silent_verdict(tmp_path, declared, expected_exit):
+def test_actual_finish_helper_preserves_the_silent_verdict(
+    tmp_path, host_python_311, declared, expected_exit,
+):
     root = Path(__file__).resolve().parents[1]
     # Give uv an owned runtime checkout. The helper pins Python 3.11 and must
     # never recreate the venv of a surrounding pytest running another Python.
