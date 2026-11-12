@@ -2067,8 +2067,11 @@ def run_check(selected: list[str]) -> int:
     #: a bare `--install` checks are outside the checkout; printing
     #: `codex/skills/, both IN-CHECKOUT` over a temporary directory named the
     #: wrong tree. The in-checkout form is unchanged, byte for byte.
+    #: An in-checkout root is named by its FULL checkout-relative path: the last
+    #: two components alone made `other/codex/skills` read as the default tree.
     if OUTPUT_ROOT.resolve().is_relative_to(REPO_ROOT.resolve()):
-        compared = f"{OUTPUT_ROOT.parent.name}/{OUTPUT_ROOT.name}/, both IN-CHECKOUT"
+        inside = OUTPUT_ROOT.resolve().relative_to(REPO_ROOT.resolve()).as_posix()
+        compared = f"{inside}/, both IN-CHECKOUT"
     else:
         compared = f"{OUTPUT_ROOT}/, an output root OUTSIDE the checkout"
     print(
@@ -2327,9 +2330,12 @@ def relocated_codex_home() -> str | None:
     if not value:
         return None
     default = Path.home() / ".codex"
+    #: The notice is printed AFTER the files are published, so nothing here may
+    #: raise: `expanduser()` raises RuntimeError for `~nobody/...`, and a value
+    #: that cannot be resolved is, for this purpose, simply not the default.
     try:
         same = Path(value).expanduser().resolve() == default.resolve()
-    except OSError:
+    except (OSError, RuntimeError, ValueError):
         same = False
     return None if same else value
 

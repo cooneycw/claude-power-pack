@@ -1461,6 +1461,17 @@ def test_an_output_root_outside_the_checkout_is_named_and_not_called_in_checkout
     assert f"-> {elsewhere.resolve()}/, an output root OUTSIDE the checkout" in first
 
 
+def test_a_nested_in_checkout_root_is_named_in_full(tmp_repo, capsys):
+    """Two in-checkout roots with the same last two components must not read alike."""
+    nested = tmp_repo / "other" / "codex" / "skills"
+    assert codex_skill_sync.main(["--write", "--output-root", str(nested)]) == 0
+    capsys.readouterr()
+    assert codex_skill_sync.main(["--check", "--output-root", str(nested)]) == 0
+    first = capsys.readouterr().out.splitlines()[0]
+    assert "-> other/codex/skills/, both IN-CHECKOUT" in first
+    assert "-> codex/skills/, both IN-CHECKOUT" not in first
+
+
 def test_a_bare_installs_check_names_its_private_build(tmp_repo, tmp_home, capsys):
     assert codex_skill_sync.main(["--install"]) == 0
     in_sync = [line for line in capsys.readouterr().out.splitlines() if "skill(s) in sync" in line]
@@ -1502,6 +1513,25 @@ def test_a_relocated_codex_home_is_stated_on_stderr_only(tmp_repo, tmp_home, tmp
         " and did not use it - a Codex reading skills from CODEX_HOME will not see it"
     ]
     assert not relocated_home.exists(), "the install wrote into CODEX_HOME"
+
+
+@pytest.mark.parametrize("value", ["~cpp_no_such_user_1715/skills", "~"])
+def test_an_unresolvable_codex_home_never_fails_a_completed_install(
+    tmp_repo, tmp_home, capsys, monkeypatch, value
+):
+    """The notice runs AFTER publication, so it must not be able to raise.
+
+    `Path.expanduser()` raises RuntimeError for an unknown `~user`; the first
+    cut caught only OSError and turned a finished install into a traceback.
+    """
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    baseline = _install_named(tmp_repo, capsys)
+    monkeypatch.setenv("CODEX_HOME", value)
+    odd = _install_named(tmp_repo, capsys)
+    assert odd[0] == baseline[0] == 0
+    assert odd[1] == baseline[1]
+    assert (tmp_home / "flow-auto" / "SKILL.md").is_file()
+    assert len([line for line in odd[2].splitlines() if "NOTE CODEX_HOME is" in line]) == 1
 
 
 def test_an_empty_codex_home_is_not_a_relocation(monkeypatch):
