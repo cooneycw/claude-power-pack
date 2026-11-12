@@ -258,7 +258,7 @@ out="$({real} "$@")"; rc=$?
 if [ -z "${{RACE_DONE:-}}" ] && [[ " $* " == *" worktree list "* ]] && [ ! -e "{bindir}/raced" ]; then
   : > "{bindir}/raced"
   ( RACE_DONE=1 FLOW_CLAIM_GIT={real} CLAUDE_PID=7777 CLAUDE_CODE_SESSION_ID=newcomer \
-    FLOW_CLAIM_HOST=testhost FLOW_CLAIM_LIVE_PIDS=7777 FLOW_CLAIM_PROC_ROOT={proc} \
+    FLOW_CLAIM_HOST=testhost FLOW_CLAIM_LIVE_PIDS=4242:7777 FLOW_CLAIM_PROC_ROOT={proc} \
     bash {CLAIM} claim {wt} --issue 42 > "{bindir}/newcomer.out" 2>&1 & )
   {real} -C {wt} worktree list --porcelain >/dev/null   # give the newcomer a moment
   for _ in 1 2 3 4 5 6 7 8 9 10; do
@@ -273,12 +273,13 @@ exit $rc
     return wrapper
 
 
+@pytest.mark.parametrize("verb", ["release", "claim"])
 @pytest.mark.parametrize("serialized", [True, False], ids=["with-flock", "without-flock"])
-def test_a_release_does_not_unlock_a_claim_taken_over_meanwhile(tmp_path, repo, serialized) -> None:
-    """A stale claim; a release judges it; a live session takes it over before
-    the release unlocks. The newcomer's lock must survive, with the mutex
-    (the newcomer waits its turn) and without it (the release re-reads the
-    lock and stands down)."""
+def test_a_claim_taken_over_meanwhile_is_not_unlocked(tmp_path, repo, serialized, verb) -> None:
+    """A stale claim; a release (or a second claimant's takeover) judges it; a
+    live session takes it over before the unlock. The newcomer's lock must
+    survive, with the mutex (the newcomer waits its turn) and without it (the
+    unlock re-reads the lock and stands down)."""
     if serialized and shutil.which("flock") is None:
         pytest.skip("needs flock")
     main, wt = repo
@@ -304,16 +305,55 @@ def test_a_release_does_not_unlock_a_claim_taken_over_meanwhile(tmp_path, repo, 
     assert _verdict(_helper(CLAIM, "check", str(wt), env=dict(env, FLOW_CLAIM_GIT="git")
                             if serialized else {k: v for k, v in env.items() if k != "PATH" and k != "FLOW_CLAIM_GIT"})) == "stale"
 
-    released = _helper(CLAIM, "release", str(wt), env=env)
-    assert released.returncode == 0, released.stderr
+    args = ("release", str(wt)) if verb == "release" else ("claim", str(wt), "--issue", "42")
+    released = _helper(CLAIM, *args, env=env)
+    if verb == "release" or serialized:
+        # Serialized, the first writer finishes first: a release frees the
+        # worktree and the newcomer claims it; a claim wins and the newcomer is
+        # refused. Either way nobody's live lock is removed.
+        assert released.returncode == 0, released.stderr
     deadline = time.time() + 10
     while time.time() < deadline and "FLOW_CLAIM:" not in (bindir / "newcomer.out").read_text():
         time.sleep(0.1)
     assert (bindir / "raced").exists(), "the interleaving never happened"
-    assert "FLOW_CLAIM: self" in (bindir / "newcomer.out").read_text(), (bindir / "newcomer.out").read_text()
+    newcomer = (bindir / "newcomer.out").read_text()
     reason = _reason(main, wt)
+    if verb == "claim" and serialized:
+        assert "FLOW_CLAIM: held" in newcomer, newcomer
+        assert "pid=4242 " in reason, reason
+        return
+    assert "FLOW_CLAIM: self" in newcomer, newcomer
     assert "pid=7777 " in reason and "session=newcomer " in reason, (
-        f"the newcomer's live claim was unlocked by the release:\n{reason}\n{released.stderr}")
+        f"the newcomer's live claim was unlocked:\n{reason}\n{released.stderr}")
+    if verb == "claim":
+        assert released.returncode == 1 and _verdict(released) == "held", released.stdout
+
+
+@pytest.mark.skipif(shutil.which("flock") is None, reason="needs flock")
+@pytest.mark.parametrize("verb", ["release", "claim"])
+def test_a_writer_that_cannot_get_the_mutex_stands_down(tmp_path, repo, verb) -> None:
+    """Someone else holds the mutex past the wait. Proceeding would be the
+    race with a witness, so the verb reports what it sees and changes nothing."""
+    import fcntl
+
+    main, wt = repo
+    _lock(main, wt, f"flow-claim issue=42 pid=9999 session=gone host=testhost "
+                    f"ts={int(time.time())} start=111")
+    before = _reason(main, wt)
+    common = Path(_git(wt, "rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip())
+    env = {"CLAUDE_PID": "4242", "CLAUDE_CODE_SESSION_ID": "the-sweeper",
+           "FLOW_CLAIM_LIVE_PIDS": "4242", "FLOW_CLAIM_MUTEX_WAIT": "1"}
+    args = ("release", str(wt)) if verb == "release" else ("claim", str(wt), "--issue", "42")
+    with open(common / "flow-claim.mutex", "w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        done = _helper(CLAIM, *args, env=env)
+    assert done.returncode == 0, done.stderr
+    assert _verdict(done) == "stale", "it reports what it saw"
+    assert "did not finish within 1s" in done.stderr
+    assert _reason(main, wt) == before, "a writer without the mutex changed the claim"
+    # The same call with the mutex free does its job: the stand-down above was
+    # the mutex, not a helper that never acts.
+    assert _verdict(_helper(CLAIM, *args, env=env)) == ("free" if verb == "release" else "self")
 
 
 # --- state Z is a dead owner only when one thread is left --------------------

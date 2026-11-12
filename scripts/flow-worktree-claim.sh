@@ -113,6 +113,7 @@
 #   FLOW_CLAIM_HOST         override this host's name
 #   FLOW_CLAIM_LIVE_PIDS    ':'-separated pids to treat as alive (bypasses
 #                           kill -0, so a test can simulate a live sibling)
+#   FLOW_CLAIM_MUTEX_WAIT   seconds to wait for the writer mutex (default 10)
 #   FLOW_CLAIM_PROC_ROOT    override /proc for process state and start time. A test
 #                           seam, not a knob: it exists so BOTH witness lanes -
 #                           readable and unreadable - are reachable on a host
@@ -525,16 +526,26 @@ WT="$(abspath "$WT")"
 # So the read-decide-write of both verbs runs under one mutex per repository,
 # held until this process exits. `check` only reads and takes nothing.
 #
-# Fail-open like the rest of this helper: no flock, an unwritable git dir or a
-# 10 second wait that runs out all leave the verb to proceed unserialized. That
-# is why `release` ALSO re-reads the lock immediately before unlocking and
-# stands down if it is no longer the lock it judged (unlock_if_unchanged).
+# Three outcomes, kept apart in MUTEX:
+#   held         serialized. The whole read-decide-write is ours.
+#   contended    flock exists and the wait ran out: SOMEONE ELSE IS WRITING.
+#                The verb stands down - it reports what it sees and changes
+#                nothing. Proceeding here would be the race with a witness.
+#   unavailable  no flock on this host, or the git dir cannot hold the file.
+#                The verb proceeds as it always did, and every unlock re-reads
+#                the lock first and stands down if it is no longer the lock
+#                that was judged (unlock_if_unchanged). That narrows the window
+#                to the instant between that read and the unlock; it does not
+#                close it. Standing down here instead would leave a host
+#                without flock unable to release even its own claim.
+MUTEX=unavailable
+MUTEX_WAIT="${FLOW_CLAIM_MUTEX_WAIT:-10}"
 if [ "$VERB" != check ] && command -v flock >/dev/null 2>&1; then
   MUTEX_DIR="$("$GIT" -C "$WT" rev-parse --git-common-dir 2>/dev/null || true)"
   case "$MUTEX_DIR" in "" | /*) : ;; *) MUTEX_DIR="$WT/$MUTEX_DIR" ;; esac
-  if [ -n "$MUTEX_DIR" ] && [ -d "$MUTEX_DIR" ]; then
-    # shellcheck disable=SC2015
-    { exec 9>"$MUTEX_DIR/flow-claim.mutex"; } 2>/dev/null && flock -w 10 9 2>/dev/null || true
+  if [ -n "$MUTEX_DIR" ] && [ -d "$MUTEX_DIR" ] &&
+     { exec 9>"$MUTEX_DIR/flow-claim.mutex"; } 2>/dev/null; then
+    if flock -w "$MUTEX_WAIT" 9 2>/dev/null; then MUTEX=held; else MUTEX=contended; fi
   fi
 fi
 
@@ -551,6 +562,25 @@ unlock_if_unchanged() {
 STATE=unknown
 classify "$WT"
 
+# Another writer holds the mutex and did not let go in time. Report, touch
+# nothing. A live foreign claim still refuses a `claim` the usual way below.
+if [ "$MUTEX" = contended ] && [ "$VERB" != check ] &&
+   ! { [ "$VERB" = claim ] && [ "$STATE" = held ] && [ "$STEAL" -eq 0 ]; }; then
+  echo "flow-worktree-claim: another session is changing claims in this repository and did not finish within ${MUTEX_WAIT}s - '$WT' left as it is ($STATE). Re-run in a moment." >&2
+  emit "$STATE"
+  exit 0
+fi
+
+# claim_changed_under_us - the lock was replaced between the read and the
+# unlock, on a host with no mutex. Report what is there now; write nothing.
+claim_changed_under_us() {
+  classify "$WT"
+  echo "flow-worktree-claim: the claim on '$WT' changed while it was being $1 - leaving the new one ($STATE) alone." >&2
+  emit "$STATE"
+  if [ "$VERB" = claim ] && [ "$STATE" = held ]; then exit 1; fi
+  exit 0
+}
+
 case "$VERB" in
   check)
     emit "$STATE"
@@ -561,14 +591,9 @@ case "$VERB" in
   release)
     case "$STATE" in
       self | stale)
-        if ! unlock_if_unchanged "$WT"; then
-          # Someone replaced the claim after it was judged. Whatever is there
-          # now was never examined by this release: report it, touch nothing.
-          classify "$WT"
-          echo "flow-worktree-claim: the claim on '$WT' changed while it was being released - leaving the new one ($STATE) alone." >&2
-          emit "$STATE"
-          exit 0
-        fi
+        # Someone may have replaced the claim after it was judged. Whatever is
+        # there then was never examined by this release.
+        unlock_if_unchanged "$WT" || claim_changed_under_us released
         echo "flow-worktree-claim: released claim on '$WT'." >&2
         O_PID=""; O_SESSION=""; O_HOST=""; O_TS=""; O_AGE_MIN=""; O_ISSUE=""
         O_START=""; O_WITNESS=""; O_STALE_REASON=""
@@ -606,7 +631,7 @@ case "$VERB" in
           exit 1
         fi
         echo "flow-worktree-claim: stealing a live claim on '$WT' (--steal; previous owner pid ${O_PID:--})." >&2
-        "$GIT" -C "$WT" worktree unlock "$WT" >/dev/null 2>&1
+        unlock_if_unchanged "$WT" || claim_changed_under_us stolen
         ;;
       foreign)
         # Someone locked this worktree for their own reasons. Never steal it,
@@ -635,11 +660,11 @@ case "$VERB" in
             echo "flow-worktree-claim: taking over a stale claim on '$WT' (owner pid ${O_PID:--} is gone)." >&2
             ;;
         esac
-        "$GIT" -C "$WT" worktree unlock "$WT" >/dev/null 2>&1
+        unlock_if_unchanged "$WT" || claim_changed_under_us "taken over"
         ;;
       self)
         # Idempotent refresh: drop our own lock so the new timestamp lands.
-        "$GIT" -C "$WT" worktree unlock "$WT" >/dev/null 2>&1
+        unlock_if_unchanged "$WT" || claim_changed_under_us refreshed
         ;;
       unsupported | unknown)
         echo "flow-worktree-claim: '$WT' cannot hold a claim ($STATE) - continuing unclaimed (advisory)." >&2
