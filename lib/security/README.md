@@ -129,13 +129,76 @@ suppressions:
 - **Prefer `secret`.** An `id` + `path` suppression covers EVERY finding of that
   id in the file, so a real key committed beside the canary passes silently.
   With `secret`, a different value in the same file still blocks. A finding that
-  carries no value (the assignment-pattern findings) is never suppressed by a
-  `secret` rule.
+  carries no value is never suppressed by a `secret` rule. The
+  assignment-pattern findings (`HARDCODED_PASSWORD`, `HARDCODED_SECRET`) DO
+  carry their value since #1405, so they can be pinned with `secret` too.
 - The value you declare in `secret:` is not itself reported when it appears in
   `.claude/security.yml`. Any OTHER value in that file still is.
 - Allowed keys are exactly `id`, `path`, `secret` and `reason`. Anything else is
   refused, not ignored: a misspelt `secrets:` would otherwise leave a wider
   suppression than the one written.
+
+### Test passwords, sentinels and shell substitutions (issue #1717)
+
+**What the scanner reports, and why it cannot tell these apart.**
+`HARDCODED_PASSWORD` and `HARDCODED_SECRET` fire on a password-like name
+followed by a quoted value. `password="privtest"` in a test, a sentinel such as
+`LEGACY_DB_PASSWORD = "..."`, and a shell line such as
+`pg_password="$(generate_secret)"` all have that shape. The first two are
+literals, and a pattern cannot know whether a literal is a credential. The
+third holds no secret, but whether the shell substitutes a value depends on its
+quoting, escaping and nesting across the file, which a pattern over one match
+cannot establish. **So the scanner reports all three, in every path, and does
+not go easier on tests or on shell files.** The repository that knows a line is
+harmless says so, in `.claude/security.yml`.
+
+**Declaration 1: a path suppression by id.** For a tree of test values:
+
+```yaml
+suppressions:
+  - id: HARDCODED_PASSWORD
+    path: 'tests/.*'
+    reason: "test fixtures and sentinels, not credentials"
+```
+
+The risk, in one sentence: it also silences a REAL password pasted anywhere
+under that path, so keep the path as narrow as the list of files allows.
+
+**Declaration 2: an exact value, pinned with `secret:`.** For a known harmless
+line, such as a shell substitution:
+
+```yaml
+suppressions:
+  - id: HARDCODED_PASSWORD
+    path: '^docker/install\.sh$'
+    secret: '\$\(generate_secret\)'
+    reason: "fetched at run time; no secret is written in the file"
+```
+
+The risk, in one sentence: it clears that exact text wherever the path matches,
+so a different value on the next line still reports, and a `secret:` pattern
+written loosely (`.*`) is a path suppression in disguise.
+
+`tests/test_security_scanners.py` (`TestTheConsumerDeclaresWhatIsHarmless`)
+shows each declaration clearing exactly what it names.
+
+**Tried and withdrawn: an exemption for shell substitutions in the scanner.**
+Issue #1717 first built one: in a shell file, do not report a double-quoted
+value that is a substitution. Two counter-model review passes found five ways
+to hide a hardcoded password behind it, and it was removed before it merged:
+
+1. an apostrophe inside the double quotes, after the reference;
+2. a second, literal segment joined on after the closing quote;
+3. the whole assignment wrapped in single quotes, where nothing is substituted;
+4. a quoted parenthesis inside `$(...)`, which ended the substitution early and
+   left a literal suffix the bracket count read past;
+5. single-quote context that is not visible on one line: an escaped apostrophe,
+   a single-quoted string spanning lines, a quoted here-document.
+
+Each fix added more shell lexing to a pattern matcher, and in a detector a miss
+is silent. `TestNoShellSubstitutionExemption` in
+`tests/test_security_scanners.py` pins every one of those lines as reported;
+read it before proposing an exemption again.
 
 **`.gitleaks.toml` is not read by this gate.** The quick scan is CPP's native
 pattern matcher, not gitleaks. Gitleaks allowlists carry regexes, paths, commits,
@@ -144,6 +207,63 @@ dropping the rest would suppress less than the file claims while appearing to
 honour it. When the gate blocks in a repository that has a `.gitleaks.toml` and
 no suppressions, it prints a hint with the example above. It never prints the
 value.
+
+### Files with no extension (issue #1737)
+
+The secret scan selects most files by extension. Until #1737 that was the only
+rule, so `bin/deploy`, a git hook, a `Makefile` or a `Dockerfile` was never
+opened and the scan still reported "No secrets found in N source files". Two
+rules now add files; neither changes which files the extension rule selects.
+
+| Read | Rule |
+|---|---|
+| A file with no suffix whose first two bytes are `#!` | The shebang decides, whatever the interpreter |
+| `Makefile`, `GNUmakefile`, `makefile`, `Dockerfile`, `Containerfile`, `Dockerfile.<x>` | Exact basename; `Makefile.bak`, `my-Dockerfile` and a bare `Dockerfile.` are not on the list |
+
+Stated answers:
+
+- **A shebang and no execute bit: read.** Mode bits are lost on some checkouts.
+- **An execute bit and no shebang: not read.** It is far more often a binary
+  than a script, and it is counted in the line below.
+- **Not read, for this population only:** a file with a NUL byte in its first
+  8 KB (binary), a file over 1 MB, a symlink, and anything that is not a
+  regular file. A symlink is never followed, inside the scan root or out of
+  it; its target is read under its own name if it qualifies. A FIFO or device
+  is opened without blocking, recognised on the open descriptor and refused
+  before any content is read, so the scan cannot wait on one.
+- **A file that does not qualify costs at most its first 8 KB**, and a
+  qualifying one is read to at most 1 MB.
+
+**Assumption.** The scan reads a tree that is not being modified while it
+runs. It is not hardened against a concurrent writer - a file or directory
+swapped between being listed and being read - for these files or for the ones
+selected by extension. The guards above protect it from an odd file, not from
+a race.
+
+Whenever an extensionless file is left unread, the scan says how many and why,
+on its own line:
+
+```text
+NOT READ: 3 file(s) with no recognised extension were NOT read (2 no shebang or known name, 1 binary)
+```
+
+In `--json` that is the `unexamined` list. It is deliberately not a `SKIP`
+line: the number of `SKIP` lines is printed as `skipped-checks=` on the
+`SECURITY_GATE` line, where it means checks that could not run. On that line
+only `secrets-scanned=` rises.
+
+**Finding counts can go up on upgrade.** A Makefile is full of
+`PASSWORD=$(VAR)` shapes, which are reported like any other assignment (see
+the section above). Declare the harmless ones with a path suppression for the
+file; a suppression for a file not yet scanned is inert, so it can be added
+before the upgrade.
+
+Cost: the extra pass reads at most 8 KB of each extensionless file git does
+not ignore. Measured on a 60,000-path tree, the scan went from about 3.6
+seconds to about 6.8.
+
+Still not read: a file with an extension outside the scanner's list (`.txt`,
+`.md`, `.sql`, `.env`-unlike config names), and anything gitignored.
 
 ### An unreadable `.claude/security.yml` is UNKNOWN, never defaults
 

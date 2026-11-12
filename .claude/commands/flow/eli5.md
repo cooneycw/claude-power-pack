@@ -223,9 +223,7 @@ however terse the surrounding style. Reports below this density fail the gate.
 
 ## CPP integration: the same floor governs the CLOSING report (issue #965)
 
-This section is CPP-owned and sits OUTSIDE the vendored core above, like its
-sibling below. It adds no rule to the gate and changes nothing inside the
-markers.
+This section is CPP-owned and sits OUTSIDE the vendored core above.
 
 Section A's depth floor - motivation before mechanics, every technical term
 glossed on first use, and the bar that someone who has never seen the codebase
@@ -237,11 +235,6 @@ is **the repository's only plain-language standard**, and it governs the
 is canonical for what a run emits when it ENDS. It cites this floor; it does
 not re-author one. Two plain-language standards in one repository would be a
 convention collision, and the point of pointing here is that there is only one.
-
-Note the asymmetry this closes, because it is the whole of #965: the bar below
-applies when an agent wants a **yes**, and until #965 nothing applied when it
-hands the work **back** - the moment the context is largest and the reader's
-attention thinnest.
 
 ## CPP integration: challenge the plan, not just its freshness (issue #859)
 
@@ -260,6 +253,19 @@ evidence the review did not anticipate is Step 4's revision path in
 choices - those never return here - but it does NOT remove the existing route for a
 consequential change: altering promised behaviour or crossing a deliberate boundary
 still needs agreement from the authority that already holds it.
+
+## CPP integration: lanes and readers (#1695, #1697)
+
+CPP-owned, OUTSIDE the vendored core. When the project has `.claude/lanes.md`,
+Section C answers EVERY listed lane - will test, will refuse, not applicable or
+not covered - per [the lanes reference](../../../docs/agents/lanes.md). No lane
+file, no lane rows. Lane file or not, Section C names each reader of a changed
+output in a `Reader:` row
+([readers](../../../docs/agents/changed-output-readers.md)).
+
+First run `~/.claude/scripts/lane-file.py age` and relay a stale or unknown
+`LANE_FILE_AGE:` line. It is a notice, never a stop: continue on every exit
+code.
 
 ## CPP integration: Section B also asks this host, not only GitHub (issue #1262)
 
@@ -295,7 +301,6 @@ nothing about another machine's checkouts.
 
 ## Notes
 
-- This command is the communication and approval checkpoint: intent in the reviewer's language, an honest necessity verdict, and the plan that is about to be executed.
 - It never writes implementation code; the only mutating action it suggests is `gh issue close` on a `No longer needed` verdict, and that is a recommendation for the reviewer to run.
 - The staleness check is only meaningful when it inspects history *after* the issue's `createdAt`; always anchor `git log --since` and the PR/issue searches to that timestamp.
 - For step-by-step control outside the full lifecycle, run `/flow:eli5 <ISSUE>` on its own before deciding whether to `/flow:start`.

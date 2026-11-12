@@ -256,10 +256,20 @@
       "consumer": "tests/test_knowledge_graduation_check.py",
       "reason": "decides whether a completed spec may be removed"
     },
+    "lane-file.py": {
+      "class": "tested",
+      "consumer": "tests/test_lane_file.py",
+      "reason": "the lane file helper (#1696): `age` reads the Reviewed: date inside .claude/lanes.md and reports fresh, stale, unknown or absent; `stamp` records a review. An advisory, not a gate - /flow:eli5 relays the LANE_FILE_AGE: line and continues on every exit code, so nothing is let through on it and it is not wired into make verify. Its age verdict carries a committed control (controls/lane-file-age); the tests pin the states the control does not."
+    },
     "lane-serveability-check.sh": {
       "class": "tested",
       "consumer": "tests/test_lane_serveability.py",
       "reason": "decides whether /qwen:auto and /gemma:auto delegate at all"
+    },
+    "monthly-review.py": {
+      "class": "tested",
+      "consumer": "tests/test_monthly_review.py",
+      "reason": "the /monthly:create and /monthly:review helper (#1703): reports which review covers this month (open, done, none, unknown) and writes the month's issue once. A reporter and a writer, not a gate - `create` re-reads the state before writing instead of trusting an earlier `status`. monthly-review.py is driven through its own entry point by the consumer"
     },
     "maintain-loop-indicator.py": {
       "class": "tested",

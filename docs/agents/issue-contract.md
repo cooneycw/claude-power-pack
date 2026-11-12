@@ -168,9 +168,34 @@ sentences of ordinary prose - there is no required per-item line, no separate
 artifact, no schema and no checkbox gate. What is not allowed is silence: an item
 nobody mentions is unresolved, never delivered by default.
 
+**Say where it was demonstrated.** When the project has a lane file
+(`.claude/lanes.md`), a Demonstrated item names the lanes it was demonstrated
+in. A listed lane nobody names is not tested - never covered by default. The
+plan answers every listed lane before the work starts and the closing report
+shows the same rows with results; the four answers and the format are in
+[the lanes reference](lanes.md). A project with no lane file is asked nothing.
+
+**Say who reads what you changed.** When the change alters an output another
+part reads - a response shape, a file format, a status line, an exit code - the
+plan names each reader and says whether a test feeds it the writer's REAL
+output. A hand-written copy of the other side is not evidence that the pair
+works. The answers, and where the rows go, are in
+[the readers reference](changed-output-readers.md).
+
 **Say which claims are machine-checked.** "lint and tests pass" is evidence about
 checks. Whether the intended behaviour arrived is a judgement, by an agent or a
 person, and the report should not let the first stand in for the second.
+
+### A defect says where it came from
+
+A defect report, and the report that closes its fix, each carry an `Origin:`
+line: the issue or pull request that delivered the behaviour that broke,
+`never worked`, or `not traced` with what was tried. The fix adds a
+`Missed because:` line saying why the original work's test did not catch it.
+Both answers come from one closed list, written once in
+[the closing-report contract](closing-report-contract.md#a-report-that-closes-a-defect-says-where-it-came-from).
+This is how a later reader finds the completions that fell short of their test
+without re-reading every fix. Blank is not an answer; `not traced` is.
 
 ### Closing has to agree with the accounting
 

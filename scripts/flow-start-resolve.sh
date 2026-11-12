@@ -278,7 +278,9 @@ while [ "$#" -gt 0 ]; do
       ;;
     --session-cwd=*) SESSION_CWD_ARG="${1#--session-cwd=}" ;;
     --help|-h)
-      sed -n '2,80p' "$0" | sed 's/^# \{0,1\}//'
+      # To the END of the header comment (its first blank line), never a line
+      # range: a range goes stale the day the header grows (issue #1713).
+      sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     --*) usage_fail "unknown option: $1" ;;
@@ -490,6 +492,15 @@ set_wt_path() {
 # gh resolves the repo from its cwd, so run it from the TARGET repo.
 ISSUE_STATE=$(cd "$TARGET_REPO" && "$GH" issue view "$ISSUE_NUM" --json state --jq .state 2>/dev/null) || true
 [ -n "${ISSUE_STATE:-}" ] || fail "could not fetch issue #$ISSUE_NUM via gh in $TARGET_REPO (not found, or gh unauthenticated)"
+# `gh issue view <N>` answers for a PULL REQUEST too, so `/flow:auto <PR number>`
+# used to create a branch and a worktree named for a PR (issue #1713). The url
+# says which it is. Checked BEFORE anything is created. FAIL-OPEN on this one
+# field: the state fetch above has already succeeded, so an unreadable or
+# unfamiliar url proceeds exactly as before rather than refusing a real issue.
+ISSUE_URL=$(cd "$TARGET_REPO" && "$GH" issue view "$ISSUE_NUM" --json url --jq .url 2>/dev/null) || ISSUE_URL=""
+case "$ISSUE_URL" in
+  */pull/*) fail "#$ISSUE_NUM is a pull request, not an issue - /flow starts from the issue the pull request addresses" ;;
+esac
 ISSUE_TITLE=$(cd "$TARGET_REPO" && "$GH" issue view "$ISSUE_NUM" --json title --jq .title 2>/dev/null | tr '\n\t' '  ' | sed 's/[[:space:]]*$//') || true
 [ -n "${ISSUE_TITLE:-}" ] || ISSUE_TITLE="(no title)"
 

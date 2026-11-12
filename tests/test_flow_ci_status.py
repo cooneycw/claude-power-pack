@@ -2229,3 +2229,189 @@ def test_a_STRUCTURAL_unknown_under_wait_returns_at_once_and_nonzero(tmp_path):
     assert m["FLOW_CI_WAIT"] == ["none"]
     assert "FLOW_CI_RETRYABLE" not in m
     assert result.returncode == 2
+
+
+# --------------------------------------------------------------------------- #
+# Issue #1711: small hardening fixes on the fallback path.
+# --------------------------------------------------------------------------- #
+
+@requires_bash
+def test_a_NEWLINE_in_a_step_error_does_not_invent_a_second_failed_step(tmp_path):
+    """RED before #1711: the error's second line was read as another step,
+    with no type, so the origin of a plain code failure read `unknown`."""
+    result = _api_failure(tmp_path, [
+        {"name": "clone", "type": "clone", "state": "success", "exit_code": 0},
+        {"name": "validate", "type": "commands", "state": "failure", "exit_code": 2,
+         "error": "first line of the error\nsecond line|with a pipe\r\nthird"},
+    ])
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_FAILED_STEP"] == ["validate"], result.stdout
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["code"]
+
+
+@requires_bash
+def test_a_single_line_step_error_is_read_as_before(tmp_path):
+    """Must-not-flip: the cancellation marker still reaches its reader."""
+    result = _api_failure(tmp_path, [
+        {"name": "validate", "type": "commands", "state": "killed", "exit_code": 137, "error": "Canceled"},
+        {"name": "lint", "type": "commands", "state": "failure", "exit_code": 1},
+    ])
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_FAILED_STEP"] == ["validate", "lint"], result.stdout
+
+
+def _gh_with_stderr_noise(tmp_path: Path, contexts: list[str], noise: str) -> Path:
+    """`_write_fake_gh`, but the SUCCESSFUL protection read also writes
+    `noise` to stderr, the way gh prints a notice."""
+    gh = _write_fake_gh(tmp_path, contexts=contexts)
+    text = gh.read_text(encoding="utf-8")
+    marker = "      cat <<'CTX'"
+    assert text.count(marker) == 1, "fixture precondition: one protection answer to decorate"
+    gh.write_text(text.replace(marker, f'      echo "{noise}" >&2\n{marker}'), encoding="utf-8")
+    return gh
+
+
+@requires_bash
+def test_gh_STDERR_on_a_successful_protection_read_is_not_a_required_context(tmp_path):
+    """RED before #1711: stderr was captured with stdout, so a line gh wrote
+    there became a context name. Here that line names the PUSH lane, which made
+    both lanes look required and the event fall back to push."""
+    curl = _both_lanes_curl(tmp_path)
+    gh = _gh_with_stderr_noise(
+        tmp_path / "bin", ["ci/woodpecker/pr/woodpecker"], "ci/woodpecker/push/woodpecker"
+    )
+    result = _run(tmp_path, SHA, "--repo", "o/r",
+                  env={"FLOW_CI_CURL": str(curl), "FLOW_CI_GH": str(gh)})
+    markers = _markers(result.stdout)
+    assert markers["FLOW_CI_EVENT"][0].startswith("pull_request (branch-protection on main"), result.stdout
+    assert markers["FLOW_CI_PIPELINE"] == ["90"]
+
+
+@requires_bash
+def test_a_real_second_context_on_STDOUT_is_still_read(tmp_path):
+    """Must-not-flip: the same push-lane name as a REAL context still counts."""
+    curl = _both_lanes_curl(tmp_path)
+    gh = _write_fake_gh(
+        tmp_path / "bin", contexts=["ci/woodpecker/pr/woodpecker", "ci/woodpecker/push/woodpecker"]
+    )
+    result = _run(tmp_path, SHA, "--repo", "o/r",
+                  env={"FLOW_CI_CURL": str(curl), "FLOW_CI_GH": str(gh)})
+    assert not _markers(result.stdout)["FLOW_CI_EVENT"][0].startswith("pull_request (branch-protection")
+
+
+def _polling_curl(tmp_path: Path, statuses: list[str]) -> Path:
+    """A curl whose pipeline LIST answers `statuses` in turn (the last one
+    repeats), and whose pipeline DETAIL is unreadable."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    counter = tmp_path / "polls"
+    lines = ["#!/usr/bin/env bash", 'url="${@: -1}"', 'case "$url" in',
+             '  *"/api/repos/lookup/"*) echo \'{"id": 17}\' ;;',
+             '  *"pipelines?per_page"*)',
+             f'    n=$(cat "{counter}" 2>/dev/null || echo 0); echo $((n + 1)) > "{counter}"',
+             '    case "$n" in']
+    for index, status in enumerate(statuses[:-1]):
+        lines.append(f"      {index}) echo '{json.dumps([_pipeline(7, SHA, status)])}' ;;")
+    lines += [f"      *) echo '{json.dumps([_pipeline(7, SHA, statuses[-1])])}' ;;", "    esac ;;",
+              '  *"pipelines/7"*) exit 22 ;;', "  *) echo '{}' ;;", "esac", ""]
+    path = tmp_path / "curl"
+    path.write_text("\n".join(lines), encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+@requires_bash
+def test_a_stall_check_from_an_EARLIER_poll_is_not_reported_for_a_later_one(tmp_path):
+    """RED before #1711: poll 1 (`running`) could not read the pipeline detail
+    and recorded `unavailable`; poll 2 (`success`) never runs the check, and
+    the first poll's answer was printed beside `success`."""
+    curl = _polling_curl(tmp_path / "bin", ["running", "success"])
+    result = _run(tmp_path, SHA, "--repo", "o/r", "--wait", "60", env={"FLOW_CI_CURL": str(curl)})
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_STATUS"] == ["success"], result.stdout + result.stderr
+    assert (tmp_path / "bin" / "polls").read_text().strip() == "2", "fixture precondition: two polls"
+    assert "FLOW_CI_STALL_CHECK" not in m, m
+
+
+@requires_bash
+def test_a_stall_check_from_THIS_poll_is_still_reported(tmp_path):
+    """Must-not-flip: the same unreadable detail, on the poll that reports."""
+    curl = _polling_curl(tmp_path / "bin", ["running"])
+    result = _run(tmp_path, SHA, "--repo", "o/r", env={"FLOW_CI_CURL": str(curl)})
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_STATUS"] == ["running"], result.stdout + result.stderr
+    assert m["FLOW_CI_STALL_CHECK"] == ["unavailable (pipeline detail unreadable)"]
+
+
+def _gh_classic_answers(tmp_path: Path, answers: list[str], ruleset_contexts: list[str]) -> Path:
+    """A gh whose CLASSIC protection read answers `answers` in turn: "404"
+    (fails, 404 on stderr), "500" (fails, no 404) or "ok" (succeeds, empty).
+    The rulesets read answers `ruleset_contexts`."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    counter = tmp_path / "classic-calls"
+    body = [
+        "#!/usr/bin/env bash",
+        'if [[ "$1" == "api" ]]; then',
+        '  case "$2" in',
+        "    */protection/required_status_checks)",
+        f'      n=$(cat "{counter}" 2>/dev/null || echo 0); echo $((n + 1)) > "{counter}"',
+        '      case "$n" in',
+    ]
+    for index, answer in enumerate(answers):
+        action = {
+            "404": 'echo "gh: Not Found (HTTP 404)" >&2; exit 1',
+            "500": 'echo "gh: Server Error (HTTP 500)" >&2; exit 1',
+            "ok": "exit 0",
+        }[answer]
+        body.append(f"        {index}) {action} ;;")
+    body += [
+        '        *) echo "unexpected extra classic read" >&2; exit 1 ;;',
+        "      esac ;;",
+        "    */rules/branches/*)",
+        "      cat <<'CTX'",
+        *ruleset_contexts,
+        "CTX",
+        "      exit 0 ;;",
+        "    repos/*/*/*) exit 1 ;;",
+        '    repos/*) echo "main"; exit 0 ;;',
+        "  esac",
+        "fi",
+        "exit 1",
+        "",
+    ]
+    path = tmp_path / "gh"
+    path.write_text("\n".join(body), encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+@requires_bash
+@pytest.mark.parametrize("tmpdir", [None, "/dev/null"])
+@pytest.mark.parametrize(
+    "answers,no_rule",
+    [
+        (["404", "404"], True),    # asked twice, 404 both times: no classic rule
+        (["404", "ok"], False),    # the second answer differs: unreadable
+        (["500", "500"], False),   # fails without a 404: unreadable
+        (["404", "500"], False),   # the 404 was not repeated: unreadable
+    ],
+)
+def test_NO_CLASSIC_RULE_is_concluded_only_from_a_404_seen_on_the_second_read(
+    tmp_path, answers, no_rule, tmpdir
+):
+    """#1711 and its counter-model review. stderr is no longer captured with
+    the context names, so a failed read is asked once more for its stderr. With
+    a recorded backend an unreadable protection source is `unknown`; the
+    rulesets decide only when the classic rule is known to be absent. An
+    unusable TMPDIR changes nothing: the first cut used a temp file there."""
+    curl = _both_lanes_curl(tmp_path)
+    gh = _gh_classic_answers(tmp_path / "bin", answers, ["ci/woodpecker/pr/woodpecker"])
+    env = {"FLOW_CI_CURL": str(curl), "FLOW_CI_GH": str(gh), "CPP_FLOW_CI_BACKEND": "woodpecker"}
+    if tmpdir is not None:
+        env["TMPDIR"] = tmpdir
+    result = _run(tmp_path, SHA, "--repo", "o/r", env=env)
+    event = _markers(result.stdout)["FLOW_CI_EVENT"][0]
+    if no_rule:
+        assert event.startswith("pull_request (branch-protection on main"), result.stdout
+    else:
+        assert "required protection source unreadable" in event, result.stdout
+    assert (tmp_path / "bin" / "classic-calls").read_text().strip() == "2", "a failed read is asked twice"

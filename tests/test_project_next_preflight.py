@@ -75,7 +75,9 @@ def test_input_and_help_never_observe_live_prerequisites(tmp_path, monkeypatch, 
     fixture = tmp_path / "state.json"
     fixture.write_text(json.dumps(scenarios["empty_repository"]["state"]))
     assert project.main([str(tmp_path), "--input", str(fixture), "--json"]) == 0
-    assert json.loads(capsys.readouterr().out)["contract_version"] == "1.9"
+    # The pin is the ownership manifest, not a literal restated here (#1719).
+    pinned = json.loads((ROOT / "lib" / "project_next" / "ownership.json").read_text())["contract_version"]
+    assert json.loads(capsys.readouterr().out)["contract_version"] == pinned
     with pytest.raises(SystemExit) as exc:
         project.main(["--help"])
     assert exc.value.code == 0

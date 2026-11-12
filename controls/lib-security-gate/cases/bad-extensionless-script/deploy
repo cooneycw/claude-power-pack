@@ -1,0 +1,4 @@
+#!/bin/sh
+# Synthetic: the same planted value as cases/bad-critical-secret, in a script
+# with a shebang and no file extension (issue #1737). The gate must read it.
+AWS_ACCESS_KEY_ID = "AKIAIOSFODNN7EXAMPLE"

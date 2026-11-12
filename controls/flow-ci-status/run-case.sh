@@ -55,6 +55,8 @@ fi
 # step record then carries no `error` field at all, exactly as before). A case
 # supplies the provider's own message verbatim; jq encodes it, so quotes and
 # backslashes in a real daemon message survive into the stub's JSON.
+# The text may span lines (issue #1711): only the file's final newline is
+# dropped, interior ones are kept.
 step_error_json=""
 if [ -f "$case_dir/error" ]; then
     step_error_json=$(jq -Rs 'sub("\\n$"; "")' < "$case_dir/error") || {

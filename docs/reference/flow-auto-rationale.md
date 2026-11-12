@@ -889,7 +889,29 @@ collapse" note above).
    - `COUNTER_MODEL_REVIEW: findings` - triage each as accepted (fix it now, in
      this worktree, under the Step-4 rules), rejected (one-line reason), or
      deferred (real but out of scope - route it to the nit store). If anything
-     was accepted and fixed, re-review **once** more, never a third time.
+     was accepted and fixed, re-review. A finding accepted on the last allowed
+     pass (pass 2) is still FIXED, and the approver is then asked for a further
+     pass so the fix is reviewed (issue #1700). Pass 3 is recorded with the
+     reason alone; only a count above 3 needs the cap raised and the ruling
+     recorded. There is never a
+     receipt for an unreviewed head, and never a false pass count: before #1700
+     this sentence read "re-review once more, never a third time", which left a
+     finding accepted on pass 2 with no legal outcome.
+
+     WHO THE APPROVER IS, for this purpose: whoever approved the plan at Step 3
+     - the user, or in a wave the orchestrator. The ask is made before EACH
+     further pass, and the run waits for the answer.
+
+     IF THE APPROVER DECLINES a further pass, the receipt is written for the
+     LAST REVIEWED head with its true count, and the approver says which of two
+     things happens to the fix made after it: (i) it is backed out and the
+     finding goes to its own issue; or (ii) it stays as a commit after the
+     receipt, and the PR names it, in words, as not reviewed by the second
+     model. A finding of medium severity or higher takes route (i) unless the
+     approver reads the fix themselves and says so in the PR. Never a receipt
+     for the unreviewed head, never a false count, never silence (wave
+     cpp-improvement orchestrator ruling, 2026-11-11, under the owner's
+     delegation).
    - `COUNTER_MODEL_REVIEW: clean` - the reviewer said so in the prescribed
      words. Record `ran` with zero counts.
    - `COUNTER_MODEL_REVIEW: unparseable` (non-zero) - the reviewer produced
@@ -990,7 +1012,13 @@ collapse" note above).
    cap that was explicitly requested (say, by an orchestrator on the final head)
    is still recorded, with `--passes 3 --extra-pass-reason "<who asked, and why>"`.
    The writer refuses a third pass without a reason, and a reason without one
-   (issue #1400).
+   (issue #1400). Above 3 the review is ESCALATED (issue #1700): a named
+   authority raised the cap for that run, and the receipt records the true
+   count with `--escalated-by "<who>"`, `--escalation-ref "<where the ruling can
+   be read>"` and `--raised-cap N` (at most 10), beside the reason. The ruling is
+   recorded, not authenticated. The writer and the validator refuse a count
+   above 3 with no ruling; the finish gate does not read the count yet (issue
+   #1765).
 
    **CI enforces this receipt at the merge boundary (issue #1452).** The
    `counter-model-enrolment` pull_request step runs `flow-finish-gate.sh
@@ -1061,6 +1089,23 @@ collapse" note above).
    `${CLAUDE_PLUGIN_ROOT}/scripts/flow-finish-gate.sh` (bundled with the
    plugin, #590), else the CPP-checkout copy; either may prompt once - tell the
    user to run **`/flow:repair`** to restore the prompt-free lane.)
+
+   **Why the gate runs before the push, and the one exception (issue #1706).**
+   The default order is gate, then push: pushing first for every project would
+   publish commits nothing has verified yet. Some projects' own gates need the
+   pushed head, though. Kyle's `ci_shape_check.py` clones the ref under test
+   fresh from GitHub and exits 4 when the ref is not there, by design, so the
+   first gate run on an unpushed commit was red (reported five times: Nit Store
+   seq 631, 652, 654, 655, 671). For such a project the branch is pushed first
+   and then gated. The gate step comes before the commit step, so "push first"
+   means commit, then push, then gate: a push of the old head would have the
+   gate examine a tree without the change. A branch push opens no pull request
+   and merges nothing; the pull request is still created only after a gate
+   verdict, and a red or absent verdict stops the run exactly as before, with
+   the branch on origin and nothing opened from it. Step 7's re-gate has the
+   same shape: the merge commit is local until pushed. Which projects need this
+   is the project's knowledge, not something the helper detects; the symptom is
+   a gate that refuses the commit because the remote does not have it.
 
    **A run with no `FLOW_FINISH_GATE:` verdict line did not run the gate: **STOP**
    (issue #1547).** The trigger is the verdict LINE, never the exit code: 127

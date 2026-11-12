@@ -19,6 +19,12 @@
       "expect": "BAD"
     },
     {
+      "name": "bad-fetch-failure-multiline-error",
+      "input": "cases/bad-fetch-failure-multiline-error",
+      "expect": "BAD",
+      "why": "The same fetch failure, with a two-line error from the provider. It is ONE failed step and still precode. Before issue #1711 the second line was read as another failed step with no type, and the origin was no longer precode."
+    },
+    {
       "name": "good-hash-mismatch-exit-1",
       "input": "cases/good-hash-mismatch-exit-1",
       "expect": "GOOD"

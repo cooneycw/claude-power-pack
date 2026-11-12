@@ -63,6 +63,211 @@ incident behind it, goes in a linked reference under `docs/reference/`.
 - `/flow:auto` is the first document trimmed this way. Its history is in
   [flow-auto-rationale.md](reference/flow-auto-rationale.md).
 
+### Rationale moved out of `/flow:eli5` and `/codex:code_review` (#1695)
+
+Both documents were at their word budgets when #1695 added the lane pointer and
+the lane question (see [the lanes reference](agents/lanes.md)). The passages
+below were moved here verbatim to pay for them. They explain why a step exists;
+no step was removed.
+
+From `/flow:eli5`, the closing-report section (issue #965):
+
+> Note the asymmetry this closes, because it is the whole of #965: the bar below
+> applies when an agent wants a **yes**, and until #965 nothing applied when it
+> hands the work **back** - the moment the context is largest and the reader's
+> attention thinnest.
+
+From `/flow:eli5`, the first Notes bullet, moved by #1696 to pay for the lane
+file age advisory (the document's opening already says what the command is for):
+
+> This command is the communication and approval checkpoint: intent in the reviewer's language, an honest necessity verdict, and the plan that is about to be executed.
+
+From `/project:init`, moved by #1696 to pay for its lane file sub-step. The
+closing summary of Step 4c:
+
+> The net effect: `/init` owns the config-scaffold generation (its native job), and
+> CPP owns the governance overlay - no duplicated CLAUDE.md template to maintain.
+
+and the rest of the Step 4b comment on `hooks.json` (issue #1206):
+
+> Claude Code never loads
+> .claude/hooks.json, so shipping it only created the impression of a
+> protection that was not running.
+
+From `/github:issue-create`, moved by #1697 to pay for the defect-origin
+question. It is the worked example that closed the document; Steps 1 to 4 carry
+every instruction it illustrates:
+
+> ## Example Interaction
+>
+> ```
+> User: /github:issue-create
+>
+> Claude: What type of issue would you like to create?
+> 1. Best Practice Suggestion
+> 2. Documentation Correction
+> 3. Feature Request
+> 4. Bug Report
+>
+> User: 1
+>
+> Claude: Great! Let's create a best practice suggestion.
+>
+> What's the title of this practice?
+>
+> User: Use session resets after git commits
+>
+> Claude: Which category does this practice belong to?
+> - Skills & Activation
+> - MCP Optimization
+> - Session Management
+> - Context Efficiency
+> - CLAUDE.md Configuration
+> - Hooks & Automation
+> - Workflow Patterns
+> - Plan Mode
+> - Code Quality
+> - Other
+>
+> User: Session Management
+>
+> Claude: Please describe the practice and why it's useful.
+>
+> User: After completing a feature and committing, reset your Claude Code session...
+>
+> [Claude creates the issue and returns the URL]
+> ```
+
+From `/project:init` Step 4c, moved by #1697 to pay for the bug-form install.
+The sentence read:
+
+> Delegate this half to Claude Code's
+> native `/init`, which interviews the project and generates a codebase-aware
+> CLAUDE.md (and scaffolds skills/hooks) far better than a fixed template. CPP then
+> layers its CI/CD governance directives on top so nothing is lost.
+
+Also from `/project:init`, the line that opened Step 4a, moved by #1697 for the
+same reason (the heading already says "from lib/cicd"):
+
+> The `lib/cicd` library can detect the framework and generate a Makefile:
+
+Moved by #1697 Part 2, to pay for the reader question and the test-quality
+question in `/codex:code_review` and one sentence in `/flow:eli5`.
+
+From `/codex:code_review` Step 3, the network-fence paragraph (issue #1450).
+After "posted to an issue as the owner." it read:
+
+> The cause was not confirmed. Three candidates were left: the
+> read-only sandbox did not fence the network there, a host configuration let a
+> sandbox-denied command be approved to run outside it, or the caller supplied
+> `danger-full-access`. So the fix does not rely on any one of them:
+
+From `/codex:code_review` Notes, the middle of the `## Red cases` bullet
+(issue #1030):
+
+> it was previously
+> supplied only by `/flow:auto`'s call site, which meant a document reading
+> this contract alone and following "Return ONLY a findings report" would
+> silently get no red cases.
+
+From `/flow:eli5`, the opening of the closing-report section (issue #965). The
+first sentence ended ", like its sibling below.", and was followed by:
+
+> It adds no rule to the gate and changes nothing inside the
+> markers.
+
+From `/codex:code_review` Step 2, above the `trap` that removes the diff file:
+
+> Four refusal paths below (no common ancestor, no diff vs BASE, an unreadable
+> or disallowed sandbox mode, a HOME that cannot be created) used to `exit 3`
+> without removing $DIFF_FILE - only the two LATER refusals in the next block
+> did (issue #1494). A trap covers every exit from THIS point in this shell,
+> including ones added later, rather than four hand-matched `rm -f` calls that
+> the next refusal added here would silently miss again.
+
+From `/codex:code_review` Step 2, in the merge-base comment (issue #927):
+
+> Measured: a reviewer handed such a diff returned three confident findings
+> against a file the author had never touched, all of them accurate
+> descriptions of reverting someone else's merged work.
+
+From `/codex:code_review` Step 2, above the untracked-file enumeration:
+
+> BOTH commands run from the WORKTREE ROOT explicitly, not the caller's cwd
+> (codex review, Codex-flagged): `git add -N .` and `git ls-files` are
+> relative to cwd, so invoked from a subdirectory they would only mark
+> untracked files beneath it - a new file elsewhere in the worktree would
+> stay invisible to the diff exactly as before this fix, while the count
+> would silently omit it too.
+
+From `/codex:code_review` Step 2, the empty-diff rule (issue #1015):
+
+> This used to
+> stop here - exit 0, "nothing to review vs $BASE" - and that early exit produced
+> no findings report at all. A caller parsing the transcript therefore read
+> `unparseable` and recorded the run as `skipped / reviewer-unavailable`: a skip
+> whose reason names an inability that did not happen. The reviewer was available
+> and was never asked.
+
+### Text moved out of `/flow:auto` and `/flow:finish` (#1706)
+
+Moved by #1706, to pay for one sentence in each document: when a project's
+own gate needs the pushed head, push the branch first, then run the gate.
+
+From `/flow:auto` Step 6 item 2. The helper "owns the runner invocation and
+its Makefile fallback", and the fallback targets were listed in full:
+
+> (`make lint`, `make test`, `make typecheck`, `make verify`)
+
+They are now listed in a compact form, `make lint`/`test`/`typecheck`/`verify`.
+A first trim removed the list altogether, and
+`tests/test_flow_worktree_native.py::test_moat_preserved_in_auto` went red: it
+reads the document for the gate targets.
+
+The bare-invocation instruction carried its origin, "Invoke it BARE (#581
+discipline):"; the discipline is stated once near the top of the document.
+The helper's name carried "(issue #613)". Two guard headings in the same item
+carried their history: "**Ignored-additions guard** (issue #430; blocking in a
+worktree since #1258)" and "**Worktree-leak guard** (issue #486; blocking since
+#576)"; each keeps its issue number and loses the "since" clause.
+The fuller original of the whole item is in
+[the flow:auto rationale](reference/flow-auto-rationale.md), Step 6.
+
+From `/flow:finish`, the paragraph before the verdict table. After "Each
+verdict now has its OWN exit code (issue #1027)" it read:
+
+> - `ok`, `warn` and `skipped` used to share exit 0, so a caller reading only
+> `$?` could not tell "passed cleanly" from "passed but proved nothing" from
+> "did not run at all".
+
+### Text moved out of `/flow:deploy` (#1759)
+
+Moved by #1759, to pay for the condition that keeps the deterministic runner
+for the default target only.
+
+Step 4b opened with a sentence restating its heading:
+
+> **Primary path:** Use the deterministic CI/CD runner for reproducible deploy with security gate:
+
+and its block began with the comment `# Locate CPP source for lib/cicd` above
+the loop that does exactly that.
+### Text moved out of `/cpp:init` (#1716)
+
+Moved by #1716, to pay for what the wizard now says about deny rules, the
+capability question asked as two questions, and step 8b skipped after 5d.
+
+From the Tier 2 installer block, the comment after the host-write seam prints
+its status (`echo "Host-write seam: $SEAM_STATUS"`). It recorded why that
+status line claims only what its own call measured:
+
+> THE STATUS SAYS WHAT IT MEASURED (counter-model review). An earlier draft
+> announced that a deferred bootstrap meant "every host write below will
+> report deferred", which this call does not establish: --defer
+> ~/.claude/scripts defers the SEAM'S OWN INSTALL and says nothing about
+> ~/.claude/settings.json or ~/.bashrc, each of which consults its own
+> defer-set entry and reports its own verdict below. Overclaiming from one
+> surface to all of them is this issue's defect wearing the fix's clothes.
+
 ## Workflow commands - detail beyond the skill listing
 
   - Optional second arg `PROJECT` targets a repo other than the session cwd (resolved as a path, else `~/Projects/<name>`); such cross-repo runs ride the deterministic git-worktree lane end-to-end instead of `EnterWorktree`, which cannot leave the session repo (#578)
@@ -244,7 +449,11 @@ qualifiers such as `/qa:test` being single-session) are not lost.
 
 - `/project:init <name>` - Full project scaffolding (zero to GitHub repo)
 - `/project:next` - Prioritized next-step report (compact default ~2-4K tokens; `--full` deep analysis, `--brief` single pick)
+- `/lane:create` - Draft `.claude/lanes.md` from a survey checklist; the owner reads the draft, with each row's evidence, before anything is written (#1696)
+- `/lane:update` - Re-check the lane file against the repository and recent fixes, write only what the owner accepts, and record the review date (#1696)
 - `/project:lite` - Quick project reference (~500-800 tokens)
+- `/monthly:create` - Scan the repository and write this month's monitoring list as a `Monthly review: YYYY-MM` issue (#1703). `/project:next` reports when a month has none; that report is the only trigger, and `/project:init` creates a new project's first one
+- `/monthly:review` - Work the open monthly review item by item, recording what was done or why an item is carried
 ### Spec-Driven Development
 
 - `/spec:help` - Overview of the spec-kit authoring path

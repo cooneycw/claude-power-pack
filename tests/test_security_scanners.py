@@ -605,3 +605,445 @@ class TestUnreadableFilesAreNotCountedAsExamined:
         (tmp_path / "ok.py").write_text("x = 1\n")
         result = secrets.scan(str(tmp_path))
         assert result.units_scanned == 1
+
+
+
+# --- no shell-substitution exemption: built, reviewed twice, withdrawn (#1717) --
+#
+# IF YOU ARE ABOUT TO TEACH THE SCANNER THAT `password="$(generate_secret)"` IS
+# NOT A SECRET, READ THIS FIRST. That exemption was built for issue #1717 and
+# withdrawn after two counter-model review passes found five ways to hide a
+# hardcoded password behind it (the BYPASSES list below). Whether the shell
+# substitutes a value is a fact about its lexical state - quoting, escaping,
+# nesting, here-documents across lines - and a pattern over one match cannot
+# establish it. In a detector a miss is silent, so the scanner reports every
+# one of these and the repository that knows a line is harmless declares it in
+# `.claude/security.yml` (lib/security/README.md, "Test passwords, sentinels
+# and shell substitutions").
+#
+# Every value is synthetic and shaped like nothing a provider issues.
+
+from lib.security.orchestrator import scan_quick  # noqa: E402
+
+#: Lines that hold no secret: the value is fetched at run time. STILL REPORTED.
+SHELL_SUBSTITUTIONS = [
+    'pg_password="$(generate_secret)"',
+    'PGPASSWORD="$pg_password"',
+    'db_password="${DB_PASSWORD}"',
+    'pg_password="$(set -a; . "$OUT/infra.env"; echo "$PGPASS")"',
+]
+
+#: Lines that DO hold a literal, each of which the withdrawn exemption let
+#: through in one of its two reviewed forms. This is why it was withdrawn.
+BYPASSES = [
+    # pass 1: the pattern stops capturing at the first quote of either kind
+    'db_password="${DB_PASSWORD}\'fixture-tail-9x"',
+    'db_password="${DB_PASSWORD}"\'fixture-tail-9x\'',
+    'export \'db_password="${DB_PASSWORD}"\'',
+    # pass 2: a counter of parentheses and apostrophes is not a shell lexer
+    'db_password="$(printf \'(\')fixture-tail-9x)"',
+    'printf \\\' >/dev/null; export \'db_password="$syntheticPassword" \'',
+]
+
+#: Lines the exemption's own plan said must never be exempt.
+LITERALS = [
+    'db_password="correct-horse-battery-9"',
+    "db_password='$(not-run-in-single-quotes)'",
+    'db_password="hunter2-$(date +%Y)"',
+    'db_password="$(date +%Y)-fixture-tail-9x"',
+    'password="$ecretPassw0rd!"',
+    'db_password="${DB_PASSWORD:-fallback-literal-9x}"',
+    'db_password="${DB_PASSWORD:=fallback-literal-9x}"',
+    'db_password="${DB_PASSWORD-fallback-literal-9x}"',
+    'db_password="${DB_PASSWORD:+fallback-literal-9x}"',
+]
+
+
+def _password_lines(root: Path) -> list[tuple[str, int]]:
+    """Where HARDCODED_PASSWORD fired. Positions only: a finding's value is never shown."""
+    return sorted(
+        (f.file_path or "", f.line_number or 0)
+        for f in secrets.scan(str(root)).findings
+        if f.id == "HARDCODED_PASSWORD"
+    )
+
+
+class TestNoShellSubstitutionExemption:
+    """The scanner's behaviour on shell lines, pinned as a decision."""
+
+    @pytest.mark.parametrize("line", SHELL_SUBSTITUTIONS + BYPASSES + LITERALS)
+    @pytest.mark.parametrize("name", ["deploy.sh", "deploy.bash", "deploy.zsh"])
+    def test_every_password_assignment_in_a_shell_file_is_reported(
+        self, tmp_path: Path, name: str, line: str
+    ) -> None:
+        (tmp_path / name).write_text(f"#!/bin/sh\n{line}\n")
+        assert _password_lines(tmp_path) == [(name, 2)]
+
+    def test_a_multi_line_single_quoted_assignment_is_reported(self, tmp_path: Path) -> None:
+        """The pass-2 case no line-local check could see."""
+        (tmp_path / "deploy.sh").write_text(
+            "#!/bin/sh\nexport CONFIG='\ndb_password=\"$syntheticPassword\"\n'\n"
+        )
+        assert _password_lines(tmp_path) == [("deploy.sh", 3)]
+
+    def test_a_quoted_heredoc_body_is_reported(self, tmp_path: Path) -> None:
+        """The shell substitutes nothing inside `<<'EOF'`, so the text is the value."""
+        (tmp_path / "deploy.sh").write_text(
+            "#!/bin/sh\ncat > app.conf <<'EOF'\ndb_password=\"$syntheticPassword\"\nEOF\n"
+        )
+        assert _password_lines(tmp_path) == [("deploy.sh", 3)]
+
+    def test_the_module_carries_no_exemption_machinery(self) -> None:
+        """A name scan, so it says only this: nothing called an exemption came back."""
+        source = Path(secrets.__file__).read_text(encoding="utf-8")
+        for name in ("_is_shell_substitution", "SHELL_EXTENSIONS", "_SHELL_BARE_REFERENCE"):
+            assert name not in source, f"{name} is back in the scanner: read the note above this class"
+
+    def test_a_reported_finding_is_unchanged_in_id_severity_and_text(self, tmp_path: Path) -> None:
+        (tmp_path / "deploy.sh").write_text(f"{LITERALS[0]}\n")
+        (finding,) = secrets.scan(str(tmp_path)).findings
+        assert finding.id == "HARDCODED_PASSWORD"
+        assert finding.severity == Severity.HIGH
+        assert finding.title == "Hardcoded password in source code"
+        assert finding.fix == "Move to environment variable or secrets manager."
+
+    def test_a_shell_script_with_no_extension_is_read_and_reported(self, tmp_path: Path) -> None:
+        """Replaces the #1717 test that pinned the opposite (issue #1737).
+
+        That test recorded a limit - `deploy` with a shebang was outside the
+        scanner's population, `units_scanned == 0` - so the limit was visible.
+        #1737 removes the limit, so the same input now has the other verdict.
+        """
+        (tmp_path / "deploy").write_text(f"#!/bin/sh\n{LITERALS[0]}\n")
+        result = secrets.scan(str(tmp_path))
+        assert result.units_scanned == 1
+        assert [(f.id, f.file_path, f.line_number) for f in result.findings] == [("HARDCODED_PASSWORD", "deploy", 2)]
+
+
+class TestTheConsumerDeclaresWhatIsHarmless:
+    """Project state: with and without `.claude/security.yml` (issue #1717).
+
+    The two declarations the README documents, each shown to clear exactly
+    what it names and nothing beside it.
+    """
+
+    def _project(self, root: Path) -> None:
+        (root / "tests").mkdir()
+        (root / "tests" / "test_login.py").write_text('client.login(password="privtest-fixture")\n')
+        (root / "docker").mkdir()
+        (root / "docker" / "install.sh").write_text(
+            f"{SHELL_SUBSTITUTIONS[0]}\n{LITERALS[0]}\n"
+        )
+
+    def _found(self, root: Path) -> list[tuple[str | None, int | None]]:
+        return sorted(
+            (f.file_path, f.line_number)
+            for f in scan_quick(str(root)).findings
+            if f.id == "HARDCODED_PASSWORD"
+        )
+
+    def test_with_no_config_everything_is_reported(self, tmp_path: Path) -> None:
+        self._project(tmp_path)
+        assert not (tmp_path / ".claude" / "security.yml").exists()  # the negative precondition
+        assert self._found(tmp_path) == [
+            ("docker/install.sh", 1), ("docker/install.sh", 2), ("tests/test_login.py", 1),
+        ]
+
+    def test_a_path_suppression_clears_the_test_tree_only(self, tmp_path: Path) -> None:
+        self._project(tmp_path)
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "security.yml").write_text(
+            "suppressions:\n"
+            "  - id: HARDCODED_PASSWORD\n"
+            "    path: 'tests/.*'\n"
+            '    reason: "test fixtures and sentinels, not credentials"\n'
+        )
+        assert self._found(tmp_path) == [("docker/install.sh", 1), ("docker/install.sh", 2)]
+
+    def test_an_exact_value_pin_clears_one_substitution_and_not_the_literal_beside_it(
+        self, tmp_path: Path
+    ) -> None:
+        """The narrow declaration: the literal on the next line of the SAME file still reports."""
+        self._project(tmp_path)
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "security.yml").write_text(
+            "suppressions:\n"
+            "  - id: HARDCODED_PASSWORD\n"
+            "    path: '^docker/install\\.sh$'\n"
+            "    secret: '\\$\\(generate_secret\\)'\n"
+            '    reason: "fetched at run time; no secret is written in the file"\n'
+        )
+        assert self._found(tmp_path) == [("docker/install.sh", 2), ("tests/test_login.py", 1)]
+
+_REAL_FSTAT = os.fstat
+
+
+class TestExtensionlessFilesAreRead:
+    """Scripts and build files with no extension join the scan (issue #1737).
+
+    Two rules add files: a shebang on a file with no suffix, and a short list
+    of exact basenames. Everything else with no extension stays unread and is
+    COUNTED, so a zero no longer reads as "looked everywhere". Nothing here may
+    change which files the extension rule selects.
+    """
+
+    BODY = f"{LITERALS[0]}\n"
+
+    @staticmethod
+    def _paths(result: ScanResult) -> list[str]:
+        return sorted(f.file_path or "" for f in result.findings)
+
+    @classmethod
+    def _hits(cls, root: Path) -> list[str]:
+        return cls._paths(secrets.scan(str(root)))
+
+    @pytest.mark.parametrize("shebang", ["#!/bin/sh", "#!/usr/bin/env python3", "#!/usr/bin/env bash"])
+    def test_a_shebang_file_is_read_whatever_its_interpreter(self, tmp_path: Path, shebang: str) -> None:
+        (tmp_path / "release").write_text(f"{shebang}\n{self.BODY}")
+        assert self._hits(tmp_path) == ["release"]
+
+    def test_the_shebang_decides_not_the_execute_bit(self, tmp_path: Path) -> None:
+        """Both stated answers: shebang without the bit is read; the bit without a shebang is not."""
+        with_shebang = tmp_path / "hook"
+        with_shebang.write_text(f"#!/bin/sh\n{self.BODY}")
+        with_shebang.chmod(0o644)
+        only_executable = tmp_path / "tool"
+        only_executable.write_text(self.BODY)
+        only_executable.chmod(0o755)
+        assert not os.access(with_shebang, os.X_OK) and os.access(only_executable, os.X_OK)  # the preconditions
+        result = secrets.scan(str(tmp_path))
+        assert self._paths(result) == ["hook"]
+        assert result.unexamined == [
+            "1 file(s) with no recognised extension were NOT read (1 no shebang or known name)"
+        ]
+
+    @pytest.mark.parametrize(
+        "name", ["Makefile", "GNUmakefile", "makefile", "Dockerfile", "Containerfile", "Dockerfile.dev"]
+    )
+    def test_a_well_known_build_file_is_read_without_a_shebang(self, tmp_path: Path, name: str) -> None:
+        (tmp_path / name).write_text(self.BODY)
+        assert self._hits(tmp_path) == [name]
+
+    @pytest.mark.parametrize(
+        "name", ["Makefile.bak", "my-Dockerfile", "MAKEFILE", "dockerfile", "Makefile-old", "Dockerfile."]
+    )
+    def test_a_near_miss_of_a_known_name_is_not_read(self, tmp_path: Path, name: str) -> None:
+        """The list is exact basenames plus `Dockerfile.<x>`; nothing looser."""
+        (tmp_path / name).write_text(self.BODY)
+        (tmp_path / "Makefile").write_text("all:\n\ttrue\n")  # the list itself still works in this tree
+        result = secrets.scan(str(tmp_path))
+        assert result.findings == []
+        assert result.units_scanned == 1, "only the real Makefile was read"
+
+    def test_a_binary_file_is_not_read(self, tmp_path: Path) -> None:
+        (tmp_path / "blob").write_bytes(b"#!/bin/sh\n\x00\x01\x02" + self.BODY.encode())
+        result = secrets.scan(str(tmp_path))
+        assert result.findings == [] and result.units_scanned == 0
+        assert result.unexamined == ["1 file(s) with no recognised extension were NOT read (1 binary)"]
+
+    def test_a_very_large_file_is_not_read(self, tmp_path: Path) -> None:
+        big = tmp_path / "dump"
+        big.write_text(f"#!/bin/sh\n{self.BODY}" + "x" * secrets.EXTENSIONLESS_MAX_BYTES)
+        assert big.stat().st_size > secrets.EXTENSIONLESS_MAX_BYTES  # the precondition
+        result = secrets.scan(str(tmp_path))
+        assert result.findings == [] and result.units_scanned == 0
+        assert result.unexamined == ["1 file(s) with no recognised extension were NOT read (1 over 1 MB)"]
+
+    def test_a_file_exactly_at_the_cap_is_read(self, tmp_path: Path) -> None:
+        head = f"#!/bin/sh\n{self.BODY}"
+        (tmp_path / "edge").write_text(head + "x" * (secrets.EXTENSIONLESS_MAX_BYTES - len(head)))
+        assert (tmp_path / "edge").stat().st_size == secrets.EXTENSIONLESS_MAX_BYTES  # the precondition
+        assert self._hits(tmp_path) == ["edge"]
+
+    @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs a platform with FIFOs")
+    def test_a_fifo_is_counted_and_the_scan_returns(self, tmp_path: Path) -> None:
+        """A FIFO with no writer blocks a plain open forever; the scan must not wait on it."""
+        os.mkfifo(tmp_path / "pipe")
+        assert stat.S_ISFIFO((tmp_path / "pipe").lstat().st_mode)  # the precondition
+        (tmp_path / "deploy").write_text(f"#!/bin/sh\n{self.BODY}")
+        result = secrets.scan(str(tmp_path))
+        assert self._paths(result) == ["deploy"]
+        assert result.unexamined == [
+            "1 file(s) with no recognised extension were NOT read (1 a symlink or not a regular file)"
+        ]
+
+    def test_a_symlink_is_never_followed(self, tmp_path: Path) -> None:
+        """Not out of the root, and not inside it either: the target is read under its own name if it qualifies."""
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "secret-script").write_text(f"#!/bin/sh\n{self.BODY}")
+        root = tmp_path / "root"
+        root.mkdir()
+        (root / "link").symlink_to(outside / "secret-script")
+        assert (root / "link").is_symlink() and (root / "link").read_text().startswith("#!")  # the preconditions
+        result = secrets.scan(str(root))
+        assert result.findings == [] and result.units_scanned == 0
+        assert result.unexamined == [
+            "1 file(s) with no recognised extension were NOT read (1 a symlink or not a regular file)"
+        ]
+
+    @staticmethod
+    def _count_reads(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+        """Record how many bytes each `os.read` in the scanner returned."""
+        real_read = os.read
+        real_fstat = _REAL_FSTAT  # the scanner's own `os.fstat` may be patched by the caller
+        sizes: list[int] = []
+
+        def counting_read(fd: int, n: int) -> bytes:
+            data = real_read(fd, n)
+            if stat.S_ISREG(real_fstat(fd).st_mode):  # not the pipes of the git child process
+                sizes.append(len(data))
+            return data
+
+        monkeypatch.setattr(secrets.os, "read", counting_read)
+        return sizes
+
+    def test_the_read_is_bounded_even_when_the_size_check_is_passed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The read itself is capped: at most the cap plus one byte is ever read.
+
+        The size check alone does not bound the read, so the file is made to
+        outgrow it after that check (the only way to hand the reader more than
+        it was promised). The verdict would not show the bound: an unlimited
+        read followed by a length check gives the same "over 1 MB". So the
+        bytes actually read are counted, on a file three times the cap.
+        """
+        target = tmp_path / "deploy"
+        target.write_text("#!/bin/sh\ntrue\n")
+        real_fstat = os.fstat
+        grown = []
+
+        def fstat_then_grow(fd: int) -> os.stat_result:
+            result = real_fstat(fd)
+            if not grown and stat.S_ISREG(result.st_mode) and result.st_size < 100:
+                grown.append(True)
+                with target.open("a") as handle:
+                    handle.write(self.BODY + "x" * (3 * secrets.EXTENSIONLESS_MAX_BYTES))
+            return result
+
+        monkeypatch.setattr(secrets.os, "fstat", fstat_then_grow)
+        sizes = self._count_reads(monkeypatch)
+        result = secrets.scan(str(tmp_path))
+        assert grown, "precondition: the file grew between the size check and the read"
+        assert target.stat().st_size > 3 * secrets.EXTENSIONLESS_MAX_BYTES, "precondition: far more than the cap"
+        assert sum(sizes) == secrets.EXTENSIONLESS_MAX_BYTES + 1, "the read did not stop at the cap plus one byte"
+        assert result.findings == [] and result.units_scanned == 0
+        assert result.unexamined == ["1 file(s) with no recognised extension were NOT read (1 over 1 MB)"]
+
+    def test_a_file_that_does_not_qualify_costs_only_its_head(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No shebang, no known name: judged on the first 8 KB and never read further."""
+        (tmp_path / "notes").write_text(self.BODY + "x" * 900_000)
+        (tmp_path / "blob").write_bytes(b"#!/bin/sh\n\x00" + b"x" * 900_000)
+        sizes = self._count_reads(monkeypatch)
+        result = secrets.scan(str(tmp_path))
+        assert sum(sizes) == 2 * secrets.EXTENSIONLESS_HEAD_BYTES, f"read {sum(sizes)} bytes of two rejected files"
+        assert result.findings == [] and result.units_scanned == 0
+        assert result.unexamined == [
+            "2 file(s) with no recognised extension were NOT read (1 no shebang or known name, 1 binary)"
+        ]
+
+    def test_a_file_under_a_symlinked_directory_is_not_read(self, tmp_path: Path) -> None:
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "deploy").write_text(f"#!/bin/sh\n{self.BODY}")
+        root = tmp_path / "root"
+        root.mkdir()
+        (root / "vendor").symlink_to(outside, target_is_directory=True)
+        assert (root / "vendor" / "deploy").is_file()  # the precondition: reachable by name
+        assert secrets.scan(str(root)).findings == []
+
+    def test_the_reasons_are_counted_separately_in_one_line(self, tmp_path: Path) -> None:
+        (tmp_path / "LICENSE").write_text("text\n")
+        (tmp_path / "NOTICE").write_text("text\n")
+        (tmp_path / "blob").write_bytes(b"\x00\x00")
+        (tmp_path / "app.py").write_text("x = 1\n")
+        result = secrets.scan(str(tmp_path))
+        assert result.unexamined == [
+            "3 file(s) with no recognised extension were NOT read (2 no shebang or known name, 1 binary)"
+        ]
+        assert result.passed == ["No secrets found in 1 source files"], "the existing line keeps its shape"
+        assert result.skipped == [], "the not-read line must not land in `skipped`: its length is on the gate line"
+
+    def test_nothing_is_said_when_every_extensionless_file_was_read(self, tmp_path: Path) -> None:
+        (tmp_path / "Makefile").write_text("all:\n\ttrue\n")
+        result = secrets.scan(str(tmp_path))
+        assert result.unexamined == []
+        assert result.passed == ["No secrets found in 1 source files"]
+
+    def test_the_extension_population_is_exactly_what_it_was(self, tmp_path: Path) -> None:
+        """Adding extensionless neighbours must not change what the extension rule selects or finds."""
+        (tmp_path / "deploy.sh").write_text(self.BODY)
+        (tmp_path / "app.py").write_text("x = 1\n")
+        (tmp_path / ".env.production").write_text("A=1\n")
+        before_files = sorted(p.name for p in secrets._find_source_files(tmp_path))
+        before = secrets.scan(str(tmp_path))
+        (tmp_path / "LICENSE").write_text("text\n")
+        (tmp_path / "blob").write_bytes(b"\x00")
+        (tmp_path / "Makefile").write_text("all:\n\ttrue\n")
+        after = secrets.scan(str(tmp_path))
+        assert sorted(p.name for p in secrets._find_source_files(tmp_path)) == before_files
+        assert [(f.id, f.file_path, f.line_number) for f in after.findings] == [
+            (f.id, f.file_path, f.line_number) for f in before.findings
+        ]
+        assert after.units_scanned == (before.units_scanned or 0) + 1, "one file joined: the Makefile"
+
+    def test_a_file_the_extension_rule_takes_is_not_counted_twice(self, tmp_path: Path) -> None:
+        """`.env` has no suffix and is already selected by name; it must be read once."""
+        (tmp_path / ".env").write_text("A=1\n")
+        result = secrets.scan(str(tmp_path))
+        assert result.units_scanned == 1 and result.unexamined == []
+
+    def test_skip_directories_still_apply(self, tmp_path: Path) -> None:
+        (tmp_path / "node_modules" / ".bin").mkdir(parents=True)
+        (tmp_path / "node_modules" / ".bin" / "tool").write_text(f"#!/bin/sh\n{self.BODY}")
+        result = secrets.scan(str(tmp_path))
+        assert result.findings == [] and result.unexamined == [] and result.units_scanned == 0
+
+    def test_a_path_suppression_clears_an_extensionless_file(self, tmp_path: Path) -> None:
+        """Project state: with a `.claude/security.yml` suppression and without one."""
+        (tmp_path / "Makefile").write_text(self.BODY)
+        assert not (tmp_path / ".claude" / "security.yml").exists()  # the negative precondition
+        found = [f.file_path for f in scan_quick(str(tmp_path)).findings if f.id == "HARDCODED_PASSWORD"]
+        assert found == ["Makefile"]
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "security.yml").write_text(
+            "suppressions:\n"
+            "  - id: HARDCODED_PASSWORD\n"
+            "    path: 'Makefile'\n"
+            '    reason: "make variable references, not credentials"\n'
+        )
+        found = [f.file_path for f in scan_quick(str(tmp_path)).findings if f.id == "HARDCODED_PASSWORD"]
+        assert found == []
+
+    def test_the_gate_line_keeps_its_shape_and_only_the_count_rises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The real cli over a real tree: `skipped-checks=` does not move for an unread file."""
+        (tmp_path / ".gitignore").write_text(".env\n")
+        (tmp_path / "app.py").write_text("x = 1\n")
+        monkeypatch.chdir(tmp_path)
+        cli.cmd_gate(argparse.Namespace(gate_name="flow_finish", path=str(tmp_path)))
+        before = capsys.readouterr().out.strip().splitlines()[-1]
+        (tmp_path / "LICENSE").write_text("text\n")
+        (tmp_path / "Makefile").write_text("all:\n\ttrue\n")
+        cli.cmd_gate(argparse.Namespace(gate_name="flow_finish", path=str(tmp_path)))
+        after = capsys.readouterr().out.strip().splitlines()[-1]
+        assert before.startswith("SECURITY_GATE: flow_finish PASS (blocked=0 warned=")
+        scanned_before = int(before.split("secrets-scanned=")[1].split()[0])
+        assert after == before.replace(f"secrets-scanned={scanned_before}", f"secrets-scanned={scanned_before + 1}")
+
+    def test_both_output_formats_carry_the_not_read_line(self, tmp_path: Path) -> None:
+        import json
+
+        from lib.security.output.json_output import format_results as as_json
+        from lib.security.output.novice import format_results as as_text
+
+        (tmp_path / "LICENSE").write_text("text\n")
+        result = secrets.scan(str(tmp_path))
+        line = "1 file(s) with no recognised extension were NOT read (1 no shebang or known name)"
+        assert json.loads(as_json(result))["unexamined"] == [line]
+        assert f"NOT READ: {line}" in as_text(result)
+        assert "SKIP: " + line not in as_text(result)

@@ -308,7 +308,11 @@ def test_committed_writer_boundaries(evidence, case):
     elif case["mutation"] == "wrong-patch":
         patch = patch.replace("+after\n", "+foreign\n")
         assert patch != e["patch"], "negative-fixture precondition: foreign patch"
-    args = runtime(e, "implementer", "codex", "model-a")
+    implementer = "model-a"
+    if case["mutation"] == "same-model-context-tag":
+        # The reviewer IS the implementer; only a context-window tag differs.
+        implementer, model = "model-a[1m]", "model-a"
+    args = runtime(e, "implementer", "codex", implementer)
     args += runtime(e, "reviewer", "claude", model, patch=patch)
     result = write(e, *args)
     assert result.returncode != 0
@@ -342,6 +346,68 @@ def test_every_supported_runtime_pair_uses_one_independence_rule(evidence, imple
     assert (result.returncode != 0) == same_model, result.stderr
     if same_model:
         assert "overlaps" in result.stderr
+
+
+@requires_git
+@pytest.mark.parametrize("implementer,reviewer", [("model-a[1m]", "model-a"), ("model-a", "model-a[1m]")])
+@pytest.mark.parametrize("implementer_runtime", ["claude", "codex"])
+def test_a_context_window_tag_does_not_make_one_model_two(evidence, implementer_runtime, implementer, reviewer):
+    """Issue #1710: `claude-x[1m]` reviewing `claude-x` is the author agreeing
+    with themselves. Before the fix this pair passed the overlap check."""
+    e = evidence
+    args = runtime(e, "implementer", implementer_runtime, implementer)
+    args += runtime(e, "reviewer", "claude", reviewer, patch=e["patch"])
+    result = write(e, *args)
+    assert result.returncode != 0, "a self-review was written as an independent one"
+    assert "overlaps" in result.stderr, result.stderr
+    assert not list((e["tmp"] / "out").glob("*.json"))
+
+
+@requires_git
+def test_two_different_models_are_still_independent_when_one_carries_the_tag(evidence):
+    """The other verdict: the tag is removed, the names are not merged."""
+    e = evidence
+    args = runtime(e, "implementer", "claude", "model-a[1m]")
+    args += runtime(e, "reviewer", "claude", "model-b", patch=e["patch"])
+    result = write(e, *args)
+    assert result.returncode == 0, result.stderr
+    receipt = json.loads(next((e["tmp"] / "out").glob("*.json")).read_text())
+    assert receipt["implementer"] == "claude/model-a"
+    assert receipt["reviewer"] == "claude/model-b"
+    assert load().validate(receipt) == []
+
+
+@requires_git
+def test_a_reviewer_named_with_and_without_the_tag_is_one_model(evidence):
+    """Issue #1710 as filed: a session that switched context mode names one
+    model two ways, and was refused as an ambiguous reviewer."""
+    e = evidence
+    args = runtime(e, "implementer", "codex", "model-a")
+    args += runtime(e, "reviewer", "claude", "model-b", patch=e["patch"])
+    transcript = e["tmp"] / "claude" / "fixture-reviewer.jsonl"
+    records = [json.loads(line) for line in transcript.read_text().splitlines()]
+    first = next(r for r in records if r["type"] == "assistant")
+    first["message"]["model"] = "model-b[1m]"
+    transcript.write_text("".join(json.dumps(r) + "\n" for r in records))
+    result = write(e, *args)
+    assert result.returncode == 0, result.stderr
+    receipt = json.loads(next((e["tmp"] / "out").glob("*.json")).read_text())
+    assert receipt["reviewer"] == "claude/model-b"
+
+
+@requires_git
+def test_validation_refuses_a_receipt_whose_pair_differs_only_by_the_tag(evidence):
+    e = evidence
+    args = runtime(e, "implementer", "codex", "model-a")
+    args += runtime(e, "reviewer", "claude", "model-b", patch=e["patch"])
+    result = write(e, *args)
+    assert result.returncode == 0, result.stderr
+    receipt = json.loads(next((e["tmp"] / "out").glob("*.json")).read_text())
+    module = load()
+    assert module.validate(receipt) == []
+    receipt["implementer"] = "codex/model-b[1m]"
+    receipt["implementer_evidence"]["models"] = ["codex/model-b[1m]"]
+    assert any("reviewer overlaps an implementing model" in p for p in module.validate(receipt))
 
 
 @requires_git

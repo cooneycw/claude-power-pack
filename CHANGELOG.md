@@ -4,6 +4,113 @@
 
 ### Behaviour changes you may notice
 
+- **`/flow:deploy <target>` now runs the target you name.** With a CPP
+  checkout on the host, `/flow:deploy deploy-staging` validated
+  `deploy-staging`, then ran the deterministic runner's deploy plan, whose
+  last step is the literal `make deploy`, and logged `deploy-staging`: ask for
+  one target, deploy another. The runner path is now taken only when the
+  target is exactly `deploy` (or none is given); any other target runs the
+  deploy security gate and then `make <target>`. `/flow:deploy` with no
+  argument, and every `/flow:auto` run, behave as before: `/flow:auto` runs
+  `make deploy` itself and never passes a target. A non-default target no
+  longer gets the runner's bootstrap check or its execution record. On a host
+  whose CPP checkout is not at `~/Projects/claude-power-pack`, a non-default
+  target's security gate cannot find CPP and the document says to skip it
+  (#1760). The deploy log's status column now carries the deployment's own
+  exit status. And `/flow:auto` no longer treats a successful
+  `/flow:deploy deploy-staging` (or any other `deploy-*` target) as a
+  deployment of `deploy`: its already-deployed check matched the log's target
+  column loosely, which was accidentally right while every target ran
+  `make deploy` and would have skipped the real deploy once it did not
+  (#1759).
+- **The flow documents say what to do when a project's gate needs the pushed
+  head.** `/flow:auto` Step 6 and `/flow:finish` still run the gate before the
+  push. When a project's own gate clones the ref under test from the remote,
+  the first gate run on an unpushed commit was red; both documents now say to
+  commit and push the branch first (that opens no pull request), then gate. No helper
+  changed (#1706).
+- **A plan that changes an output names who reads it, and the review judges
+  the tests, not only their presence.** When a change alters a response shape,
+  file format, status line, exit code or record field, the plan adds a
+  `Reader:` row per reader to the lanes table and says whether a test feeds the
+  reader the writer's real output; a hand-written copy of the other side is not
+  evidence. `/codex:code_review` now also reports a reader the plan does not
+  name, and a lane or reader test that uses a stand-in where the real thing
+  could be used or that could not fail. The reader rows apply with or without a
+  lane file. See `docs/agents/changed-output-readers.md` (#1697).
+- **The secret scan now reads scripts and build files with no extension, so
+  finding counts can go up.** A file with no suffix that starts with `#!`, and
+  `Makefile`, `GNUmakefile`, `makefile`, `Dockerfile`, `Containerfile` and
+  `Dockerfile.<x>`, were never opened before. Files the scan already read are
+  selected and reported exactly as they were. Binary files, files over 1 MB,
+  symlinks and non-regular files in the new group are left unread, and the
+  scan says how many extensionless files it did not read on a new `NOT READ:`
+  line (`unexamined` in `--json`). The `SECURITY_GATE` line keeps its shape;
+  only `secrets-scanned=` rises. A Makefile's `PASSWORD=$(VAR)` lines are
+  reported like any other assignment: declare them with a path suppression in
+  `.claude/security.yml`, which can be added before upgrading (#1737).
+- **Two `/cpp:init` deny rules now match the commands they name.** In the
+  Trusted and YOLO permission profiles, `Bash(dd if=:*)` matched only `dd if=`
+  followed by a space, so `dd if=/dev/zero ...` was not denied, and
+  `Bash(mkfs:*)` did not match `mkfs.ext4`. They are now `Bash(dd if=*)` and
+  `Bash(mkfs*)`. If you installed either profile, re-run `/cpp:init` or edit
+  the two rules in your settings. The wizard also now says a deny rule is not
+  a boundary: the same program run another way is not matched (#1716).
+- **A defect now says where it came from.** A defect report carries an
+  `Origin:` line - the issue or pull request that delivered the behaviour that
+  broke, `never worked`, or `not traced - <what was tried>` - and the pull
+  request that fixes it adds `Missed because:` with one of seven fixed reasons.
+  The lists are written once, in `docs/agents/closing-report-contract.md`,
+  with the one `gh` search that reads them back. `/github:issue-create` asks
+  for the origin on its bug path, the bug form has an optional Origin field,
+  and `/project:init` now installs a bug form in a new repository (it
+  installed no issue templates before). Nothing checks the answer; `not
+  traced` is allowed and silence is not (#1697).
+- **The ignored-additions guard now names its own remedy.** When
+  `check-ignored-additions.sh` reports files the quality gate itself wrote
+  (kyle's `dashboard-runs/`, skillc's `reports/`), its message says to declare
+  the directory in `.claude/gate-scratch.txt`. One added stderr line; exit
+  codes and markers are unchanged (#1706).
+- **`codex-skill-sync.py --install` publishes exactly what it checked, and
+  says more about where.** It no longer copies `__pycache__` from a named tree
+  (`--write --install`, `--output-root DIR --install`); a bare `--install`
+  never did. Its "skill(s) in sync" line names the real output root when that
+  is outside the checkout, which includes the private build a bare `--install`
+  checks; the in-checkout line is unchanged. When `CODEX_HOME` points somewhere
+  other than `~/.codex` it prints one stderr `NOTE` that the install wrote
+  `~/.codex/skills` and did not use it. A command description over the
+  150-character cap now fails the tests unless it has a recorded exemption
+  (#1715).
+- **The secret scanner is unchanged, and its false positives are now a
+  documented declaration.** Test passwords, sentinels and shell substitutions
+  such as `pg_password="$(generate_secret)"` are still reported as
+  `HARDCODED_PASSWORD`: a pattern cannot tell a harmless one from a real one.
+  `lib/security/README.md` shows the two declarations a repository makes in
+  `.claude/security.yml`, a path suppression and an exact-value `secret:` pin,
+  with the risk of each. An in-scanner exemption for shell substitutions was
+  built, failed two reviews on five bypasses and was withdrawn; the README
+  lists them. Also corrected: assignment-pattern findings DO carry their value
+  and can be pinned with `secret:` (#1717).
+- **A project can list its lanes, and plans then say which ones they tested.**
+  A lane is a route one behaviour travels: main checkout or linked worktree,
+  dev or prod, small fixture or real-size data. With a `.claude/lanes.md`, the
+  `/flow:eli5` plan answers every listed lane (will test, will refuse, not
+  applicable, not covered), the closing report shows the same rows with
+  results, and `/codex:code_review` hands the reviewer the list and asks for a
+  lane the plan omits (#1695). `/lane:create` drafts the file from a survey
+  checklist and `/lane:update` reviews it; `/project:init` creates it for a new
+  project. The plan step also relays a notice when the list was last reviewed
+  more than 60 days ago or cannot be dated (`lane-file.py age`). That notice
+  never stops a plan. A project with no lane file is asked nothing, and no
+  existing output changed (#1696). See `docs/agents/lanes.md`.
+- **`/project:next` now carries a `Monthly review` line, and there are two new
+  commands.** `/monthly:create` scans the repository (Nit Store, `evergreen`
+  issues, this host's friction log, `follow-up` issues with a `Due:` date) and
+  writes one `Monthly review: YYYY-MM` issue; `/monthly:review` works it.
+  `/project:next` reports open, done, none or unknown in every mode and in
+  `cpp_extensions.monthly_review`; nothing existing changed shape and no rank
+  moved. There is no scheduler: the report is the prompt. `/project:init`
+  creates a new project's first review (#1703).
 - **This repository's Nit Store is found by title, not by number.**
   `nit-store-resolve.sh` no longer maps claude-power-pack to #864; it answers
   the one open issue titled exactly `Nit Store`, so the store can roll over

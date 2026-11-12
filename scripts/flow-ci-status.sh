@@ -21,8 +21,10 @@
 # failed STEPS. By default it reads recorded providers through the canonical
 # registry, pins one SHA and examines each selected lane independently.
 # Woodpecker uses its HTTP API or authenticated CLI; Actions uses gh.
-# Unknown records or unexamined evidence exit 2. Legacy probing is available
-# only with --fallback-provider-probes and reports its advisory fallback scope.
+# Unknown records or unexamined evidence exit 2 on the recorded path. Legacy
+# probing is available only with --fallback-provider-probes and reports its
+# advisory fallback scope; a single-shot fallback read exits 0 whatever it
+# found (fail-open), and only --wait or --exit-code make its exit code a claim.
 #
 # Complete environment credentials are used together. An incomplete pair may
 # use AWS Secrets Manager only when its supplied half matches the secret pair.
@@ -63,7 +65,10 @@
 #                  5. A pipeline that is FOUND but whose status cannot be read
 #                  yet, and a listing that fails mid-wait, are polled to the
 #                  deadline rather than ending the wait.
-#   --exit-code    Exit 1 on failure/stalled; recorded unknown exits 2.
+#   --exit-code    Exit 1 on failure; on the recorded path also on stalled,
+#                  and recorded unknown exits 2. KNOWN DEFECT (issue #1758):
+#                  in fallback or pre-set-backend mode a STALLED pipeline
+#                  exits 0 under --exit-code. Read FLOW_CI_STATUS there.
 #   --fallback-provider-probes  Permit labelled legacy probing ONLY when the
 #                  record cannot select lanes; valid records still win.
 #
@@ -495,16 +500,26 @@ derive_event() {
         EVENT_SOURCE="default: default branch unreadable, required contexts unreadable"; return
     fi
     local classic="" rules="" answered=0 unreadable=0 protection_source="classic"
+    # stdout is the list of context names. Captured together with stderr,
+    # anything gh wrote there on a SUCCESSFUL call became a required context
+    # (issue #1711). stderr matters only when the call fails, to recognise a
+    # 404, so a failed call is asked once more for its stderr alone - no temp
+    # file whose creation could fail and change the answer. That is a second
+    # question and may get a different answer: "no rule" is concluded ONLY
+    # when the second call fails too and says 404. Anything else is unreadable.
+    local classic_err=""
     if classic="$("$GH_BIN" api "repos/$REPO/branches/$default_branch/protection/required_status_checks" \
-            --jq '((.contexts // []) + ((.checks // []) | map(.context))) | unique | .[]' 2>&1)"; then
+            --jq '((.contexts // []) + ((.checks // []) | map(.context))) | unique | .[]' 2>/dev/null)"; then
         answered=1
-    elif [[ "$classic" == *"(HTTP 404)"* ]]; then
+    elif classic_err="$("$GH_BIN" api "repos/$REPO/branches/$default_branch/protection/required_status_checks" 2>&1 >/dev/null)"; then
+        classic=""; unreadable=1
+    elif [[ "$classic_err" == *"(HTTP 404)"* ]]; then
         classic=""; answered=1
     else
         classic=""; unreadable=1
     fi
     if rules="$("$GH_BIN" api "repos/$REPO/rules/branches/$default_branch" \
-            --jq '[.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[]?.context] | unique | .[]' 2>&1)"; then
+            --jq '[.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[]?.context] | unique | .[]' 2>/dev/null)"; then
         answered=1
         [[ -n "$rules" ]] && protection_source="classic + rulesets"
     else
@@ -728,7 +743,9 @@ if [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "github-actions" && "$HAVE_JQ" -eq 1 &&
         PROVIDER="woodpecker"
         DEADLINE=$(( $(date +%s) + WAIT_SECS ))
         while :; do
-            RETRYABLE=""
+            # Per poll, like the Actions loop: a stall answer from an earlier
+            # poll is not evidence about this one (issue #1711).
+            RETRYABLE=""; STALL_CHECK=""; STALLED_REASON=""; STALLED_STEPS=()
             MATCHES="$(wp_api "/api/repos/$REPO_ID/pipelines?per_page=50" \
                 | jq -c --arg sha "$SHA" --arg ev "$PREFER_EVENT" --argjson strict "$STRICT_EVENT" \
                     '[.[] | select(.commit == $sha) | select($strict == 0 or $ev == "any" or .event == $ev)]
@@ -782,7 +799,9 @@ if [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "github-actions" && "$HAVE_JQ" -eq 1 &&
             # uninvolved (exit code - absence is never read as the
             # fetch-failure code). `|`, not a tab: a tab is IFS WHITESPACE,
             # which collapses an empty field and shifts the rest silently
-            # (#698/#700).
+            # (#698/#700). ONE LINE PER STEP: a newline inside the error is
+            # folded to a space, or the rest of it reads as another step
+            # (issue #1711).
             while IFS='|' read -r step step_type step_exit_code step_error; do
                 if [[ -n "$step" ]]; then
                     FAILED_STEPS+=("$step")
@@ -791,7 +810,7 @@ if [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "github-actions" && "$HAVE_JQ" -eq 1 &&
                     FAILED_STEP_ERRORS+=("$step_error")
                 fi
             done < <(wp_api "/api/repos/$REPO_ID/pipelines/$PIPELINE" \
-                | jq -r '[.workflows[]?.children[]? | select(.state=="failure" or .state=="error" or .state=="killed") | "\(.name)|\(.type // "")|\(.exit_code // "")|\(.error // "")"] | .[]' 2>/dev/null)
+                | jq -r '[.workflows[]?.children[]? | select(.state=="failure" or .state=="error" or .state=="killed") | "\(.name)|\(.type // "")|\(.exit_code // "")|\(.error // "" | tostring | gsub("[\r\n]+"; " "))"] | .[]' 2>/dev/null)
         fi
         emit
     fi

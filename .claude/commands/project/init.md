@@ -324,8 +324,6 @@ Run each sub-command in sequence. These are orchestrated directly - NOT by invok
 
 ### 4a: Makefile Generation (from lib/cicd)
 
-The `lib/cicd` library can detect the framework and generate a Makefile:
-
 ```bash
 # Locate CPP source
 CPP_DIR=""
@@ -399,6 +397,12 @@ Writing the local posture does not apply it to GitHub. Show the concrete
 `scripts/branch-protection.sh --apply --config .claude/branch-protection.json`
 only after explicit approval. No setup default invokes the protection API.
 
+### 4a.2: Lane file (#1696)
+
+Run `/lane:create`: it drafts `.claude/lanes.md` from the scaffold and the recorded
+CI providers, and the owner reads the draft before it is written.
+One lane still gets a one-row file. On `unknown`, warn and continue.
+
 ### 4b: CPP Init (symlinks)
 
 ```bash
@@ -417,18 +421,21 @@ if [ -n "$CPP_DIR" ]; then
         echo "Symlinked .claude/skills"
     fi
 
-    # No hooks.json is installed (issue #1206): Claude Code never loads
-    # .claude/hooks.json, so shipping it only created the impression of a
-    # protection that was not running.
+    # No hooks.json is installed (issue #1206): Claude Code never loads it.
+
+    # Bug form (#1697).
+    F=.github/ISSUE_TEMPLATE/bug-report.yml
+    if [ ! -e "$F" ] && [ ! -L "$F" ]; then
+        mkdir -p "${F%/*}" && cp "$CPP_DIR/templates/github/ISSUE_TEMPLATE/bug-report.yml" "$F" \
+            || echo "Bug form NOT installed"
+    fi
 fi
 ```
 
 ### 4c: Config Scaffold (delegate to native /init)
 
 Do NOT hand-roll CLAUDE.md, skills, or hooks. Delegate this half to Claude Code's
-native `/init`, which interviews the project and generates a codebase-aware
-CLAUDE.md (and scaffolds skills/hooks) far better than a fixed template. CPP then
-layers its CI/CD governance directives on top so nothing is lost.
+native `/init`. CPP then layers its CI/CD governance directives on top.
 
 1. **Run native `/init`** to scaffold the config files. Invoke it with the `Skill`
    tool (`skill: "init"`). It reads the framework scaffold from Step 2 and the
@@ -454,9 +461,6 @@ layers its CI/CD governance directives on top so nothing is lost.
      `make troubleshoot`.
    - **Docker Conventions** (only if a Dockerfile / docker-compose is present) -
      `make docker-*` targets over raw `docker` commands.
-
-The net effect: `/init` owns the config-scaffold generation (its native job), and
-CPP owns the governance overlay - no duplicated CLAUDE.md template to maintain.
 
 ### 4d: Spec Init
 
@@ -651,6 +655,12 @@ Co-Authored-By: <name> <noreply@anthropic.com>"
 git push origin main
 ```
 
+**Create the first monthly review (issue #1703).** With the repository on
+GitHub, run `/monthly:create`: it writes `Monthly review: YYYY-MM` and creates
+the `monthly-review` label, so standing work has a home from day one. A new
+project's list is short; that is expected. If it reports `refused` or
+`unknown`, warn and continue - `/project:next` will name it again.
+
 Report the final summary:
 
 ```
@@ -664,6 +674,7 @@ Project created: {PROJECT_NAME}
   Host CI:    {per-provider ready/missing/unknown; never inferred from config}
   CPP:        Commands + Skills + Hooks
   Spec:       .specify/ initialized
+  Monthly:    {review issue URL, or "not created - run /monthly:create"}
 
 Next steps:
   cd ~/Projects/{PROJECT_NAME}

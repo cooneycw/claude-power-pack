@@ -742,8 +742,9 @@ instead.
 
    - `COUNTER_MODEL_REVIEW: findings` - triage each as accepted (fix it now,
      under the Step-4 rules), rejected (one-line reason), or deferred (route it
-     to the nit store). If anything was accepted and fixed, re-review **once**
-     more, never a third time.
+     to the nit store). One re-review after the first accepted fix. Later
+     accepted fixes: STOP, ask the approver before each further pass; never
+     receipt unreviewed commits or false counts.
    - `COUNTER_MODEL_REVIEW: clean` - record `ran` with zero counts.
    - `COUNTER_MODEL_REVIEW: unparseable` (non-zero) - **This is not a clean
      review.** Record `skipped` with reason `reviewer-unavailable`; never a
@@ -782,8 +783,8 @@ instead.
        --red-cases-proposed 4 --red-cases-already-covered 3
    ```
 
-   `--passes` is capped at 2. An explicitly requested extra pass is recorded
-   with `--passes 3 --extra-pass-reason "<who asked, and why>"` (issue #1400).
+   Past `--passes 2`: `--extra-pass-reason`; past 3 also `--escalated-by`,
+   `--escalation-ref`, `--raised-cap`.
    CI enforces the receipt at the merge boundary (issue #1452).
 
    **Stage the receipt immediately, on every status including a skip (issue
@@ -807,10 +808,9 @@ instead.
    Receipt: docs/measurements/counter-model/<file>.json
    ```
 
-2. **Quality gates** - ONE audited helper, `scripts/flow-finish-gate.sh`
-   (issue #613), owns the runner invocation and its Makefile fallback
-   (`make lint`, `make test`, `make typecheck`, `make verify`). Invoke it BARE
-   (#581 discipline):
+2. **Quality gates** - ONE audited helper, `scripts/flow-finish-gate.sh`,
+   owns the runner invocation and its Makefile fallback
+   (`make lint`/`test`/`typecheck`/`verify`). Invoke it BARE:
 
    ```bash
    ~/.claude/scripts/flow-finish-gate.sh
@@ -818,6 +818,10 @@ instead.
 
    (Exit 127: fall back to `${CLAUDE_PLUGIN_ROOT}/scripts/flow-finish-gate.sh`
    (#590), else the CPP-checkout copy; tell the user to run **`/flow:repair`**.)
+
+   If the project's gate needs the pushed head (it refuses unpushed commits),
+   commit and `git push -u origin "$BRANCH"` first, then gate; same at Step 7
+   (#1706).
 
    **A run with no `FLOW_FINISH_GATE:` verdict line did not run the gate: **STOP**
    (issue #1547).** The trigger is the verdict LINE, never the exit code: 127,
@@ -847,8 +851,7 @@ instead.
      a repository with no `verify:` target (issue #1147); it does not stop the
      flow. In a repo that DOES have one, check the Makefile.
 
-   **Ignored-additions guard** (issue #430; blocking in a worktree since
-   #1258). Invoke bare (on exit 127 skip it):
+   **Ignored-additions guard** (issue #430). Invoke bare (on exit 127 skip it):
    ```bash
    ~/.claude/scripts/check-ignored-additions.sh
    ```
@@ -857,7 +860,7 @@ instead.
    Only if you are sure nothing reads the file at run time, re-run with
    `--advisory`.
 
-   **Worktree-leak guard** (issue #486; blocking since #576). Invoke bare with
+   **Worktree-leak guard** (issue #486). Invoke bare with
    `--strict`, and handle the `FLOW_WORKTREE_GUARD:` verdict exactly as in
    Step 4 (issue #1014): exit 3 stops - do not commit, and first read
    `git -C <main> diff -- <path>` to confirm the edit is YOURS before moving or
@@ -1361,11 +1364,12 @@ Act on `FLOW_CI_STATUS`:
   evidence gap; an unexamined lane is not green, and a fallback probe's result
   never establishes recorded-provider completeness.
 
-`--wait` defaults to 600s, polling every 15s; `--wait <seconds>` changes it and
-omitting it gives a single-shot read. Without `--event` the preferred event is
+`--wait` defaults to 600s, polling every 15s; `--wait <seconds>` changes it;
+omitted, one read. Without `--event` the preferred event is
 derived from the default branch's required contexts (issue #1262;
 `FLOW_CI_EVENT` names the source); a PR into a differently-protected base
-should pass `--event`. `--exit-code` makes a `failure` verdict exit 1.
+should pass `--event`. `--exit-code` exits 1 on `failure`. `--wait` exits 2
+(`unknown`), 5 (expired).
 
 On exit 127 fall back to `${CLAUDE_PLUGIN_ROOT}/scripts/flow-ci-status.sh`
 (#590), else the CPP-checkout copy; tell the user to run **`/flow:repair`**. If
@@ -1406,7 +1410,7 @@ DEPLOY_MODE=$(grep -oP '^\s*mode:\s*\K\S+' .claude/deploy.yaml 2>/dev/null | hea
 
 HEAD_SHA=$(git rev-parse --short HEAD)
 ALREADY_DEPLOYED=0
-if [ -f .claude/deploy.log ] && awk -F'|' -v sha="$HEAD_SHA" '$2 ~ /deploy/ && $3 ~ ("^[[:space:]]*" sha "[[:space:]]*$") && $5 ~ /^[[:space:]]*0[[:space:]]*$/ { found = 1 } END { exit !found }' .claude/deploy.log; then
+if [ -f .claude/deploy.log ] && awk -F'|' -v sha="$HEAD_SHA" '$2 ~ /^[[:space:]]*deploy[[:space:]]*$/ && $3 ~ ("^[[:space:]]*" sha "[[:space:]]*$") && $5 ~ /^[[:space:]]*0[[:space:]]*$/ { found = 1 } END { exit !found }' .claude/deploy.log; then
     ALREADY_DEPLOYED=1
 fi
 

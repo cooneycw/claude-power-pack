@@ -43,6 +43,8 @@ these rules remain in [commands-reference.md](docs/commands-reference.md) and
 - `docs/agents/knowledge-lifecycle.md` - canonical completed-spec graduation policy.
 - `docs/agents/delivery-pilots.md` - maintained report on what the balanced-delivery wave observed: evidence classes, what each does not establish, and the wave's own approval/duplication/requirement failures.
 - `docs/agents/glossary.md` - defined terms: instrument (with the ADR 0008 bound), harness, counter-model.
+- `docs/agents/lanes.md` - lanes exercised: the lane file (`.claude/lanes.md`), and how a plan and a closing report say which lanes a claim was tested in.
+- `docs/agents/changed-output-readers.md` - readers of a changed output: the plan names who reads it and whether a test feeds them the real thing, not a stand-in.
 - `docs/agents/closing-report-contract.md` - canonical closing-report contract: owner TO-DO first, then plain language, then evidence.
 - `docs/agents/shared-stash-stack.md` - why a worktree shares one stash stack, the safe alternatives, and what `stash-worktree-guard.sh` does and cannot do.
 - `docs/agents/nit-store-rollover.md` - the monthly Nit Store rollover: aggregate, close, then open the successor; why nothing names the store's number.
@@ -106,7 +108,9 @@ the smallest applicable workflow and load its command document for execution:
 - `/flow:*` - issue worktrees, planning gate, implementation, finish, merge, wave orchestration, and cleanup.
 - `/project:init` - destination-first project creation and optional Wayfinder/spec handoff.
 - `/project:next` - planning-aware next-action routing through the always-present project-next engine.
+- `/monthly:*` - the monthly review: write the month's monitoring list, then work it.
 - `/spec:adopt` and `/speckit-*` - official spec-kit authoring; implementation routes to `/flow:auto`.
+- `/lane:create`, `/lane:update` - draft and review the project's lane file (`.claude/lanes.md`).
 - `/cicd:*` - Makefile, container, pipeline, health, smoke, deploy, and infrastructure workflows.
 - `/security:*` - deterministic scans; use native `/security-review` for semantic vulnerability review.
 - `/documentation:*` - repository documentation, C4 diagrams, and presentations.
