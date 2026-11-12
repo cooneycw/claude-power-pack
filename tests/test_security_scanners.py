@@ -622,6 +622,11 @@ SHELL_STOP = [
     'db_password="${DB_PASSWORD}"',
     # The reported shape: the value the pattern captures ends at the inner quote.
     'pg_password="$(set -a; . "$OUT/infra.env"; echo "$PGPASS")"',
+    # A whole word followed by what legitimately ends one.
+    'PGPASSWORD="$pg_password" psql -c "select 1"',
+    'db_password="${DB_PASSWORD}"; export db_password',
+    'pg_password="$(printf %s "$(generate_secret)")"',      # nested substitution
+    "echo 'starting'; pg_password=\"$(generate_secret)\"",   # balanced single quotes earlier on the line
 ]
 
 SHELL_STILL = [
@@ -638,6 +643,15 @@ SHELL_STILL = [
     'db_password="${DB_PASSWORD+fallback-literal-9x}"',
     'db_password="${DB_PASSWORD:?fallback-literal-9x}"',
     'db_password="${DB_PASSWORD%fallback-literal-9x}"',
+    # Counter-model review, pass 1: the pattern's captured value is a clean
+    # reference in each of these, and the shell still assigns a literal.
+    'db_password="${DB_PASSWORD}\'fixture-tail-9x"',         # an apostrophe inside the double quotes
+    'db_password="${DB_PASSWORD}"\'fixture-tail-9x\'',       # a second segment joined on
+    'export \'db_password="${DB_PASSWORD}"\'',               # the whole assignment in single quotes
+    'db_password="$pg_password"fixture-tail-9x',            # an unquoted literal joined on
+    'db_password="$(date +%Y)-fixture-tail-9x"',            # a literal after the substitution
+    'db_password="$(date +%Y)"\'fixture-tail-9x\'',          # ...or joined on after it
+    'db_password="$(never-closed fixture-tail-9x"',         # a parenthesis that never closes
 ]
 
 

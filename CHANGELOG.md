@@ -5,10 +5,11 @@
 ### Behaviour changes you may notice
 
 - **The secret scanner no longer reports a shell substitution as a hardcoded
-  password.** In a shell file, a double-quoted value that begins `$(`, or is a
-  bare `${NAME}`, or is exactly `$NAME`, is fetched at run time and is not a
-  finding. `${NAME:-fallback}` and every other default form still are, as are
-  literals, single-quoted text and the same text outside a shell file. Ids,
+  password.** In a shell file, a double-quoted word that is wholly a
+  substitution (`$(...)`, a bare `${NAME}`, or exactly `$NAME`) is fetched at
+  run time and is not a finding. `${NAME:-fallback}` and every other default
+  form still are, as are literals before, after or joined on to a
+  substitution, single-quoted text and the same text outside a shell file. Ids,
   severity and output lines are unchanged for everything still reported; a
   consumer's count of `HARDCODED_PASSWORD` findings in shell files goes down.
   Test passwords and sentinels are still reported: declare them in

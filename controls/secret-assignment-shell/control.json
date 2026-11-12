@@ -31,7 +31,7 @@
   "good_exit": 0,
   "detect_signal": "^HARDCODED_PASSWORD: ",
   "unknown_signal": "^secret-assignment-shell: UNKNOWN - zero files scanned; unchecked, not clean$",
-  "limits": "Covers ONE boundary of the shell-substitution exemption: a default inside ${NAME:-...} is still reported, and the three exempt shapes ($(...) at the start, a bare ${NAME}, exactly $NAME) are not. It does not cover the other operator forms, single quotes, non-shell files, a literal prefix, a second assignment on one line, or the HARDCODED_SECRET pattern - tests/test_security_scanners.py pins each of those before and after. It does not cover the KNOWN MISS: a literal inside a command substitution, password=\"$(echo a-literal)\", is not reported, because the pattern cannot see inside $(...). It says nothing about files with no extension, which this module does not scan at all.",
+  "limits": "Covers ONE boundary of the shell-substitution exemption: a default inside ${NAME:-...} is still reported, and the three exempt shapes ($(...) at the start, a bare ${NAME}, exactly $NAME) are not. It does not cover the other operator forms, single quotes, non-shell files, a literal before or after a substitution, a second segment joined on after the closing quote, an apostrophe inside the quotes, an unclosed parenthesis, a second assignment on one line, or the HARDCODED_SECRET pattern - tests/test_security_scanners.py pins each of those before and after. It does not cover the KNOWN MISS: a literal inside a command substitution, password=\"$(echo a-literal)\", is not reported, because the pattern cannot see inside $(...). It says nothing about files with no extension, which this module does not scan at all.",
   "cases": [
     {
       "name": "bad-fallback-literal",

@@ -163,12 +163,16 @@ time. `HARDCODED_PASSWORD` does not report a value that is a shell
 substitution, and the exemption is narrow on purpose:
 
 - only in a shell file (`.sh`, `.bash`, `.zsh`), and only in DOUBLE quotes;
-- only when the value begins `$(`, or is a bare `${NAME}`, or is exactly `$NAME`.
+- only when the WHOLE quoted word is a substitution: a `$(...)` followed to its
+  own closing parenthesis, a bare `${NAME}`, or exactly `$NAME`, with the closing
+  quote directly after it and nothing joined on after that.
 
 Still reported: `${NAME:-fallback}` and every other default or alternative form
-(the fallback is a literal in the file), a literal prefix before a substitution,
-the same text in single quotes, and the same text in a Python, YAML, Terraform
-or JSON file.
+(the fallback is a literal in the file); a literal before or after the
+substitution; a second segment joined on after the closing quote; an apostrophe
+inside the double quotes; anything inside single quotes; a parenthesis that
+never closes; and the same text in a Python, YAML, Terraform or JSON file. When
+in doubt the scanner reports.
 
 **Known miss.** `password="$(echo a-literal)"` is not reported although it
 contains a literal: the pattern cannot see inside a command substitution. This
