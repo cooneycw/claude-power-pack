@@ -302,8 +302,8 @@ def test_a_claim_taken_over_meanwhile_is_not_unlocked(tmp_path, repo, serialized
                 (nobin / tool).symlink_to(found)
         env["PATH"] = str(nobin)
         assert shutil.which("flock", path=str(nobin)) is None, "precondition: no flock on this PATH"
-    assert _verdict(_helper(CLAIM, "check", str(wt), env=dict(env, FLOW_CLAIM_GIT="git")
-                            if serialized else {k: v for k, v in env.items() if k != "PATH" and k != "FLOW_CLAIM_GIT"})) == "stale"
+    plain = {k: v for k, v in env.items() if k not in ("PATH", "FLOW_CLAIM_GIT")}
+    assert _verdict(_helper(CLAIM, "check", str(wt), env=plain)) == "stale", "precondition"
 
     args = ("release", str(wt)) if verb == "release" else ("claim", str(wt), "--issue", "42")
     released = _helper(CLAIM, *args, env=env)
