@@ -182,7 +182,7 @@ Report current state to user.
 Ask which capabilities the user wants in ONE AskUserQuestion call with two
 multi-select questions (the tool allows four options per question): first
 **commands**, **scripts**, **MCP servers**, **CI/CD host checks**; then **Codex**,
-**Qwen**, **Gemma**, **optional extras**. Any combination is supported.
+**Qwen**, **Gemma**, **optional extras**. Union both answers; any combination is supported.
 Explain that Codex also installs commands and scripts used by its orchestration
 commands; Qwen and Gemma install their commands. Optional
 extras enables later individual questions; it never consents to those writes.
@@ -2723,7 +2723,9 @@ echo "  Install later: rerun /cpp:init optional Sequential Thinking"
 
 ### 8b. Codex MCP Registration (optional)
 
-Skip this step, and say so, when Step 5d already asked in this run.
+Skip this step, and say so, when 5d already registered these servers in this run
+(`CPP_MCP_RESULTS` holds their outcome). After a 5d No it still runs: only its No
+branch records the decline.
 
 Consent: Yes updates `${CODEX_HOME:-$HOME/.codex}/config.toml` with the listed servers and npx can use its cache. No always creates project `.agents/`, even when the setup source is absent; generate project `.agents/CODEX_SETUP.md` by copying the supplied setup artifact only if the source exists; that copy can overwrite an existing setup file. Disclose both branches before asking.
 
