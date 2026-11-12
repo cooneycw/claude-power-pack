@@ -125,7 +125,7 @@ def test_actual_finish_preserves_dual_native_runtime_policy(
     ).strip()
     assert outer.startswith("Python 3.11."), outer
     assert venv_fingerprint(ROOT / ".venv") == surrounding, (
-        "the gate rebuilt or changed the environment this suite is running from"
+        "the environment this suite is running from changed while the gate ran"
     )
     print(json.dumps(dict(outer=outer, target=runtime, helper_exit=result.returncode)))
 

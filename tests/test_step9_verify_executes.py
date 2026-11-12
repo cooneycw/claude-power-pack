@@ -174,7 +174,7 @@ def test_documented_step9_invocations_execute(tmp_path: Path, owned_cpp_checkout
         outputs.append(proc.stdout + proc.stderr)
 
     assert venv_fingerprint(ROOT / ".venv") == surrounding, (
-        "a documented Step-9 invocation rebuilt or changed the environment this suite is running from"
+        "the environment this suite is running from changed while a documented Step-9 invocation ran"
     )
     # Baseline run writes the baseline; verify run must emit a verdict.
     assert any(word in outputs[1].lower() for word in ("proceed", "verdict", "pass", "ok")), (

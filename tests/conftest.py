@@ -597,37 +597,53 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config) -> None:  # no
 _OWNED_CPP_PARTS = ("pyproject.toml", "uv.lock", "lib", "scripts")
 
 
-def venv_fingerprint(venv: Path) -> tuple[str, tuple[str, ...]] | None:
-    """What a virtual environment IS, read without running anything through uv:
-    its interpreter's version line, and the names in its site-packages. None
-    when there is no environment at that path. Read from the files directly -
-    `uv run` repairs an environment before running a check in it, so a check
-    made through uv cannot see one that was emptied."""
+def venv_fingerprint(venv: Path) -> tuple[str, tuple[tuple[str, int], ...]] | None:
+    """What a virtual environment holds, read without running anything through
+    uv: the interpreter its `pyvenv.cfg` names (version and home), and each
+    site-packages entry with the number of files under it. None when there is
+    no environment at that path. Read from the files directly - `uv run`
+    repairs an environment before running a check in it, so a check made
+    through uv cannot see one that was emptied.
+
+    Two equal readings say the version, the home, the entry names and their
+    file counts did not change between them. They do not say the environment
+    works, and a difference does not say which process made it."""
     cfg = venv / "pyvenv.cfg"
     if not cfg.is_file():
         return None
-    version = next((ln.split("=", 1)[1].strip() for ln in cfg.read_text().splitlines()
-                    if ln.replace(" ", "").startswith(("version_info=", "version="))), "?")
-    names: set[str] = set()
+    fields = {}
+    for line in cfg.read_text().splitlines():
+        key, sep, value = line.partition("=")
+        if sep:
+            fields[key.strip()] = value.strip()
+    version = fields.get("version_info") or fields.get("version") or "?"
+    interpreter = f"{version} at {fields.get('home', '?')}"
+    entries: dict[str, int] = {}
     for site in venv.glob("lib/python*/site-packages"):
-        # `__pycache__` is written there by the interpreter's own first start,
-        # so it is not evidence of anything a test did.
-        names.update(p.name for p in site.iterdir() if p.name != "__pycache__")
-    return version, tuple(sorted(names))
+        for entry in site.iterdir():
+            # Bytecode caches are written by the interpreter as it imports, so
+            # they are not evidence of anything a test did.
+            if entry.name == "__pycache__":
+                continue
+            if entry.is_dir():
+                count = sum(1 for p in entry.rglob("*")
+                            if p.is_file() and p.suffix != ".pyc")
+            else:
+                count = 1
+            entries[entry.name] = entries.get(entry.name, 0) + count
+    return interpreter, tuple(sorted(entries.items()))
 
 
-@pytest.fixture(scope="session")
-def owned_cpp_checkout(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A copy of this checkout's CPP runtime with its own Python 3.11
-    environment, for a test that must run the real gate."""
+def build_owned_cpp_checkout(root: Path, dest: Path) -> Path:
+    """Copy `root`'s CPP runtime to `dest` and build its Python 3.11
+    environment there. Skips ONLY for a missing prerequisite (uv, or a 3.11
+    interpreter); once both are present a build that fails is an error."""
     import shutil
     import subprocess
 
-    root = Path(__file__).resolve().parents[1]
     uv = shutil.which("uv")
     if uv is None:
         pytest.skip("requires uv to build an owned CPP environment")
-    dest = tmp_path_factory.mktemp("owned-cpp") / "claude-power-pack"
     dest.mkdir()
     for part in _OWNED_CPP_PARTS:
         source = root / part
@@ -637,12 +653,31 @@ def owned_cpp_checkout(tmp_path_factory: pytest.TempPathFactory) -> Path:
             shutil.copy2(source, dest / part)
     env = {k: v for k, v in os.environ.items()
            if k not in ("UV_PROJECT_ENVIRONMENT", "UV_PYTHON", "VIRTUAL_ENV", "UV_OFFLINE", "UV_CACHE_DIR")}
+    # The ONE prerequisite that may skip: no Python 3.11 on this host. Asked
+    # separately, so that a build that fails for any other reason (a broken
+    # lock, an unsatisfiable dependency) is an ERROR and not a quiet skip.
+    probe = subprocess.run(
+        [uv, "python", "find", "3.11", "--no-python-downloads"],
+        env=env, capture_output=True, text=True, timeout=60, check=False,
+    )
+    if probe.returncode != 0:
+        pytest.skip("requires a Python 3.11 interpreter to build an owned CPP environment")
     built = subprocess.run(
         [uv, "sync", "--python", "3.11", "--no-python-downloads", "--project", str(dest)],
         env=env, capture_output=True, text=True, timeout=110, check=False,
     )
-    if built.returncode != 0:
-        pytest.skip("could not build an owned CPP environment on Python 3.11 "
-                    f"(needs a 3.11 interpreter and the locked wheels): {built.stderr.strip()[-300:]}")
+    assert built.returncode == 0, (
+        "uv and Python 3.11 are present, but the owned CPP environment did not build "
+        f"(exit {built.returncode}): {built.stderr.strip()[-600:]}"
+    )
     assert venv_fingerprint(dest / ".venv") is not None, "the owned environment was not created"
     return dest
+
+
+@pytest.fixture(scope="session")
+def owned_cpp_checkout(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A copy of this checkout's CPP runtime with its own Python 3.11
+    environment, for a test that must run the real gate."""
+    return build_owned_cpp_checkout(
+        Path(__file__).resolve().parents[1],
+        tmp_path_factory.mktemp("owned-cpp") / "claude-power-pack")
