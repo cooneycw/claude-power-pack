@@ -543,3 +543,83 @@ def test_no_scenario_moves_towards_stale(tmp_path, repo) -> None:
     assert {before for before, after in flips if after == "stale"} <= {"self"}, flips
     assert self_to_stale, "expected the unreachable self row; the matrix changed shape"
     assert {(state, caller) for state, caller, _s in self_to_stale} == {("Z1", "codex")}, self_to_stale
+
+
+# --- the mutex must not outlive the helper (orchestrator's read of the branch)
+
+def test_a_background_child_of_git_does_not_keep_the_mutex(tmp_path, repo) -> None:
+    """A flock belongs to the open file, so a child that inherits the mutex's
+    descriptor and outlives the helper keeps it held. Here `git worktree lock`
+    leaves a sleeping child behind (as `git gc --auto`, an fsmonitor daemon or
+    a hook can). The NEXT claim must get the mutex at once."""
+    if shutil.which("flock") is None:
+        pytest.skip("needs flock")
+    _main, wt = repo
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    real = shutil.which("git")
+    pidfile = bindir / "child.pid"
+    stub = bindir / "git"
+    stub.write_text(f"""#!/bin/bash
+if [[ " $* " == *" worktree lock "* ]]; then
+  sleep 60 </dev/null >/dev/null 2>&1 &
+  echo $! > "{pidfile}"
+fi
+exec {real} "$@"
+""")
+    stub.chmod(0o755)
+    env = {"CLAUDE_PID": "4242", "CLAUDE_CODE_SESSION_ID": "the-owner",
+           "FLOW_CLAIM_LIVE_PIDS": "4242", "FLOW_CLAIM_GIT": str(stub), "FLOW_CLAIM_MUTEX_WAIT": "1"}
+    try:
+        first = _helper(CLAIM, "claim", str(wt), "--issue", "42", env=env)
+        assert _verdict(first) == "self", first.stdout + first.stderr
+        child = int(pidfile.read_text())
+        os.kill(child, 0)       # precondition: the child is still alive
+        second = _helper(CLAIM, "claim", str(wt), "--issue", "42", env=env)
+        assert "did not finish within" not in second.stderr, (
+            "a child left behind by git is holding the writer mutex:\n" + second.stderr)
+        assert _verdict(second) == "self"
+        released = _helper(CLAIM, "release", str(wt), env=env)
+        assert _verdict(released) == "free", released.stdout + released.stderr
+    finally:
+        for line in pidfile.read_text().split() if pidfile.exists() else []:
+            try:
+                os.kill(int(line), 9)
+            except ProcessLookupError:
+                pass
+
+
+@pytest.mark.parametrize("wait", ["soon", "", "1.5", "-1", " 2"])
+def test_an_unusable_mutex_wait_falls_back_and_does_not_read_as_contention(tmp_path, repo, wait):
+    """flock rejects a wait it cannot parse, and a failed flock would read as
+    'someone else is writing': every verb standing down, blaming a session
+    that does not exist."""
+    if shutil.which("flock") is None:
+        pytest.skip("needs flock")
+    _main, wt = repo
+    env = {"CLAUDE_PID": "4242", "CLAUDE_CODE_SESSION_ID": "the-owner",
+           "FLOW_CLAIM_LIVE_PIDS": "4242", "FLOW_CLAIM_MUTEX_WAIT": wait}
+    done = _helper(CLAIM, "claim", str(wt), "--issue", "42", env=env)
+    assert _verdict(done) == "self", done.stdout + done.stderr
+    assert "did not finish within" not in done.stderr
+
+
+def test_a_release_whose_unlock_fails_does_not_say_released(tmp_path, repo) -> None:
+    """The message is conditional on the unlock, as it was before #1709."""
+    _main, wt = repo
+    env = {"CLAUDE_PID": "4242", "CLAUDE_CODE_SESSION_ID": "the-owner", "FLOW_CLAIM_LIVE_PIDS": "4242"}
+    assert _verdict(_helper(CLAIM, "claim", str(wt), "--issue", "42", env=env)) == "self"
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    real = shutil.which("git")
+    stub = bindir / "git"
+    stub.write_text(f"""#!/bin/bash
+if [[ " $* " == *" worktree unlock "* ]]; then exit 1; fi
+exec {real} "$@"
+""")
+    stub.chmod(0o755)
+    failed = _helper(CLAIM, "release", str(wt), env=dict(env, FLOW_CLAIM_GIT=str(stub)))
+    assert "released claim" not in failed.stderr, failed.stderr
+    assert "git worktree unlock failed" in failed.stderr
+    ok = _helper(CLAIM, "release", str(wt), env=env)
+    assert "released claim" in ok.stderr

@@ -126,6 +126,15 @@ set -uo pipefail
 trap 'printf "FLOW_CLAIM_EXIT=%d\n" "$?" >&2' EXIT
 
 GIT="${FLOW_CLAIM_GIT:-git}"
+
+# Every git call goes through here, with descriptor 9 CLOSED for the child.
+# Descriptor 9 holds the writer mutex (see "one writer at a time"), and a flock
+# belongs to the open file, not to this process: any child that inherits the
+# descriptor and outlives the helper - a background `git gc --auto`, an
+# fsmonitor daemon, a credential helper, a hook that backgrounds something -
+# would keep the mutex held after this helper has exited, and every claim and
+# release in the repository would then wait out its timer and stand down.
+git_c() { "$GIT" "$@" 9>&-; }
 MAX_AGE_HOURS="${FLOW_CLAIM_MAX_AGE_HOURS:-24}"
 PROC_ROOT="${FLOW_CLAIM_PROC_ROOT:-/proc}"
 
@@ -356,7 +365,7 @@ lock_reason_for() {
         [ "$cur" = "$want" ] && { printf '%s' "(no reason)"; return 0; }
         ;;
     esac
-  done < <("$GIT" -C "$want" worktree list --porcelain 2>/dev/null)
+  done < <(git_c -C "$want" worktree list --porcelain 2>/dev/null)
   return 0
 }
 
@@ -370,7 +379,7 @@ classify() {
   O_START=""; O_WITNESS=""; O_STALE_REASON=""
 
   if [ ! -d "$path" ]; then STATE=unknown; return 0; fi
-  if ! "$GIT" -C "$path" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if ! git_c -C "$path" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     STATE=unknown; return 0
   fi
   # The primary checkout cannot be locked by git at all; a run on the
@@ -504,7 +513,7 @@ if [ -z "$WT" ] && [ -n "$ISSUE_NUM" ] && [ "$VERB" = check ]; then
       "worktree "*) cur="${line#worktree }" ;;
       "branch refs/heads/issue-${ISSUE_NUM}-"*) WT="$cur" ;;
     esac
-  done < <("$GIT" -C "$REPO" worktree list --porcelain 2>/dev/null)
+  done < <(git_c -C "$REPO" worktree list --porcelain 2>/dev/null)
   if [ -z "$WT" ]; then
     O_PATH="-"
     emit free
@@ -540,8 +549,11 @@ WT="$(abspath "$WT")"
 #                without flock unable to release even its own claim.
 MUTEX=unavailable
 MUTEX_WAIT="${FLOW_CLAIM_MUTEX_WAIT:-10}"
+# flock fails on a wait it cannot parse, and a failed flock reads as contended:
+# a typo here would make every verb stand down and blame another session.
+case "$MUTEX_WAIT" in *[!0-9]* | "") MUTEX_WAIT=10 ;; esac
 if [ "$VERB" != check ] && command -v flock >/dev/null 2>&1; then
-  MUTEX_DIR="$("$GIT" -C "$WT" rev-parse --git-common-dir 2>/dev/null || true)"
+  MUTEX_DIR="$(git_c -C "$WT" rev-parse --git-common-dir 2>/dev/null || true)"
   case "$MUTEX_DIR" in "" | /*) : ;; *) MUTEX_DIR="$WT/$MUTEX_DIR" ;; esac
   if [ -n "$MUTEX_DIR" ] && [ -d "$MUTEX_DIR" ] &&
      { exec 9>"$MUTEX_DIR/flow-claim.mutex"; } 2>/dev/null; then
@@ -550,12 +562,13 @@ if [ "$VERB" != check ] && command -v flock >/dev/null 2>&1; then
 fi
 
 # unlock_if_unchanged WT - unlock only when the lock is still the one classify
-# judged. Returns 1, having changed nothing, when it is not.
+# judged. Returns 0 unlocked; 1 the lock CHANGED, nothing touched; 2 it was
+# unchanged and `git worktree unlock` itself failed.
 unlock_if_unchanged() {
   local now_reason
   now_reason="$(lock_reason_for "$1")"
   [ "$now_reason" = "$O_REASON" ] || return 1
-  "$GIT" -C "$1" worktree unlock "$1" >/dev/null 2>&1
+  git_c -C "$1" worktree unlock "$1" >/dev/null 2>&1 || return 2
   return 0
 }
 
@@ -593,15 +606,19 @@ case "$VERB" in
       self | stale)
         # Someone may have replaced the claim after it was judged. Whatever is
         # there then was never examined by this release.
-        unlock_if_unchanged "$WT" || claim_changed_under_us released
-        echo "flow-worktree-claim: released claim on '$WT'." >&2
+        unlock_if_unchanged "$WT"
+        case "$?" in
+          0) echo "flow-worktree-claim: released claim on '$WT'." >&2 ;;
+          1) claim_changed_under_us released ;;
+          *) echo "flow-worktree-claim: could not release the claim on '$WT' - git worktree unlock failed." >&2 ;;
+        esac
         O_PID=""; O_SESSION=""; O_HOST=""; O_TS=""; O_AGE_MIN=""; O_ISSUE=""
         O_START=""; O_WITNESS=""; O_STALE_REASON=""
         emit free
         ;;
       held | foreign)
         if [ "$FORCE" -eq 1 ]; then
-          "$GIT" -C "$WT" worktree unlock "$WT" >/dev/null 2>&1
+          git_c -C "$WT" worktree unlock "$WT" >/dev/null 2>&1
           echo "flow-worktree-claim: FORCE-released a $STATE claim on '$WT' (owner pid ${O_PID:--})." >&2
           emit free
         else
@@ -631,7 +648,7 @@ case "$VERB" in
           exit 1
         fi
         echo "flow-worktree-claim: stealing a live claim on '$WT' (--steal; previous owner pid ${O_PID:--})." >&2
-        unlock_if_unchanged "$WT" || claim_changed_under_us stolen
+        unlock_if_unchanged "$WT"; [ "$?" -ne 1 ] || claim_changed_under_us stolen
         ;;
       foreign)
         # Someone locked this worktree for their own reasons. Never steal it,
@@ -660,11 +677,11 @@ case "$VERB" in
             echo "flow-worktree-claim: taking over a stale claim on '$WT' (owner pid ${O_PID:--} is gone)." >&2
             ;;
         esac
-        unlock_if_unchanged "$WT" || claim_changed_under_us "taken over"
+        unlock_if_unchanged "$WT"; [ "$?" -ne 1 ] || claim_changed_under_us "taken over"
         ;;
       self)
         # Idempotent refresh: drop our own lock so the new timestamp lands.
-        unlock_if_unchanged "$WT" || claim_changed_under_us refreshed
+        unlock_if_unchanged "$WT"; [ "$?" -ne 1 ] || claim_changed_under_us refreshed
         ;;
       unsupported | unknown)
         echo "flow-worktree-claim: '$WT' cannot hold a claim ($STATE) - continuing unclaimed (advisory)." >&2
@@ -679,7 +696,7 @@ case "$VERB" in
     # the field count of the reason line never varies.
     SELF_START="$(start_time_of "$SELF_PID")"
     REASON="$CLAIM_PREFIX issue=$ISSUE_NUM pid=$SELF_PID session=${SELF_SESSION:--} host=$SELF_HOST ts=$NOW start=${SELF_START:--}"
-    if ! "$GIT" -C "$WT" worktree lock --reason "$REASON" "$WT" >/dev/null 2>&1; then
+    if ! git_c -C "$WT" worktree lock --reason "$REASON" "$WT" >/dev/null 2>&1; then
       echo "flow-worktree-claim: could not lock '$WT' (git too old, or lock unsupported) - continuing unclaimed (advisory)." >&2
       O_PID=""; O_SESSION=""; O_HOST=""; O_TS=""; O_AGE_MIN=""; O_ISSUE=""
       O_START=""; O_WITNESS=""; O_STALE_REASON=""
