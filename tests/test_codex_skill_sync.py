@@ -1342,6 +1342,241 @@ def test_a_named_tree_that_matches_its_source_installs(tmp_repo, tmp_home, tmp_p
     assert not (tmp_repo / "codex" / "skills" / "flow-auto").exists()
 
 
+# --- what is published is what was validated (#1715) -------------------------
+
+
+def _relative_files(root: Path) -> set[str]:
+    return {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()}
+
+
+def _validated_files(tree: Path) -> set[str]:
+    """Every file the check examines, for every skill dir the publisher copies."""
+    found: set[str] = set()
+    for skill in sorted(tree.iterdir()):
+        if skill.is_dir() and (skill / "SKILL.md").is_file():
+            found |= {f.relative_to(tree).as_posix() for f in codex_skill_sync.skill_files(skill)}
+    return found
+
+
+def _plant_bytecode(tree: Path) -> Path:
+    """What running a bundled script leaves behind, placed where the check skips it."""
+    cache = tree / "flow-auto" / "scripts" / "__pycache__"
+    cache.mkdir(parents=True)
+    planted = cache / "helper.cpython-311.pyc"
+    planted.write_bytes(b"\x00not-from-any-source\x00")
+    return planted
+
+
+def test_a_planted_pyc_in_a_named_tree_passes_the_check_and_is_not_published(tmp_repo, tmp_home):
+    """The #1715 defect: the check skipped `__pycache__` and the copy carried it."""
+    codex_skill_sync.main(["--write"])
+    out = tmp_repo / "codex" / "skills"
+    planted = _plant_bytecode(out)
+    # Preconditions of the case: the file is there, and the check does not see it.
+    assert planted.is_file()
+    assert codex_skill_sync.main(["--check"]) == 0
+
+    assert codex_skill_sync.main(["--install", "--output-root", str(out)]) == 0
+
+    assert not list(tmp_home.rglob("__pycache__")), "an unvalidated __pycache__ reached the install"
+    assert not list(tmp_home.rglob("*.pyc"))
+    assert _relative_files(tmp_home) == _validated_files(out)
+
+
+@pytest.mark.parametrize("path", ["bare", "write-install", "output-root"])
+def test_the_published_set_is_exactly_the_validated_set(tmp_repo, tmp_home, tmp_path, path):
+    """Compared both ways, on every route into the publisher.
+
+    Too little is as wrong as too much here: an ignore that matched a real
+    file would drop it from every Codex install, and this is the only test
+    that would notice.
+    """
+    out = tmp_repo / "codex" / "skills"
+    reference = tmp_path / "reference" / "skills"
+    assert codex_skill_sync.main(["--write", "--output-root", str(reference)]) == 0
+    expected = _validated_files(reference)
+    assert expected, "the reference build is empty - the comparison below would be vacuous"
+
+    if path == "bare":
+        assert codex_skill_sync.main(["--install"]) == 0
+    elif path == "write-install":
+        out.mkdir(parents=True, exist_ok=True)
+        codex_skill_sync.main(["--write"])
+        _plant_bytecode(out)
+        assert codex_skill_sync.main(["--write", "--install"]) == 0
+    else:
+        codex_skill_sync.main(["--write"])
+        _plant_bytecode(out)
+        assert codex_skill_sync.main(["--install", "--output-root", str(out)]) == 0
+
+    published = _relative_files(tmp_home)
+    assert published - expected == set(), "published something that was never validated"
+    assert expected - published == set(), "validated something that was never published"
+
+
+def test_the_publish_ignore_is_derived_from_the_checks_own_exclusion(tmp_path):
+    """One exclusion, two uses: adding a name to the tuple must move both."""
+    tree = tmp_path / "skill"
+    (tree / "scripts" / "__pycache__").mkdir(parents=True)
+    (tree / "scripts" / "__pycache__" / "x.pyc").write_bytes(b"x")
+    (tree / "scripts" / "real.py").write_text("print(1)\n")
+    (tree / "SKILL.md").write_text("# s\n")
+    copied = tmp_path / "copied"
+    shutil.copytree(tree, copied, ignore=codex_skill_sync._PUBLISH_IGNORE)
+    assert _relative_files(copied) == {
+        f.relative_to(tree).as_posix() for f in codex_skill_sync.skill_files(tree)
+    }
+    source = Path(codex_skill_sync.__file__).read_text(encoding="utf-8")
+    copies = re.findall(r"shutil\.copytree\(([^)]*)\)", source)
+    assert len(copies) >= 4, "the copytree calls have stopped matching"
+    assert all("ignore=_PUBLISH_IGNORE" in call for call in copies), (
+        "a publish copy does not use the shared ignore"
+    )
+
+
+# --- the success line names the tree it compared (#1715) ----------------------
+
+
+def test_the_in_checkout_success_line_is_unchanged(tmp_repo, capsys):
+    codex_skill_sync.main(["--write"])
+    capsys.readouterr()
+    assert codex_skill_sync.main(["--check"]) == 0
+    first = capsys.readouterr().out.splitlines()[0]
+    assert first == (
+        "codex-skill-sync: 2 skill(s) in sync"
+        " (commands/<family>/ -> codex/skills/, both IN-CHECKOUT; families: flow, qa)"
+    )
+
+
+def test_an_output_root_outside_the_checkout_is_named_and_not_called_in_checkout(
+    tmp_repo, tmp_path_factory, capsys
+):
+    elsewhere = tmp_path_factory.mktemp("elsewhere") / "skills"
+    assert not elsewhere.resolve().is_relative_to(tmp_repo.resolve())  # the negative precondition
+    assert codex_skill_sync.main(["--write", "--output-root", str(elsewhere)]) == 0
+    capsys.readouterr()
+    assert codex_skill_sync.main(["--check", "--output-root", str(elsewhere)]) == 0
+    first = capsys.readouterr().out.splitlines()[0]
+    assert "IN-CHECKOUT" not in first
+    assert f"-> {elsewhere.resolve()}/, an output root OUTSIDE the checkout" in first
+
+
+def test_a_bare_installs_check_names_its_private_build(tmp_repo, tmp_home, capsys):
+    assert codex_skill_sync.main(["--install"]) == 0
+    in_sync = [line for line in capsys.readouterr().out.splitlines() if "skill(s) in sync" in line]
+    assert len(in_sync) == 1
+    assert "IN-CHECKOUT" not in in_sync[0]
+    assert "an output root OUTSIDE the checkout" in in_sync[0]
+    assert "cpp-codex-skills-" in in_sync[0], "the private build directory is not the one named"
+
+
+# --- CODEX_HOME is not honoured, and the install says so (#1715) --------------
+
+
+def _install_named(tmp_repo, capsys) -> tuple[int, str, str]:
+    out = tmp_repo / "codex" / "skills"
+    codex_skill_sync.main(["--write"])
+    capsys.readouterr()
+    rc = codex_skill_sync.main(["--install", "--output-root", str(out)])
+    captured = capsys.readouterr()
+    return rc, captured.out, captured.err
+
+
+def test_a_relocated_codex_home_is_stated_on_stderr_only(tmp_repo, tmp_home, tmp_path, capsys, monkeypatch):
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    baseline = _install_named(tmp_repo, capsys)
+    assert baseline[0] == 0 and "CODEX_HOME" not in baseline[2]
+
+    monkeypatch.setenv("CODEX_HOME", str(Path.home() / ".codex"))
+    at_default = _install_named(tmp_repo, capsys)
+    assert at_default == baseline, "CODEX_HOME naming the default home changed the output"
+
+    relocated_home = tmp_path / "other-codex-home"
+    monkeypatch.setenv("CODEX_HOME", str(relocated_home))
+    relocated = _install_named(tmp_repo, capsys)
+    assert relocated[0] == baseline[0], "the notice changed the exit code"
+    assert relocated[1] == baseline[1], "the notice changed stdout"
+    notes = [line for line in relocated[2].splitlines() if "CODEX_HOME" in line]
+    assert notes == [
+        f"codex-skill-sync: NOTE CODEX_HOME is {relocated_home}; this install wrote {tmp_home}"
+        " and did not use it - a Codex reading skills from CODEX_HOME will not see it"
+    ]
+    assert not relocated_home.exists(), "the install wrote into CODEX_HOME"
+
+
+def test_an_empty_codex_home_is_not_a_relocation(monkeypatch):
+    monkeypatch.setenv("CODEX_HOME", "")
+    assert codex_skill_sync.relocated_codex_home() is None
+
+
+# --- a description is never shortened silently (#1715) -------------------------
+
+
+def description_cap_problems(
+    sources: dict[str, str], cap: int, exempt: set[str]
+) -> list[str]:
+    """`sources` maps a generated skill name to its EXPLICIT frontmatter description.
+
+    A description over the cap ships truncated unless the skill is exempt, and
+    a test that pins the source then pins text Codex never receives (#1380).
+    An exemption that no longer exempts anything is flagged too: it is a
+    recorded exception to a rule its subject no longer breaks.
+    """
+    problems = []
+    for name, description in sorted(sources.items()):
+        if len(description) > cap and name not in exempt:
+            problems.append(f"{name}: {len(description)} chars over the {cap} cap with no exemption")
+    for name in sorted(exempt):
+        if name not in sources:
+            problems.append(f"{name}: exempt, and no source carries a description for it")
+        elif len(sources[name]) <= cap:
+            problems.append(f"{name}: exempt, and its description no longer exceeds the cap")
+    return problems
+
+
+def _explicit_descriptions() -> dict[str, str]:
+    found = {}
+    for family in codex_skill_sync.FAMILIES:
+        for source in sorted((codex_skill_sync.SOURCE_ROOT / family).glob("*.md")):
+            if source.name in codex_skill_sync.EXCLUDE.get(family, set()):
+                continue
+            meta, _body = codex_skill_sync.parse_frontmatter(source.read_text(encoding="utf-8"))
+            description = " ".join(meta.get("description", "").split())
+            if description:
+                found[f"{family}-{source.stem}"] = description
+    return found
+
+
+def test_no_command_description_is_truncated_without_a_recorded_exemption():
+    sources = _explicit_descriptions()
+    assert len(sources) >= 20, "the description scan has stopped finding sources"
+    assert description_cap_problems(
+        sources, codex_skill_sync.DESCRIPTION_MAX, set(codex_skill_sync.DESCRIPTION_MAX_EXEMPT)
+    ) == []
+
+
+def test_every_explicit_description_ships_exactly_as_written():
+    """The property the cap test protects, asked of the generator itself."""
+    for name, description in _explicit_descriptions().items():
+        shipped = codex_skill_sync.derive_description({"description": description}, "", skill_name=name)
+        assert shipped == description, f"{name}: the generated skill carries a different description"
+
+
+def test_the_description_cap_check_can_fail():
+    over = "x" * 151
+    assert description_cap_problems({"a-b": over}, 150, set()) == [
+        "a-b: 151 chars over the 150 cap with no exemption"
+    ]
+    assert description_cap_problems({"a-b": over}, 150, {"a-b"}) == []
+    assert description_cap_problems({"a-b": "x" * 150}, 150, set()) == []
+    assert description_cap_problems({"a-b": "short"}, 150, {"a-b"}) == [
+        "a-b: exempt, and its description no longer exceeds the cap"
+    ]
+    assert description_cap_problems({}, 150, {"gone-skill"}) == [
+        "gone-skill: exempt, and no source carries a description for it"
+    ]
+
+
 def test_an_ungenerated_named_tree_is_refused_not_installed_empty(tmp_repo, tmp_home, tmp_path, capsys):
     """Publishing an empty tree would prune every managed skill on the host."""
     empty = tmp_path / "nothing-here"

@@ -1930,6 +1930,15 @@ def is_managed(skill_dir: Path) -> bool:
 #: #1028 no bundled file was ever imported, so the case could not arise.
 _GENERATED_BYTECODE = ("__pycache__",)
 
+#: The PUBLISH side of the same exclusion (issue #1715). `skill_files()` leaves
+#: these directories out of what `--install` VALIDATES, and the copies used to
+#: carry them anyway: a `.pyc` sitting in a named tree (`--write --install`,
+#: `--output-root DIR --install`) passed the check and reached the host,
+#: unexamined. Derived from the ONE tuple above and handed to every copy, so
+#: what is published cannot again differ from what was checked. A bare
+#: `--install` builds into a fresh directory and never had one to copy.
+_PUBLISH_IGNORE = shutil.ignore_patterns(*_GENERATED_BYTECODE)
+
 
 def skill_files(skill_dir: Path) -> list[Path]:
     return sorted(
@@ -2053,10 +2062,18 @@ def run_check(selected: list[str]) -> int:
     # No negative control is owed for a string change. The pairing test is that
     # these two instruments' success lines can no longer be read as answering the
     # same question, and tests/test_codex_skill_sync.py pins it.
+    #: "both IN-CHECKOUT" is a claim about WHERE the compared tree is, so it is
+    #: made only when true (issue #1715). `--output-root` and the private build
+    #: a bare `--install` checks are outside the checkout; printing
+    #: `codex/skills/, both IN-CHECKOUT` over a temporary directory named the
+    #: wrong tree. The in-checkout form is unchanged, byte for byte.
+    if OUTPUT_ROOT.resolve().is_relative_to(REPO_ROOT.resolve()):
+        compared = f"{OUTPUT_ROOT.parent.name}/{OUTPUT_ROOT.name}/, both IN-CHECKOUT"
+    else:
+        compared = f"{OUTPUT_ROOT}/, an output root OUTSIDE the checkout"
     print(
         f"codex-skill-sync: {len(outputs)} skill(s) in sync"
-        f" ({SOURCE_ROOT.name}/<family>/ -> {OUTPUT_ROOT.parent.name}/{OUTPUT_ROOT.name}/,"
-        f" both IN-CHECKOUT; families: {', '.join(selected)})"
+        f" ({SOURCE_ROOT.name}/<family>/ -> {compared}; families: {', '.join(selected)})"
     )
     print(
         "codex-skill-sync: this says NOTHING about the installed copies under"
@@ -2296,6 +2313,27 @@ def install_dest_root() -> Path:
     return Path.home() / ".codex" / "skills"
 
 
+def relocated_codex_home() -> str | None:
+    """`CODEX_HOME` as set, when it names somewhere other than `~/.codex`.
+
+    `--install` does NOT honour it (issue #1715): the destination above is this
+    script's declared host surface, pinned verbatim by consumers, and writing
+    somewhere else is a change to that surface, not a correction. So the
+    absence is STATED. A Codex whose home was relocated reads its skills from
+    there and will not see this install; saying nothing left that to be found
+    by a session wondering why its skills never changed.
+    """
+    value = os.environ.get("CODEX_HOME")
+    if not value:
+        return None
+    default = Path.home() / ".codex"
+    try:
+        same = Path(value).expanduser().resolve() == default.resolve()
+    except OSError:
+        same = False
+    return None if same else value
+
+
 #: The environment names a destination this script must never write to. It names
 #: a PATH, never a mode: a boolean "we are testing" would disable the one mode
 #: this script exists to perform for anyone who ever exported it, while a path
@@ -2435,6 +2473,13 @@ def run_install() -> int:
         f" from {OUTPUT_ROOT.parent.name}/{OUTPUT_ROOT.name}/ -> {dest_root}"
         f" ({removed} orphan(s) removed)"
     )
+    relocated = relocated_codex_home()
+    if relocated is not None:
+        print(
+            f"codex-skill-sync: NOTE CODEX_HOME is {relocated}; this install wrote {dest_root}"
+            " and did not use it - a Codex reading skills from CODEX_HOME will not see it",
+            file=sys.stderr,
+        )
     #: The degraded paths are REPORTED, never silent (#1235): a reader can see a
     #: half-written skill during these, which is the exact symptom this replaced.
     if non_atomic:
@@ -2545,7 +2590,7 @@ _WHY_NO_EXCHANGE = "atomic directory exchange is unavailable here"
 def _replace_in_place(src: Path, dest: Path) -> None:
     if dest.is_dir():
         shutil.rmtree(dest)
-    shutil.copytree(src, dest)
+    shutil.copytree(src, dest, ignore=_PUBLISH_IGNORE)
 
 
 def _install_one(src: Path, dest: Path, staging: Path, can_rename: bool) -> str | None:
@@ -2559,13 +2604,13 @@ def _install_one(src: Path, dest: Path, staging: Path, can_rename: bool) -> str 
     if dest.exists() and not (dest.is_dir() and is_managed(dest)):
         # Not ours (no marker): the pre-#1235 merge, deliberately unchanged in
         # WHAT it does - but it overwrites files in place, so it is reported.
-        shutil.copytree(src, dest, dirs_exist_ok=True)
+        shutil.copytree(src, dest, dirs_exist_ok=True, ignore=_PUBLISH_IGNORE)
         return _WHY_MERGE
     if not can_rename:
         _replace_in_place(src, dest)
         return _WHY_DEVICE
     new = staging / f"new-{src.name}"
-    shutil.copytree(src, new)
+    shutil.copytree(src, new, ignore=_PUBLISH_IGNORE)
     if not dest.exists():
         if _try_rename(new, dest):
             return None
@@ -2579,7 +2624,7 @@ def _install_one(src: Path, dest: Path, staging: Path, can_rename: bool) -> str 
         _replace_in_place(new, dest)
         return _WHY_EXDEV
     if not _try_rename(new, dest):
-        shutil.copytree(new, dest)
+        shutil.copytree(new, dest, ignore=_PUBLISH_IGNORE)
         shutil.rmtree(old)
         return _WHY_EXDEV
     shutil.rmtree(old)
