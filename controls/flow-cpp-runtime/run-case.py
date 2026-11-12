@@ -62,9 +62,12 @@ with tempfile.TemporaryDirectory() as directory:
         "existing-runtime", "virtualenv-runtime", "mismatched-environment", "broken-environment",
         "invalid-config-version", "disagreeing-version",
         "malformed-matching-version", "malformed-mismatch-optin",
+        "constant-interpreter", "contradictory-config", "contradictory-config-optin",
     ):
         (venv / "bin").mkdir(parents=True)
-        version = "3.12.3" if mode in ("mismatched-environment", "malformed-mismatch-optin") else "3.11.9"
+        version = "3.12.3" if mode in (
+            "mismatched-environment", "malformed-mismatch-optin", "contradictory-config-optin",
+        ) else "3.11.9"
         cfg_version = version + ".final.0" if mode == "virtualenv-runtime" else version
         if mode == "invalid-config-version":
             cfg_version = "unknown"
@@ -73,10 +76,31 @@ with tempfile.TemporaryDirectory() as directory:
         elif mode in ("malformed-matching-version", "malformed-mismatch-optin"):
             cfg_version = ".".join(version.split(".")[:2]) + ".garbage"
         (venv / "pyvenv.cfg").write_text(f"version_info = {cfg_version}\n")
+        if mode in ("contradictory-config", "contradictory-config-optin"):
+            second = "3.11.9" if mode == "contradictory-config-optin" else "3.12.3"
+            (venv / "pyvenv.cfg").write_text(f"version = {version}\nversion_info = {second}\n")
+            assert version != second and len((venv / "pyvenv.cfg").read_text().splitlines()) == 2
         interpreter = venv / "bin/python"
-        interpreter.write_text("#!/bin/bash\n" + ("exit 7\n" if mode == "broken-environment" else f"echo {version}\n"))
+        if mode in ("broken-environment", "constant-interpreter"):
+            interpreter.write_text(
+                "#!/bin/bash\n" + ("exit 7\n" if mode == "broken-environment" else f"echo {version}\n")
+            )
+        else:
+            # A deliberate protocol double evaluates the supplied Python probe,
+            # with fixture-owned version/executable facts. It is not a real venv.
+            interpreter.write_text(
+                f"#!{sys.executable}\nimport sys\n"
+                f"sys.version_info = {tuple(map(int, version.split('.'))) + ('final', 0)!r}\n"
+                f"sys.executable = {str(interpreter)!r}\n"
+                "if '-c' in sys.argv:\n"
+                "    index = sys.argv.index('-c')\n"
+                "    code = sys.argv[index + 1]\n"
+                "    sys.argv = ['-c', *sys.argv[index + 2:]]\n"
+                "    exec(code)\n"
+                f"else:\n    print({version!r})\n"
+            )
         interpreter.chmod(0o755)
-        assert interpreter.is_file() and (venv / "pyvenv.cfg").read_text().strip().endswith(cfg_version)
+        assert interpreter.is_file() and cfg_version in (venv / "pyvenv.cfg").read_text()
         probe = subprocess.run([str(interpreter)], capture_output=True, text=True)
         assert (probe.returncode != 0) if mode == "broken-environment" else probe.stdout.strip() == version
         if mode == "invalid-config-version":
@@ -132,13 +156,14 @@ fi
         os.environ, PATH=str(binaries), HOME=str(owned / "home"), FLOW_GATE_CPP_DIR=str(cpp), FLOW_GATE_RERUN="0",
         FLOW_GATE_REBUILD_CPP_VENV="0",
     )
-    if mode == "malformed-mismatch-optin":
+    if mode in ("malformed-mismatch-optin", "contradictory-config-optin"):
         env["FLOW_GATE_REBUILD_CPP_VENV"] = "1"
     result = subprocess.run(["bash", str(helper)], cwd=target, env=env, capture_output=True, text=True, timeout=30)
     text = result.stdout + result.stderr
     if mode in (
         "mismatched-environment", "broken-environment", "invalid-config-version", "disagreeing-version",
         "malformed-matching-version", "malformed-mismatch-optin",
+        "constant-interpreter", "contradictory-config", "contradictory-config-optin",
     ) and result.returncode == 1:
         reason = "mismatch" if mode == "mismatched-environment" else "unverified"
         assert f"cpp-runtime-environment-{reason}" in text, text

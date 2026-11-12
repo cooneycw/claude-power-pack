@@ -99,7 +99,7 @@ def test_mismatched_environment_is_refused_without_mutation(tmp_path, mode, rebu
     or shutil.which("git") is None or shutil.which("make") is None,
     reason="requires uv, bash, git and make",
 )
-@pytest.mark.parametrize("dev", [False, True, None, "stdlib", "virtualenv"])
+@pytest.mark.parametrize("dev", [False, True, None, "stdlib", "virtualenv", "equivalent-fields"])
 def test_fresh_pin_and_matching_environment_are_preserved(tmp_path, dev):
     from tests.conftest import find_python, uv_child_env
 
@@ -116,13 +116,15 @@ def test_fresh_pin_and_matching_environment_are_preserved(tmp_path, dev):
             env=env, capture_output=True, text=True, timeout=60,
         )
         assert sync.returncode == 0, sync.stderr
-        if dev in ("stdlib", "virtualenv"):
+        if dev in ("stdlib", "virtualenv", "equivalent-fields"):
             cfg = venv / "pyvenv.cfg"
             content = cfg.read_text()
             line = next(line for line in content.splitlines() if line.startswith("version_info = "))
             version = line.split(" = ")[1]
             spelling = f"version = {version}" if dev == "stdlib" else f"version_info = {version}.final.0"
             cfg.write_text(content.replace(line, spelling))
+            if dev == "equivalent-fields":
+                cfg.write_text(cfg.read_text() + f"version = {version}\n")
             assert spelling in cfg.read_text()
         before = fingerprint(venv)
     else:
@@ -137,6 +139,53 @@ def test_fresh_pin_and_matching_environment_are_preserved(tmp_path, dev):
     assert version.startswith("Python 3.11."), version
     if before is not None:
         assert fingerprint(venv) == before
+
+
+@pytest.mark.skipif(
+    shutil.which("uv") is None or shutil.which("bash") is None
+    or shutil.which("git") is None or shutil.which("make") is None,
+    reason="requires uv, bash, git and make",
+)
+@pytest.mark.parametrize("broken", ["constant", "contradictory", "contradictory-optin", "wrong-executable"])
+def test_unverified_environment_is_refused_before_uv(tmp_path, broken):
+    import shlex
+
+    from tests.conftest import find_python, uv_child_env
+
+    env = uv_child_env()
+    python = find_python("uv", env, "3.11")
+    cpp, target = owned_runtime(tmp_path)
+    venv = cpp / ".venv"
+    subprocess.run(
+        ["uv", "venv", "--python", str(python), "--no-python-downloads", str(venv)],
+        env=env, check=True, capture_output=True,
+    )
+    interpreter = venv / "bin/python"
+    version = subprocess.check_output(
+        [str(interpreter), "-c", "import sys; print('.'.join(map(str,sys.version_info[:3])))"], text=True,
+    ).strip()
+    if broken in ("constant", "wrong-executable"):
+        # Unlink the owned symlink before writing; its target is shared Python.
+        interpreter.unlink()
+        command = f"echo {version}" if broken == "constant" else f"exec {shlex.quote(str(python))} \"$@\""
+        interpreter.write_text("#!/bin/sh\n" + command + "\n")
+        interpreter.chmod(0o755)
+        assert not interpreter.is_symlink() and interpreter.read_text().startswith("#!/bin/sh")
+    else:
+        cfg = venv / "pyvenv.cfg"
+        cfg.write_text(cfg.read_text() + "version = 3.12.3\n")
+        assert "version_info = 3.11." in cfg.read_text() and "version = 3.12.3" in cfg.read_text()
+    if broken == "contradictory-optin":
+        env["FLOW_GATE_REBUILD_CPP_VENV"] = "1"
+    before = fingerprint(venv)
+    env.update(FLOW_GATE_CPP_DIR=str(cpp), UV_PYTHON_DOWNLOADS="never", UV_OFFLINE="1")
+    result = subprocess.run(
+        ["bash", str(SCRIPT), "--check-summary"], cwd=target, env=env,
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "cpp-runtime-environment-unverified" in result.stdout
+    assert fingerprint(venv) == before
 
 
 @pytest.mark.skipif(shutil.which("uv") is None, reason="requires uv")

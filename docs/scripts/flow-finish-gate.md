@@ -4,6 +4,9 @@ Per-script history, indexed from [the scripts inventory](../scripts.md).
 
 ## CPP environment preservation (#1768)
 
+This check protects against accidental damage to an environment in use.
+Authenticating a deliberately spoofed interpreter is outside its threat model.
+
 CPP commits `.python-version` as `3.11`, so plain `uv sync --extra dev`
 selects the same interpreter minor as the finish gate. Before invoking uv for
 the outer CPP runner, both normal and `--check-summary` modes inspect the
@@ -15,6 +18,13 @@ two numeric components with the executable interpreter's major and minor.
 The optional virtualenv suffix contains a release level (`alpha`, `beta`,
 `candidate` or `final`) and numeric serial; arbitrary text such as
 `3.11.garbage` remains unverified, even with the rebuild opt-in.
+Every `version` and `version_info` field is checked; conflicting values are
+unverified. A numeric version and its equivalent `.final.0` spelling agree.
+The executable must evaluate a generated-marker probe that reports its
+version and verifies `sys.executable` names this environment's `bin/python`.
+The probe uses `-I -S` to avoid site-packages and `.pth` hooks. It does not
+check `sys.prefix`: on the pinned Python 3.11, `-S` prevents virtual-environment
+prefix initialization, so that value points to the base installation.
 Missing, unreadable, malformed or disagreeing interpreter
 evidence in an existing environment fails with
 `cpp-runtime-environment-unverified`. Neither refusal falls back to Makefile

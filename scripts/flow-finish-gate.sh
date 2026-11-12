@@ -528,24 +528,46 @@ CPP_RUN=(env -u UV_PROJECT_ENVIRONMENT
 # Read both sources directly: asking uv would already have performed the repair.
 cpp_environment_check() {
     local venv="$CPP_DIR/.venv" cfg_version python_version cfg_minor python_minor
+    local cfg_versions="" candidate canonical cfg_canonical="" cfg_valid=1 marker probe=""
     [[ -e "$venv" || -L "$venv" ]] || return 0
     if [[ -f "$venv/pyvenv.cfg" && -r "$venv/pyvenv.cfg" && -x "$venv/bin/python" ]]; then
-        cfg_version=$(awk -F ' = ' '$1 == "version" || $1 == "version_info" {print $2; exit}' "$venv/pyvenv.cfg") || cfg_version=""
-        python_version=$("$venv/bin/python" -I -S -c 'import sys; print(".".join(map(str, sys.version_info[:3])))' 2>/dev/null) || python_version=""
-    else
-        cfg_version=""
-        python_version=""
+        cfg_versions=$(awk '/^[[:space:]]*(version|version_info)[[:space:]]*=/ {
+            sub(/^[^=]*=[[:space:]]*/, ""); sub(/[[:space:]]*$/, ""); print
+        }' "$venv/pyvenv.cfg") || cfg_versions=""
+        marker="CPP_VENV_PROBE_${BASHPID:-$$}_${RANDOM}_${RANDOM}"
+        # -S keeps site/.pth hooks out of the probe. On Python 3.11 it also
+        # suppresses venv sys.prefix, so verify the invoked executable instead.
+        probe=$("$venv/bin/python" -I -S -c '
+import os, sys
+if os.path.abspath(sys.executable) != os.path.abspath(sys.argv[2]):
+    raise SystemExit(1)
+print(sys.argv[1] + ":" + ".".join(map(str, sys.version_info[:3])))
+' "$marker" "$venv/bin/python" 2>/dev/null) || probe=""
+    fi
+    cfg_version="${cfg_versions//$'\n'/, }"
+    python_version=""
+    if [[ -n "${marker:-}" && "$probe" == "$marker:"* ]]; then
+        python_version="${probe#"$marker:"}"
     fi
     cfg_minor=""
     python_minor=""
     # virtualenv appends release metadata (for example 3.11.14.final.0).
-    if [[ "$cfg_version" =~ ^([0-9]+\.[0-9]+)\.[0-9]+(\.(alpha|beta|candidate|final)\.[0-9]+)?$ ]]; then
-        cfg_minor="${BASH_REMATCH[1]}"
-    fi
+    while IFS= read -r candidate; do
+        if [[ "$candidate" =~ ^(([0-9]+\.[0-9]+)\.[0-9]+)(\.(alpha|beta|candidate|final)\.[0-9]+)?$ ]]; then
+            cfg_minor="${BASH_REMATCH[2]}"
+            canonical="${BASH_REMATCH[1]}${BASH_REMATCH[3]:-.final.0}"
+            if [[ -n "$cfg_canonical" && "$canonical" != "$cfg_canonical" ]]; then
+                cfg_valid=0
+            fi
+            cfg_canonical="$canonical"
+        else
+            cfg_valid=0
+        fi
+    done <<< "$cfg_versions"
     if [[ "$python_version" =~ ^([0-9]+\.[0-9]+)\.[0-9]+$ ]]; then
         python_minor="${BASH_REMATCH[1]}"
     fi
-    if [[ -z "$cfg_minor" || -z "$python_minor" || "$cfg_minor" != "$python_minor" ]]; then
+    if [[ "$cfg_valid" != 1 || -z "$cfg_minor" || -z "$python_minor" || "$cfg_minor" != "$python_minor" ]]; then
         echo "FLOW_FINISH_GATE: fail (cpp-runtime-environment-unverified: $venv; pyvenv.cfg=${cfg_version:-unreadable}, bin/python=${python_version:-unavailable}; wanted Python 3.11)"
         gate_exit fail
     fi
