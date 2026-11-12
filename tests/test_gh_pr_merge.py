@@ -585,6 +585,12 @@ def _make_stubs(
     wp_seq_file.write_text("\n".join(wp_statuses) + "\n")
     _write_stub(
         bin_dir / "curl",
+        # Read the header gh-pr-merge.sh pipes in (`-H @-`). A stub that exits
+        # without reading it can close the pipe before the writer runs; under
+        # pipefail the repo-id lookup then fails, the queue wait is skipped by
+        # design, and the test counts zero polls (issue #1718, `assert 0 == 3`).
+        # Only where a header is piped: anywhere else stdin is not ours to read.
+        'case " $* " in *" @- "*) cat >/dev/null 2>&1 || true ;; esac\n'
         f'echo "curl $*" >> "{call_log}"\n'
         'if [[ "$*" == *"/api/repos/lookup/"* ]]; then\n'
         + (

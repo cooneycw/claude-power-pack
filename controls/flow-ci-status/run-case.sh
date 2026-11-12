@@ -67,6 +67,10 @@ SHA="2b308175a757e0b17c30caead6aabbe9356b43cc"
 
 cat > "$T/bin/curl" <<STUB
 #!/bin/sh
+# Read the header the gate pipes in. A stub that exits without reading it can
+# close the pipe before the writer runs; under pipefail that fails the whole
+# call and the gate reports it could not look (issue #1718).
+cat >/dev/null 2>&1 || true
 # POSIX-safe "last argument": \${@: -1} is a bash-only slice and is a
 # silent "Bad substitution" under dash, which /bin/sh is here (measured) -
 # every call would fail with no output, and wp_api's "2>/dev/null" would
