@@ -816,6 +816,60 @@ def test_the_clause_is_the_only_change_and_the_exit_code_does_not_move(repo: Pat
     assert "a header row, a `|---|---|` row, then `| <lane> | <what was demonstrated> |`" in new.stderr
 
 
+def make_checkout(tmp_path: Path, shape: str) -> Path:
+    """The same project as a plain repository, or as a LINKED WORKTREE of one:
+    the shape `/flow:auto` always runs in, where `.git` is a file and the
+    baseline lives under the main repository's git directory."""
+    if shape == "plain repository":
+        return make_repo(tmp_path / "wt")
+    main = tmp_path / "main"
+    main.mkdir()
+    git(main, "init", "-q", "-b", "main")
+    git(main, "config", "user.email", "t@e.com")
+    git(main, "config", "user.name", "t")
+    (main / "README.md").write_text("base\n")
+    (main / ".claude").mkdir()
+    (main / ".claude" / "lanes.md").write_text(LANES)
+    git(main, "add", "-A")
+    git(main, "commit", "-qm", "base")
+    linked = tmp_path / "wt"
+    git(main, "worktree", "add", "-q", "-b", "issue-42-a-fixture", str(linked))
+    assert (linked / ".git").is_file(), "precondition: a linked worktree's .git is a file"
+    assert (main / ".git").is_dir()
+    return linked
+
+
+@pytest.mark.parametrize("word", WORDS)
+@pytest.mark.parametrize("shape", ["plain repository", "linked worktree"])
+def test_the_clause_is_the_same_from_a_plain_repository_and_a_linked_worktree(
+        tmp_path: Path, shape: str, word: str) -> None:
+    """Nothing owed shown, one row shown, both shown - read from each checkout
+    shape, for each verdict word. A linked worktree is where every real run is."""
+    r = make_checkout(tmp_path, shape)
+    approved(r)
+    assert verdict(compliance_as(r, word)).startswith(f"PLAN_COMPLIANCE: {word}, LANES NOT DEMONSTRATED (2)")
+    (r / SIBLING).write_text(DEMONSTRATED.replace("| Harness | tested through a symlink |\n", ""))
+    assert verdict(compliance_as(r, word)).startswith(f"PLAN_COMPLIANCE: {word}, LANES NOT DEMONSTRATED (1)")
+    (r / SIBLING).write_text(DEMONSTRATED)
+    done = compliance_as(r, word)
+    assert "LANES" not in verdict(done) and str(SIBLING) not in done.stdout
+    (r / SIBLING).unlink()
+    (r / SIBLING).mkdir()
+    assert verdict(compliance_as(r, word)).startswith(f"PLAN_COMPLIANCE: {word}, LANES NOT CHECKED")
+
+
+def test_from_a_linked_worktree_the_lane_file_read_is_the_worktrees_own(tmp_path: Path) -> None:
+    """The lane file is read from the checkout the run is in, not from the main
+    checkout it is linked to: remove it in the worktree and nothing is owed
+    there, whatever the main checkout still holds."""
+    r = make_checkout(tmp_path, "linked worktree")
+    approved(r)
+    assert ", LANES NOT DEMONSTRATED (2)" in verdict(compliance_as(r, "divergence"))
+    (r / ".claude" / "lanes.md").unlink()
+    assert (tmp_path / "main" / ".claude" / "lanes.md").is_file(), "precondition: main still has one"
+    assert "LANES" not in verdict(compliance_as(r, "divergence"))
+
+
 HOSTILE_LANE = "Checkout) - linked worktree, 100% (really)"
 
 
