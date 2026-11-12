@@ -744,7 +744,7 @@ instead.
      under the Step-4 rules), rejected (one-line reason), or deferred (route it
      to the nit store). One re-review after the first accepted fix. Make later
      fixes, then stop: ask the approver before each further pass; never receipt
-     an unreviewed head or false count.
+     unreviewed heads or false counts.
    - `COUNTER_MODEL_REVIEW: clean` - record `ran` with zero counts.
    - `COUNTER_MODEL_REVIEW: unparseable` (non-zero) - **This is not a clean
      review.** Record `skipped` with reason `reviewer-unavailable`; never a
