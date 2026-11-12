@@ -297,6 +297,12 @@ def test_every_historical_anchor_in_this_repository_is_its_commits_bytes() -> No
     module = _harness_module()
     anchors = _registered_historical_anchors()
     assert len(anchors) >= 40, f"precondition: only {len(anchors)} historical anchors found"
+    # In CI's partial clone every read below is a network fetch (issue #1718);
+    # the population above is still counted there, the comparison is the
+    # negative-controls step's.
+    from tests.conftest import skip_in_partial_clone
+
+    skip_in_partial_clone(ROOT)
     verdicts = {
         f"{control.name}/{anchor['path']}": module._provenance(anchor, control / anchor["path"], ROOT, True)
         for control, anchor in anchors
