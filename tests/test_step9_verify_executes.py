@@ -128,25 +128,33 @@ def test_committed_document_mutations_are_refused(mutation):
 
 
 @requires_uv
-def test_documented_step9_invocations_execute(tmp_path: Path) -> None:
+def test_documented_step9_invocations_execute(tmp_path: Path, owned_cpp_checkout: Path) -> None:
     # Scaffold an isolated project: its own cicd.yml, NOT CPP's (isolation pin
     # below). The verify code reads config relative to the cwd it runs in.
     proj = tmp_path / "proj"
     (proj / ".claude").mkdir(parents=True)
     (proj / ".claude" / "cicd.yml").write_text(MINIMAL_CICD_YML)
 
+    # $CPP_DIR is bound to an OWNED copy of the CPP runtime, never to the
+    # checkout this suite is running from: the documented line pins Python
+    # 3.11, and uv rebuilds the environment of whatever project it is given.
+    # Bound to this checkout it passed while replacing the suite's own
+    # environment with one that had no pytest in it (issue #1718).
+    from tests.conftest import venv_fingerprint
+
+    surrounding = venv_fingerprint(ROOT / ".venv")
     invocations = extract_verify_invocations()
     outputs = []
     for cmd in invocations:
-        # The documented lines use $CPP_DIR; bind it to THIS checkout, exactly
-        # as auto.md's Step 9 preamble resolves it.
+        # The documented lines use $CPP_DIR. auto.md's Step 9 preamble resolves
+        # it to the CPP checkout; here that is the owned copy.
         proc = subprocess.run(
             ["bash", "-c", cmd],
             cwd=proj,
             env={
                 "PATH": subprocess.os.environ["PATH"],
                 "HOME": subprocess.os.environ.get("HOME", str(tmp_path)),
-                "CPP_DIR": str(ROOT),
+                "CPP_DIR": str(owned_cpp_checkout),
                 "UV_PYTHON_DOWNLOADS": "never",
                 **{
                     key: subprocess.os.environ[key]
@@ -165,6 +173,9 @@ def test_documented_step9_invocations_execute(tmp_path: Path) -> None:
         )
         outputs.append(proc.stdout + proc.stderr)
 
+    assert venv_fingerprint(ROOT / ".venv") == surrounding, (
+        "a documented Step-9 invocation rebuilt or changed the environment this suite is running from"
+    )
     # Baseline run writes the baseline; verify run must emit a verdict.
     assert any(word in outputs[1].lower() for word in ("proceed", "verdict", "pass", "ok")), (
         f"post-deploy verify emitted no verdict:\n{outputs[1][-2000:]}"

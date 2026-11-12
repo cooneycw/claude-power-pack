@@ -573,3 +573,74 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config) -> None:  # no
             terminalreporter.write_line(
                 f"    {first[:160]}{'...' if len(first) > 160 else ''}", yellow=True
             )
+
+
+# --------------------------------------------------------------------------- #
+# An owned CPP checkout for tests that run the REAL gate (issue #1718)
+# --------------------------------------------------------------------------- #
+# Two tests run the shipped finish path, which does
+# `uv run --python 3.11 --no-python-downloads --project "$CPP_DIR"`. They used
+# to pass the checkout the suite itself is running from as that directory. uv
+# then makes that checkout's `.venv` match the 3.11 pin: where the `.venv` was
+# first built by a plain `uv run` on another minor (3.12 on a host that has
+# both), uv REMOVES it and recreates it - mid-suite, under the feet of every
+# test still to run. One of the two runs offline with an empty cache, so the
+# rebuilt environment stayed empty and 274 later tests failed with
+# "No module named 'yaml'". The other rebuilt it without the dev extra and
+# passed, having removed pytest from the environment running it.
+#
+# A test must not rebuild the environment it is running in. So the gate is
+# pointed at a COPY of the working tree's `lib/`, `scripts/`, `pyproject.toml`
+# and `uv.lock`, with its own 3.11 environment built once per session. It is a
+# copy of the WORKING TREE, not of HEAD, so it still tests what is being edited.
+
+_OWNED_CPP_PARTS = ("pyproject.toml", "uv.lock", "lib", "scripts")
+
+
+def venv_fingerprint(venv: Path) -> tuple[str, tuple[str, ...]] | None:
+    """What a virtual environment IS, read without running anything through uv:
+    its interpreter's version line, and the names in its site-packages. None
+    when there is no environment at that path. Read from the files directly -
+    `uv run` repairs an environment before running a check in it, so a check
+    made through uv cannot see one that was emptied."""
+    cfg = venv / "pyvenv.cfg"
+    if not cfg.is_file():
+        return None
+    version = next((ln.split("=", 1)[1].strip() for ln in cfg.read_text().splitlines()
+                    if ln.replace(" ", "").startswith(("version_info=", "version="))), "?")
+    names: set[str] = set()
+    for site in venv.glob("lib/python*/site-packages"):
+        names.update(p.name for p in site.iterdir())
+    return version, tuple(sorted(names))
+
+
+@pytest.fixture(scope="session")
+def owned_cpp_checkout(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A copy of this checkout's CPP runtime with its own Python 3.11
+    environment, for a test that must run the real gate."""
+    import shutil
+    import subprocess
+
+    root = Path(__file__).resolve().parents[1]
+    uv = shutil.which("uv")
+    if uv is None:
+        pytest.skip("requires uv to build an owned CPP environment")
+    dest = tmp_path_factory.mktemp("owned-cpp") / "claude-power-pack"
+    dest.mkdir()
+    for part in _OWNED_CPP_PARTS:
+        source = root / part
+        if source.is_dir():
+            shutil.copytree(source, dest / part, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        else:
+            shutil.copy2(source, dest / part)
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("UV_PROJECT_ENVIRONMENT", "UV_PYTHON", "VIRTUAL_ENV", "UV_OFFLINE", "UV_CACHE_DIR")}
+    built = subprocess.run(
+        [uv, "sync", "--python", "3.11", "--no-python-downloads", "--project", str(dest)],
+        env=env, capture_output=True, text=True, timeout=110, check=False,
+    )
+    if built.returncode != 0:
+        pytest.skip("could not build an owned CPP environment on Python 3.11 "
+                    f"(needs a 3.11 interpreter and the locked wheels): {built.stderr.strip()[-300:]}")
+    assert venv_fingerprint(dest / ".venv") is not None, "the owned environment was not created"
+    return dest
