@@ -179,9 +179,10 @@ Report current state to user.
 
 ## Step 3: Select Capabilities
 
-Ask which capabilities the user wants with a multi-select AskUserQuestion:
-**commands**, **scripts**, **MCP servers**, **CI/CD host checks**, **Codex**,
-**Qwen**, **Gemma**, and **optional extras**. Any combination is supported.
+Ask which capabilities the user wants in ONE AskUserQuestion call with two
+multi-select questions (the tool allows four options per question): first
+**commands**, **scripts**, **MCP servers**, **CI/CD host checks**; then **Codex**,
+**Qwen**, **Gemma**, **optional extras**. Any combination is supported.
 Explain that Codex also installs commands and scripts used by its orchestration
 commands; Qwen and Gemma install their commands. Optional
 extras enables later individual questions; it never consents to those writes.
@@ -230,7 +231,7 @@ selection binding is absent.
 
 **Only show this step if the resolved capabilities include `scripts`.**
 
-Claude Code prompts "Allow?" before running tools. You can auto-approve safe operations to reduce interruptions while blocking dangerous commands.
+Claude Code prompts "Allow?" before running tools. You can auto-approve safe operations to reduce interruptions and deny the listed dangerous command forms.
 
 Ask the user which permission profile they want using AskUserQuestion:
 
@@ -330,8 +331,8 @@ chooser. Standard remains the recommended default.
       "Bash(git push --force origin main:*)",
       "Bash(git push --force origin master:*)",
       "Bash(sudo rm:*)",
-      "Bash(mkfs:*)",
-      "Bash(dd if=:*)"
+      "Bash(mkfs*)",
+      "Bash(dd if=*)"
     ],
     "ask": [
       "Bash(git push:*)",
@@ -407,8 +408,8 @@ chooser. Standard remains the recommended default.
       "Bash(git push --force origin main:*)",
       "Bash(git push --force origin master:*)",
       "Bash(sudo rm:*)",
-      "Bash(mkfs:*)",
-      "Bash(dd if=:*)"
+      "Bash(mkfs*)",
+      "Bash(dd if=*)"
     ]
   }
 }
@@ -504,6 +505,7 @@ If user selects "Custom", ask which categories to enable using multi-select:
 ### Security Notes
 
 - **Matching deny rules take precedence** - In normal rule evaluation, deny wins over ask, and ask wins over allow
+- **A deny rule is not a boundary** - It matches the command text Claude usually produces. The same program run another way (`dd of=X if=Y`, `/usr/bin/dd`) is not matched; use sandboxing for enforcement
 - **Native policy still applies** - Profiles configure permission rules; the selected permission mode and sandbox settings also govern execution
 - **Nothing masks tool output** - CPP registers no output filter, so treat anything a command prints as reaching the transcript verbatim
 - **Trusted and YOLO require scripts** - Offer the broad-approval chooser only when the resolved scripts capability installs the required helpers
@@ -1277,14 +1279,6 @@ case $? in
   *) SEAM_STATUS="UNAVAILABLE - the seam could not be installed" ;;
 esac
 echo "Host-write seam: $SEAM_STATUS"
-#: THE STATUS SAYS WHAT IT MEASURED (counter-model review). An earlier draft
-#: announced that a deferred bootstrap meant "every host write below will
-#: report deferred", which this call does not establish: --defer
-#: ~/.claude/scripts defers the SEAM'S OWN INSTALL and says nothing about
-#: ~/.claude/settings.json or ~/.bashrc, each of which consults its own
-#: defer-set entry and reports its own verdict below. Overclaiming from one
-#: surface to all of them is this issue's defect wearing the fix's clothes.
-#:
 #: /cpp:init CREATING ~/.claude/scripts is correct here and is the difference
 #: from /cpp:update's Step 5a, which must not: this is the Tier 2 installer,
 #: the tier the user just chose, so the directory is the deliverable rather
@@ -2728,6 +2722,8 @@ echo "  Install later: rerun /cpp:init optional Sequential Thinking"
 ```
 
 ### 8b. Codex MCP Registration (optional)
+
+Skip this step, and say so, when Step 5d already asked in this run.
 
 Consent: Yes updates `${CODEX_HOME:-$HOME/.codex}/config.toml` with the listed servers and npx can use its cache. No always creates project `.agents/`, even when the setup source is absent; generate project `.agents/CODEX_SETUP.md` by copying the supplied setup artifact only if the source exists; that copy can overwrite an existing setup file. Disclose both branches before asking.
 
