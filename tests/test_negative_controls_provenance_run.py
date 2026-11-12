@@ -425,3 +425,71 @@ def test_a_missing_anchor_on_a_control_that_cannot_run_here_fails_strict(tmp_pat
     assert "the anchor file is missing" in done.stdout
     assert counts(done.stdout) == (0, 1)
     assert "-> PROVENANCE:UNCOMPARED" in done.stdout
+
+
+def test_every_registered_historical_anchor_ends_in_exactly_one_outcome() -> None:
+    """THE PROPERTY the three review findings shared: nothing registered may
+    leave the run uncounted. Over every control in this repository, each
+    registered historical anchor lands in exactly one of compared (equal or
+    different), could-not-compare, or digest-mismatch-before-git - and the
+    three add up to the number registered, which is counted here independently
+    of the harness.
+
+    Runs in any clone: in a shallow one every anchor is could-not-compare,
+    and the sum must still hold."""
+    module = _harness_module()
+    registered_here = _registered_historical_anchors()
+    by_control: dict[Path, int] = {}
+    for control, _anchor in registered_here:
+        by_control[control] = by_control.get(control, 0) + 1
+
+    total = {"registered": 0, "compared": 0, "uncompared": 0, "unexamined": 0}
+    for control in sorted((ROOT / "controls").glob("*/")):
+        res = module.Result(gate="x", control_dir=str(control), verdict="PASS")
+        module._verify_historical_anchors(res, control, ROOT)
+        parts = res.historical_compared + res.historical_uncompared + res.historical_unexamined
+        assert parts == res.historical_registered, (
+            f"{control.name}: {res.historical_registered} registered, {parts} accounted for")
+        assert res.historical_registered == by_control.get(control, 0), control.name
+        if res.historical_unexamined:
+            assert res.provenance == "MISMATCH", f"{control.name}: unexamined without a MISMATCH"
+        if res.historical_uncompared:
+            assert res.provenance in ("UNCOMPARED", "MISMATCH"), control.name
+        total["registered"] += res.historical_registered
+        total["compared"] += res.historical_compared
+        total["uncompared"] += res.historical_uncompared
+        total["unexamined"] += res.historical_unexamined
+    assert total["registered"] == len(registered_here) > 0, total
+    assert total["compared"] + total["uncompared"] + total["unexamined"] == total["registered"], total
+
+
+@pytest.mark.parametrize("damage", ["none", "file-missing", "digest-stale", "bytes-differ", "shallow"])
+def test_the_same_sum_holds_for_each_way_an_anchor_can_be_wrong(tmp_path: Path, damage: str) -> None:
+    """The property on a tree where each outcome is forced, one at a time."""
+    import hashlib
+    module = _harness_module()
+    root = _fixture(tmp_path, "good-anchor-matches-its-commit", shallow=(damage == "shallow"))
+    control = root / "controls" / "toy"
+    anchor = control / "anchors" / "first-commit-toy-gate.sh"
+    manifest = control / "control.json"
+    if damage == "file-missing":
+        anchor.unlink()
+    elif damage == "digest-stale":
+        anchor.write_text(anchor.read_text() + "# changed\n")
+    elif damage == "bytes-differ":
+        anchor.write_text(anchor.read_text() + "# changed\n")
+        spec = json.loads(manifest.read_text())
+        spec["anchors"][0]["sha256"] = hashlib.sha256(anchor.read_bytes()).hexdigest()
+        manifest.write_text(json.dumps(spec))
+    res = module.Result(gate="x", control_dir=str(control), verdict="PASS")
+    module._verify_historical_anchors(res, control, root)
+    got = (res.historical_registered, res.historical_compared, res.historical_uncompared,
+           res.historical_unexamined, res.provenance)
+    expected = {
+        "none": (1, 1, 0, 0, "unverified"),          # equal: the pass strengthens only towards failure
+        "file-missing": (1, 0, 1, 0, "UNCOMPARED"),
+        "digest-stale": (1, 0, 0, 1, "MISMATCH"),
+        "bytes-differ": (1, 1, 0, 0, "MISMATCH"),
+        "shallow": (1, 0, 1, 0, "UNCOMPARED"),
+    }[damage]
+    assert got == expected
