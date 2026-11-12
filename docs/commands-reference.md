@@ -151,6 +151,31 @@ same reason (the heading already says "from lib/cicd"):
 
 > The `lib/cicd` library can detect the framework and generate a Makefile:
 
+Moved by #1697 Part 2, to pay for the reader question and the test-quality
+question in `/codex:code_review` and one sentence in `/flow:eli5`.
+
+From `/codex:code_review` Step 3, the network-fence paragraph (issue #1450).
+After "posted to an issue as the owner." it read:
+
+> The cause was not confirmed. Three candidates were left: the
+> read-only sandbox did not fence the network there, a host configuration let a
+> sandbox-denied command be approved to run outside it, or the caller supplied
+> `danger-full-access`. So the fix does not rely on any one of them:
+
+From `/codex:code_review` Notes, the middle of the `## Red cases` bullet
+(issue #1030):
+
+> it was previously
+> supplied only by `/flow:auto`'s call site, which meant a document reading
+> this contract alone and following "Return ONLY a findings report" would
+> silently get no red cases.
+
+From `/flow:eli5`, the opening of the closing-report section (issue #965). The
+first sentence ended ", like its sibling below.", and was followed by:
+
+> It adds no rule to the gate and changes nothing inside the
+> markers.
+
 From `/codex:code_review` Step 2, above the `trap` that removes the diff file:
 
 > Four refusal paths below (no common ancestor, no diff vs BASE, an unreadable

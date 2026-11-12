@@ -102,6 +102,10 @@ carries the rows the approved plan answered, each with what happened, and a row
 whose result differs from the plan is explained. The rule is
 [the lanes reference](lanes.md); do not restate it here.
 
+**Readers of a changed output.** When the plan named readers of an output the
+change alters, Evidence carries those `Reader:` rows with what happened, beside
+the lane rows. The rule is [the readers reference](changed-output-readers.md).
+
 **Demoted, never deleted.** This is the half that makes a claim about the
 *check* rather than about one run - "the check fails on X and passes on Y" is a
 claim about the check; "it passed" is a claim about this run. Brevity is never
@@ -134,7 +138,7 @@ and the two bug forms point here or are tested equal to it
 `Missed because:` - why the original work's test did not catch it:
 
 - `lane not exercised` - it was tested on one route and broke on another ([lanes](lanes.md))
-- `reader not tested against real output` - one side was tested against a hand-written copy of the other
+- `reader not tested against real output` - one side was tested against a hand-written copy of the other ([readers](changed-output-readers.md))
 - `fixture smaller than real use` - the test data was smaller or simpler than what real use sends
 - `test could not fail` - a test covered it and could not report the other verdict
 - `no test covered it` - nothing exercised that path at all
