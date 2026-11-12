@@ -107,7 +107,7 @@ if TYPE_CHECKING:
         SmokeTestResult,
     )
     from .pipeline import generate_github_actions, generate_pipeline, generate_woodpecker
-    from .runner import DeterministicRunner, RunResult, resume_run, run_plan
+    from .runner import DeterministicRunner, RunResult, run_plan
     from .smoke import run_smoke_tests
     from .state import RunState, StepRecord, StepStatus
     from .steps import DeployStep, ShellStep, StepDef, StepResult
@@ -191,7 +191,6 @@ _NAME_TO_MODULE = {
     "parse_makefile": "makefile",
     "poll_readiness": "deploy",
     "register_strategy": "deploy",
-    "resume_run": "runner",
     "run_health_checks": "health",
     "run_plan": "runner",
     "run_smoke_tests": "smoke",
@@ -298,7 +297,6 @@ __all__ = [
     "DeterministicRunner",
     "RunResult",
     "run_plan",
-    "resume_run",
     "RunState",
     "StepRecord",
     "StepStatus",
