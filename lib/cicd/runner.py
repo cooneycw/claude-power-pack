@@ -107,11 +107,6 @@ RUNNER_STRIP_VARS = frozenset({"PYTHONPATH", "VIRTUAL_ENV", "PYTHONHOME"})
 #: of an order-dependent real failure. The token names what the experiment
 #: established: isolation, and nothing about the cause.
 #:
-#: The narration fix beside it closes what a HUMAN reads in the moment. This
-#: closes what a LATER READER greps, which is a different population at a
-#: different time - #900's own evidence is a defect that survived WEEKS, by which
-#: point nobody is reading terminal output and the record is all there is.
-#:
 #: `scripts/flow-finish-gate.sh` matches this string with an ANCHORED awk regex,
 #: so the two must stay equal. A drift that misses the shell side does not fail
 #: loudly - the gate stops emitting RERUN_PASSED and silently reports `ok`, which
@@ -507,11 +502,7 @@ class RunResult:
         if self.skipped_steps:
             d["skipped"] = self.skipped_steps
         # WHICH IDS ARE GATES, emitted so the shell does not have to restate them
-        # (issue #1147). `GATE_STEP_IDS` is derived from each step's `gate=`
-        # declaration - #890 made it so after a hand-written literal drifted -
-        # but it never reached this JSON, so `scripts/flow-finish-gate.sh` kept
-        # a SECOND copy as a regex alternation it could not import. That copy is
-        # now deleted and the shell filters on this field.
+        # (issue #1147): `scripts/flow-finish-gate.sh` filters on this field.
         #
         # Same reason as `coverage` and `timed_out_step` above, and the third
         # instance of it: the gate reads this JSON, so a field that never
@@ -745,6 +736,7 @@ class DeterministicRunner:
             details = state.summary(executed_from=len(state.step_records))["steps"]
             for entry in details:
                 entry["executed_in_this_run"] = False
+            plan_steps = get_plan_steps(state.plan_name, project_root=str(self.project_root))
             return RunResult(
                 step_details=copy.deepcopy(details),
                 resume_state_evidence=state.resume_state_evidence(),
@@ -753,14 +745,8 @@ class DeterministicRunner:
                 plan_name=state.plan_name,
                 steps_completed=state.current_index,
                 steps_total=len(state.step_records),
-                gates=plan_gate_ids(
-                    state.plan_name,
-                    get_plan_steps(state.plan_name, project_root=str(self.project_root)),
-                ),
-                dropped_gates=dropped_gate_ids(
-                    state.plan_name,
-                    get_plan_steps(state.plan_name, project_root=str(self.project_root)),
-                ),
+                gates=plan_gate_ids(state.plan_name, plan_steps),
+                dropped_gates=dropped_gate_ids(state.plan_name, plan_steps),
                 error=f"Run is {state.status}, not resumable" if state.status != "success" else None,
             )
 
@@ -926,17 +912,12 @@ class DeterministicRunner:
 
         # A RESUME MUST SETTLE WHAT THE FAILED RUN LEFT OPEN (issue #1166).
         #
-        # `deferred` is rebuilt empty on every invocation and, before this, was
-        # populated only from `state.current_index` forward. A run that deferred
-        # lint/test/typecheck into `verify` and then failed AT verify persists
-        # those three as `not-run` and leaves `current_index` pointing at verify
-        # - so on resume the three sit BEFORE the loop's start, nothing
-        # re-enters them, `_resolve_deferred` finds nothing, and a verify that
-        # now PASSES returns success with three `not-run` records still
-        # standing. `flow-finish-gate.sh` then refuses the pass (#1152, a
-        # success and a not-run record cannot both be true) and names gates that
-        # did in fact run. The shell is right on its inputs; the runner
-        # published a state it should have settled.
+        # A run that deferred lint/test/typecheck into `verify` and then failed AT
+        # verify persists those three as `not-run` with `current_index` at verify,
+        # so on resume they sit BEFORE the loop's start and nothing would settle
+        # them: a verify that now PASSES would return success over three `not-run`
+        # records, which `flow-finish-gate.sh` refuses (#1152). The shell is right
+        # on its inputs; it is the runner that must settle the state.
         #
         # NOT SETTLED FROM THE PERSISTED MAP, and this is the whole design
         # decision (orchestrator ratification; #1166's own body prefers the
@@ -1538,19 +1519,9 @@ class DeterministicRunner:
                         # the experiment cannot separate them and its result
                         # cannot support the word "flake".
                         #
-                        # This line used to say "first attempt was a flake", and
-                        # that is the sentence that did the damage rather than the
-                        # SUCCESS status. flow-finish-gate.sh has reported
-                        # `warn (rerun passed: ...)` since #769 landed, offering
-                        # both causes - but this line printed FIRST, named one
-                        # cause confidently, and so read as the explanation for
-                        # the warning underneath it. The warn was not missing; it
-                        # was DEFUSED. An order-dependent failure in kyle survived
-                        # weeks of this, cleared every time it fired.
-                        #
-                        # `flow-pr-watch.sh` already states the principle this
-                        # restores: it "does not decide what is a flake. That
-                        # stays a human/critic judgment."
+                        # Naming one cause confidently here would defuse the
+                        # `warn (rerun passed: ...)` that flow-finish-gate.sh
+                        # prints underneath it.
                         self._log(
                             f"  [{idx + 1}/{len(step_defs)}] {step.id}: "
                             f"RE-RUN PASSED IN ISOLATION - {id_count} id(s) pass "
@@ -1577,11 +1548,6 @@ class DeterministicRunner:
                         # had PASSED. Worse than a plain false negative: it points
                         # a person at an innocent test while hiding the failure
                         # that is genuinely there.
-                        #
-                        # Observed (kyle #1176): the retried id passed on re-run,
-                        # a DIFFERENT test failed in the OTHER phase because a
-                        # commit landed in another repository between the two
-                        # invocations, and the verdict named the innocent id.
                         #
                         # The third state is the one the two-way answer threw
                         # away, and it is the most informative of the three: a
@@ -1699,14 +1665,15 @@ class DeterministicRunner:
                 # gates can be claimed as run (issue #1152). `subsumed` here
                 # would be the exact false green this whole family of guards
                 # exists to refuse, produced by the COST fix.
+                named_prerequisite = _failing_prerequisite(
+                    f"{result.output}\n{result.error or ''}"
+                )
                 self._resolve_deferred(
                     state,
                     deferred,
                     step.id,
                     aggregate_ok=False,
-                    failing_prerequisite=_failing_prerequisite(
-                        f"{result.output}\n{result.error or ''}"
-                    ),
+                    failing_prerequisite=named_prerequisite,
                 )
                 state.save(self.project_root)
 
@@ -1744,8 +1711,10 @@ class DeterministicRunner:
                     # is not there. The field exists to save a search through
                     # 29 prerequisites; where there is no search, it is noise.
                     failed_prerequisite=(
-                        lambda named: named if named and named != step.id else None
-                    )(_failing_prerequisite(f"{result.output}\n{result.error or ''}")),
+                        named_prerequisite
+                        if named_prerequisite and named_prerequisite != step.id
+                        else None
+                    ),
                     timed_out_step=step.id if timed_out else None,
                     timed_out_after=(
                         step_def.timeout_seconds if timed_out else None
@@ -1998,7 +1967,6 @@ def run_plan(
     plan_name: str,
     project_root: Optional[str] = None,
     json_output: bool = True,
-    rerun_failed: bool = False,
 ) -> int:
     """Execute a plan and return exit code.
 
@@ -2009,7 +1977,7 @@ def run_plan(
     # The gate helper resolves whatever CPP checkout is installed, which may
     # predate #769. Its opt-in must therefore be an env var an old runner ignores,
     # not a new CLI flag that old argparse rejects before any gate can run.
-    rerun_failed = rerun_failed or os.environ.get("CPP_GATE_RERUN_FAILED") == "1"
+    rerun_failed = os.environ.get("CPP_GATE_RERUN_FAILED") == "1"
     runner = DeterministicRunner(project_root=root, rerun_failed=rerun_failed)
 
     # Opt-in durable execution evidence (issue #1366): a no-op unless
@@ -2039,12 +2007,11 @@ def resume_run(
     run_id: str,
     project_root: Optional[str] = None,
     json_output: bool = True,
-    rerun_failed: bool = False,
 ) -> int:
     """Resume a failed run and return exit code."""
     root = Path(project_root) if project_root else Path(".")
     # Match run_plan's cross-version-safe env opt-in when resuming the same gate.
-    rerun_failed = rerun_failed or os.environ.get("CPP_GATE_RERUN_FAILED") == "1"
+    rerun_failed = os.environ.get("CPP_GATE_RERUN_FAILED") == "1"
     runner = DeterministicRunner(project_root=root, rerun_failed=rerun_failed)
 
     try:

@@ -28,9 +28,11 @@ skillc `docs/specs/evaluation-facility/records.md` at commit `2202603`. The
 restated subset is deliberately narrow - exactly one trial ledger; every planned
 attempt has a lifecycle (no orphan); no duplicate attempt/result IDs; a
 `skill-evidence` artifact_ref resolves to exactly one manifest entry; a regrade's
-lineage, when a result declares one. Everything else skillc's `ledger-binding`,
-`unique-ids`, `attempt-accounting` and `lineage` bundle rules check - stale or
-cross-trial receipts, `skill-invocations` binding, pilot-report accounting, forged
+lineage, when a result declares one; and, since #1369, an attempt-bound record
+(an installation receipt among them) naming a trial other than the one the
+ledger planned that attempt under. Everything else skillc's `ledger-binding`,
+`unique-ids`, `attempt-accounting` and `lineage` bundle rules check - stale
+receipts, `skill-invocations` binding, pilot-report accounting, forged
 `criteria_owned` status, attempt-level `retry_of`, the agent-observation receipt
 stand-in, and more - is NOT checked here. A bundle this gate accepts is checked
 against this restated subset, never certified against skillc's full rule set. The
