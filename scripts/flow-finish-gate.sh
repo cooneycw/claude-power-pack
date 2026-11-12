@@ -390,6 +390,7 @@ fi
 #: --- Counter-model enrolment (issue #1171) ---------------------------------
 #: NEGATIVE-CONTROL: controls/counter-model-enrolment
 #: NEGATIVE-CONTROL: controls/counter-model-enrolment-ci
+#: NEGATIVE-CONTROL: controls/counter-model-enrolment-selection
 #:
 #: WHAT THIS EXISTS FOR. `counter-model-uniformity-check.py` reads the receipts
 #: that EXIST. A review that never ran writes no receipt and simply shrinks the
@@ -560,7 +561,7 @@ cm_receipt_matches_head() {
 
 cm_enrolment_evaluate() {
     local root receipts branch f rbranch rhead rstatus rreason reasons
-    local cm_undecidable=0
+    local cm_undecidable=0 cm_best="" cm_best_distance=0 cm_distance="" cm_uncounted=0
     # PARTICIPATION IS ESTABLISHED BEFORE GIT IS REQUIRED. Asking git first
     # reports `unknown` - and so RED - for any directory that is not a checkout,
     # which is most of what this gate is pointed at outside a flow run. A
@@ -632,6 +633,31 @@ cm_enrolment_evaluate() {
             1) continue ;;
             *) cm_undecidable=1; continue ;;
         esac
+        # NEAREST TO HEAD, NOT FIRST IN FILENAME ORDER (issue #1707). This loop
+        # used to judge and return on the first receipt that passed the filters
+        # above, and the glob sorts by filename, so on a branch with more than
+        # one receipt the OLDEST decided: an old valid review could carry a head
+        # whose own receipt was unusable, and the line named the wrong evidence.
+        # Every receipt that passes the filters is now a candidate, and the one
+        # whose reviewed head has the FEWEST commits between it and HEAD wins.
+        # The count decides; the filename only breaks a tie at one head, where
+        # the later file is the later review (`<=` on an ascending glob).
+        # A distance that cannot be computed never wins: such a receipt is set
+        # aside, and if that leaves no candidate the answer is undecidable below
+        # - never a fall back to the first match, which would restore the defect.
+        if ! cm_distance=$(git rev-list --count "$rhead..HEAD" 2>/dev/null) \
+                || [[ ! "$cm_distance" =~ ^[0-9]+$ ]]; then
+            cm_uncounted=$(( ${cm_uncounted:-0} + 1 ))
+            continue
+        fi
+        if [[ -z "${cm_best:-}" ]] || (( cm_distance <= cm_best_distance )); then
+            cm_best="$f"
+            cm_best_distance="$cm_distance"
+        fi
+    done
+
+    if [[ -n "${cm_best:-}" ]]; then
+        f="$cm_best"
         rstatus=$(cm_field "$f" status)
         if [[ "$rstatus" == "skipped" ]]; then
             rreason=$(cm_field "$f" skip_reason)
@@ -676,7 +702,12 @@ cm_enrolment_evaluate() {
         CM_ENROLMENT_RECEIPT_FILE="$f"
         CM_ENROLMENT_LINE="receipt: $(basename "$f")$_cm_where"
         return
-    done
+    fi
+    if [[ "${cm_uncounted:-0}" -gt 0 ]]; then
+        CM_ENROLMENT_STATE=undecidable
+        CM_ENROLMENT_LINE="undecidable: ${cm_uncounted} receipt(s) match this history but the distance from each to HEAD could not be computed - no receipt was selected, so the enrolment decision was NOT made here"
+        return
+    fi
 
     # A SHALLOW CHECKOUT CANNOT BE TRUSTED TO SAY "NOT AN ANCESTOR" AT ALL, and this
     # is sharper than the exit-128 case below. CI clones `--depth=1 --filter=tree:0`:
