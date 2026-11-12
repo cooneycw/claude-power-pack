@@ -129,13 +129,79 @@ suppressions:
 - **Prefer `secret`.** An `id` + `path` suppression covers EVERY finding of that
   id in the file, so a real key committed beside the canary passes silently.
   With `secret`, a different value in the same file still blocks. A finding that
-  carries no value (the assignment-pattern findings) is never suppressed by a
-  `secret` rule.
+  carries no value is never suppressed by a `secret` rule. The
+  assignment-pattern findings (`HARDCODED_PASSWORD`, `HARDCODED_SECRET`) DO
+  carry their value since #1405, so they can be pinned with `secret` too.
 - The value you declare in `secret:` is not itself reported when it appears in
   `.claude/security.yml`. Any OTHER value in that file still is.
 - Allowed keys are exactly `id`, `path`, `secret` and `reason`. Anything else is
   refused, not ignored: a misspelt `secrets:` would otherwise leave a wider
   suppression than the one written.
+
+### Test passwords, sentinels and shell substitutions (issue #1717)
+
+**What the scanner reports, and why it cannot tell these apart.**
+`HARDCODED_PASSWORD` and `HARDCODED_SECRET` fire on a password-like name
+followed by a quoted value. `password="privtest"` in a test, a sentinel such as
+`LEGACY_DB_PASSWORD = "..."`, and a shell line such as
+`pg_password="$(generate_secret)"` all have that shape. The first two are
+literals, and a pattern cannot know whether a literal is a credential. The
+third holds no secret, but whether the shell substitutes a value depends on its
+quoting, escaping and nesting across the file, which a pattern over one match
+cannot establish. **So the scanner reports all three, in every path, and does
+not go easier on tests or on shell files.** The repository that knows a line is
+harmless says so, in `.claude/security.yml`.
+
+**Declaration 1: a path suppression by id.** For a tree of test values:
+
+```yaml
+suppressions:
+  - id: HARDCODED_PASSWORD
+    path: 'tests/.*'
+    reason: "test fixtures and sentinels, not credentials"
+```
+
+The risk, in one sentence: it also silences a REAL password pasted anywhere
+under that path, so keep the path as narrow as the list of files allows.
+
+**Declaration 2: an exact value, pinned with `secret:`.** For a known harmless
+line, such as a shell substitution:
+
+```yaml
+suppressions:
+  - id: HARDCODED_PASSWORD
+    path: '^docker/install\.sh$'
+    secret: '\$\(generate_secret\)'
+    reason: "fetched at run time; no secret is written in the file"
+```
+
+The risk, in one sentence: it clears that exact text wherever the path matches,
+so a different value on the next line still reports, and a `secret:` pattern
+written loosely (`.*`) is a path suppression in disguise.
+
+`tests/test_security_scanners.py` (`TestTheConsumerDeclaresWhatIsHarmless`)
+shows each declaration clearing exactly what it names.
+
+**Tried and withdrawn: an exemption for shell substitutions in the scanner.**
+Issue #1717 first built one: in a shell file, do not report a double-quoted
+value that is a substitution. Two counter-model review passes found five ways
+to hide a hardcoded password behind it, and it was removed before it merged:
+
+1. an apostrophe inside the double quotes, after the reference;
+2. a second, literal segment joined on after the closing quote;
+3. the whole assignment wrapped in single quotes, where nothing is substituted;
+4. a quoted parenthesis inside `$(...)`, which ended the substitution early and
+   left a literal suffix the bracket count read past;
+5. single-quote context that is not visible on one line: an escaped apostrophe,
+   a single-quoted string spanning lines, a quoted here-document.
+
+Each fix added more shell lexing to a pattern matcher, and in a detector a miss
+is silent. `TestNoShellSubstitutionExemption` in
+`tests/test_security_scanners.py` pins every one of those lines as reported;
+read it before proposing an exemption again.
+
+**Not scanned at all.** A script with no file extension is outside this
+module's population whatever it holds (#1737); the scan's file count says so.
 
 **`.gitleaks.toml` is not read by this gate.** The quick scan is CPP's native
 pattern matcher, not gitleaks. Gitleaks allowlists carry regexes, paths, commits,
