@@ -4,6 +4,25 @@
 
 ### Behaviour changes you may notice
 
+- **`/flow:deploy <target>` now runs the target you name.** With a CPP
+  checkout on the host, `/flow:deploy deploy-staging` validated
+  `deploy-staging`, then ran the deterministic runner's deploy plan, whose
+  last step is the literal `make deploy`, and logged `deploy-staging`: ask for
+  one target, deploy another. The runner path is now taken only when the
+  target is exactly `deploy` (or none is given); any other target runs the
+  deploy security gate and then `make <target>`. `/flow:deploy` with no
+  argument, and every `/flow:auto` run, behave as before: `/flow:auto` runs
+  `make deploy` itself and never passes a target. A non-default target no
+  longer gets the runner's bootstrap check or its execution record. On a host
+  whose CPP checkout is not at `~/Projects/claude-power-pack`, a non-default
+  target's security gate cannot find CPP and the document says to skip it
+  (#1760). The deploy log's status column now carries the deployment's own
+  exit status. And `/flow:auto` no longer treats a successful
+  `/flow:deploy deploy-staging` (or any other `deploy-*` target) as a
+  deployment of `deploy`: its already-deployed check matched the log's target
+  column loosely, which was accidentally right while every target ran
+  `make deploy` and would have skipped the real deploy once it did not
+  (#1759).
 - **A newly scaffolded Makefile no longer has a `deploy` target that does
   nothing and reports success.** The templates, `Makefile.example` and the
   inline generator shipped a `deploy` whose recipe only printed a TODO; it
@@ -12,16 +31,12 @@
   `.PHONY`, so `/flow:deploy` stops with "No 'deploy' target in Makefile" and
   `/flow:auto` skips its deploy step until you write one. Run by hand,
   `make deploy` fails with "No rule to make target", unless the project has a
-  file or directory named `deploy`, where make itself answers "up to date".
-  `/flow:auto`, and `/flow:deploy` with its default target, stop before that;
-  `/flow:deploy <another target>` does not, because its runner path runs
-  `make deploy` whatever target it was given (#1759). **A Makefile you
+  file or directory named `deploy`, where make itself answers "up to date";
+  neither flow gets that far, because both test for a deploy rule first and
+  `/flow:deploy` runs only the target it is given (#1759). **A Makefile you
   already generated is not rewritten: if it still has the TODO target, it
   still reports a successful deployment of nothing until you edit it.**
   Nothing tells an existing project to regenerate (#1712).
-- **`/flow:deploy` logs the deployment's own exit status.** The status column
-  of `.claude/deploy.log` recorded the exit of the `mkdir` that preceded the
-  log line, which is always 0 (#1712).
 - **Generated infrastructure workflows pin `actions/checkout` to the same
   commit as every other generated workflow**, not the moving `@v4`.
   Regenerate to get it (#1712).

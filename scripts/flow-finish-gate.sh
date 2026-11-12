@@ -906,6 +906,12 @@ if [[ "$MODE" == "enrolment" ]]; then
 fi
 
 # --- Primary path: the deterministic runner ---------------------------------
+# Pytest ids travel ONE PER LINE and are joined with spaces only for display:
+# an id can contain a space, so a count of words is not a count of ids (issue
+# #1728).
+count_id_lines() { awk 'NF { n++ } END { print n + 0 }' <<< "$1"; }
+join_id_lines() { awk 'NF { printf "%s%s", sep, $0; sep = " " }' <<< "$1"; }
+
 # The elements of one top-level array-of-strings field in the runner's JSON,
 # one per line (issue #1692: `gates`, `dropped_gates` and
 # `subsumption_refusals` each carried their own copy of this reader). Matched
@@ -1100,7 +1106,7 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
             id = $0
             sub(/^[[:space:]]*"/, "", id)
             sub(/"[,]?$/, "", id)
-            ids = ids (ids ? " " : "") id
+            ids = ids (ids ? "\n" : "") id
             next
         }
         in_entry && /^      "outcome": "passed-in-isolation"[,]?$/ { passed = 1; next }
@@ -1110,7 +1116,9 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
             }
             in_entry = 0
         }
-    ' "$RUNNER_JSON" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
+    ' "$RUNNER_JSON" 2>/dev/null)
+    RERUN_PASSED_COUNT=$(count_id_lines "$RERUN_PASSED_IDS")
+    RERUN_PASSED_IDS=$(join_id_lines "$RERUN_PASSED_IDS")
     # A step killed by its own budget is NOT a step that failed (issue #812).
     # The runner emits it as a distinct top-level field; read it before the
     # JSON is removed. Anchored on the field name rather than on the error
@@ -1327,8 +1335,7 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
             gate_exit warn
         fi
         if [[ -n "$RERUN_PASSED_IDS" ]]; then
-            RERUN_COUNT=$(awk '{ print NF }' <<< "$RERUN_PASSED_IDS")
-            echo "WARNING: $RERUN_COUNT test(s) FAILED on the first attempt and PASSED when re-run against only their failed ids (issue #769): $RERUN_PASSED_IDS. The flow is not stopped - but this run is NOT a clean pass: either these are the documented host-state flakes, or you have a real intermittent failure. Never summarize this run as \"tests passed\"." >&2
+            echo "WARNING: $RERUN_PASSED_COUNT test(s) FAILED on the first attempt and PASSED when re-run against only their failed ids (issue #769): $RERUN_PASSED_IDS. The flow is not stopped - but this run is NOT a clean pass: either these are the documented host-state flakes, or you have a real intermittent failure. Never summarize this run as \"tests passed\"." >&2
             verdict "warn (rerun passed: $RERUN_PASSED_IDS)"
             gate_exit warn
         fi
@@ -1423,6 +1430,7 @@ RAN_GATE_IDS=""
 UNRUN_AGGREGATE=""
 AGGREGATE_TARGET=""
 RERUN_PASSED_IDS=""
+RERUN_PASSED_COUNT=0
 UV_OK=0
 command -v uv >/dev/null 2>&1 && UV_OK=1
 
@@ -1454,13 +1462,25 @@ parse_fallback_failed_ids() {
     # runner's rerun_env does - overwriting it would silently drop the caller's
     # own pytest options only on the re-run, so the two attempts would not be
     # the same invocation.
+    #
+    # ONE ID PER LINE, the same ids as lib/cicd/outcomes.py parse_failed_node_ids
+    # (issue #1728; tests/fixtures/pytest-failed-summary.txt holds the shared
+    # input). The id runs to the first " - " reason separator; when that split
+    # lands inside a parameter, the unclosed "[" is extended to its "]".
     awk '
         /^[[:space:]]*(FAILED|ERROR)[[:space:]]+/ {
-            id = $2
-            if ((id ~ /::/ || id ~ /\.py$/) && !seen[id]++) {
-                printf "%s%s", separator, id
-                separator = " "
+            id = $0
+            sub(/^[[:space:]]*(FAILED|ERROR)[[:space:]]+/, "", id)
+            rest = ""
+            if (match(id, /[[:space:]]+-[[:space:]]/)) {
+                rest = substr(id, RSTART)
+                id = substr(id, 1, RSTART - 1)
             }
+            if (index(id, "[") && !index(id, "]") && index(rest, "]")) {
+                id = id substr(rest, 1, index(rest, "]"))
+            }
+            sub(/[[:space:]]+$/, "", id)
+            if ((id ~ /::/ || id ~ /\.py$/) && !seen[id]++) print id
         }
     ' "$1" 2>/dev/null
 }
@@ -1520,11 +1540,13 @@ run_fallback_gate() {
         step_exit=${PIPESTATUS[0]}
         if [[ "$step_exit" -ne 0 ]]; then
             failed_ids=$(parse_fallback_failed_ids "$first_output")
-            failed_count=$(awk '{ print NF }' <<< "$failed_ids")
+            failed_count=$(count_id_lines "$failed_ids")
+            failed_ids=$(join_id_lines "$failed_ids")
             if [[ -n "$failed_ids" && "$failed_count" -le "$MAX_RERUN_IDS" ]]; then
                 echo "flow-finish-gate: RE-RUNNING failed id(s) once (issue #769): $failed_ids"
                 if PYTEST_ADDOPTS="${PYTEST_ADDOPTS:+$PYTEST_ADDOPTS }--last-failed --last-failed-no-failures none" "${cmd[@]}"; then
                     RERUN_PASSED_IDS="${RERUN_PASSED_IDS:+$RERUN_PASSED_IDS }${failed_ids}"
+                    RERUN_PASSED_COUNT=$((RERUN_PASSED_COUNT + failed_count))
                 else
                     FAILED=1
                 fi
@@ -1724,8 +1746,7 @@ if [[ -n "$UNRUN_AGGREGATE" ]]; then
     gate_exit warn
 fi
 if [[ -n "$RERUN_PASSED_IDS" ]]; then
-    RERUN_COUNT=$(awk '{ print NF }' <<< "$RERUN_PASSED_IDS")
-    echo "WARNING: $RERUN_COUNT test(s) FAILED on the first attempt and PASSED when re-run against only their failed ids (issue #769): $RERUN_PASSED_IDS. The flow is not stopped - but this run is NOT a clean pass: either these are the documented host-state flakes, or you have a real intermittent failure. Never summarize this run as \"tests passed\"." >&2
+    echo "WARNING: $RERUN_PASSED_COUNT test(s) FAILED on the first attempt and PASSED when re-run against only their failed ids (issue #769): $RERUN_PASSED_IDS. The flow is not stopped - but this run is NOT a clean pass: either these are the documented host-state flakes, or you have a real intermittent failure. Never summarize this run as \"tests passed\"." >&2
     verdict "warn (rerun passed: $RERUN_PASSED_IDS)"
     gate_exit warn
 fi

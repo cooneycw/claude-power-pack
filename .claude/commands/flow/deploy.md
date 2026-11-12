@@ -140,10 +140,10 @@ fi
 
 ### Step 4b: Run Deploy via Deterministic Runner (primary path)
 
-**Primary path:** Use the deterministic CI/CD runner for reproducible deploy with security gate:
+The runner's plan ends in the literal `make deploy`, so it serves ONLY the
+default target (#1759); any other `TARGET` takes the fallback:
 
 ```bash
-# Locate CPP source for lib/cicd
 CPP_DIR=""
 for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
   if [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ]; then
@@ -152,7 +152,7 @@ for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-p
   fi
 done
 
-if [ -n "$CPP_DIR" ]; then
+if [ -n "$CPP_DIR" ] && [ "$TARGET" = "deploy" ]; then
     PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd run --plan deploy
     RUNNER_EXIT=$?
     DEPLOY_EXIT=$RUNNER_EXIT
@@ -161,9 +161,9 @@ fi
 
 - If runner **succeeds** (exit 0): deploy completed (includes security scan + make deploy), skip to Step 6.
 - If runner **fails** (exit non-zero): parse JSON output, report the failed step, and **stop**.
-- If runner is **not available**: fall back to manual execution below.
+- If the runner **did not run**: fall back below.
 
-**Fallback path** (only if runner unavailable):
+**Fallback path** (the runner did not run):
 
 Run security scan before deploying:
 
@@ -177,9 +177,9 @@ PYTHONPATH="${HOME}/Projects/claude-power-pack" uv run --project "${HOME}/Projec
 
 ### Step 5: Run Deploy (fallback only - runner includes this)
 
-**Skip this step if the deterministic runner was used** (it already runs make deploy).
+**Skip this step if the runner ran** (it ran make deploy).
 
-Only run if the runner was unavailable:
+Otherwise:
 
 ```bash
 echo "Running: make $TARGET"
