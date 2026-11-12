@@ -219,9 +219,9 @@ The rule this serves is `/flow:auto`'s: the ONLY condition that skips a review
 is the inability to run codex. "There was nothing to look at" is not one, and a
 silent exit here is how it would have become one anyway.
 
-A patch over Codex's input limit is not piped (issue #1714): at scope `full` the
-reviewer reads it from the repository and Step 3 checks which files it read; at
-any other scope the run is `blocked`, exit 1. Neither is `skipped`.
+A patch over Codex's input limit is not piped (issue #1714): Step 3 measures it
+first and the run is `blocked`, exit 1, before any model call. That is never
+`skipped`: split the change, or commit separately the bulk that needs no review.
 
 ### Step 3: Run the review
 
@@ -308,6 +308,18 @@ would hand a reviewer that is meant to be read-only write access to the tree.
 With `danger-full-access` there is no sandbox to probe and the scope is `full`.
 
 ```bash
+# Codex refuses stdin over 1,048,576 characters (`input_too_large`, Codex CLI
+# 0.167.1; recorded on #1670 and PR #1688). Measured in BYTES, never fewer than
+# characters, less a margin for the prompt: it errs toward blocking. A size
+# that cannot be read blocks too.
+REVIEW_INPUT_LIMIT=1048576
+REVIEW_INPUT_MARGIN=65536
+PATCH_BYTES=$(wc -c < "$DIFF_FILE") || PATCH_BYTES="unknown"
+if ! [ "$PATCH_BYTES" -le $((REVIEW_INPUT_LIMIT - REVIEW_INPUT_MARGIN)) ] 2>/dev/null; then
+    echo "CODEX_REVIEW: blocked (patch too large: $PATCH_BYTES bytes; limit $REVIEW_INPUT_LIMIT less $REVIEW_INPUT_MARGIN for the prompt. Split the change, or commit separately the bulk that needs no review, such as generated or deleted trees)" >&2
+    rm -f "$DIFF_FILE"; exit 1
+fi
+
 # Sandbox mode, from the caller only (issue #1261, #1285 shape).
 REVIEW_SANDBOX="${CODEX_REVIEW_SANDBOX:-read-only}"
 case "$REVIEW_SANDBOX" in
@@ -475,27 +487,6 @@ fi
 rm -f "$REVIEW_LOCAL_CFG_FILE"
 echo "CODEX_REVIEW_LOCAL_CREDENTIALS: $REVIEW_LOCAL_CREDS${REVIEW_LOCAL_CRED_KEYS:+ (${REVIEW_LOCAL_CRED_KEYS# })}"
 
-# Codex refuses stdin over 1,048,576 characters (`input_too_large`, Codex CLI
-# 0.167.1, recorded on #1670). The margin is for the prompt, which shares it.
-REVIEW_INPUT_LIMIT=1048576
-REVIEW_INPUT_MARGIN=65536
-PATCH_CHARS=$(wc -m < "$DIFF_FILE")
-REVIEW_INPUT="stdin"
-INPUT_LINE="The unified diff is provided on stdin."
-PATCH_FILES=""
-if [ "$PATCH_CHARS" -gt $((REVIEW_INPUT_LIMIT - REVIEW_INPUT_MARGIN)) ]; then
-    if [ "$REVIEW_SCOPE" != "full" ]; then
-        echo "CODEX_REVIEW: blocked (patch too large: $PATCH_CHARS characters; scope $REVIEW_SCOPE cannot read it from the repository)" >&2
-        rm -rf "$REVIEW_HOME"; rm -f "$DIFF_FILE"; exit 1
-    fi
-    REVIEW_INPUT="repository"
-    PATCH_FILES=$(mktemp /tmp/codex-review-files.XXXXXX)
-    git diff --name-only "$MERGE_BASE" > "$PATCH_FILES"
-    git diff --stat "$MERGE_BASE" > "$DIFF_FILE"
-    INPUT_LINE="The patch is too large to send ($PATCH_CHARS characters): stdin carries its stat only. Read it yourself, 'git diff $MERGE_BASE -- <file>' for EVERY file in the stat, and end your report with one line per file you read: 'FILE READ: <path>'."
-fi
-echo "CODEX_REVIEW_INPUT: $REVIEW_INPUT"
-
 FINDINGS=$(mktemp /tmp/codex-review-findings.XXXXXX)
 # STREAM carries the thread id that Step 4 needs to identify the reviewing
 # model. Without --json there is no thread id, and the Step-4 lookup silently
@@ -517,7 +508,7 @@ cat "$DIFF_FILE" | env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN -u GIT
     --skip-git-repo-check \
     --json \
     --output-last-message "$FINDINGS" \
-    "You are reviewing a code change as an independent reviewer. ${INPUT_LINE} ${SCOPE_LINE} ${NETWORK_LINE} Review intent/context: ${CONTEXT:-none provided}.${LANES_LINE}
+    "You are reviewing a code change as an independent reviewer. The unified diff is provided on stdin. ${SCOPE_LINE} ${NETWORK_LINE} Review intent/context: ${CONTEXT:-none provided}.${LANES_LINE}
 
 Before inspecting the change, if repository execution is available, execute exactly 'git rev-parse HEAD' as a separate shell tool call and retain its result. Never copy a head from this prompt or from session startup metadata. If execution is unavailable, review only the exact stdin patch; its runtime-captured bytes bind the reviewed artifact.
 
@@ -556,15 +547,6 @@ For each instrument this change adds or modifies (a check, gate, guard, tripwire
 # failed review would report success and be relayed as an empty findings report.
 CODEX_EXIT=${PIPESTATUS[1]}
 rm -rf "$REVIEW_HOME"
-if [ -n "$PATCH_FILES" ]; then
-    NOT_READ=0
-    while IFS= read -r f; do
-        grep -qxF "FILE READ: $f" "$FINDINGS" || { echo "CODEX_REVIEW_NOT_READ: $f"; NOT_READ=$((NOT_READ + 1)); }
-    done < "$PATCH_FILES"
-    [ "$NOT_READ" -eq 0 ] && echo "CODEX_REVIEW_COVERAGE: complete" \
-        || echo "CODEX_REVIEW_COVERAGE: PARTIAL - $NOT_READ file(s) not read; relay this review as partial"
-    rm -f "$PATCH_FILES"
-fi
 ```
 
 Never add `--ephemeral`: it writes no rollout, so no receipt can be written (issue #1710).

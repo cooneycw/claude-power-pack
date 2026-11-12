@@ -242,9 +242,10 @@ verdict now has its OWN exit code (issue #1027)" it read:
 
 ### Text moved out of `/codex:code_review` (#1714)
 
-Moved by #1714, to pay for measuring the patch before the review run, the
-repository route for a patch over Codex's input limit, and the check of which
-files the reviewer read.
+Moved by #1714, to pay for measuring the patch before the review run and
+blocking one that is over Codex's input limit. (A first version of #1714 also
+built a route for reading such a patch from the repository; it was withdrawn
+to #1769, and these paragraphs were not put back.)
 
 From Step 2, the comment above the `git add -N` block (issue #1030). Four of
 its paragraphs explained why the block is written as it is:
