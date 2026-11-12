@@ -755,6 +755,10 @@ NOW="${FLOW_WAVE_NOW:-$(date +%s)}"
 # self-address walk. A process that owns `<dir>/<pid>.sock` IS a session; see
 # WAKEABILITY in the header for why that is the test (issue #1228).
 SOCK_DIR="${FLOW_WAVE_SOCK_DIR:-/run/user/$UID_NUM/cc-socks}"
+# This script's own directory, resolved once. The siblings `send` and
+# `supervise` call (the lexicon, the registry) are looked up beside it.
+# `escalate` resolves the registry its own way, in registry_socket_for.
+SELF_DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
 
 usage_fail() { echo "flow-wave-mailbox: $1" >&2; exit 2; }
 
@@ -1020,14 +1024,12 @@ oldest_unacked_rev() { # oldest_unacked_rev BOX
   #: again inside the lock to claim. Two copies of this awk would be two things
   #: to keep in step, and the claim silently disagreeing with the decision is
   #: precisely the defect the second selection exists to prevent.
-  local f="$1"
-  [ -s "$f" ] || return 0
-  awk -v ackfile="$(ack_file "$f")" '
-    BEGIN { while ((getline l < ackfile) > 0) if (l ~ /^[0-9]+$/) acked[l+0]=1; close(ackfile) }
-    /^<!-- cc-flow-wave-msg / {
-      r = 0; if (match($0, /rev=[0-9]+/)) r = substr($0, RSTART+4, RLENGTH-4) + 0
-      if (r > 0 && !(r in acked)) print r
-    }' "$f" | sort -n | head -1
+  #:
+  #: The minimum is taken by a reader that consumes EVERY line. `| sort -n |
+  #: head -1` lets the reader leave early, and a writer killed on the closed
+  #: pipe fails the whole call under `pipefail`.
+  unacked_revs_in "$1" |
+    awk '$1 + 0 > 0 && (!n++ || $1 + 0 < m + 0) { m = $1 } END { if (n) print m }'
 }
 
 oldest_unacked_ts() {
@@ -2268,7 +2270,6 @@ case "$VERB" in
     # recreate the undelivered-assignment failure this whole lane exists to
     # remove. Absence of tokens is `none`/exit 0 and always delivers.
     if [ "$NO_LEXICON" -eq 0 ]; then
-      SELF_DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
       LEXICON="$SELF_DIR/flow-wave-lexicon.sh"
       if [ -r "$LEXICON" ]; then
         LEX_OUT="$(printf '%s\n' "$BODY" | bash "$LEXICON" validate 2>&1)"
@@ -2301,18 +2302,7 @@ case "$VERB" in
     OUT="$(
       (
         flock -w 10 9 || { echo "flow-wave-mailbox: could not lock $WAVE_DIR" >&2; exit 3; }
-        rev=0
-        if [ -s "$BOX" ]; then
-          rev="$(awk '
-            /^<!-- cc-flow-wave-msg / {
-              if (match($0, /rev=[0-9]+/)) {
-                r = substr($0, RSTART + 4, RLENGTH - 4) + 0
-                if (r > m) m = r
-              }
-            }
-            END { print m + 0 }
-          ' "$BOX")"
-        fi
+        rev="$(max_rev "$BOX")"
         rev=$((rev + 1))
         tmp="$(mktemp "$WAVE_DIR/.mbox.XXXXXX")" || exit 3
         # --replace still BUMPS the rev: a replaced box whose rev went backwards
@@ -2964,7 +2954,7 @@ EOF
     # that could not be checked is not one that held.
     if [ "$REGISTRY_REQUIRED" -eq 1 ]; then
       E_ROLE="$ROLE"
-      REQ_REGISTRY="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")/flow-wave-registry.sh"
+      REQ_REGISTRY="$SELF_DIR/flow-wave-registry.sh"
       REQ_ANY_LIVE=""
       if [ -r "$REQ_REGISTRY" ]; then
         REQ_ANY_LIVE="$(bash "$REQ_REGISTRY" list --wave "$WAVE" --any-live 2>/dev/null | sed -n 's/^FLOW_WAVE_ANY_LIVE=//p')"
@@ -3078,13 +3068,12 @@ EOF
     [ -n "$ROLE" ] || usage_fail "__supervise_daemon requires --role <role>"
     # `$0` here is already the ABSOLUTE `$SUP_SELF` the `supervise` case
     # resolved before launching this daemon (issue #1033 item 2) - `$0` never
-    # changes after a process starts, so this `readlink -f` is a defensive
-    # no-op, not the resolution itself. The re-arm loop below reuses `$0` for
+    # changes after a process starts, so the `readlink -f` behind SELF_DIR is a
+    # defensive no-op here, not the resolution itself. The re-arm loop below reuses `$0` for
     # exactly this reason: it is immune to the invoking cwd going away for
     # the rest of this daemon's life, unlike a fresh relative-path lookup
     # would be.
-    SUP_LOG_SELF_DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
-    SUP_REGISTRY="$SUP_LOG_SELF_DIR/flow-wave-registry.sh"
+    SUP_REGISTRY="$SELF_DIR/flow-wave-registry.sh"
     BACKOFF_BASE="${FLOW_WAVE_SUPERVISE_BACKOFF_BASE:-2}"
     BACKOFF_CAP="${FLOW_WAVE_SUPERVISE_BACKOFF_CAP:-60}"
     BACKOFF=0

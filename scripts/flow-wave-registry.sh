@@ -584,6 +584,19 @@ driver_cap_dash() {
   printf '%s' "${out:--}"
 }
 
+# emit_driver_lines DRIVER -> the six FLOW_WAVE_DRIVER* detail lines for a
+# role's stored driver ('' when it declared none). `register` and `get` print
+# the same block from the same stored entry; one function, so the two cannot
+# become two spellings of one fact (#1026).
+emit_driver_lines() {
+  echo "FLOW_WAVE_DRIVER=${1:--}"
+  echo "FLOW_WAVE_DRIVER_SCOPE=$(driver_cap_dash "$1" SCOPE)"
+  echo "FLOW_WAVE_DRIVER_WEB=$(driver_cap_dash "$1" WEB)"
+  echo "FLOW_WAVE_DRIVER_CONTAINER=$(driver_cap_dash "$1" CONTAINER)"
+  echo "FLOW_WAVE_DRIVER_META=$(driver_cap_dash "$1" META)"
+  echo "FLOW_WAVE_DRIVER_CANNOT=$(driver_cap_dash "$1" CANNOT)"
+}
+
 # Vantage (#959) - which side of the container boundary the REGISTERING session
 # is on, derived from the sibling `flow-vantage.sh` and never restated here, for
 # the same reason the driver fence above is derived.
@@ -1360,6 +1373,22 @@ $1
 EOF
 }
 
+# emit_claim_rows CLAIMS -> the roster rows for live flow-claim locks nobody
+# registered (#687), under their heading; nothing at all when there are none.
+# `list` prints them for an empty roster and after a populated one.
+emit_claim_rows() {
+  local rec
+  [ -n "$1" ] || return 0
+  echo "  -- unregistered flow-claim locks (live, not registry entries - contactable, but not addressable as roles) --"
+  while IFS= read -r rec; do
+    [ -n "$rec" ] || continue
+    parse_claim_record "$rec"
+    echo "  (claim) -> ${C_ADDR:-no observed address} [live, unregistered] issue=${C_ISSUE:--} branch=${C_BRANCH:--} pid=$C_PID wt=$C_WT"
+  done <<EOF
+$1
+EOF
+}
+
 # claim_address PID -> an OBSERVED address for a claim's pid, or empty.
 #
 # Observation, never derivation (#687). The tempting move is to BUILD
@@ -1967,9 +1996,8 @@ MAILBOX_IN_USE=0     # 1 when this wave has at least one box or one heartbeat
 # mailbox must never break the roster, exactly as a broken lexicon validator
 # must never block a send (#701).
 load_mailbox() {
-  local self_dir mb out body
-  self_dir="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
-  mb="$self_dir/flow-wave-mailbox.sh"
+  local mb out body
+  mb="$SELF_DIR/flow-wave-mailbox.sh"
   [ -r "$mb" ] || return 0
   out="$(bash "$mb" list --wave "$WAVE" --json 2>/dev/null)" || return 0
   # The helper prints its FLOW_MAILBOX_* contract after the JSON; split on the
@@ -2346,19 +2374,6 @@ close_refuse() {
   exit 1
 }
 
-# Only ENOENT proves absence; a denied traversal must never skip archival.
-close_path_state() {
-  local err
-  if err="$(LC_ALL=C stat -c %F -- "$1" 2>&1 >/dev/null)"; then
-    echo present
-  else
-    case "$err" in
-      *": No such file or directory") echo absent ;;
-      *) echo unknown ;;
-    esac
-  fi
-}
-
 close_holders() {
   local r e state status count holders bad=0 watching=0 roles
   # Reuse the poller's verdict, but inspect each role too: its current
@@ -2428,7 +2443,8 @@ close_wave() {
       (.roles == null or (.roles | type == "object")))' >/dev/null 2>&1 || close_refuse "missing or malformed wave registry entry"
   C_ENTRY="$(printf '%s' "$reg" | jq -c --arg w "$WAVE" '.[$w]')" || close_refuse "cannot snapshot registry entry"
   C_WAVE_DIR="${FLOW_WAVE_MAILBOX_DIR:-$REG_DIR}/$WAVE"
-  C_DIR_STATE="$(close_path_state "$C_WAVE_DIR")"
+  # Only ENOENT proves absence; a denied traversal must never skip archival.
+  C_DIR_STATE="$(path_state "$C_WAVE_DIR")"
   [ "$C_DIR_STATE" != unknown ] || close_refuse "wave directory state is unknown (inaccessible path)"
   [ ! -L "$C_WAVE_DIR" ] || close_refuse "wave directory is a symbolic link"
   if [ "$C_DIR_STATE" = present ] &&
@@ -3262,12 +3278,7 @@ case "$VERB" in
     # The block is the one `get` already prints, from the same stored entry -
     # a second spelling of the same fact is how the two drift.
     REG_DRIVER="$(printf '%s' "$NEW_ENTRY" | jq -r '.driver // "" | if . == null then "" else . end')"
-    echo "FLOW_WAVE_DRIVER=${REG_DRIVER:--}"
-    echo "FLOW_WAVE_DRIVER_SCOPE=$(driver_cap_dash "$REG_DRIVER" SCOPE)"
-    echo "FLOW_WAVE_DRIVER_WEB=$(driver_cap_dash "$REG_DRIVER" WEB)"
-    echo "FLOW_WAVE_DRIVER_CONTAINER=$(driver_cap_dash "$REG_DRIVER" CONTAINER)"
-    echo "FLOW_WAVE_DRIVER_META=$(driver_cap_dash "$REG_DRIVER" META)"
-    echo "FLOW_WAVE_DRIVER_CANNOT=$(driver_cap_dash "$REG_DRIVER" CANNOT)"
+    emit_driver_lines "$REG_DRIVER"
     # THE TOOLCHAIN THIS SESSION WILL ACTUALLY RUN (#1029). Registration is where
     # a session declares its vantage, and that includes which VERSION of the
     # instruments it holds: on a checkout behind `origin/main` every helper
@@ -3437,12 +3448,7 @@ case "$VERB" in
     # whose FLOW_WAVE_DRIVER_CANNOT names `research` is the mis-route the issue
     # was filed about, and it is now answerable without asking the worker.
     GET_DRIVER="$(printf '%s' "$CUR" | jq -r '.driver // "" | if . == null then "" else . end')"
-    echo "FLOW_WAVE_DRIVER=${GET_DRIVER:--}"
-    echo "FLOW_WAVE_DRIVER_SCOPE=$(driver_cap_dash "$GET_DRIVER" SCOPE)"
-    echo "FLOW_WAVE_DRIVER_WEB=$(driver_cap_dash "$GET_DRIVER" WEB)"
-    echo "FLOW_WAVE_DRIVER_CONTAINER=$(driver_cap_dash "$GET_DRIVER" CONTAINER)"
-    echo "FLOW_WAVE_DRIVER_META=$(driver_cap_dash "$GET_DRIVER" META)"
-    echo "FLOW_WAVE_DRIVER_CANNOT=$(driver_cap_dash "$GET_DRIVER" CANNOT)"
+    emit_driver_lines "$GET_DRIVER"
     GET_POL="$(policy_json "$WAVE")"
     GET_POL_REV="$(policy_rev_of "$GET_POL")"
     GET_BRIEFED="$(printf '%s' "$CUR" | jq -r '.policy_rev // 0')"
@@ -4208,16 +4214,7 @@ EOF
       # registered roles and a live unregistered claim is the maximal blind
       # spot, and it is the case an explicit --repo exists to reach. Returning
       # "nothing registered" while a lock is held would be the original bug.
-      if [ -n "$CLAIMS" ]; then
-        echo "  -- unregistered flow-claim locks (live, not registry entries - contactable, but not addressable as roles) --"
-        while IFS= read -r rec; do
-          [ -n "$rec" ] || continue
-          parse_claim_record "$rec"
-          echo "  (claim) -> ${C_ADDR:-no observed address} [live, unregistered] issue=${C_ISSUE:--} branch=${C_BRANCH:--} pid=$C_PID wt=$C_WT"
-        done <<EOF
-$CLAIMS
-EOF
-      fi
+      emit_claim_rows "$CLAIMS"
       cross_wave_notes
       emit_policy_lines "$POL"
       echo "FLOW_WAVE_MERGE_STRICT=$MERGE_STRICT"
@@ -4375,16 +4372,7 @@ EOF
     # An orchestrator scanning the issue column now sees a lane held by a
     # session that never registered - the #673 case, where the roster said an
     # issue was free while a live session was minutes from a PR on it.
-    if [ -n "$CLAIMS" ]; then
-      echo "  -- unregistered flow-claim locks (live, not registry entries - contactable, but not addressable as roles) --"
-      while IFS= read -r rec; do
-        [ -n "$rec" ] || continue
-        parse_claim_record "$rec"
-        echo "  (claim) -> ${C_ADDR:-no observed address} [live, unregistered] issue=${C_ISSUE:--} branch=${C_BRANCH:--} pid=$C_PID wt=$C_WT"
-      done <<EOF
-$CLAIMS
-EOF
-    fi
+    emit_claim_rows "$CLAIMS"
     # Lane-overlap warnings among LIVE entries only (gate condition 2: sharing
     # a repo is the NORMAL wave shape - never warn on it alone; warn on same
     # repo + same issue, same branch, or same/nested worktree paths).

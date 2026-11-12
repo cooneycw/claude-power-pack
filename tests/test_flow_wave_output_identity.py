@@ -227,6 +227,9 @@ REGISTRY_STEPS: tuple[Step, ...] = (
     # release and close
     _s("release-other-holder-refused", "release", "w1", *W,
        FLOW_WAVE_LIVE_PIDS=f"{SELF_PID}:{OTHER_PID}"),
+    # close has a wave DIRECTORY to archive only once the mailbox has written one
+    _s("send-into-the-wave", "send", "--to", "w1", *W, "--body", "a message to archive",
+       helper=MAILBOX),
     _s("close-dry-run-held", "close", *W, "--dry-run", "--archive", "{tmp}/archive",
        FLOW_WAVE_LIVE_PIDS=f"{SELF_PID}:{OTHER_PID}"),
     _s("close-held-refused", "close", *W, "--archive", "{tmp}/archive",
@@ -264,6 +267,11 @@ MAILBOX_STEPS: tuple[Step, ...] = (
     _s("ack-no-revs", "ack", "--role", "w1", *MW),
     _s("escalate-no-role", "escalate", *MW),
     _s("supervise-no-role", "supervise", *MW),
+    # --registry-required refuses BEFORE anything is started, in both ways
+    _s("supervise-required-nothing-registered", "supervise", "--role", "w1", *MW,
+       "--registry-required"),
+    _s("supervise-required-registry-unreadable", "supervise", "--role", "w1", *MW,
+       "--registry-required", FLOW_WAVE_REGISTRY_DIR="{tmp}/broken-registry"),
     # a wave with no directory yet
     _s("list-absent", "list", *MW),
     _s("list-absent-json", "list", *MW, "--json"),
@@ -446,6 +454,8 @@ def _prepare(tmp: Path) -> None:
         {"name": "identity-orchestrator", "messagingSocketPath": f"{tmp}/socks/9001.sock"}))
     (tmp / "body.txt").write_text("from a file\nGATE: GO #1710\n")
     (tmp / "bad-ledger.json").write_text("{not json\n")
+    (tmp / "broken-registry").mkdir()
+    (tmp / "broken-registry" / "registry.json").write_text("{not json\n")
     repo = tmp / "repo"
     repo.mkdir()
     _git(repo, "init", "-q", "-b", "main")
