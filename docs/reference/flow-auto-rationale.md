@@ -889,7 +889,12 @@ collapse" note above).
    - `COUNTER_MODEL_REVIEW: findings` - triage each as accepted (fix it now, in
      this worktree, under the Step-4 rules), rejected (one-line reason), or
      deferred (real but out of scope - route it to the nit store). If anything
-     was accepted and fixed, re-review **once** more, never a third time.
+     was accepted and fixed, re-review. A finding accepted on the last allowed
+     pass (pass 2) is still FIXED, and the approver is then asked to raise the
+     cap for that run so the fix is reviewed (issue #1700). There is never a
+     receipt for an unreviewed head, and never a false pass count: before #1700
+     this sentence read "re-review once more, never a third time", which left a
+     finding accepted on pass 2 with no legal outcome.
    - `COUNTER_MODEL_REVIEW: clean` - the reviewer said so in the prescribed
      words. Record `ran` with zero counts.
    - `COUNTER_MODEL_REVIEW: unparseable` (non-zero) - the reviewer produced
@@ -990,7 +995,11 @@ collapse" note above).
    cap that was explicitly requested (say, by an orchestrator on the final head)
    is still recorded, with `--passes 3 --extra-pass-reason "<who asked, and why>"`.
    The writer refuses a third pass without a reason, and a reason without one
-   (issue #1400).
+   (issue #1400). Above 3 the review is ESCALATED (issue #1700): a named
+   authority raised the cap for that run, and the receipt records the true
+   count with `--escalated-by "<who>"`, `--escalation-ref "<where the ruling can
+   be read>"` and `--raised-cap N` (at most 6), beside the reason. The ruling is
+   recorded, not authenticated. A count above 3 with no ruling is refused.
 
    **CI enforces this receipt at the merge boundary (issue #1452).** The
    `counter-model-enrolment` pull_request step runs `flow-finish-gate.sh

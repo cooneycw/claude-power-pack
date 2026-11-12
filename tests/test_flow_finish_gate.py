@@ -4163,3 +4163,123 @@ def test_two_scoped_reviews_at_one_distance_pass_enrolment_only(tmp_path: Path) 
     result = _enrolment_only(repo)
     assert _verdict(result) == "FLOW_FINISH_GATE: ok"
     assert result.returncode == 0
+
+
+# ── An escalated review is its own passing state; an unruled count is not (#1700) ──
+#
+# The gate did not read `passes` at all, so a hand-made receipt claiming five
+# passed as an ordinary one, and a review that honestly ran five could not be
+# written. A receipt above the ceiling now passes ONLY with a recorded ruling,
+# and the line says `escalated:`. "ruled by" is RECORDED, NOT AUTHENTICATED.
+
+RULING = {
+    "ruled_by": "orchestrator (wave cpp-improvement)",
+    "reference": "issue #1700 comment 6812970075",
+    "raised_cap": 5,
+}
+
+
+def _receipt_fields(repo: Path, name: str, head: str, **fields: object) -> None:
+    import json
+
+    r: dict[str, object] = {
+        "schema": 2, "recorded_at": "2026-09-21T12:00:00Z", "issue": "1700",
+        "branch": _git(repo, "rev-parse", "--abbrev-ref", "HEAD"),
+        "head": head, "status": "ran",
+        "reviewer": "codex/gpt-6-astra", "implementer": "claude/claude-opus-5",
+    }
+    r.update(fields)
+    (repo / "docs/measurements/counter-model" / name).write_text(json.dumps(r, indent=2))
+
+
+def _one_reviewed_commit(tmp_path: Path) -> tuple[Path, str]:
+    repo = _enrolled_repo(tmp_path)
+    (repo / "f.txt").write_text("a\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "reviewed")
+    return repo, _git(repo, "rev-parse", "HEAD")
+
+
+def test_the_gate_and_the_writer_agree_on_the_pass_ceiling() -> None:
+    """The gate keeps a COPY of the ceiling only to decide when to ask the
+    receipt script. A drift would make it stop asking, or ask for everything."""
+    shell = re.search(r"^readonly CM_PASSES_HARD_CEILING=(\d+)$", SCRIPT.read_text(), re.M)
+    python = re.search(
+        r"^PASSES_HARD_CEILING = (\d+)$",
+        (ROOT / "scripts" / "counter-model-receipt.py").read_text(), re.M,
+    )
+    assert shell and python, "precondition: both constants are declared in the expected form"
+    assert shell.group(1) == python.group(1)
+
+
+@requires_bash
+@requires_git
+def test_an_escalated_receipt_is_its_own_passing_state(tmp_path: Path) -> None:
+    repo, head = _one_reviewed_commit(tmp_path)
+    _receipt_fields(
+        repo, "2026-01-01T000000Z-issue-1700.json", head, passes=5, escalation=RULING,
+        extra_passes_reason="passes 1-4 each found a real defect", scope="full",
+    )
+    finish = _gate(repo)
+    line = _counter_model_line(finish)
+    assert line.startswith(
+        "FLOW_FINISH_GATE_COUNTER_MODEL: escalated: 5 passes, ruled by "
+        "orchestrator (wave cpp-improvement) (2026-01-01T000000Z-issue-1700.json)"
+    ), line
+    assert "fail" not in _verdict(finish)
+    only = _enrolment_only(repo)
+    assert _verdict(only) == "FLOW_FINISH_GATE: ok" and only.returncode == 0
+
+
+@requires_bash
+@requires_git
+@pytest.mark.parametrize("fields", [
+    {"passes": 5, "extra_passes_reason": "kept finding things"},                      # no ruling
+    {"passes": 7, "extra_passes_reason": "x",
+     "escalation": {"ruled_by": "a", "reference": "b", "raised_cap": 7}},              # beyond the bound
+    {"passes": 5, "extra_passes_reason": "x",
+     "escalation": {"ruled_by": "a", "reference": "b", "raised_cap": 4}},              # beyond the raised cap
+    {"passes": 5, "extra_passes_reason": "x",
+     "escalation": {"ruled_by": " ", "reference": "b", "raised_cap": 5}},              # nobody named
+    {"passes": 5, "escalation": dict(RULING)},                                         # no reason
+])
+def test_a_count_above_the_ceiling_without_a_usable_ruling_reds_the_gate(
+    tmp_path: Path, fields: dict,
+) -> None:
+    """RED before #1700 for every row: the gate never read `passes`, printed
+    `receipt:` and passed."""
+    repo, head = _one_reviewed_commit(tmp_path)
+    _receipt_fields(repo, "2026-01-01T000000Z-issue-1700.json", head, scope="full", **fields)
+    result = _gate(repo)
+    assert "unknown: receipt 2026-01-01T000000Z-issue-1700.json claims" in _counter_model_line(result)
+    assert "with no usable recorded ruling" in _counter_model_line(result)
+    assert _verdict(result) == "FLOW_FINISH_GATE: fail (counter-model line unknown)"
+    assert _verdict(_enrolment_only(repo)).startswith("FLOW_FINISH_GATE: fail")
+
+
+@requires_bash
+@requires_git
+def test_three_passes_with_a_reason_is_still_an_ordinary_receipt(tmp_path: Path) -> None:
+    """The must-not-flip side: exactly three keeps today's form and today's line."""
+    repo, head = _one_reviewed_commit(tmp_path)
+    _receipt_fields(
+        repo, "2026-01-01T000000Z-issue-1700.json", head, passes=3,
+        extra_passes_reason="orchestrator requested a third pass", scope="full",
+    )
+    result = _gate(repo)
+    assert "receipt: 2026-01-01T000000Z-issue-1700.json" in _counter_model_line(result)
+    assert "escalated" not in _counter_model_line(result)
+    assert _verdict(_enrolment_only(repo)) == "FLOW_FINISH_GATE: ok"
+
+
+@requires_bash
+@requires_git
+def test_an_escalated_review_still_owes_a_scope_in_enrolment_only(tmp_path: Path) -> None:
+    repo, head = _one_reviewed_commit(tmp_path)
+    _receipt_fields(
+        repo, "2026-01-01T000000Z-issue-1700.json", head, passes=5, escalation=RULING,
+        extra_passes_reason="passes 1-4 each found a real defect",
+    )
+    assert _verdict(_enrolment_only(repo)) == (
+        "FLOW_FINISH_GATE: fail (counter-model line receipt-without-scope)"
+    )

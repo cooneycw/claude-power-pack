@@ -105,3 +105,36 @@ Skip receipts retain their reason contract. Enrolment still accepts reviewed
 head ancestry; it does not claim that later commits were reviewed. The legacy
 rollout-attribution audit examines only Codex reviewers; other schema-5
 reviewers are explicitly outside that instrument's population.
+
+## Escalated reviews: more than three passes (issue #1700)
+
+The cap is two passes; a third is recordable with a reason. A review that
+honestly needed more had no truthful receipt, so a finding accepted on the last
+allowed pass left three bad choices: a false count, a false skip, or a gate left
+red on purpose. By the owner's ruling of 2026-11-11 the cap stays the default,
+and a named authority may raise it mid-run for that run.
+
+- **The receipt.** `status` stays `ran`. `passes` holds the true count. An
+  `escalation` object holds `ruled_by`, `reference` (where the ruling can be
+  read) and `raised_cap`. `extra_passes_reason` is still required. Written with
+  `--passes N --escalated-by ... --escalation-ref ... --raised-cap M
+  --extra-pass-reason ...`.
+- **The bounds.** `passes` may not exceed `raised_cap`, and `raised_cap` may not
+  exceed `PASSES_OUTER_BOUND`, which is 6: one above the highest honest count on
+  record (5). The bound exists so that "raise the cap" cannot mean "no cap".
+- **Recorded, not authenticated.** The writer requires the fields to be present
+  and non-blank. It cannot check that the named authority exists or ruled. The
+  reference is what lets a reader check it.
+- **The gate.** `FLOW_FINISH_GATE_COUNTER_MODEL: escalated: <N> passes, ruled by
+  <who> (<file>)` is a passing state in finish mode and in `--enrolment-only`
+  mode, under the same scope requirement as `receipt:`. The line repeats what
+  the receipt says; "ruled by" is recorded, not authenticated. A `ran` receipt
+  claiming more than three passes with no usable ruling reads `unknown` and
+  fails; before #1700 the gate did not read `passes` and passed it.
+- **Exactly three passes** keeps its earlier form: a reason and nothing more,
+  and the line reads `receipt:`.
+- **No new status value, deliberately.** A repository whose CI pins an OLDER
+  gate reads an escalated receipt as an ordinary one (`receipt:`, passing;
+  measured against the gate at 786f149c). The older VALIDATOR does reject it
+  (`passes is 5, beyond the hard ceiling of 3`), so a consumer that runs the
+  corpus check must move its pin before committing an escalated receipt.

@@ -4153,3 +4153,127 @@ def test_1580_uniformity_reader_counts_schema_four_by_its_scalar_reviewer(
     )
     assert proc.returncode == 2, proc.stdout + proc.stderr
     assert "examined=1 verifiable=0 distinct=1" in proc.stdout
+
+
+# ── An escalated review: more than three passes, with a recorded ruling (#1700) ──
+#
+# A review that honestly ran more than three passes had no truthful receipt:
+# the writer refused the count, so the choices were a false count, a false
+# skip, or a gate left red on purpose. The cap stays the default; a named
+# authority may raise it for that run, and the receipt records the true count
+# and who ruled. RECORDED, NOT AUTHENTICATED: the fields are required, never
+# verified.
+
+ESCALATION = (
+    "--escalated-by", "orchestrator (wave cpp-improvement)",
+    "--escalation-ref", "issue #1700 comment 6812970075",
+    "--raised-cap", "5",
+    "--extra-pass-reason", "passes 1-4 each found a real defect in the previous fix",
+)
+
+
+def test_an_escalated_review_records_the_true_count_and_ruler(tmp_path: Path) -> None:  # binary-guard: allow unscoped
+    """RED before #1700: `--passes 5` was refused whatever else was said."""
+    proc = _write_ran(tmp_path, "--passes", "5", *ESCALATION)
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next((tmp_path / "out").glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["status"] == "ran", "no new status value: an older gate must still read it"
+    assert receipt["passes"] == 5
+    assert receipt["escalation"] == {
+        "ruled_by": "orchestrator (wave cpp-improvement)",
+        "reference": "issue #1700 comment 6812970075",
+        "raised_cap": 5,
+    }
+    assert CM.validate(receipt, "escalated") == []
+
+
+def test_five_passes_with_no_escalation_still_refuses(tmp_path: Path) -> None:  # binary-guard: allow unscoped
+    """The must-not-flip side: a count above the ceiling with no ruling is refused, as before."""
+    proc = _write_ran(tmp_path, "--passes", "5", "--extra-pass-reason", "kept finding things")
+    assert proc.returncode == CM.EXIT_USAGE
+    assert "ESCALATED" in proc.stderr and "--escalated-by" in proc.stderr
+    assert not list((tmp_path / "out").glob("*.json")) if (tmp_path / "out").exists() else True
+
+
+@pytest.mark.parametrize("override,needle", [
+    (("--raised-cap", "7"), "beyond the outer bound of 6"),
+    (("--raised-cap", "4"), "beyond the raised cap of 4"),
+    (("--raised-cap", "3"), "raises nothing"),
+    (("--escalated-by", ""), "escalation.ruled_by"),
+    (("--escalated-by", "   "), "escalation.ruled_by"),
+    (("--escalation-ref", ""), "escalation.reference"),
+    (("--escalation-ref", " \t"), "escalation.reference"),
+])
+def test_an_escalation_that_does_not_hold_together_is_refused(  # binary-guard: allow unscoped
+    tmp_path: Path, override: tuple[str, str], needle: str,
+) -> None:
+    flags = dict(zip(ESCALATION[0::2], ESCALATION[1::2]))
+    flags[override[0]] = override[1]
+    argv = [part for pair in flags.items() for part in pair]
+    proc = _write_ran(tmp_path, "--passes", "5", *argv)
+    assert proc.returncode == CM.EXIT_USAGE, proc.stdout
+    assert needle in proc.stderr, proc.stderr
+
+
+def test_a_missing_ruling_field_is_named(tmp_path: Path) -> None:  # binary-guard: allow unscoped
+    proc = _write_ran(
+        tmp_path, "--passes", "4", "--raised-cap", "4", "--escalated-by", "the owner",
+        "--extra-pass-reason", "a fourth pass on the final head",
+    )
+    assert proc.returncode == CM.EXIT_USAGE
+    assert "Missing --escalation-ref" in proc.stderr
+
+
+def test_an_escalated_review_still_owes_its_reason(tmp_path: Path) -> None:  # binary-guard: allow unscoped
+    argv = [a for a in ESCALATION if a not in ("--extra-pass-reason", ESCALATION[-1])]
+    proc = _write_ran(tmp_path, "--passes", "5", *argv)
+    assert proc.returncode == CM.EXIT_USAGE
+    assert "requires --extra-pass-reason" in proc.stderr
+
+
+def test_escalation_flags_are_refused_at_or_below_three_passes(tmp_path: Path) -> None:  # binary-guard: allow unscoped
+    """Exactly three passes keeps today's form: a reason and nothing more."""
+    proc = _write_ran(tmp_path, "--passes", "3", *ESCALATION)
+    assert proc.returncode == CM.EXIT_USAGE
+    assert "only with --passes beyond 3" in proc.stderr
+
+
+def _ran_receipt_with(tmp_path: Path, **changes: object) -> dict:
+    proc = _write_ran(tmp_path, "--passes", "5", *ESCALATION)
+    assert proc.returncode == CM.EXIT_OK, proc.stderr
+    receipt = json.loads(next((tmp_path / "out").glob("*.json")).read_text(encoding="utf-8"))
+    assert CM.validate(receipt, "precondition") == [], "precondition: the base receipt is valid"
+    receipt.update(changes)
+    return receipt
+
+
+def test_the_validator_reads_an_escalated_receipt_at_real_count(tmp_path: Path) -> None:  # binary-guard: allow unscoped
+    """The corpus reader: a committed escalated receipt is valid AT 5, and a
+    hand-made one above the ceiling with no ruling is not."""
+    receipt = _ran_receipt_with(tmp_path)
+    assert receipt["passes"] == 5 and CM.validate(receipt, "corpus") == []
+    stripped = dict(receipt)
+    del stripped["escalation"]
+    problems = CM.validate(stripped, "corpus")
+    assert any("with no recorded ruling" in p for p in problems), problems
+
+
+@pytest.mark.parametrize("escalation,needle", [
+    ({"ruled_by": "x", "reference": "y", "raised_cap": 7}, "beyond the outer bound of 6"),
+    ({"ruled_by": "x", "reference": "y", "raised_cap": 4}, "beyond the raised cap of 4"),
+    ({"ruled_by": " ", "reference": "y", "raised_cap": 5}, "escalation.ruled_by"),
+    ({"ruled_by": "x", "reference": "y", "raised_cap": True}, "expected an integer"),
+    ({"ruled_by": "x", "reference": "y", "raised_cap": 5, "verified": True}, "unknown key"),
+    ("the owner said so", "with no recorded ruling"),
+])
+def test_the_validator_refuses_a_malformed_escalation(  # binary-guard: allow unscoped
+    tmp_path: Path, escalation: object, needle: str,
+) -> None:
+    problems = CM.validate(_ran_receipt_with(tmp_path, escalation=escalation), "corpus")
+    assert any(needle in p for p in problems), problems
+
+
+def test_an_escalation_block_on_an_ordinary_receipt_is_refused(tmp_path: Path) -> None:  # binary-guard: allow unscoped
+    receipt = _ran_receipt_with(tmp_path, passes=3)
+    problems = CM.validate(receipt, "corpus")
+    assert any("'escalation' is only for passes beyond 3" in p for p in problems), problems

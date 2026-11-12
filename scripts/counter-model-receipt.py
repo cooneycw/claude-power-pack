@@ -68,6 +68,59 @@ SCHEMA_ADAPTERS = 5
 # request was #1320, exactly pass 3 (fc87b5b8 / PR #1457); nothing above 3
 # has ever been requested in the repository's review history.
 PASSES_HARD_CEILING = 3
+# A review that honestly ran MORE than three passes (issue #1700, owner ruling
+# 2026-11-11). The cap of 2 stays the default and 3 stays recordable with a
+# reason. Beyond that, a named authority may raise the cap FOR THAT RUN, and
+# the receipt then records the true count and who ruled: `escalation` with
+# `ruled_by`, `reference` (where the ruling can be read) and `raised_cap`.
+# A count above the ceiling with no such block is still refused.
+#
+# RECORDED, NOT AUTHENTICATED. This writer can require the fields to be present
+# and non-blank; it cannot check that the named authority exists or said so.
+# The reference is what lets a READER check it.
+#
+# The outer bound is one above the highest honest count on record (5: kyle
+# #2287 and #2338). It exists so that "raise the cap" cannot mean "no cap".
+PASSES_OUTER_BOUND = 6
+ESCALATION_KEYS = ("ruled_by", "reference", "raised_cap")
+
+
+def escalation_problems(passes: object, escalation: object) -> list[str]:
+    """Why a (passes, escalation) pair is not a valid escalated record.
+
+    One rule for the writer's arguments and for the validator's reading of a
+    committed receipt, so the two cannot drift. Empty list = valid. Call it
+    only for passes beyond PASSES_HARD_CEILING.
+    """
+    if not isinstance(escalation, dict):
+        return [
+            f"passes is {passes}, beyond the ceiling of {PASSES_HARD_CEILING}, with no recorded "
+            "ruling: an 'escalation' block (ruled_by, reference, raised_cap) is required"
+        ]
+    bad: list[str] = []
+    for key in ("ruled_by", "reference"):
+        value = escalation.get(key)
+        if not (isinstance(value, str) and value.strip()):
+            bad.append(f"escalation.{key} is {value!r}, expected a non-blank string")
+    cap = escalation.get("raised_cap")
+    if not isinstance(cap, int) or isinstance(cap, bool):
+        bad.append(f"escalation.raised_cap is {cap!r}, expected an integer")
+    else:
+        if cap > PASSES_OUTER_BOUND:
+            bad.append(
+                f"escalation.raised_cap is {cap}, beyond the outer bound of {PASSES_OUTER_BOUND}"
+            )
+        if cap <= PASSES_HARD_CEILING:
+            bad.append(
+                f"escalation.raised_cap is {cap}, which raises nothing: it must exceed "
+                f"{PASSES_HARD_CEILING}"
+            )
+        if isinstance(passes, int) and not isinstance(passes, bool) and passes > cap:
+            bad.append(f"passes is {passes}, beyond the raised cap of {cap}")
+    extra = sorted(set(escalation) - set(ESCALATION_KEYS))
+    if extra:
+        bad.append(f"escalation carries unknown key(s) {extra}")
+    return bad
 RECEIPT_DIR = Path("docs/measurements/counter-model")
 
 EXIT_OK = 0
@@ -2102,6 +2155,12 @@ def build(args: argparse.Namespace) -> dict:
         receipt["skip_reason"] = args.reason
     else:
         receipt["passes"] = args.passes
+        if args.passes > PASSES_HARD_CEILING:
+            receipt["escalation"] = {
+                "ruled_by": args.escalated_by.strip(),
+                "reference": args.escalation_ref.strip(),
+                "raised_cap": args.raised_cap,
+            }
         if getattr(args, "extra_pass_reason", None):
             receipt["extra_passes_reason"] = args.extra_pass_reason.strip()
             if not implementer_set:
@@ -2542,10 +2601,22 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
     if not isinstance(passes, int) or isinstance(passes, bool) or passes < 1:
         bad.append(f"{source}: passes is {passes!r}, expected a positive integer")
     elif passes > PASSES_HARD_CEILING:
+        # Beyond the ceiling only as an ESCALATED record (issue #1700): the
+        # ruling fields, within the raised cap and the outer bound, and still
+        # with the reason every pass beyond 2 owes.
+        bad.extend(
+            f"{source}: {problem}"
+            for problem in escalation_problems(passes, receipt.get("escalation"))
+        )
+        if not (isinstance(reason, str) and reason.strip()):
+            bad.append(
+                f"{source}: passes is {passes}, beyond the cap of 2, and carries no "
+                "'extra_passes_reason' saying why the extra passes were requested"
+            )
+    elif "escalation" in receipt:
         bad.append(
-            f"{source}: passes is {passes}, beyond the hard ceiling of {PASSES_HARD_CEILING}; "
-            "#1320's pass 3 is the only extra-pass precedent in this repository's "
-            "review history; escalate the review loop rather than record another pass"
+            f"{source}: 'escalation' is only for passes beyond {PASSES_HARD_CEILING} "
+            f"(passes is {passes})"
         )
     elif passes > 2 and not (isinstance(reason, str) and reason.strip()):
         # Two passes is the documented cap: each one spends the user's quota,
@@ -3245,6 +3316,41 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return EXIT_INVALID if problems else EXIT_OK
 
 
+def cmd_escalation(args: argparse.Namespace) -> int:
+    """Judge ONE receipt's pass count for `flow-finish-gate.sh` (issue #1700).
+
+    The gate asks this only for a receipt claiming more passes than the
+    ceiling, and reads the answer from HERE rather than re-implementing the
+    rule in shell - the same reason `skip-reasons` exists. Prints `ordinary`
+    for a count within the ceiling, or `<passes><TAB><ruled_by>` for a valid
+    escalated review. Anything else exits 1 with the reasons on stderr, and the
+    gate fails closed on it. `ruled_by` is RECORDED, NOT AUTHENTICATED.
+    """
+    try:
+        receipt = json.loads(args.receipt.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        print(f"counter-model-receipt: cannot read {args.receipt}: {error}", file=sys.stderr)
+        return 1
+    passes = receipt.get("passes") if isinstance(receipt, dict) else None
+    if not isinstance(passes, int) or isinstance(passes, bool) or passes < 1:
+        print(f"counter-model-receipt: passes is {passes!r}, expected a positive integer", file=sys.stderr)
+        return 1
+    if passes <= PASSES_HARD_CEILING:
+        print("ordinary")
+        return 0
+    problems = escalation_problems(passes, receipt.get("escalation"))
+    reason = receipt.get("extra_passes_reason")
+    if not (isinstance(reason, str) and reason.strip()):
+        problems.append("no 'extra_passes_reason' says why the extra passes were requested")
+    if problems:
+        for problem in problems:
+            print(f"counter-model-receipt: {problem}", file=sys.stderr)
+        return 1
+    ruled_by = " ".join(receipt["escalation"]["ruled_by"].split())
+    print(f"{passes}\t{ruled_by}")
+    return 0
+
+
 def cmd_skip_reasons(args: argparse.Namespace) -> int:
     """Print the committed skip reasons, one per line.
 
@@ -3385,6 +3491,20 @@ def main() -> int:
         help="why a pass beyond the cap of 2 was requested, and by whom (issue "
              "#1400); required when --passes > 2, refused otherwise",
     )
+    w.add_argument(
+        "--escalated-by",
+        help=f"who raised the pass cap for this run (issue #1700); required with "
+             f"--passes beyond {PASSES_HARD_CEILING}, refused otherwise. Recorded, not authenticated",
+    )
+    w.add_argument(
+        "--escalation-ref",
+        help="where that ruling can be read (an issue or PR comment, a message id)",
+    )
+    w.add_argument(
+        "--raised-cap", type=int,
+        help=f"the cap the ruling raised this run to; --passes may not exceed it, and it "
+             f"may not exceed {PASSES_OUTER_BOUND}",
+    )
     for k in COUNTS:
         w.add_argument(f"--{k}", type=int, default=0)
     w.add_argument("--red-cases-proposed", type=int, default=0)
@@ -3418,6 +3538,14 @@ def main() -> int:
     sr = sub.add_parser("skip-reasons",
                         help="print the committed skip reasons, one per line")
     sr.set_defaults(func=cmd_skip_reasons)
+
+    esc = sub.add_parser(
+        "escalation",
+        help="judge one receipt's pass count: prints 'ordinary', or '<passes><TAB><ruled_by>' "
+             "for a valid escalated review; exits 1 naming why it is not valid (issue #1700)",
+    )
+    esc.add_argument("receipt", type=Path)
+    esc.set_defaults(func=cmd_escalation)
 
     rm = sub.add_parser(
         "rollout-model",
@@ -3462,11 +3590,30 @@ def main() -> int:
             and args.reviewer_exec_log is not None):
         ap.error("--status skipped must not carry --reviewer-exec-log; no review happened")
     if args.cmd == "write" and args.status == "ran":
+        escalation_flags = {
+            "--escalated-by": args.escalated_by,
+            "--escalation-ref": args.escalation_ref,
+            "--raised-cap": args.raised_cap,
+        }
+        given = [flag for flag, value in escalation_flags.items() if value is not None]
         if args.passes > PASSES_HARD_CEILING:
-            ap.error(f"--passes beyond the hard ceiling of {PASSES_HARD_CEILING} has no "
-                     "precedent in this repository's review history (#1320 is the only "
-                     "ever-requested extra pass, and it was pass 3); something is wrong "
-                     "with the review loop itself - escalate rather than record another pass")
+            missing = [flag for flag, value in escalation_flags.items() if value is None]
+            if missing:
+                ap.error(f"--passes beyond the hard ceiling of {PASSES_HARD_CEILING} is recorded "
+                         "only as an ESCALATED review (issue #1700): a named authority raised "
+                         f"the cap for this run. Missing {', '.join(missing)}. Without a ruling "
+                         "the count is refused, as before: something is wrong with the review "
+                         "loop itself, so escalate it - never record a lower count")
+            problems = escalation_problems(args.passes, {
+                "ruled_by": args.escalated_by,
+                "reference": args.escalation_ref,
+                "raised_cap": args.raised_cap,
+            })
+            if problems:
+                ap.error("escalated review refused: " + "; ".join(problems))
+        elif given:
+            ap.error(f"{', '.join(given)} only with --passes beyond {PASSES_HARD_CEILING}; "
+                     "a third pass needs --extra-pass-reason and nothing more")
         if args.passes > 2 and not (args.extra_pass_reason or "").strip():
             ap.error("--passes beyond 2 requires --extra-pass-reason: the cap exists "
                      "because each pass spends quota, so an extra one says why")
@@ -3474,6 +3621,10 @@ def main() -> int:
             ap.error("--extra-pass-reason is only for --passes beyond 2")
     if args.cmd == "write" and args.status == "skipped" and args.extra_pass_reason is not None:
         ap.error("--status skipped must not carry --extra-pass-reason; no review happened")
+    if args.cmd == "write" and args.status == "skipped" and any(
+        value is not None for value in (args.escalated_by, args.escalation_ref, args.raised_cap)
+    ):
+        ap.error("--status skipped must not carry escalation flags; no review happened")
     if args.cmd == "write" and args.status == "skipped" and args.scope:
         ap.error("--status skipped must not carry --scope; no review happened")
     if args.cmd == "write" and args.status == "skipped" and args.local_credentials:

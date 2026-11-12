@@ -479,7 +479,7 @@ verdict() {
                     # rendered as `ok` and never as a receipt id: the line says the
                     # decision was not made here, which is the whole point of
                     # letting it through.
-                    receipt|skipped|not-enrolled|undecidable) ;;
+                    receipt|skipped|escalated|not-enrolled|undecidable) ;;
                     *)
                         echo "flow-finish-gate: no counter-model review is recorded for this branch at this commit, so this gate cannot tell a review that found nothing from one that never ran (issue #1171)." >&2
                         echo "  Run the Step 6 counter-model review, or record an explicit skip with a committed reason:" >&2
@@ -551,6 +551,12 @@ fi
 # move this evaluation above that block. Pinned by the control case
 # `good-check-summary-mode-not-enforced`.
 
+# The pass ceiling above which a receipt must carry a recorded ruling (issue
+# #1700). A COPY of PASSES_HARD_CEILING in counter-model-receipt.py, kept only
+# to decide WHEN to ask that script; tests/test_flow_finish_gate.py pins the two
+# equal. Everything else about an escalation is read from the script.
+readonly CM_PASSES_HARD_CEILING=3
+
 cm_field() {
     # One flat JSON string field out of a receipt. Receipts are written by
     # json.dump(indent=2) with string values only at this level, so a line-scoped
@@ -591,7 +597,7 @@ cm_receipt_matches_head() {
 cm_enrolment_evaluate() {
     local root receipts branch f rbranch rhead rstatus rreason reasons
     local cm_undecidable=0 cm_best_distance=0 cm_distance="" cm_uncounted=0
-    local cm_sha cm_i cm_same_head
+    local cm_sha cm_i cm_same_head cm_passes cm_ruling
     local -a cm_best_files=() cm_best_heads=()
     # EVERY `ran` receipt the judgement accepted, not only the last one named on
     # the line: when two reviewed heads tie on distance both are accepted, and
@@ -751,6 +757,28 @@ cm_enrolment_evaluate() {
             CM_ENROLMENT_LINE="unknown: receipt $(basename "$f") has status '${rstatus:-<absent>}', which is neither 'ran' nor 'skipped'"
             return
         fi
+        # AN ESCALATED REVIEW, or a count nobody ruled on (issue #1700). A
+        # receipt claiming more passes than the ceiling is a passing state of
+        # its own ONLY with a recorded ruling: who raised the cap for that run,
+        # where the ruling can be read, and the cap it was raised to. The rule
+        # lives in counter-model-receipt.py and is asked for, never restated
+        # here; an answer that cannot be had fails closed. Before this the gate
+        # did not read `passes` at all, so a hand-made receipt claiming five
+        # passed as an ordinary one. `ruled by` is RECORDED, NOT AUTHENTICATED:
+        # this line repeats what the receipt says and vouches for nothing.
+        cm_passes=$(sed -n 's/^  "passes": \([0-9][0-9]*\),\{0,1\}$/\1/p' "$f" | head -1)
+        if [[ "$cm_passes" =~ ^[0-9]+$ ]] && (( cm_passes > CM_PASSES_HARD_CEILING )); then
+            if ! cm_ruling=$(python3 "$CM_RECEIPT_HELPER" escalation "$f" 2>/dev/null) \
+                    || [[ "$cm_ruling" != "$cm_passes"$'\t'?* ]]; then
+                CM_ENROLMENT_STATE=unknown
+                CM_ENROLMENT_LINE="unknown: receipt $(basename "$f") claims $cm_passes passes with no usable recorded ruling"
+                return
+            fi
+            CM_ENROLMENT_STATE=escalated
+            CM_ENROLMENT_RAN_FILES+=("$f")
+            CM_ENROLMENT_LINE="escalated: $cm_passes passes, ruled by ${cm_ruling#*$'\t'} ($(basename "$f"))$_cm_where"
+            continue
+        fi
         CM_ENROLMENT_STATE=receipt
         CM_ENROLMENT_RAN_FILES+=("$f")
         CM_ENROLMENT_LINE="receipt: $(basename "$f")$_cm_where"
@@ -865,7 +893,8 @@ if [[ "$MODE" == "enrolment" ]]; then
     # Every accepted `ran` receipt, whatever the last-judged state was: with two
     # reviewed heads at one distance, a scope-less review must not pass because
     # the OTHER receipt carried a scope or was an allowed skip (issue #1707).
-    if [[ "$CM_ENROLMENT_STATE" == "receipt" || "$CM_ENROLMENT_STATE" == "skipped" ]]; then
+    if [[ "$CM_ENROLMENT_STATE" == "receipt" || "$CM_ENROLMENT_STATE" == "skipped" \
+            || "$CM_ENROLMENT_STATE" == "escalated" ]]; then
         for _cm_ran in ${CM_ENROLMENT_RAN_FILES[@]+"${CM_ENROLMENT_RAN_FILES[@]}"}; do
             if [[ "$(cm_field "$_cm_ran" direction)" != "delegated" ]] \
                     && [[ -z "$(cm_field "$_cm_ran" scope)" ]]; then
@@ -876,7 +905,7 @@ if [[ "$MODE" == "enrolment" ]]; then
         done
     fi
     case "$CM_ENROLMENT_STATE" in
-        receipt|skipped)
+        receipt|skipped|escalated)
             echo "FLOW_FINISH_GATE: ok"
             gate_exit ok
             ;;
