@@ -49,7 +49,8 @@
 #   working tree clean         git status --porcelain empty
 #   nothing unpushed           see "two independent mechanisms" below
 #   no live process inside     no /proc/<pid>/cwd at or under the worktree
-#   not locked                 no `locked` line in git worktree list --porcelain
+#   not locked                 no `locked` line in git worktree list --porcelain,
+#                              or a flow claim whose owner is proven gone (#1709)
 #
 # The dry-run report is a REPORT, not a manifest: --apply re-derives all five
 # from scratch rather than executing anything the report produced.
@@ -178,6 +179,40 @@ for cand in "$SELF_SCRIPT_DIR/worktree-remove.sh" "$HOME/.claude/scripts/worktre
         break
     fi
 done
+
+# --- Which locked worktrees the sweep may look past (issue #1709) --------------
+# claim_proven_stale WT -> 0 only when the claim helper says the lock is a flow
+# claim whose owner is PROVEN gone.
+#
+# An ALLOWLIST of reasons, not "anything stale": `aged-out-unverified` and
+# `aged-out-remote-host` are also `stale`, and in both the owning process may
+# still be running - what expired there is the helper's willingness to believe
+# an unverifiable record, which is good enough for a session that needs the
+# worktree and not for a sweep that is about to delete it. A reason word added
+# to the helper later is therefore skipped until someone lists it here.
+#
+# Every other outcome keeps the lock final: held, foreign, unknown, no helper,
+# a helper that printed nothing.
+CLAIM_HELPER=""
+for cand in "$SELF_SCRIPT_DIR/flow-worktree-claim.sh" "$HOME/.claude/scripts/flow-worktree-claim.sh"; do
+    if [[ -f "$cand" ]]; then
+        CLAIM_HELPER="$cand"
+        break
+    fi
+done
+
+claim_proven_stale() {
+    local wt="$1" out state reason
+    [[ -n "$CLAIM_HELPER" ]] || return 1
+    out="$(bash "$CLAIM_HELPER" check "$wt" 2>/dev/null || true)"
+    state="$(printf '%s\n' "$out" | sed -n 's/^FLOW_CLAIM: //p' | tail -1)"
+    reason="$(printf '%s\n' "$out" | sed -n 's/^FLOW_CLAIM_STALE_REASON=//p' | tail -1)"
+    [[ "$state" == stale ]] || return 1
+    case "$reason" in
+        owner-exited | owner-zombie | recycled-pid) return 0 ;;
+    esac
+    return 1
+}
 
 if [[ "$APPLY" == true && -z "$REMOVE_HELPER" ]]; then
     echo -e "${RED}Error: worktree-remove.sh not found; refusing to --apply.${NC}" >&2
@@ -432,7 +467,20 @@ for i in "${!CAND_PATHS[@]}"; do
         *locked*)
             # Includes a live #597 claim, which IS a git worktree lock. The sweep
             # never reaches worktree-remove.sh for these, and never needs --steal.
-            report "$wt" skip locked; n_skipped=$((n_skipped + 1)); continue ;;
+            #
+            # One exception (issue #1709): a claim whose owner is PROVEN gone.
+            # A session that finished and exited without releasing its claim is
+            # the commonest end state, and nothing else ever releases it. Such a
+            # worktree goes on to the same five conditions as an unlocked one;
+            # worktree-remove.sh drops the stale claim itself and still runs its
+            # own in-use check.
+            if ! claim_proven_stale "$wt"; then
+                report "$wt" skip locked; n_skipped=$((n_skipped + 1)); continue
+            fi
+            case "$flags" in
+                *detached*)
+                    report "$wt" skip detached-head; n_skipped=$((n_skipped + 1)); continue ;;
+            esac ;;
         *detached*)
             report "$wt" skip detached-head; n_skipped=$((n_skipped + 1)); continue ;;
     esac
