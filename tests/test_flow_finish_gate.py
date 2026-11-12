@@ -3690,6 +3690,10 @@ def _gate_killed_mid_run(
     env["FLOW_GATE_CPP_DIR"] = str(cpp)
     for key in ("CPP_KYLE_FULL_SUITE_ACTIVE", "CPP_FLOW_FINISH_GATE_STATUS_FILE"):
         env.pop(key, None)
+    # A host whose coordination admission is ON would route this gate through
+    # the real kyle-lock instead of the stub runner: point it at a file that
+    # does not exist, so the fixture owns the answer (counter-model review).
+    env["CPP_COORDINATION_ADMISSION_FILE"] = str(tmp_path / "no-coordination-admission")
     env.update(extra_env or {})
     proc = subprocess.Popen(
         ["bash", str(SCRIPT)], cwd=tmp_path, env=env, start_new_session=True,

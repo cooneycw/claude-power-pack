@@ -56,11 +56,16 @@ STUB
 chmod +x "$work/bin/uv"
 
 err="$work/stderr"
+# A host whose coordination admission is ON would send the gate through the
+# real kyle-lock instead of the stub runner. The fixture owns that answer: a
+# file that does not exist reads as admission off.
+no_admission="$work/no-coordination-admission"
 cd "$work/run" || say_unavailable "could not enter the isolated directory"
 case "$mode" in
     killed)
         env -u FLOW_GATE_RERUN -u CPP_KYLE_FULL_SUITE_ACTIVE -u CPP_FLOW_FINISH_GATE_STATUS_FILE \
             PATH="$work/bin:$PATH" FLOW_GATE_CPP_DIR="$work/cpp" TMPDIR="$work/tmp" \
+            CPP_COORDINATION_ADMISSION_FILE="$no_admission" \
             bash "$work/scripts/flow-finish-gate.sh" >"$work/stdout" 2>"$err" &
         gate_pid=$!
         n=0
@@ -84,6 +89,7 @@ case "$mode" in
         ;;
     announced)
         env PATH="$work/bin:$PATH" FLOW_GATE_CPP_DIR="$work/cpp" TMPDIR="$work/tmp" \
+            CPP_COORDINATION_ADMISSION_FILE="$no_admission" \
             bash "$work/scripts/flow-finish-gate.sh" --no-such-flag >"$work/stdout" 2>"$err"
         gate_rc=$?
         if [ "$gate_rc" -ne 2 ]; then
