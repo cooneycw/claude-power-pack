@@ -4,6 +4,22 @@
 
 ### Behaviour changes you may notice
 
+- **A newly scaffolded Makefile no longer has a `deploy` target that does
+  nothing and reports success.** The templates, `Makefile.example` and the
+  inline generator shipped a `deploy` whose recipe only printed a TODO; it
+  exited 0, and `/flow:deploy` and `/flow:auto` recorded a deployment. The
+  block is now commented out with its instructions, and `deploy` is out of
+  `.PHONY`, so `make deploy` fails with "No rule to make target" and
+  `/flow:auto` skips its deploy step until you write one. **A Makefile you
+  already generated is not rewritten: if it still has the TODO target, it
+  still reports a successful deployment of nothing until you edit it.**
+  Nothing tells an existing project to regenerate (#1712).
+- **`/flow:deploy` logs the deployment's own exit status.** The status column
+  of `.claude/deploy.log` recorded the exit of the `mkdir` that preceded the
+  log line, which is always 0 (#1712).
+- **Generated infrastructure workflows pin `actions/checkout` to the same
+  commit as every other generated workflow**, not the moving `@v4`.
+  Regenerate to get it (#1712).
 - **The flow documents say what to do when a project's gate needs the pushed
   head.** `/flow:auto` Step 6 and `/flow:finish` still run the gate before the
   push. When a project's own gate clones the ref under test from the remote,
