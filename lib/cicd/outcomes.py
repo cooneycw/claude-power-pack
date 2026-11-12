@@ -416,14 +416,6 @@ def _aggregate(outcomes: list[SuiteOutcome]) -> SuiteOutcome:
     """
     frameworks = {outcome.framework for outcome in outcomes}
     return SuiteOutcome(
-        control_invocations=sum(outcome.control_invocations for outcome in outcomes),
-        control_passed=sum(outcome.control_passed for outcome in outcomes),
-        control_failed=sum(outcome.control_failed for outcome in outcomes),
-        control_skipped=sum(outcome.control_skipped for outcome in outcomes),
-        control_errors=sum(outcome.control_errors for outcome in outcomes),
-        control_xfailed=sum(outcome.control_xfailed for outcome in outcomes),
-        control_xpassed=sum(outcome.control_xpassed for outcome in outcomes),
-        control_unexpected=tuple(n for o in outcomes for n in o.control_unexpected),
         passed=sum(outcome.passed for outcome in outcomes),
         failed=sum(outcome.failed for outcome in outcomes),
         skipped=sum(outcome.skipped for outcome in outcomes),

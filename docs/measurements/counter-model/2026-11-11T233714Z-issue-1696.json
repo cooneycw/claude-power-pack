@@ -1,0 +1,70 @@
+{
+  "branch": "issue-1696-add-lane-create-and-lane-update-have-project-init",
+  "counts": {
+    "accepted": 4,
+    "deferred": 1,
+    "rejected": 0
+  },
+  "extra_passes_reason": "orchestrator of wave cpp-improvement requested pass 3 on 2026-11-11: pass 2 found a medium silent-truncation defect in the new /lane:update step that decides what the review examined; the fix is made before the receipt so the reviewed commit is the shipped one",
+  "head": "f23fb63300cb50fb5be517c75ff423d6c8d6c464",
+  "implementer": "claude/claude-fable-5-2",
+  "implementer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-fable-5-2"
+    ],
+    "runtime": "claude",
+    "session_id": "9971b08f-bcde-40f5-adfe-7d04ba66d954",
+    "sources": [
+      {
+        "bytes": 4516291,
+        "path": "-home-user-Projects/9971b08f-bcde-40f5-adfe-7d04ba66d954.jsonl",
+        "sha256": "8052f43079ce750547bee818d90d91ae4dcd44d1aa21f391a7321a0ff38b80d1"
+      }
+    ],
+    "transcript": "-home-user-Projects/9971b08f-bcde-40f5-adfe-7d04ba66d954.jsonl"
+  },
+  "issue": "1696",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 3,
+  "recorded_at": "2026-11-11T23:37:14Z",
+  "red_cases": {
+    "already_covered": 3,
+    "proposed": 4
+  },
+  "reviewed_artifact": {
+    "base_sha": "ce8d18217d0b2382a4214b7b2611690976b61c6e",
+    "merge_base": "ce8d18217d0b2382a4214b7b2611690976b61c6e",
+    "method": "runtime-head",
+    "patch_sha256": "fdb11ac8603834fd23222ffa591eb2504197cec4d9e8e2aef0e5dfd23f0f100d",
+    "report_record": 60,
+    "target_head": "f23fb63300cb50fb5be517c75ff423d6c8d6c464"
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "exec_log": "codex-review.EnyAsU.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/11/rollout-2026-11-11T18-35-11-01a1ccf7-24d9-7a92-81ad-304dfb2c811f.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 65484,
+        "path": "codex-review.EnyAsU.jsonl",
+        "sha256": "600b0de71c61cdab51d62379e160c808a729760bb86b76b1a379120edcf967e6"
+      },
+      {
+        "bytes": 501823,
+        "path": "2026/11/11/rollout-2026-11-11T18-35-11-01a1ccf7-24d9-7a92-81ad-304dfb2c811f.jsonl",
+        "sha256": "3f82fa44fc80942b988afb30257b756be34941dcf57987d9b8c9be1116c44f45"
+      }
+    ],
+    "thread_id": "01a1ccf7-24d9-7a92-81ad-304dfb2c811f"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}
