@@ -4,6 +4,20 @@
 
 ### Behaviour changes you may notice
 
+- **`/flow:deploy <target>` now runs the target you name.** With a CPP
+  checkout on the host, `/flow:deploy deploy-staging` validated
+  `deploy-staging`, then ran the deterministic runner's deploy plan, whose
+  last step is the literal `make deploy`, and logged `deploy-staging`: ask for
+  one target, deploy another. The runner path is now taken only when the
+  target is exactly `deploy` (or none is given); any other target runs the
+  deploy security gate and then `make <target>`. `/flow:deploy` with no
+  argument, and every `/flow:auto` run, behave as before: `/flow:auto` runs
+  `make deploy` itself and never passes a target. A non-default target no
+  longer gets the runner's bootstrap check or its execution record. On a host
+  whose CPP checkout is not at `~/Projects/claude-power-pack`, a non-default
+  target's security gate cannot find CPP and the document says to skip it
+  (#1760). The deploy log's status column now carries the deployment's own
+  exit status (#1759).
 - **The flow documents say what to do when a project's gate needs the pushed
   head.** `/flow:auto` Step 6 and `/flow:finish` still run the gate before the
   push. When a project's own gate clones the ref under test from the remote,
