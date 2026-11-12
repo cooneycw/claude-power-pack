@@ -887,6 +887,28 @@ if [[ "$MODE" == "enrolment" ]]; then
 fi
 
 # --- Primary path: the deterministic runner ---------------------------------
+# The elements of one top-level array-of-strings field in the runner's JSON,
+# one per line (issue #1692: `gates`, `dropped_gates` and
+# `subsumption_refusals` each carried their own copy of this reader). Matched
+# by LAYOUT - the two-space indent json.dumps(indent=2) gives a top-level key -
+# and by whole-line string comparison, so the inline empty form (`[]`) and
+# `null` end the read on their own line instead of running on to the next `]`
+# in the document.
+runner_json_strings() {
+    awk -v key="$1" '
+        BEGIN { head = "  \"" key "\": " }
+        $0 == head "[]" || $0 == head "[]," || $0 == head "null" || $0 == head "null," { exit }
+        $0 == head "[" { in_array = 1; next }
+        in_array && /^  \][,]?$/ { exit }
+        in_array {
+            v = $0
+            sub(/^[[:space:]]*"/, "", v)
+            sub(/",?$/, "", v)
+            if (v != "") print v
+        }
+    ' "$RUNNER_JSON" 2>/dev/null
+}
+
 if [[ "$RUNNER_OK" -eq 1 ]]; then
     echo "flow-finish-gate: running deterministic gate (lib.cicd run --plan $PLAN, CPP at $CPP_DIR)"
     # Tee the runner's JSON (stdout) so the #621 qualification can be read back
@@ -901,21 +923,16 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
     # trap's `rm` that inode is unlinked, and nothing can bring the name back.
     # A fixed number, not `{fd}>`, because macOS ships bash 3.2.
     exec 9>"$RUNNER_JSON"
-    if [[ "$RERUN_ENABLED" == "1" ]]; then
-        CPP_GATE_RERUN_FAILED=1 PYTHONPATH="$CPP_DIR:${PYTHONPATH:-}" "${CPP_RUN[@]}" run --plan "$PLAN" \
-            | tee /dev/fd/9
-        RUNNER_EXIT=${PIPESTATUS[0]}
-    else
-        # Pass an explicit 0 rather than simply declining to set the variable:
-        # an opt-out that only omits the assignment does not disable anything
-        # when CPP_GATE_RERUN_FAILED=1 is already exported, which is the normal
-        # case for a NESTED gate (CPP's own suite runs under an outer gate that
-        # exported it). FLOW_GATE_RERUN=0 has to override an inherited value,
-        # not merely abstain from setting one.
-        CPP_GATE_RERUN_FAILED=0 PYTHONPATH="$CPP_DIR:${PYTHONPATH:-}" "${CPP_RUN[@]}" run --plan "$PLAN" \
-            | tee /dev/fd/9
-        RUNNER_EXIT=${PIPESTATUS[0]}
-    fi
+    # ALWAYS an explicit 1 or 0, never an omitted assignment: an opt-out that
+    # only declines to set the variable does not disable anything when
+    # CPP_GATE_RERUN_FAILED=1 is already exported, which is the normal case
+    # for a NESTED gate (CPP's own suite runs under an outer gate that
+    # exported it). FLOW_GATE_RERUN=0 has to override an inherited value.
+    _rerun_flag=0
+    [[ "$RERUN_ENABLED" == "1" ]] && _rerun_flag=1
+    CPP_GATE_RERUN_FAILED="$_rerun_flag" PYTHONPATH="$CPP_DIR:${PYTHONPATH:-}" "${CPP_RUN[@]}" run --plan "$PLAN" \
+        | tee /dev/fd/9
+    RUNNER_EXIT=${PIPESTATUS[0]}
     QUALIFIED=0
     if grep -q '"warnings"' "$RUNNER_JSON" 2>/dev/null; then
         QUALIFIED=1
@@ -958,17 +975,7 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
     # check below duly failed the run for not executing a gate called `status`.
     # Same anchored, shape-aware style as the `reruns` and `coverage` parsers
     # further down, which is what those exist for.
-    GATE_IDS=$(awk '
-        /^  "gates": \[\],?$/ { exit }
-        /^  "gates": \[$/ { in_gates = 1; next }
-        in_gates && /^  \][,]?$/ { exit }
-        in_gates {
-            id = $0
-            sub(/^[[:space:]]*"/, "", id)
-            sub(/",?$/, "", id)
-            if (id != "") print id
-        }
-    ' "$RUNNER_JSON" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
+    GATE_IDS=$(runner_json_strings gates | tr '\n' ' ' | sed 's/ *$//')
 
     # THE #1155 RECONCILIATION, read beside its sibling and for the same reason
     # (the JSON is removed before the verdict lanes). Three states, and they are
@@ -988,17 +995,7 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
     grep -q '"dropped_gates":' "$RUNNER_JSON" 2>/dev/null && DROPPED_FIELD_PRESENT=1
     DROPPED_NOT_APPLICABLE=0
     grep -q '"dropped_gates": null' "$RUNNER_JSON" 2>/dev/null && DROPPED_NOT_APPLICABLE=1
-    DROPPED_GATES=$(awk '
-        /^  "dropped_gates": (null|\[\]),?$/ { exit }
-        /^  "dropped_gates": \[$/ { in_d = 1; next }
-        in_d && /^  \][,]?$/ { exit }
-        in_d {
-            id = $0
-            sub(/^[[:space:]]*"/, "", id)
-            sub(/",?$/, "", id)
-            if (id != "") print id
-        }
-    ' "$RUNNER_JSON" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
+    DROPPED_GATES=$(runner_json_strings dropped_gates | tr '\n' ' ' | sed 's/ *$//')
     # Gates an aggregate already ran (issue #1152), and the prerequisite make
     # stopped at when an aggregate failed. Read here with the rest, while the
     # JSON still exists.
@@ -1025,18 +1022,7 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
     # reader who pays the difference. `null` (not derived) and `[]` (derived,
     # nothing refused) both yield no lines here, and that is correct: neither
     # is a refusal to report.
-    SUBSUMPTION_REFUSALS=$(awk '
-        /^  "subsumption_refusals": null,?$/ { exit }
-        /^  "subsumption_refusals": \[\],?$/ { exit }
-        /^  "subsumption_refusals": \[$/ { in_r = 1; next }
-        in_r && /^  \][,]?$/ { exit }
-        in_r {
-            v = $0
-            sub(/^[[:space:]]*"/, "", v)
-            sub(/",?$/, "", v)
-            if (v != "") print v
-        }
-    ' "$RUNNER_JSON" 2>/dev/null)
+    SUBSUMPTION_REFUSALS=$(runner_json_strings subsumption_refusals)
     # Gates recorded NOT-RUN: deferred to an aggregate that then failed, so
     # they never ran (issue #1152). Read from the per-step records because that
     # is where the runner puts them.
@@ -1526,87 +1512,59 @@ mypy_fallback_args() {
 run_fallback_gate() {
     # $1=id  $2=uv-tool-args  $3=pyproject-token
     local id="$1" uvargs="$2" token="$3"
+    local -a cmd
     if grep -q "^${id}:" Makefile 2>/dev/null; then
+        cmd=(make "${id}")
         echo "flow-finish-gate: running fallback gate 'make ${id}'"
         RAN_GATES="${RAN_GATES:+$RAN_GATES }make ${id}"
-        RAN_GATE_IDS="${RAN_GATE_IDS:+$RAN_GATE_IDS }${id}"
-        if [[ "$id" == "test" && "$RERUN_ENABLED" == "1" ]]; then
-            local first_output step_exit failed_ids failed_count
-            first_output=$(mktemp "${TMPDIR:-/tmp}/flow-finish-gate-test.XXXXXX")
-            make "${id}" 2>&1 | tee "$first_output"
-            step_exit=${PIPESTATUS[0]}
-            if [[ "$step_exit" -ne 0 ]]; then
-                failed_ids=$(parse_fallback_failed_ids "$first_output")
-                failed_count=$(awk '{ print NF }' <<< "$failed_ids")
-                if [[ -n "$failed_ids" && "$failed_count" -le "$MAX_RERUN_IDS" ]]; then
-                    echo "flow-finish-gate: RE-RUNNING failed id(s) once (issue #769): $failed_ids"
-                    if PYTEST_ADDOPTS="${PYTEST_ADDOPTS:+$PYTEST_ADDOPTS }--last-failed --last-failed-no-failures none" make "${id}"; then
-                        RERUN_PASSED_IDS="${RERUN_PASSED_IDS:+$RERUN_PASSED_IDS }${failed_ids}"
-                    else
-                        FAILED=1
-                    fi
-                else
-                    FAILED=1
-                fi
-            fi
-            rm -f "$first_output"
-        else
-            local gate_output
-            gate_output=$(mktemp "${TMPDIR:-/tmp}/flow-finish-gate-cov.XXXXXX")
-            make "${id}" 2>&1 | tee "$gate_output"
-            [[ "${PIPESTATUS[0]}" -eq 0 ]] || FAILED=1
-            if detect_zero_coverage "$gate_output"; then
-                ZERO_COVERAGE_GATES="${ZERO_COVERAGE_GATES:+$ZERO_COVERAGE_GATES }${id}"
-            fi
-            rm -f "$gate_output"
-        fi
-        RAN=1
     # `-n "$token"` is load-bearing (#1147). `grep -q ""` matches EVERY line, so
     # a gate with no tool equivalent - `verify`, which is a Makefile aggregate -
     # would otherwise fall into this branch on any pyproject.toml at all and run
     # `uv run --extra dev` with no arguments. An empty token means "there is no
     # degraded form of this gate", and the skip below is the honest answer.
     elif [[ "$UV_OK" -eq 1 && -n "$token" ]] && grep -q "${token}" pyproject.toml 2>/dev/null; then
+        # shellcheck disable=SC2206
+        cmd=(uv run --extra dev ${uvargs})
         echo "flow-finish-gate: running fallback gate 'uv run --extra dev ${uvargs}' (no '${id}' Makefile target)"
         RAN_GATES="${RAN_GATES:+$RAN_GATES }uv:${id}"
-        RAN_GATE_IDS="${RAN_GATE_IDS:+$RAN_GATE_IDS }${id}"
-        if [[ "$id" == "test" && "$RERUN_ENABLED" == "1" ]]; then
-            local first_output step_exit failed_ids failed_count
-            first_output=$(mktemp "${TMPDIR:-/tmp}/flow-finish-gate-test.XXXXXX")
-            # shellcheck disable=SC2086
-            uv run --extra dev ${uvargs} 2>&1 | tee "$first_output"
-            step_exit=${PIPESTATUS[0]}
-            if [[ "$step_exit" -ne 0 ]]; then
-                failed_ids=$(parse_fallback_failed_ids "$first_output")
-                failed_count=$(awk '{ print NF }' <<< "$failed_ids")
-                if [[ -n "$failed_ids" && "$failed_count" -le "$MAX_RERUN_IDS" ]]; then
-                    echo "flow-finish-gate: RE-RUNNING failed id(s) once (issue #769): $failed_ids"
-                    # shellcheck disable=SC2086
-                    if PYTEST_ADDOPTS="${PYTEST_ADDOPTS:+$PYTEST_ADDOPTS }--last-failed --last-failed-no-failures none" uv run --extra dev ${uvargs}; then
-                        RERUN_PASSED_IDS="${RERUN_PASSED_IDS:+$RERUN_PASSED_IDS }${failed_ids}"
-                    else
-                        FAILED=1
-                    fi
+    else
+        SKIPPED_GATES="${SKIPPED_GATES:+$SKIPPED_GATES }${id}"
+        return
+    fi
+    # ONE body for both commands (issue #1692): the make and uv forms differ
+    # only in `cmd`, so the re-run and zero-coverage handling is written once.
+    RAN_GATE_IDS="${RAN_GATE_IDS:+$RAN_GATE_IDS }${id}"
+    if [[ "$id" == "test" && "$RERUN_ENABLED" == "1" ]]; then
+        local first_output step_exit failed_ids failed_count
+        first_output=$(mktemp "${TMPDIR:-/tmp}/flow-finish-gate-test.XXXXXX")
+        "${cmd[@]}" 2>&1 | tee "$first_output"
+        step_exit=${PIPESTATUS[0]}
+        if [[ "$step_exit" -ne 0 ]]; then
+            failed_ids=$(parse_fallback_failed_ids "$first_output")
+            failed_count=$(awk '{ print NF }' <<< "$failed_ids")
+            if [[ -n "$failed_ids" && "$failed_count" -le "$MAX_RERUN_IDS" ]]; then
+                echo "flow-finish-gate: RE-RUNNING failed id(s) once (issue #769): $failed_ids"
+                if PYTEST_ADDOPTS="${PYTEST_ADDOPTS:+$PYTEST_ADDOPTS }--last-failed --last-failed-no-failures none" "${cmd[@]}"; then
+                    RERUN_PASSED_IDS="${RERUN_PASSED_IDS:+$RERUN_PASSED_IDS }${failed_ids}"
                 else
                     FAILED=1
                 fi
+            else
+                FAILED=1
             fi
-            rm -f "$first_output"
-        else
-            local gate_output
-            gate_output=$(mktemp "${TMPDIR:-/tmp}/flow-finish-gate-cov.XXXXXX")
-            # shellcheck disable=SC2086
-            uv run --extra dev ${uvargs} 2>&1 | tee "$gate_output"
-            [[ "${PIPESTATUS[0]}" -eq 0 ]] || FAILED=1
-            if detect_zero_coverage "$gate_output"; then
-                ZERO_COVERAGE_GATES="${ZERO_COVERAGE_GATES:+$ZERO_COVERAGE_GATES }${id}"
-            fi
-            rm -f "$gate_output"
         fi
-        RAN=1
+        rm -f "$first_output"
     else
-        SKIPPED_GATES="${SKIPPED_GATES:+$SKIPPED_GATES }${id}"
+        local gate_output
+        gate_output=$(mktemp "${TMPDIR:-/tmp}/flow-finish-gate-cov.XXXXXX")
+        "${cmd[@]}" 2>&1 | tee "$gate_output"
+        [[ "${PIPESTATUS[0]}" -eq 0 ]] || FAILED=1
+        if detect_zero_coverage "$gate_output"; then
+            ZERO_COVERAGE_GATES="${ZERO_COVERAGE_GATES:+$ZERO_COVERAGE_GATES }${id}"
+        fi
+        rm -f "$gate_output"
     fi
+    RAN=1
 }
 
 # Find a Makefile target whose prerequisites are a SUPERSET of the three gates

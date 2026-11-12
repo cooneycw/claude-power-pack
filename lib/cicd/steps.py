@@ -16,7 +16,7 @@ import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional, Protocol
+from typing import Any, Optional
 
 from .coverage import StageCoverage, merge_stream_coverage, parse_stage_coverage
 from .manifest_path import MANIFEST_PATH
@@ -237,17 +237,6 @@ def _command_names_runner(command: str, depth: int = 0) -> bool:
     return False
 
 
-class StepExecutor(Protocol):
-    """Protocol for step execution implementations."""
-
-    id: str
-    timeout_seconds: int
-    max_attempts: int
-    idempotent: bool
-
-    def execute(self, context: dict[str, Any]) -> StepResult: ...
-
-
 @dataclass
 class StepResult:
     """Result of executing a single step."""
@@ -283,7 +272,7 @@ TIMEOUT_EXIT_CODE = 124
 class StepDef:
     """Definition of a step from the task manifest or built-in plan.
 
-    This is the configuration - StepExecutor handles execution.
+    This is the configuration - ShellStep handles execution.
     """
 
     id: str
@@ -847,12 +836,6 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
         # nothing to degrade to. It SKIPS there, and the skip is reported by
         # name - "this repo has no verify target" and "verify passed" must not
         # render the same.
-        #
-        # KNOWN COST, measured and not hidden: verify's own prerequisites
-        # include lint, test and typecheck (Makefile:385), and these are
-        # separate `make` invocations, so those three run twice per gate. The
-        # subsumption - running verify INSTEAD of the three where it exists - is
-        # a change to the existing ids and is tracked separately.
         StepDef(
             id="verify",
             gate=True,
@@ -1007,16 +990,6 @@ def plan_gate_ids(plan_name: str, step_defs: list[StepDef]) -> list[str]:
 #: `-p -n`). Doing it once per gate run rather than once per question keeps
 #: that at the minimum the answer requires.
 _MAKE_PREREQ_CACHE: dict[tuple[Any, ...], Optional[str]] = {}
-
-#: A makefile that reads `MAKEFLAGS` can resolve differently under the query
-#: than under the run, because `-p -n` ARE make flags (counter-model review,
-#: round 2). Measured: `verify: lint` guarded by
-#: `ifneq (,$(findstring n,$(MAKEFLAGS)))` is reported by the query and is NOT
-#: run by `make verify`, which is this issue's false green with the conditional
-#: keyed on the query itself. Naming the goal fixed `MAKECMDGOALS`; nothing can
-#: fix `MAKEFLAGS` while the query needs flags. So a makefile that mentions it
-#: is refused outright rather than answered wrongly.
-_MAKEFLAGS_SENSITIVE = re.compile(r"\bMAKEFLAGS\b")
 
 #: Make's OWN variables, removed from the query's environment.
 #:
@@ -1315,8 +1288,7 @@ def makefile_grammar_refusal(project_root: str) -> Optional[str]:
     THE REFUSAL IS CORRECT AND STAYS WIDE. Refusing costs a duplicate run;
     accepting wrongly costs the thing the gate exists for. Admitting an
     `include` of a VARIABLE would query a tree whose included CONTENT was never
-    inspected - `_reads_makeflags` reads the top-level makefile only and says
-    so - and admitting only a statically resolvable include is safe precisely
+    inspected, and admitting only a statically resolvable include is safe precisely
     because it excludes the variable form, so it would not reach the consumer
     that motivated the issue. Either the admission is unsafe or it is useless.
 
@@ -1356,29 +1328,6 @@ def makefile_grammar_refusal(project_root: str) -> Optional[str]:
                     continue  # a rule, all plain names
         return f"line {number}: {_construct_name(line)}"
     return None
-
-
-def _reads_makeflags(makefile: Path) -> bool:
-    """Does this makefile resolve differently depending on make's own flags?
-
-    The query runs `make -p -n`; the gate runs `make verify`. Those differ in
-    `MAKEFLAGS`, and a makefile is allowed to branch on it - so for such a tree
-    the query answers a question about itself. Measured (counter-model review,
-    round 2): `verify: lint` guarded by `ifneq (,$(findstring n,$(MAKEFLAGS)))`
-    is REPORTED by the query and is NOT run by `make verify`, so a broken lint
-    would be suppressed in favour of an aggregate that never runs it.
-
-    THE BOUND, STATED: this reads the top-level `Makefile` only. A reference
-    inside an `include`d file is not seen, so this narrows the hazard rather
-    than closing it. It is worth having anyway - the shape is rare, the check
-    is two lines, and the failure it removes is a silent false green - but a
-    reader must not take a pass here as proof the tree is flag-insensitive.
-    Unreadable counts AS sensitive: refusing costs a duplicate run.
-    """
-    try:
-        return bool(_MAKEFLAGS_SENSITIVE.search(makefile.read_text(encoding="utf-8", errors="replace")))
-    except OSError:
-        return True
 
 
 def _explicit_rule(database: str, target: str) -> Optional[list[str]]:
@@ -1461,38 +1410,6 @@ def _explicit_rule(database: str, target: str) -> Optional[list[str]]:
             return out
         previous = line
     return None
-
-
-#: Step commands that are a recognised way of running `make <target>`.
-#:
-#: An ALLOWLIST, defaulting to "not subsumed", because the question - does this
-#: step run the same check the aggregate's prerequisite runs? - is not decidable
-#: in general from a shell string. Two shapes exist in this repository and both
-#: are genuinely equivalent where the question arises:
-#:
-#:   `make lint`
-#:   `if grep -q "^lint:" Makefile 2>/dev/null; then make lint; else <alt>; fi`
-#:
-#: The second runs `make lint` exactly when a `lint:` target exists - and
-#: subsumption only arises when make NAMED lint a prerequisite, which requires
-#: that target. Anything else is reported by name WITH its command, so the
-#: duplicate run explains itself and the allowlist grows from evidence rather
-#: than from guessing.
-#: HORIZONTAL whitespace only, and the WHOLE command must match. `\s` spans
-#: newlines, so `make\nlint` - two shell commands - satisfied the direct form;
-#: and the conditional form matched a PREFIX, so `... && false; then make lint;
-#: else exit 1; fi` and a trailing `; exit 1` were both accepted. Suppressing
-#: such a step removes a failure the aggregate cannot reproduce (counter-model
-#: review).
-_MAKE_INVOCATION = re.compile(r"\Amake[ \t]+(?P<target>[A-Za-z0-9_.-]+)[ \t]*\Z")
-_GENERATED_CONDITIONAL = re.compile(
-    r'\Aif[ \t]+grep[ \t]+-q[ \t]+"\^(?P<guard>[A-Za-z0-9_.-]+):"[ \t]+Makefile'
-    r"[ \t]*(?:2>/dev/null)?[ \t]*;[ \t]*"
-    r"then[ \t]+make[ \t]+(?P<target>[A-Za-z0-9_.-]+);[ \t]*"
-    r"else[ \t]+[^;]+;[ \t]*fi[ \t]*\Z"
-)
-#: `verify: CHECKS = lint` and friends - an assignment, not a rule.
-_TARGET_VARIABLE = re.compile(r"\A[ \t]*[A-Za-z0-9_.-]+[ \t]*[:+?]?=")
 
 
 def command_runs_make_target(

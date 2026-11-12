@@ -745,6 +745,7 @@ class DeterministicRunner:
             details = state.summary(executed_from=len(state.step_records))["steps"]
             for entry in details:
                 entry["executed_in_this_run"] = False
+            plan_steps = get_plan_steps(state.plan_name, project_root=str(self.project_root))
             return RunResult(
                 step_details=copy.deepcopy(details),
                 resume_state_evidence=state.resume_state_evidence(),
@@ -753,14 +754,8 @@ class DeterministicRunner:
                 plan_name=state.plan_name,
                 steps_completed=state.current_index,
                 steps_total=len(state.step_records),
-                gates=plan_gate_ids(
-                    state.plan_name,
-                    get_plan_steps(state.plan_name, project_root=str(self.project_root)),
-                ),
-                dropped_gates=dropped_gate_ids(
-                    state.plan_name,
-                    get_plan_steps(state.plan_name, project_root=str(self.project_root)),
-                ),
+                gates=plan_gate_ids(state.plan_name, plan_steps),
+                dropped_gates=dropped_gate_ids(state.plan_name, plan_steps),
                 error=f"Run is {state.status}, not resumable" if state.status != "success" else None,
             )
 
@@ -1699,14 +1694,15 @@ class DeterministicRunner:
                 # gates can be claimed as run (issue #1152). `subsumed` here
                 # would be the exact false green this whole family of guards
                 # exists to refuse, produced by the COST fix.
+                named_prerequisite = _failing_prerequisite(
+                    f"{result.output}\n{result.error or ''}"
+                )
                 self._resolve_deferred(
                     state,
                     deferred,
                     step.id,
                     aggregate_ok=False,
-                    failing_prerequisite=_failing_prerequisite(
-                        f"{result.output}\n{result.error or ''}"
-                    ),
+                    failing_prerequisite=named_prerequisite,
                 )
                 state.save(self.project_root)
 
@@ -1744,8 +1740,10 @@ class DeterministicRunner:
                     # is not there. The field exists to save a search through
                     # 29 prerequisites; where there is no search, it is noise.
                     failed_prerequisite=(
-                        lambda named: named if named and named != step.id else None
-                    )(_failing_prerequisite(f"{result.output}\n{result.error or ''}")),
+                        named_prerequisite
+                        if named_prerequisite and named_prerequisite != step.id
+                        else None
+                    ),
                     timed_out_step=step.id if timed_out else None,
                     timed_out_after=(
                         step_def.timeout_seconds if timed_out else None
@@ -1998,7 +1996,6 @@ def run_plan(
     plan_name: str,
     project_root: Optional[str] = None,
     json_output: bool = True,
-    rerun_failed: bool = False,
 ) -> int:
     """Execute a plan and return exit code.
 
@@ -2009,7 +2006,7 @@ def run_plan(
     # The gate helper resolves whatever CPP checkout is installed, which may
     # predate #769. Its opt-in must therefore be an env var an old runner ignores,
     # not a new CLI flag that old argparse rejects before any gate can run.
-    rerun_failed = rerun_failed or os.environ.get("CPP_GATE_RERUN_FAILED") == "1"
+    rerun_failed = os.environ.get("CPP_GATE_RERUN_FAILED") == "1"
     runner = DeterministicRunner(project_root=root, rerun_failed=rerun_failed)
 
     # Opt-in durable execution evidence (issue #1366): a no-op unless
@@ -2039,12 +2036,11 @@ def resume_run(
     run_id: str,
     project_root: Optional[str] = None,
     json_output: bool = True,
-    rerun_failed: bool = False,
 ) -> int:
     """Resume a failed run and return exit code."""
     root = Path(project_root) if project_root else Path(".")
     # Match run_plan's cross-version-safe env opt-in when resuming the same gate.
-    rerun_failed = rerun_failed or os.environ.get("CPP_GATE_RERUN_FAILED") == "1"
+    rerun_failed = os.environ.get("CPP_GATE_RERUN_FAILED") == "1"
     runner = DeterministicRunner(project_root=root, rerun_failed=rerun_failed)
 
     try:
