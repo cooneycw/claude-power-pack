@@ -1155,6 +1155,12 @@ def test_an_exec_log_without_a_matching_rollout_is_refused(tmp_path: Path) -> No
     )
     assert proc.returncode == CM.EXIT_INVALID
     assert "expected one Codex rollout" in proc.stderr
+    # Zero rollouts for the thread, though others exist (issue #1710): the
+    # refusal names the ephemeral launch as a thing to CHECK, not as what
+    # happened - a wrong thread id, as here, reads the same way.
+    assert "found 0" in proc.stderr
+    assert "first check whether" in proc.stderr and "--ephemeral" in proc.stderr
+    assert "wrong thread id" in proc.stderr
     assert list(tmp_path.glob("*.json")) == []
 
 
@@ -1192,6 +1198,8 @@ def test_multiple_matching_reviewer_rollouts_are_refused(tmp_path: Path) -> None
     )
     assert proc.returncode == CM.EXIT_INVALID, proc.stderr
     assert "expected one Codex rollout" in proc.stderr
+    # Two rollouts is not the ephemeral case, and must not be described as it.
+    assert "--ephemeral" not in proc.stderr
     assert list(tmp_path.glob("*.json")) == []
 
 
@@ -2987,6 +2995,7 @@ def test_a_codex_thread_with_no_rollout_is_refused(tmp_path: Path) -> None:  # b
                       "--codex-sessions-dir", str(sessions))
     assert proc.returncode == CM.EXIT_INVALID
     assert "no rollout matching thread_id 'no-such-thread'" in proc.stderr
+    assert "first check whether" in proc.stderr and "--ephemeral" in proc.stderr
 
 
 def test_both_implementer_flags_is_a_usage_error(tmp_path: Path) -> None:  # binary-guard: allow unscoped

@@ -1148,7 +1148,7 @@ def _derive_codex_from_thread(
     if not matches:
         return None, None, (
             f"no rollout matching thread_id {thread_id!r} under Codex sessions "
-            f"directory {sessions_dir}"
+            f"directory {sessions_dir}{_NO_ROLLOUT_HINT}"
         )
     if len(matches) > 1:
         # Mirrors _derive_implementer_from_session's equivalent refusal
@@ -1494,6 +1494,15 @@ def _snapshot(path: Path, root: Path | None = None) -> tuple[dict, list[dict], s
     )
 
 
+#: Appended when NO Codex rollout is found for a thread (issue #1710). It names
+#: a thing to check, not a diagnosis: the three causes read the same from here.
+_NO_ROLLOUT_HINT = (
+    "; first check whether the run was launched with `codex exec --ephemeral`, "
+    "which writes no rollout (re-run it without that flag); a wrong thread id "
+    "or a moved sessions directory reads the same way"
+)
+
+
 def _one(paths: list[Path], description: str) -> Path:
     if len(paths) != 1:
         raise EvidenceUnknown(f"expected one {description}, found {len(paths)}")
@@ -1558,9 +1567,10 @@ def _adapter(args: argparse.Namespace, role: str) -> tuple[list[str], dict, list
             source, records, text = _snapshot(path)
             value = _codex_rollout_identity(records)
         else:
-            path = _one(
-                [p for p in root.rglob("*.jsonl") if p.name.endswith(f"{value}.jsonl")], f"Codex rollout for {value!r}"
-            )
+            rollouts = [p for p in root.rglob("*.jsonl") if p.name.endswith(f"{value}.jsonl")]
+            if not rollouts:
+                raise EvidenceUnknown(f"expected one Codex rollout for {value!r}, found 0{_NO_ROLLOUT_HINT}")
+            path = _one(rollouts, f"Codex rollout for {value!r}")
             source, records, text = _snapshot(path, root)
             _codex_rollout_identity(records, value)
         sources.append(source)
