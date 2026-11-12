@@ -109,6 +109,7 @@ legitimately about something other than one script is declared on the marker bel
 - `install-memory-harness` - installs the `cpp-memory` entry point for each harness. [reference](scripts/install-memory-harness.md)
 - `instrument-census-check` - derives the instrument census membership from `scripts/` (#1060). [reference](scripts/instrument-census-check.md)
 - `knowledge-graduation-check` - verifies completed-spec knowledge mapping and its lifecycle decision. [reference](scripts/persistent-context-checks.md)
+- `lane-file` - age and stamp a project's lane file; an advisory, never a gate (#1696). [reference](scripts/lane-file.md)
 - `lane-serveability-check` - says whether a local-model lane can actually serve (#895). [reference](scripts/lane-serveability-check.md)
 - `maintain-loop-indicator` - leading indicator of whether recorded findings reach the backlog. [reference](scripts/maintain-loop-indicator.md)
 - `monthly-review` - reports and writes the month's review issue for `/monthly:*` (#1703). [reference](scripts/monthly-review.md)
