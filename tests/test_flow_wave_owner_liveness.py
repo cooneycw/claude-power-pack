@@ -60,6 +60,7 @@ import pytest
 
 from tests.test_flow_wave_registry import _detail, _verdict
 from tests.test_flow_wave_registry import _run as wave_run
+from tests.wave_namespace import unique_wave
 
 ROOT = Path(__file__).resolve().parents[1]
 MAILBOX = ROOT / "scripts" / "flow-wave-mailbox.sh"
@@ -77,7 +78,7 @@ requires_linux_tools = pytest.mark.skipif(
     reason="requires Linux procfs and bash, jq, flock, sed and awk on PATH",
 )
 
-WAVE = "owner-liveness"
+WAVE = unique_wave()
 ROLE = "w1"
 #: Above the largest pid a Linux kernel can be configured to hand out (2^22).
 NO_SUCH_PID = 4194999
@@ -88,6 +89,7 @@ NO_SUCH_PID = 4194999
 #: reads Z with more than one thread. LEADERLESS=0: an ordinary process.
 OWNER_PROCESS = r"""
 import ctypes, json, os, subprocess, sys, threading
+from tests.wave_namespace import unique_wave
 
 LEADERLESS = os.environ["OWNER_LEADERLESS"] == "1"
 

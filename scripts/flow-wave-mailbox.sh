@@ -2317,7 +2317,18 @@ case "$VERB" in
     OUT="$(
       (
         flock -w 10 9 || { echo "flow-wave-mailbox: could not lock $WAVE_DIR" >&2; exit 3; }
-        rev="$(max_rev "$BOX")"
+        rev=0
+        if [ -s "$BOX" ]; then
+          rev="$(awk '
+            /^<!-- cc-flow-wave-msg / {
+              if (match($0, /rev=[0-9]+/)) {
+                r = substr($0, RSTART + 4, RLENGTH - 4) + 0
+                if (r > m) m = r
+              }
+            }
+            END { print m + 0 }
+          ' "$BOX")"
+        fi
         rev=$((rev + 1))
         tmp="$(mktemp "$WAVE_DIR/.mbox.XXXXXX")" || exit 3
         # --replace still BUMPS the rev: a replaced box whose rev went backwards
