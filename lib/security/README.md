@@ -200,9 +200,6 @@ is silent. `TestNoShellSubstitutionExemption` in
 `tests/test_security_scanners.py` pins every one of those lines as reported;
 read it before proposing an exemption again.
 
-**Not scanned at all.** A script with no file extension is outside this
-module's population whatever it holds (#1737); the scan's file count says so.
-
 **`.gitleaks.toml` is not read by this gate.** The quick scan is CPP's native
 pattern matcher, not gitleaks. Gitleaks allowlists carry regexes, paths, commits,
 stopwords and per-rule scoping; a translator honouring some of those keys and
@@ -210,6 +207,54 @@ dropping the rest would suppress less than the file claims while appearing to
 honour it. When the gate blocks in a repository that has a `.gitleaks.toml` and
 no suppressions, it prints a hint with the example above. It never prints the
 value.
+
+### Files with no extension (issue #1737)
+
+The secret scan selects most files by extension. Until #1737 that was the only
+rule, so `bin/deploy`, a git hook, a `Makefile` or a `Dockerfile` was never
+opened and the scan still reported "No secrets found in N source files". Two
+rules now add files; neither changes which files the extension rule selects.
+
+| Read | Rule |
+|---|---|
+| A file with no suffix whose first two bytes are `#!` | The shebang decides, whatever the interpreter |
+| `Makefile`, `GNUmakefile`, `makefile`, `Dockerfile`, `Containerfile`, `Dockerfile.<x>` | Exact basename; `Makefile.bak` and `my-Dockerfile` are not on the list |
+
+Stated answers:
+
+- **A shebang and no execute bit: read.** Mode bits are lost on some checkouts.
+- **An execute bit and no shebang: not read.** It is far more often a binary
+  than a script, and it is counted in the line below.
+- **Not read, for this population only:** a file with a NUL byte in its first
+  8 KB (binary), a file over 1 MB, a symlink, and anything that is not a
+  regular file. A symlink is never followed, inside the scan root or out of
+  it; its target is read under its own name if it qualifies. A FIFO or device
+  is refused without being opened for reading, so the scan cannot wait on one.
+
+Whenever an extensionless file is left unread, the scan says how many and why,
+on its own line:
+
+```text
+NOT READ: 3 file(s) with no recognised extension were NOT read (2 no shebang or known name, 1 binary)
+```
+
+In `--json` that is the `unexamined` list. It is deliberately not a `SKIP`
+line: the number of `SKIP` lines is printed as `skipped-checks=` on the
+`SECURITY_GATE` line, where it means checks that could not run. On that line
+only `secrets-scanned=` rises.
+
+**Finding counts can go up on upgrade.** A Makefile is full of
+`PASSWORD=$(VAR)` shapes, which are reported like any other assignment (see
+the section above). Declare the harmless ones with a path suppression for the
+file; a suppression for a file not yet scanned is inert, so it can be added
+before the upgrade.
+
+Cost: the extra pass reads at most 8 KB of each extensionless file git does
+not ignore. Measured on a 60,000-path tree, the scan went from about 3.6
+seconds to about 6.8.
+
+Still not read: a file with an extension outside the scanner's list (`.txt`,
+`.md`, `.sql`, `.env`-unlike config names), and anything gitignored.
 
 ### An unreadable `.claude/security.yml` is UNKNOWN, never defaults
 
