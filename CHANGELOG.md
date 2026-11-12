@@ -4,6 +4,22 @@
 
 ### Behaviour changes you may notice
 
+- **`/codex:code_review` no longer records "reviewer unavailable" for a patch
+  that is too large.** Codex refuses input over 1,048,576 characters; the run
+  used to exit 1 with no findings and be recorded as a skipped review, which
+  the finish gate accepts. The patch is now measured first. Where the
+  reviewer can open the repository (scope `full`), it is told to read the
+  diff there and to list the files it read; the list is checked against the
+  patch, any file not listed is printed as `CODEX_REVIEW_NOT_READ:` and the
+  review is marked `CODEX_REVIEW_COVERAGE: PARTIAL`. Where it cannot (scope
+  `diff-only` or `unverified`, which is what a Kyle session container reads
+  today), the run stops with `CODEX_REVIEW: blocked (patch too large ...)`,
+  exit 1: **a change that used to pass with a skipped review now stops
+  there.** A new line, `CODEX_REVIEW_INPUT: stdin|repository`, says which
+  route was taken. Also: the scope probe no longer reads `unverified` under
+  `pipefail` in a large checkout, the temporary-file templates end in their
+  `X` run, and a dangling or unsearchable `.claude/lanes.md` is reported as
+  unreadable, not treated as absent (#1714).
 - **The flow documents say what to do when a project's gate needs the pushed
   head.** `/flow:auto` Step 6 and `/flow:finish` still run the gate before the
   push. When a project's own gate clones the ref under test from the remote,
