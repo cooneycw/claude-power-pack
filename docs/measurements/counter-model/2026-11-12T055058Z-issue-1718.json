@@ -1,0 +1,70 @@
+{
+  "branch": "issue-1718-tests-that-flake-under-load-or-depend-on-undeclare",
+  "counts": {
+    "accepted": 5,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "extra_passes_reason": "Requested by the orchestrator (rev 64): pass 2 found a HIGH, a remaining route (an inherited UV_PROJECT or UV_WORKING_DIR) to the very damage this PR removes, and its fix was unreviewed.",
+  "head": "cbc695c14f596151949c2027f2e414c13e8df190",
+  "implementer": "claude/claude-fable-5-2",
+  "implementer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-fable-5-2"
+    ],
+    "runtime": "claude",
+    "session_id": "890b3b05-7b6e-481a-bb70-992a65b5e9a0",
+    "sources": [
+      {
+        "bytes": 20252243,
+        "path": "-home-user-Projects/890b3b05-7b6e-481a-bb70-992a65b5e9a0.jsonl",
+        "sha256": "b095d9295658b8852d47ebb7a9f33dbcb30f576f42ec7b007f998c850e442e0a"
+      }
+    ],
+    "transcript": "-home-user-Projects/890b3b05-7b6e-481a-bb70-992a65b5e9a0.jsonl"
+  },
+  "issue": "1718",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 3,
+  "recorded_at": "2026-11-12T05:50:58Z",
+  "red_cases": {
+    "already_covered": 8,
+    "proposed": 9
+  },
+  "reviewed_artifact": {
+    "base_sha": "5d7a9d5918b0b4c6f50e77a524218badea015c27",
+    "merge_base": "3e52bf6d67ac80607ccb82bd5f29ecaf149e032f",
+    "method": "runtime-head",
+    "patch_sha256": "4638b012c91947e4838747a3cee1d2ff841072d026a5b932c918e036b42ac3a8",
+    "report_record": 72,
+    "target_head": "cbc695c14f596151949c2027f2e414c13e8df190"
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "exec_log": "codex-review.JFNFFK.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/12/rollout-2026-11-12T00-48-53-01a1ce4d-4833-7aa0-a436-dc39c2814d2d.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 125639,
+        "path": "codex-review.JFNFFK.jsonl",
+        "sha256": "e38760bbab9721e918ddb85f774f8c8340bf5c376ca5876ecf2f73ab060b0c0e"
+      },
+      {
+        "bytes": 529035,
+        "path": "2026/11/12/rollout-2026-11-12T00-48-53-01a1ce4d-4833-7aa0-a436-dc39c2814d2d.jsonl",
+        "sha256": "858ccf7a007ddcc7bdb7263d57a440b1d6ba183af574d32f2ee58881307c18e4"
+      }
+    ],
+    "thread_id": "01a1ce4d-4833-7aa0-a436-dc39c2814d2d"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}

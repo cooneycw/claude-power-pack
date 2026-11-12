@@ -314,3 +314,42 @@ def test_ignored_exit_fixture_is_valid_shell_and_masks_a_real_failure(tmp_path):
                             capture_output=True, text=True, timeout=10)
     assert marker.read_text() == "ran", "owned scanner failure must actually execute"
     assert result.returncode == 0, "the BAD fixture must swallow the scanner's exit 5"
+
+
+# --- generated INFRASTRUCTURE workflows (issue #1712, seq 695) ---------------
+#
+# These were absent from SAMPLES above, which is how `actions/checkout@v4`, a
+# moving ref, stayed in `lib/cicd/infrastructure.py` under a test that forbids
+# moving refs. They join here for the pin. The other COMMON properties
+# (permissions, timeouts, checkout credentials, concurrency) are NOT asserted
+# for them yet: the infra generator does not have them, which is issue #1756.
+
+INFRA_TIERS = ("foundation", "platform", "app")
+
+
+@pytest.mark.parametrize("tier", INFRA_TIERS)
+def test_a_generated_infra_workflow_references_actions_only_through_the_shared_pins(tier: str) -> None:
+    from lib.cicd.infrastructure import generate_infra_pipeline
+
+    generated = generate_infra_pipeline(provider="github-actions")
+    text = generated[f".github/workflows/infra-{tier}.yml"]
+    references = action_references(yaml.load(text, Loader=yaml.BaseLoader))
+    assert references, "no action references examined"
+    registry = {
+        value.split("@", 1)[0]: value
+        for value in vars(action_pins).values()
+        if isinstance(value, str) and re.fullmatch(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}", value)
+    }
+    for reference in references:
+        assert re.fullmatch(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}", reference), f"{reference} is not pinned to a commit"
+        assert reference == registry.get(reference.split("@", 1)[0]), f"{reference} is not the shared pin"
+
+
+def test_the_woodpecker_infra_pipelines_reference_no_github_action() -> None:
+    """CI provider, the other value: nothing to pin there, and that is checked, not assumed."""
+    from lib.cicd.infrastructure import generate_infra_pipeline
+
+    generated = generate_infra_pipeline(provider="woodpecker")
+    assert generated, "the Woodpecker infra generator produced nothing - this test examined no file"
+    for name, text in generated.items():
+        assert "uses:" not in text and "actions/" not in text, f"{name} references a GitHub action"

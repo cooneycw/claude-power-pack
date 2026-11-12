@@ -742,8 +742,9 @@ instead.
 
    - `COUNTER_MODEL_REVIEW: findings` - triage each as accepted (fix it now,
      under the Step-4 rules), rejected (one-line reason), or deferred (route it
-     to the nit store). If anything was accepted and fixed, re-review **once**
-     more, never a third time.
+     to the nit store). One re-review after the first accepted fix. Later
+     accepted fixes: STOP, ask the approver before each further pass; never
+     receipt unreviewed commits or false counts.
    - `COUNTER_MODEL_REVIEW: clean` - record `ran` with zero counts.
    - `COUNTER_MODEL_REVIEW: unparseable` (non-zero) - **This is not a clean
      review.** Record `skipped` with reason `reviewer-unavailable`; never a
@@ -782,8 +783,8 @@ instead.
        --red-cases-proposed 4 --red-cases-already-covered 3
    ```
 
-   `--passes` is capped at 2. An explicitly requested extra pass is recorded
-   with `--passes 3 --extra-pass-reason "<who asked, and why>"` (issue #1400).
+   Past `--passes 2`: `--extra-pass-reason`; past 3 also `--escalated-by`,
+   `--escalation-ref`, `--raised-cap`.
    CI enforces the receipt at the merge boundary (issue #1452).
 
    **Stage the receipt immediately, on every status including a skip (issue
@@ -1363,11 +1364,12 @@ Act on `FLOW_CI_STATUS`:
   evidence gap; an unexamined lane is not green, and a fallback probe's result
   never establishes recorded-provider completeness.
 
-`--wait` defaults to 600s, polling every 15s; `--wait <seconds>` changes it and
-omitting it gives a single-shot read. Without `--event` the preferred event is
+`--wait` defaults to 600s, polling every 15s; `--wait <seconds>` changes it;
+omitted, one read. Without `--event` the preferred event is
 derived from the default branch's required contexts (issue #1262;
 `FLOW_CI_EVENT` names the source); a PR into a differently-protected base
-should pass `--event`. `--exit-code` makes a `failure` verdict exit 1.
+should pass `--event`. `--exit-code` exits 1 on `failure`. `--wait` exits 2
+(`unknown`), 5 (expired).
 
 On exit 127 fall back to `${CLAUDE_PLUGIN_ROOT}/scripts/flow-ci-status.sh`
 (#590), else the CPP-checkout copy; tell the user to run **`/flow:repair`**. If

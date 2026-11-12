@@ -9,7 +9,7 @@
 # Install: pwsh -Command "Install-Module Pester, PSScriptAnalyzer -Force"
 # Copy to your project root as "Makefile" and customize.
 
-.PHONY: lint test format build deploy clean verify troubleshoot ci-local
+.PHONY: lint test format build clean verify troubleshoot ci-local
 
 ## Quality gates (used by /flow:finish)
 
@@ -33,11 +33,17 @@ verify: lint test
 
 ## Deployment (used by /flow:deploy)
 
-deploy: verify build
-	@echo "TODO: Define your deploy steps here"
-	@echo "Examples:"
-	@echo "  pwsh -Command 'Publish-Module -Path ./Output -NuGetApiKey \$$env:NUGET_API_KEY'"
-	@echo "  pwsh -Command 'Publish-PSResource -Path ./Output'"
+# No deploy target is defined yet, on purpose (issue #1712): a target that
+# only printed a TODO would report a successful deployment that deployed
+# nothing. Uncomment the block below, replace its recipe with real steps, and
+# add `deploy` to .PHONY (a .PHONY target with no rule makes `make deploy`
+# exit 0 with "Nothing to be done").
+#
+# deploy: verify build
+# 	<your deploy command>
+# Examples:
+#    pwsh -Command 'Publish-Module -Path ./Output -NuGetApiKey \$$env:NUGET_API_KEY'
+#    pwsh -Command 'Publish-PSResource -Path ./Output'
 
 ## Troubleshooting (single-command diagnostic pass)
 

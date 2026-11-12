@@ -123,3 +123,30 @@ def test_unknown_and_missing_are_not_hidden_by_other_text(tmp_path, statement):
     assert not (tmp_path / "scripts/missing.sh").exists()
     report = checker.scan(statement, tmp_path, 1)
     assert any("unclassified promise" in f or "missing promised path" in f for f in report.findings)
+
+
+# --- the per-line boundary (issue #1716, seq 674) ---------------------------
+
+# Reproduced inside the disclosure step, which is where a bare path on its own
+# line is read as something CPP supplies. Outside it neither shape is a claim.
+_DISCLOSURE = "## Step 4: Disclose\n{body}## Step 5: Execute\n"
+ONE_LINE = _DISCLOSURE.format(body="Every selected tier also creates project `.claude/cpp-install.json`.\n")
+WRAPPED = _DISCLOSURE.format(body="Every selected tier also creates project\n`.claude/cpp-install.json`.\n")
+
+
+def test_a_generated_file_declared_on_one_line_is_not_a_missing_source(tmp_path):
+    assert not (tmp_path / ".claude" / "cpp-install.json").exists()
+    report = checker.scan(ONE_LINE, tmp_path, 0)
+    assert not report.findings
+    assert [(c.kind, c.target) for c in report.claims] == [("generated", ".claude/cpp-install.json")]
+
+
+def test_the_same_declaration_wrapped_before_its_path_is_a_finding_and_the_output_says_why(tmp_path, capsys):
+    """The supported boundary, pinned: classification is per line, and the note names the remedy."""
+    report = checker.scan(WRAPPED, tmp_path, 0)
+    assert any(f.startswith("missing promised path") and "cpp-install.json" in f for f in report.findings)
+    document = tmp_path / checker.DOCUMENT
+    document.parent.mkdir(parents=True)
+    document.write_text(WRAPPED)
+    assert checker.main(["--root", str(tmp_path), "--min-promises", "1"]) == 1
+    assert "keep its declaration and its path on one line" in capsys.readouterr().out

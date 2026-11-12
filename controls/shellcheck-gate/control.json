@@ -48,12 +48,11 @@
   ],
   "anchors": [
     {
-      "kind": "historical",
-      "sha": "ed5349c",
+      "kind": "constructed",
       "origin": "scripts/shellcheck-gate.sh",
       "path": "anchors/ed5349c-shellcheck-gate.sh",
       "sha256": "078cd27f9a2d668e3c401c57ee62ce565bc5641e9b898fb86633418aad39308e",
-      "note": "PERMANENTLY UNRESOLVABLE AFTER SQUASH, BY DESIGN. This is a pre-squash commit on the #960 branch; squash-merging orphans it, so `git show` can never resolve it on main. That does NOT weaken the control: the operative check is the sha256 of this VENDORED file, which is git-independent, and CI runs --strict WITHOUT --verify-provenance because git is not in the CI image. What it means is that --verify-provenance reads `unverified` here for a TERMINAL reason (unresolvable anywhere, forever) rather than the ordinary temporary one (git absent on this machine). Same word, two causes. Integrity is established; historicity is not. The anchor itself is deliberately git-FREE so its blindness is demonstrable in the CI image too - a git-dependent anchor reports UNKNOWN there and cannot be told from a crash, which is this issue's own defect class inside the tool built for it."
+      "note": "NOT A HISTORICAL ANCHOR, AND IT NAMES NO COMMIT (issue #1732). These bytes are the gate as it stood at ed5349c, a pre-squash commit on the #960 branch. Squash-merging orphaned that commit, so it exists in no clone and no comparison with it can ever be run. It was registered `historical` with that sha, which was a claim nothing could check: under --verify-provenance it read `unverified`, the same word as an anchor with nothing to compare, and when #1732 made 'could not look' its own verdict this was the one registration in the repository that failed it. So it is registered as what can be shown: a constructed anchor whose integrity is the sha256 of this vendored file. That it is the pre-fix code is this note's word and the #960 PR's, not something the harness verifies. The anchor is deliberately git-FREE so its blindness is demonstrable in the CI image too."
     }
   ],
   "mutations": [
@@ -174,7 +173,10 @@
     {
       "name": "zero-matched-and-crash-together",
       "protection": "0 files matched AND a linter that failed to run are each UNKNOWN - removing both together still must not read as a clean pass",
-      "mutations": ["zero-matched-is-unknown", "linter-crash-is-unknown"],
+      "mutations": [
+        "zero-matched-is-unknown",
+        "linter-crash-is-unknown"
+      ],
       "expect": "caught",
       "why": "issue #1396's motivating case, and the first entry in this register that single-mutation probing could not express. zero-matched-is-unknown and linter-crash-is-unknown mutually mask each other (see each entry's own why): weaken either alone and the sibling catches it, so single-mutation probing reports BOTH as ACCEPTED/uncaught and cannot tell real redundancy from an untested combination. MEASURED (shellcheck 0.10.0, the pinned CI version): removing BOTH together - COUNT falls through the weakened zero-check and shellcheck is invoked with ZERO file arguments, exits 3, and the weakened crash arm now exits 0 instead of calling unknown() - makes cases/unknown-zero-matched (expect: UNKNOWN) observe a confident CLEAN pass on an input that examined nothing. check-negative-controls reports that as BLIND, so the battery goes RED and this combination is CAUGHT. The pair is therefore real, load-bearing redundancy, not decorative dead code: at least one of the two must exist for the register to stay sound, even though single-mutation probing could never show which."
     }

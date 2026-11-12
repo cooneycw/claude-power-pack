@@ -1,0 +1,32 @@
+{
+  "gate": "scripts/toy-gate.sh",
+  "invocation": [
+    "sh",
+    "{gate}",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^toy-gate: FINDING",
+  "cases": [
+    {
+      "name": "bad",
+      "input": "cases/bad",
+      "expect": "BAD"
+    },
+    {
+      "name": "good",
+      "input": "cases/good",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "origin": "scripts/toy-gate.sh",
+      "path": "anchors/first-commit-toy-gate.sh",
+      "sha256": "0c491b3ac596ebeb9b696ef04f429963d200493e7d955b97d064fe3c3b8d7009",
+      "sha": "@FIRST_COMMIT@"
+    }
+  ]
+}

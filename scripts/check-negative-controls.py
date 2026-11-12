@@ -522,6 +522,14 @@ class Result:
     #: clone, which is the defect itself.
     tracking: str = "unverified"
     details: list[str] = field(default_factory=list)
+    #: Historical anchors byte-compared against the commit they name, and ones
+    #: that could not be (issue #1732). Counted only under `--verify-provenance`.
+    historical_registered: int = 0
+    historical_compared: int = 0
+    historical_uncompared: int = 0
+    #: Registered, and never reached the comparison: its bytes already disagree
+    #: with the recorded digest (MISMATCH, which fails by itself).
+    historical_unexamined: int = 0
 
 
 def _source_stamp(root: Path) -> str:
@@ -1451,6 +1459,127 @@ def _tracking(control_dir: Path, root: Path) -> tuple[str, list[str]]:
 
 
 def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenance: bool) -> Result:
+    """Score one control, then - under `--verify-provenance` - compare its
+    historical anchors with their commits WHATEVER the scoring concluded.
+
+    The comparison is a separate pass on purpose (issue #1732, counter-model
+    review). Scoring returns early in some sixty places: a control whose tool is
+    absent (UNAVAILABLE, excused by `make verify`), a malformed manifest, a
+    failing case. Provenance computed inside that path was skipped by every one
+    of them, so a tampered anchor on a control that could not RUN here went
+    unexamined and the run passed. Whether an anchor is the artifact its
+    manifest names does not depend on whether the gate's tool is installed."""
+    res = _evaluate_control(directive_file, control_rel, root, verify_provenance)
+    if verify_provenance:
+        _verify_historical_anchors(res, root / control_rel, root)
+    return res
+
+
+def _historical_defect(anchor: dict[str, object]) -> str | None:
+    """Why a `kind: historical` anchor cannot be compared at all, or None.
+
+    A declaration that says "this is the code at a commit" and then names no
+    usable commit, no origin file or no anchor file is still a registered
+    historical anchor. It is counted, and it is could-not-compare."""
+    sha = anchor.get("sha")
+    if not isinstance(sha, str) or not _HEX_SHA_RE.fullmatch(sha) or set(sha) == {"0"}:
+        return f"its sha {sha!r} names no commit"
+    if not isinstance(anchor.get("origin"), str) or not anchor.get("origin"):
+        return "it names no origin file"
+    if not isinstance(anchor.get("path"), str) or not anchor.get("path"):
+        return "it names no anchor file"
+    return None
+
+
+def _verify_historical_anchors(res: Result, control_dir: Path, root: Path) -> None:
+    """Compare every registered historical anchor of one control with its commit.
+
+    THE POPULATION IS A DECLARATION, NOT A JUDGEMENT: every entry of the
+    manifest's `anchors` whose `kind` is `historical`, however badly formed.
+    Three review passes each found a registration this pass had quietly decided
+    was not historical "enough" to count - a placeholder sha, a missing origin, a
+    missing path - and which then left the run uncounted and green. So nothing
+    is filtered: `historical_registered` counts them all, and each lands in
+    exactly one of compared, uncompared (could not look: the declaration is
+    unusable, no git, no such commit here, no anchor file) or unexamined (its
+    bytes already disagree with the recorded digest, which is MISMATCH and
+    fails by itself). A manifest whose `anchors` cannot be read as a list is
+    could-not-look for the whole control.
+
+    Provenance is only ever STRENGTHENED towards a failure here - a MISMATCH or
+    UNCOMPARED found by this pass replaces a weaker word from scoring, never
+    the reverse."""
+    try:
+        spec = json.loads((control_dir / "control.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        # No readable manifest: scoring has already refused this control
+        # (UNRESOLVED, which nothing excuses), and there is no population to read.
+        return
+    anchors = spec.get("anchors", []) if isinstance(spec, dict) else None
+    if not isinstance(anchors, list):
+        res.details.append(
+            "control.json's `anchors` is not a list, so its historical anchors cannot be "
+            "enumerated, let alone compared with the commits they name"
+        )
+        if res.provenance != "MISMATCH":
+            res.provenance = UNCOMPARED
+        return
+    words: list[str] = []
+    for position, anchor in enumerate(anchors):
+        # Skipping an entry is itself a judgement, so only a DECLARED other kind
+        # is skipped. An entry that is not an object, or whose kind is none of
+        # the known ones ("Historical", a typo, no kind at all), may be a
+        # historical anchor nobody can recognise: scoring refuses it, but
+        # scoring returns early for a control excused as unavailable.
+        kind = anchor.get("kind") if isinstance(anchor, dict) else None
+        if not isinstance(kind, str) or kind not in ANCHOR_KINDS:
+            what = (f"declares kind {kind!r}" if isinstance(anchor, dict)
+                    else f"is {type(anchor).__name__}, not an object")
+            res.details.append(
+                f"control.json's anchors[{position}] {what}, so it cannot be told whether it is "
+                f"a historical anchor to compare with a commit"
+            )
+            words.append(UNCOMPARED)
+            continue
+        if kind != "historical":
+            continue
+        res.historical_registered += 1
+        label = f"anchor {anchor.get('path', '?')} (historical {anchor.get('sha', '?')})"
+        defect = _historical_defect(anchor)
+        anchor_path = control_dir / str(anchor.get("path", ""))
+        if defect is None and not anchor_path.is_file():
+            # Scoring also refuses a missing anchor, but scoring may never reach
+            # it (a control whose tool is absent returns first and is excused).
+            defect = "the anchor file is missing"
+        if defect is not None:
+            res.historical_uncompared += 1
+            words.append(UNCOMPARED)
+            res.details.append(f"{label} could not be compared with the commit it names: {defect}")
+            continue
+        _HISTORICAL_COMPARED.pop(id(anchor), None)
+        word = _provenance(anchor, anchor_path, root, True)
+        words.append(word)
+        if _HISTORICAL_COMPARED.pop(id(anchor), False):
+            res.historical_compared += 1
+        elif word == "MISMATCH":
+            res.historical_unexamined += 1
+        else:
+            # Anything else from a well-formed historical anchor is could-not-look,
+            # whatever word came back: it was asked to be compared and was not.
+            res.historical_uncompared += 1
+            if word != UNCOMPARED:
+                words[-1] = UNCOMPARED
+            res.details.append(
+                f"{label} could not be compared with the commit it names: "
+                f"{_uncompared_reason(anchor, root)}"
+            )
+    if "MISMATCH" in words:
+        res.provenance = "MISMATCH"
+    elif UNCOMPARED in words and res.provenance != "MISMATCH":
+        res.provenance = UNCOMPARED
+
+
+def _evaluate_control(directive_file: Path, control_rel: str, root: Path, verify_provenance: bool) -> Result:
     control_dir = (root / control_rel).resolve()
     res = Result(gate=str(directive_file.relative_to(root)), control_dir=control_rel, verdict=UNRESOLVED)
 
@@ -2598,7 +2727,45 @@ def _aggregate_provenance(values: list[str]) -> str:
         return "unverified"
     if "MISMATCH" in values:
         return "MISMATCH"
+    if UNCOMPARED in values:
+        return UNCOMPARED
     return "ok" if all(value == "ok" for value in values) else "unverified"
+
+
+#: A HISTORICAL anchor that `--verify-provenance` was asked to compare and could
+#: not (issue #1732): git is absent, or the commit it names is not in this
+#: clone. It is NOT `unverified`. That word is the ordinary state of a
+#: constructed or synthetic anchor, which has no commit to be compared with -
+#: "there is nothing to compare" - and a historical anchor in a depth-1 clone
+#: shared it, so the flag wired into CI as it stood would have printed
+#: `unverified` for every control and stayed green. "Could not look" needs its
+#: own word, and under `--strict` it fails.
+#:
+#: NEGATIVE-CONTROL: controls/check-negative-controls-provenance
+UNCOMPARED = "UNCOMPARED"
+
+#: id(anchor) -> True for an anchor whose bytes were actually compared with git
+#: in this run. `_provenance` returns one word; this carries the one extra fact
+#: the count line needs without changing what that function returns.
+_HISTORICAL_COMPARED: dict[int, bool] = {}
+
+
+def _uncompared_reason(anchor: dict[str, str], root: Path) -> str:
+    """Why a historical anchor could not be compared. Read-only, best effort."""
+    if not shutil.which("git"):
+        return "git is not on PATH"
+    try:
+        shallow = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--is-shallow-repository"],
+            capture_output=True, text=True, timeout=30, check=False,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        shallow = ""
+    where = f"{anchor.get('sha', '?')}:{anchor.get('origin', '?')}"
+    if shallow == "true":
+        return (f"{where} is not in this clone, which is shallow - deepen it "
+                "(git fetch --unshallow origin) and re-run")
+    return f"{where} does not exist in this repository's history"
 
 
 def _provenance(anchor: dict[str, str], anchor_path: Path, root: Path, verify: bool) -> str:
@@ -2613,8 +2780,13 @@ def _provenance(anchor: dict[str, str], anchor_path: Path, root: Path, verify: b
         return "MISMATCH"
     if not verify:
         return "unverified"
+    # A historical anchor that names a real commit. The `0000000` placeholder
+    # names none and is handled below as having nothing to compare with.
+    historical = (anchor.get("kind") == "historical" and bool(anchor.get("origin"))
+                  and anchor.get("sha") not in (None, "", "0000000", "n/a"))
+    could_not_look = UNCOMPARED if historical else "unverified"
     if not shutil.which("git"):
-        return "unverified"
+        return could_not_look
     #: A SYNTHETIC ANCHOR HAS NO HISTORICAL ARTIFACT TO BE COMPARED WITH, so the
     #: git step below cannot say anything about it (issue #1157). Its `sha` is
     #: `0000000` by construction and its `origin` is a SENTENCE describing the
@@ -2674,15 +2846,17 @@ def _provenance(anchor: dict[str, str], anchor_path: Path, root: Path, verify: b
             capture_output=True, timeout=30, check=False,
         )
         if probe.returncode != 0:
-            return "unverified"
+            return could_not_look
         out = subprocess.run(
             ["git", "-C", str(root), "show", f"{anchor['sha']}:{anchor['origin']}"],
             capture_output=True, timeout=30, check=False,
         )
     except (OSError, subprocess.SubprocessError):  # pragma: no cover - defensive
-        return "unverified"
+        return could_not_look
     if out.returncode != 0:
-        return "unverified"
+        return could_not_look
+    if historical:
+        _HISTORICAL_COMPARED[id(anchor)] = True
     return "ok" if hashlib.sha256(out.stdout).hexdigest() == digest else "MISMATCH"
 
 
@@ -2869,11 +3043,40 @@ def main(argv: list[str] | None = None) -> int:
     # anchor, of a run without `--verify-provenance`, and of the CI image, which
     # has no git. Only MISMATCH - the recorded digest disagreeing with the bytes
     # actually committed - is a claim that something is wrong.
+    #
+    # UNCOMPARED FAILS UNDER `--strict` (issue #1732): the caller asked for
+    # historical anchors to be compared and one could not be. Without `--strict`
+    # it is named and counted and the run's exit is as before.
+    #
+    # AN EXCUSED VERDICT DOES NOT EXCUSE PROVENANCE (same issue, counter-model
+    # review). `--allow-unavailable` excuses a control that could not RUN here.
+    # Whether its anchor is the artifact the manifest names is a different
+    # question with a different answer, and it is asked of every control.
+    def _provenance_failure(r: Result) -> bool:
+        return r.provenance == "MISMATCH" or (args.strict and r.provenance == UNCOMPARED)
+
     failing = [
         r for r in results
-        if (r.verdict != PASS or r.tracking == "UNTRACKED" or r.provenance == "MISMATCH")
-        and id(r) not in excused
+        if ((r.verdict != PASS or r.tracking == "UNTRACKED") and id(r) not in excused)
+        or _provenance_failure(r)
     ]
+    if args.verify_provenance and not args.quiet:
+        # State what the flag established, as two populations: a reader must be
+        # able to tell "compared every one" from "compared none" on one line.
+        registered = sum(r.historical_registered for r in results)
+        compared = sum(r.historical_compared for r in results)
+        uncompared = sum(r.historical_uncompared for r in results)
+        unexamined = sum(r.historical_unexamined for r in results)
+        print()
+        if registered == 0:
+            print("NEGATIVE_CONTROL_PROVENANCE_HISTORICAL: compared=0 uncompared=0 - no "
+                  "historical anchor is registered here, so there was nothing to compare")
+        else:
+            never = (f"; {unexamined} never reached the comparison (its bytes already disagree "
+                     "with the recorded digest)") if unexamined else ""
+            print(f"NEGATIVE_CONTROL_PROVENANCE_HISTORICAL: compared={compared} "
+                  f"uncompared={uncompared} - of {registered} historical anchor(s) registered, "
+                  f"{compared} byte-compared with the commit they name{never}")
     if not args.quiet:
         print()
         if failing:
@@ -2883,11 +3086,13 @@ def main(argv: list[str] | None = None) -> int:
                 #: control that had just failed on tracking or provenance - a
                 #: failure announcing a pass, which cost a reader real time
                 #: (#1061) before it cost this line.
-                axes = [res.verdict] if res.verdict != PASS else []
+                axes = [res.verdict] if res.verdict != PASS and id(res) not in excused else []
                 if res.tracking == "UNTRACKED":
                     axes.append("UNTRACKED")
                 if res.provenance == "MISMATCH":
                     axes.append("PROVENANCE:MISMATCH")
+                if args.strict and res.provenance == UNCOMPARED:
+                    axes.append("PROVENANCE:UNCOMPARED")
                 print(f"negative-controls: {res.gate} -> {'/'.join(axes) or res.verdict}")
                 for line in res.details:
                     print(f"    {line}")
