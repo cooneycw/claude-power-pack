@@ -246,9 +246,9 @@ def select_run(text: str, run_id: str | None) -> tuple[str | None, str]:
 #: NEGATIVE-CONTROL: controls/flow-plan-record-lanes
 LANE_FILE_REL = pathlib.Path(".claude") / "lanes.md"
 LANE_ANSWERS = ("will test", "will refuse", "not applicable", "not covered")
-LANES_HEADING_RE = re.compile(r"^(#{2,6})[ \t]+Lanes for this change[ \t]*$", re.M)
-DEMONSTRATED_HEADING_RE = re.compile(r"^(#{2,6})[ \t]+Lanes demonstrated[ \t]*$", re.M)
-HEADING_RE = re.compile(r"^(#{1,6})[ \t]+\S", re.M)
+LANES_HEADING_RE = re.compile(r"^ {0,3}(#{2,6})[ \t]+Lanes for this change[ \t]*$", re.M)
+DEMONSTRATED_HEADING_RE = re.compile(r"^ {0,3}(#{2,6})[ \t]+Lanes demonstrated[ \t]*$", re.M)
+HEADING_RE = re.compile(r"^ {0,3}(#{1,6})[ \t]+\S", re.M)
 LANES_WAIVED_RE = re.compile(r"^Lanes:[ \t]*none[ \t]*-[ \t]*(\S.*?)[ \t]*$", re.M)
 LANES_WAIVED_BARE_RE = re.compile(r"^Lanes:[ \t]*none[ \t]*-?[ \t]*$", re.M)
 
@@ -268,7 +268,10 @@ def outside_fences(text: str) -> str:
     for line in text.splitlines(keepends=True):
         mark = FENCE_RE.match(line)
         if fence is None:
-            if mark:
+            # A backtick fence cannot carry a backtick in its info string; such a
+            # line is ordinary text, and treating it as an opener would make the
+            # NEXT fence line read as a closer and its contents as live.
+            if mark and not (mark.group(1)[0] == "`" and "`" in line[mark.end():]):
                 fence = mark.group(1)
                 out.append(" " * (len(line) - 1) + "\n" if line.endswith("\n") else " " * len(line))
             else:
@@ -300,17 +303,31 @@ def heading_block(text: str, heading: re.Pattern[str]) -> tuple[int, int] | None
 
 
 def without_demonstrated(section: str) -> str:
-    """`section` minus its `Lanes demonstrated` block, and nothing else.
+    """`section` minus its `Lanes demonstrated` heading and the table under it,
+    and nothing else.
 
-    That block is written at Step 6, after approval, so it is the one part of a
+    That table is written at Step 6, after approval, so it is the one part of a
     run's section the stability digest of a lanes-checked record does not cover
-    (#1731). ONLY the block: text placed after it - another heading, a new
-    Section C line - is still digested, or the block would be a place to hide
-    a plan edit. A heading inside a code fence is not the block."""
-    span = heading_block(section, DEMONSTRATED_HEADING_RE)
-    if span is None:
+    (#1731). What is left out is defined by what it IS, not by where the next
+    heading falls: the heading line, then blank lines and table lines (lines
+    carrying a pipe), stopping at the first line that is neither. Prose, a
+    heading in any spelling, a code fence, a new Section C line - whatever
+    follows the table is digested. Deciding the end by "the next heading" made
+    the digest depend on recognising every way markdown can write one, and each
+    one missed was a place to hide a plan edit."""
+    visible = outside_fences(section)
+    found = DEMONSTRATED_HEADING_RE.search(visible)
+    if not found:
         return section
-    return section[:span[0]] + section[span[1]:]
+    end = found.end()
+    # Walk the ORIGINAL text: in the fence-blanked copy a quoted line looks
+    # blank and would be swallowed.
+    for line in re.finditer(r"\n([^\n]*)", section[found.end():]):
+        text = line.group(1)
+        if text.strip() and "|" not in text:
+            break
+        end = found.end() + line.end()
+    return section[:found.start()] + section[end:]
 
 
 TABLE_RULE_RE = re.compile(r"^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$")

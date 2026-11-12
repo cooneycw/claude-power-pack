@@ -613,3 +613,39 @@ def test_a_legacy_record_approved_under_the_check_may_gain_the_block(repo: Path)
     with record.open("a") as fh:
         fh.write("\n### Later\n  2. `src/other.py` - slipped in\n")
     assert "CHANGED" in stability(repo)
+
+
+# --- second review pass: the digest must not depend on spotting every heading
+
+@pytest.mark.parametrize("addendum", [
+    "\n   ### Section C addendum\n  2. `src/other.py` - slipped in\n",
+    "\nSection C addendum\n------------------\n  2. `src/other.py` - slipped in\n",
+    "\n  2. `src/other.py` - slipped in with no heading at all\n",
+    "\n```\n  2. `src/other.py` - slipped in inside a fence\n```\n",
+    "\n#### A deeper heading\n  2. `src/other.py` - slipped in\n",
+], ids=["indented-heading", "setext-heading", "no-heading", "fenced", "deeper-heading"])
+def test_whatever_follows_the_demonstrated_table_is_digested(repo: Path, addendum: str) -> None:
+    """Only the heading and its table are outside the digest. The end of the
+    exemption is the end of the table, however the next thing is spelled."""
+    record = approved(repo)
+    with record.open("a") as fh:
+        fh.write(DEMONSTRATED)
+    assert "unchanged" in stability(repo), "precondition: the table alone is allowed"
+    with record.open("a") as fh:
+        fh.write(addendum)
+    assert "CHANGED" in stability(repo)
+
+
+def test_an_indented_lanes_heading_is_still_the_heading(repo: Path) -> None:
+    begin(repo, PLAN + FULL_TABLE.replace("### Lanes for this change", "  ### Lanes for this change"))
+    assert run(repo, "approve", "42").returncode == 0
+
+
+def test_a_backtick_line_that_cannot_open_a_fence_does_not_unquote_what_follows(repo: Path) -> None:
+    """```invalid`info is not a fence opener in markdown, so the NEXT ``` opens
+    one and the table below is quoted. A tracker that took the first line for
+    an opener read the second as its closer and the table as live."""
+    quoted = "\n```invalid`info\n```\n" + FULL_TABLE.strip("\n") + "\n```\n"
+    begin(repo, PLAN + quoted)
+    done = run(repo, "approve", "42")
+    assert done.returncode == 1 and "has no lanes table" in done.stdout, done.stdout
