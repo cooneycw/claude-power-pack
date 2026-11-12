@@ -1,0 +1,12 @@
+================ short test summary info =================
+FAILED tests/test_x.py::test_v[hello world] - AssertionError: boom
+FAILED tests/test_x.py::test_v[hello there] - AssertionError: boom
+FAILED tests/test_x.py::test_plain - assert 1 == 2
+FAILED tests/test_x.py::test_plain - assert 1 == 2
+  ERROR tests/test_w.py::test_setup - fixture 'db' not found
+FAILED tests/test_x.py::TestC::test_z[param-1]
+ERROR tests/x.py::t[a - b] - RuntimeError: boom
+ERROR tests/test_broken.py
+ERROR at setup of test_x
+The request FAILED tests/a.py::test_one
+================ 6 failed, 3 errors in 0.42s =================
