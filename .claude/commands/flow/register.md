@@ -414,18 +414,19 @@ and is wiped by the OS at reboot - exactly when every session's address dies too
    The role-level facts are optional and each answers a routing question the
    orchestrator otherwise had to ask (#699). They are PRESERVED across a
    re-register that omits them - unlike cwd/**repo**/issue/branch, which a
-   re-register REWRITES because they describe a lane that genuinely goes stale.
-   Pass an empty value (`--files ""`) to clear one deliberately.
+   re-register REWRITES because they describe a lane that goes stale.
+   Pass an empty value (`--files ""`) to clear one deliberately. EXCEPTION
+   (#1222): changing `--issue` or `--repo` between two non-empty values is a
+   move to other work. Unless that call supplies them, the file lane (reported:
+   `FLOW_WAVE_FILES_DROPPED`, stderr) and the `--pr`/`--base`/`--diff`
+   observation (not reported) reset. Omitting or first adding either is no move.
 
    **`--repo` must be passed on EVERY re-register (#800).** It is in the
    rewritten group while `--files` is in the preserved one, and file-lane and
    same-issue overlap detection is scoped to same-repo pairs - so a re-register
-   that omits `--repo` keeps the lane and drops the key that makes the lane
-   comparable. Found in a live wave: a worker re-registered passing only
-   `--files` to extend its lane, and two workers held the same two files for
-   ~40 minutes against a roster that read clean. The registry now says so at
-   registration time and reports the role as UNKNOWN rather than clean in
-   `list` (below), but the fix on your side is one flag.
+   that omits `--repo` keeps the lane and drops the key making it
+   comparable. The registry says so at registration and reports the role as
+   UNKNOWN, not clean, in `list` (below); the fix is one flag.
 
    The helper self-derives this session's address by walking ancestor pids
    against the socket dir. **This step is genuinely uds-specific** and is the
@@ -522,10 +523,10 @@ and is wiped by the OS at reboot - exactly when every session's address dies too
    session's work will not remove.
 
    **Re-arm it after EVERY wake, for as long as this session is in the wave
-   (issues #801, #814).** The watch is one-shot: it delivers one message and
-   exits, so handling a wake without re-arming leaves you deaf with a heartbeat
-   that still looks fresh. Re-arming is part of handling the message, not a
-   separate task. This is the cost of this design, stated plainly: #814 was
+   (issues #801, #814).** The watch is one-shot: one wake delivers every unread
+   message and exits, so handling a wake without re-arming leaves you deaf with
+   a heartbeat that looks fresh. Re-arming is part of handling the message, not
+   a separate task. This is the cost of this design, plainly: #814 was
    filed because three sessions forgot exactly this step in one run, one of
    them for 25 minutes with seven messages unheard. The difference now is that
    a forgotten re-arm is VISIBLE - the roster reads `watch=DEAD` - where the
@@ -1445,7 +1446,7 @@ they actually own. A native release does not prove any shell watcher stopped.
 Run on leaving the wave. Release clears the role's lane - issue, PR, branch,
 base, diff and files - and keeps what it held under `released_lane`, so the row
 stays auditable without reading as a current claim (#1222). Re-registering onto
-a different issue likewise resets every lane fact the call does not supply.
+a different issue or repo likewise resets each lane fact the call omits.
 Sessions that die without releasing are caught by
 staleness detection; their entries persist as `stale`. Releasing a role owned by
 another LIVE session refuses without `--force`.
