@@ -511,7 +511,16 @@ MALFORMED = {
     "no-origin": lambda spec: spec["anchors"][0].pop("origin"),
     "no-path": lambda spec: spec["anchors"][0].pop("path"),
     "anchors-is-an-object": lambda spec: spec.update(anchors={"0": spec["anchors"][0]}),
+    "kind-capitalised": lambda spec: spec["anchors"][0].update(kind="Historical"),
+    "kind-missing": lambda spec: spec["anchors"][0].pop("kind"),
+    "entry-is-a-string": lambda spec: spec.update(anchors=["anchors/first-commit-toy-gate.sh"]),
+    "entry-is-null": lambda spec: spec.update(anchors=[None]),
 }
+
+#: Shapes where the entry cannot even be counted as historical: the control is
+#: could-not-look as a whole, and the count line has no anchor to count.
+UNCOUNTABLE = {"anchors-is-an-object", "kind-capitalised", "kind-missing", "entry-is-a-string",
+               "entry-is-null"}
 
 
 @pytest.mark.parametrize("shape", sorted(MALFORMED))
@@ -526,10 +535,53 @@ def test_a_declared_historical_anchor_cannot_leave_the_population(tmp_path: Path
     _commit(root)
     done = harness(root, "--strict", "--allow-unavailable", "--verify-provenance")
     assert done.returncode == 1, f"{shape}: {done.stdout[-600:]}"
-    assert "no historical anchor is registered" not in done.stdout or shape == "anchors-is-an-object"
-    assert "PROVENANCE:UNCOMPARED" in done.stdout or "UNRESOLVED" in done.stdout, done.stdout[-600:]
-    if shape != "anchors-is-an-object":
+    assert "PROVENANCE:UNCOMPARED" in done.stdout, done.stdout[-600:]
+    if shape not in UNCOUNTABLE:
+        assert "no historical anchor is registered" not in done.stdout
         assert counts(done.stdout) == (0, 1), done.stdout[-400:]
+
+
+def test_a_control_with_only_constructed_anchors_is_as_green_as_before(tmp_path: Path) -> None:
+    """A declared other kind is a declaration too: skipped, and not a failure."""
+    root = _fixture(tmp_path, "good-constructed-anchor-names-no-commit", shallow=False)
+    _make_unavailable(root)
+    _commit(root)
+    done = harness(root, "--strict", "--allow-unavailable", "--verify-provenance")
+    assert done.returncode == 0, done.stdout[-600:]
+    assert "UNCOMPARED" not in done.stdout
+
+
+@pytest.mark.parametrize("damage", ["not-json", "missing"])
+def test_an_unreadable_manifest_under_the_flag_is_not_green(tmp_path: Path, damage: str) -> None:
+    """The one return the comparison pass makes without a verdict of its own.
+    It is safe only because scoring has already refused the control, with a
+    verdict nothing excuses - shown here, not asserted in a comment."""
+    root = _fixture(tmp_path, "good-anchor-matches-its-commit", shallow=False)
+    _make_unavailable(root)
+    manifest = root / "controls" / "toy" / "control.json"
+    if damage == "not-json":
+        manifest.write_text("{ this is not json")
+    else:
+        manifest.unlink()
+    _commit(root)
+    done = harness(root, "--strict", "--allow-unavailable", "--verify-provenance")
+    assert done.returncode == 1, done.stdout[-600:]
+    assert "NEGATIVE_CONTROL_VERDICT: UNRESOLVED" in done.stdout, done.stdout[-600:]
+
+
+def test_every_anchor_entry_in_this_repository_is_an_object_with_a_known_kind() -> None:
+    """The unfiltered enumeration: nothing in the real tree is of a shape the
+    comparison pass would have to call could-not-look."""
+    module = _harness_module()
+    seen = 0
+    for manifest in sorted((ROOT / "controls").glob("*/control.json")):
+        anchors = json.loads(manifest.read_text()).get("anchors", [])
+        assert isinstance(anchors, list), manifest
+        for position, anchor in enumerate(anchors):
+            assert isinstance(anchor, dict), f"{manifest}: anchors[{position}]"
+            assert anchor.get("kind") in module.ANCHOR_KINDS, f"{manifest}: anchors[{position}]"
+            seen += 1
+    assert seen > 100, f"only {seen} anchor entries found"
 
 
 def test_without_the_flag_those_shapes_behave_as_they_did(tmp_path: Path) -> None:

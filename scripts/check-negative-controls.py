@@ -1525,8 +1525,23 @@ def _verify_historical_anchors(res: Result, control_dir: Path, root: Path) -> No
             res.provenance = UNCOMPARED
         return
     words: list[str] = []
-    for anchor in anchors:
-        if not isinstance(anchor, dict) or anchor.get("kind") != "historical":
+    for position, anchor in enumerate(anchors):
+        # Skipping an entry is itself a judgement, so only a DECLARED other kind
+        # is skipped. An entry that is not an object, or whose kind is none of
+        # the known ones ("Historical", a typo, no kind at all), may be a
+        # historical anchor nobody can recognise: scoring refuses it, but
+        # scoring returns early for a control excused as unavailable.
+        kind = anchor.get("kind") if isinstance(anchor, dict) else None
+        if not isinstance(kind, str) or kind not in ANCHOR_KINDS:
+            what = (f"declares kind {kind!r}" if isinstance(anchor, dict)
+                    else f"is {type(anchor).__name__}, not an object")
+            res.details.append(
+                f"control.json's anchors[{position}] {what}, so it cannot be told whether it is "
+                f"a historical anchor to compare with a commit"
+            )
+            words.append(UNCOMPARED)
+            continue
+        if kind != "historical":
             continue
         res.historical_registered += 1
         label = f"anchor {anchor.get('path', '?')} (historical {anchor.get('sha', '?')})"
