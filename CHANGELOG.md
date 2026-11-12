@@ -4,6 +4,15 @@
 
 ### Behaviour changes you may notice
 
+- **A plan that changes an output names who reads it, and the review judges
+  the tests, not only their presence.** When a change alters a response shape,
+  file format, status line, exit code or record field, the plan adds a
+  `Reader:` row per reader to the lanes table and says whether a test feeds the
+  reader the writer's real output; a hand-written copy of the other side is not
+  evidence. `/codex:code_review` now also reports a reader the plan does not
+  name, and a lane or reader test that uses a stand-in where the real thing
+  could be used or that could not fail. The reader rows apply with or without a
+  lane file. See `docs/agents/changed-output-readers.md` (#1697).
 - **A defect now says where it came from.** A defect report carries an
   `Origin:` line - the issue or pull request that delivered the behaviour that
   broke, `never worked`, or `not traced - <what was tried>` - and the pull

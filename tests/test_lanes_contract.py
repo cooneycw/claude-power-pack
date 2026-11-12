@@ -104,7 +104,7 @@ def test_the_issue_contract_states_the_rule() -> None:
 def test_the_plan_gate_pointer_sits_outside_the_vendored_core() -> None:
     text = read(Path(".claude/commands/flow/eli5.md"))
     end = text.index("<!-- eli5-core:end -->")
-    assert text.index("answer the lane file") > end, "the lane pointer was written inside the vendored core"
+    assert text.index("CPP integration: lanes and readers") > end, "the lane pointer is inside the vendored core"
     pointer = normalized(text[end:])
     assert "Section C answers EVERY listed lane" in pointer
     for answer in ANSWERS:
@@ -116,7 +116,7 @@ def test_the_plan_gate_pointer_sits_outside_the_vendored_core() -> None:
 QUESTION_OMITTED = "each listed lane that the plan's 'Lanes for this change' table in this diff does not answer"
 QUESTION_NO_TABLE = "with no such table, say so once (no defect for Tier 1 or a standalone review)"
 QUESTION_UNTESTED = "each lane the plan marks 'will test' that no test in the diff exercises"
-QUESTION_SILENT = "With no LANE LIST, do not raise lanes."
+QUESTION_SILENT = "With no LANE LIST, skip (1) and (2)."
 
 
 def review_prompt(text: str) -> str:

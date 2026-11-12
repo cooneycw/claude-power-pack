@@ -175,6 +175,13 @@ plan answers every listed lane before the work starts and the closing report
 shows the same rows with results; the four answers and the format are in
 [the lanes reference](lanes.md). A project with no lane file is asked nothing.
 
+**Say who reads what you changed.** When the change alters an output another
+part reads - a response shape, a file format, a status line, an exit code - the
+plan names each reader and says whether a test feeds it the writer's REAL
+output. A hand-written copy of the other side is not evidence that the pair
+works. The answers, and where the rows go, are in
+[the readers reference](changed-output-readers.md).
+
 **Say which claims are machine-checked.** "lint and tests pass" is evidence about
 checks. Whether the intended behaviour arrived is a judgement, by an agent or a
 person, and the report should not let the first stand in for the second.
