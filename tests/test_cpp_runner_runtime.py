@@ -34,7 +34,7 @@ def test_actual_finish_preserves_dual_native_runtime_policy(
     # carries only 3.11. So it runs on developer hosts only - which is exactly
     # where it used to be destructive. That is a known gap, stated on purpose:
     # the test is about a dual-runtime policy the CI image does not have.
-    from tests.conftest import uv_child_env, venv_fingerprint
+    from tests.conftest import find_python, uv_child_env, venv_fingerprint
 
     surrounding = venv_fingerprint(ROOT / ".venv")
     # Every case runs with the inherited environment aimed at this checkout:
@@ -49,16 +49,7 @@ def test_actual_finish_preserves_dual_native_runtime_policy(
     env.update(UV_PYTHON_DOWNLOADS="never", UV_OFFLINE="1", UV_CACHE_DIR=str(tmp_path / "cache"), CPP_OFFLINE="1")
     interpreters = {}
     for minor in ("3.11", "3.12"):
-        probe = subprocess.run(
-            ["uv", "python", "find", "--no-python-downloads", minor],
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        if probe.returncode:
-            pytest.skip(f"native Python {minor} unavailable; discovery forbids downloads")
-        path = Path(probe.stdout.strip())
+        path = find_python("uv", env, minor)
         version = subprocess.check_output([str(path), "-c", "import sys;print(sys.version_info[:3])"], text=True)
         assert version.startswith("(" + minor.replace(".", ", ") + ","), (path, version)
         interpreters[minor] = path

@@ -24,6 +24,7 @@ import pytest
 
 from tests.conftest import (
     build_owned_cpp_checkout,
+    find_python,
     find_python_311,
     uv_child_env,
     venv_fingerprint,
@@ -245,3 +246,13 @@ def test_no_interpreter_is_the_one_answer_that_skips(tmp_path: Path) -> None:
     fake.chmod(0o755)
     with pytest.raises(pytest.skip.Exception):
         find_python_311(str(fake), uv_child_env())
+
+
+@pytest.mark.parametrize("minor", ["3.11", "3.12"])
+def test_a_probe_that_fails_for_another_reason_is_an_error_for_any_version(tmp_path: Path, minor: str) -> None:
+    """The dual-runtime test asks for 3.11 and 3.12 through the same probe."""
+    fake = tmp_path / "uv"
+    fake.write_text("#!/bin/sh\necho 'error: failed to read configuration: permission denied' >&2\nexit 2\n")
+    fake.chmod(0o755)
+    with pytest.raises(AssertionError, match=f"could not answer whether Python {minor}"):
+        find_python(str(fake), uv_child_env(), minor)

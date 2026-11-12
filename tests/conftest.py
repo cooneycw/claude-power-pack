@@ -660,22 +660,26 @@ def uv_child_env(environ: Mapping[str, str] | None = None) -> dict[str, str]:
     return {key: source[key] for key in _UV_CHILD_INHERITS if key in source}
 
 
-def find_python_311(uv: str, env: Mapping[str, str]) -> Path:
-    """The host's Python 3.11, or a skip when uv says it has none. Any OTHER
-    failure of the question (a configuration uv cannot read, a crash) is an
-    error: read as "no interpreter" it would turn the tests off."""
+def find_python(uv: str, env: Mapping[str, str], minor: str) -> Path:
+    """The host's Python `minor`, or a skip when uv says it has none. Any
+    OTHER failure of the question (a configuration uv cannot read, a crash) is
+    an error: read as "no interpreter" it would turn the tests off."""
     import subprocess
 
     probe = subprocess.run(
-        [uv, "python", "find", "3.11", "--no-python-downloads"],
+        [uv, "python", "find", minor, "--no-python-downloads"],
         env=dict(env), capture_output=True, text=True, timeout=60, check=False,
     )
     if probe.returncode != 0 and "No interpreter found" in probe.stderr:
-        pytest.skip("requires a Python 3.11 interpreter to build an owned CPP environment")
+        pytest.skip(f"requires a Python {minor} interpreter; discovery forbids downloads")
     assert probe.returncode == 0, (
-        f"uv could not answer whether Python 3.11 is installed (exit {probe.returncode}): "
+        f"uv could not answer whether Python {minor} is installed (exit {probe.returncode}): "
         f"{probe.stderr.strip()[-400:]}")
     return Path(probe.stdout.strip())
+
+
+def find_python_311(uv: str, env: Mapping[str, str]) -> Path:
+    return find_python(uv, env, "3.11")
 
 
 def build_owned_cpp_checkout(root: Path, dest: Path) -> Path:
