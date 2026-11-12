@@ -686,7 +686,7 @@ class Census:
 
 
 def instrument_census(root: Path) -> Census:
-    """ADR 0008's census: how many rows, which subjects, how many external.
+    """The instrument census (`controls/census.md`): how many rows, which subjects, how many external.
 
     WHICH DOCUMENT is the census is asked of the census rule's `resolve_adr`
     (issue #1264), so a repository that files the decision elsewhere - kyle's

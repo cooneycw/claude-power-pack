@@ -26,7 +26,7 @@ Makefile carries:
 and the declaration is then CHECKED against the real prerequisite graph, in
 both directions. A target declared `gate` that `verify` does not reach is a
 red, and so is a `verify` prerequisite declared anything else. That is the
-failure mode ADR 0008's own census row 40 names for `make verify` - "a sub-gate
+failure mode the census's own row 40 (`controls/census.md`) names for `make verify` - "a sub-gate
 silently dropped from the list, which no member row can see" - and it is the
 one thing a member row cannot self-report.
 
