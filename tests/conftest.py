@@ -686,6 +686,25 @@ def skip_in_partial_clone(root: Path) -> None:
         pytest.skip(PARTIAL_CLONE_SKIP_REASON)
 
 
+# CI's `validate` step runs the suite as ROOT (uid 0): the step's image sets no
+# user and `.woodpecker.yml` names none, so `tmp_path` there is under
+# `/tmp/pytest-of-root/` (first recorded in pipeline 2248; issue #1718, row 11).
+#
+# What follows from it. Root reads, writes and traverses a path whatever its
+# mode, so a fixture that LOWERS A MODE (chmod 000, 0o555, 0o400) to build an
+# unreadable, unwritable or untraversable path builds nothing there: the path
+# stays usable and the code under test never meets the condition. Such a
+# fixture must either skip under root, or assert its precondition (try the
+# access it meant to forbid) before exercising the code - and a test that skips
+# for this reason does NOT run in CI at all, only on a developer host.
+#
+# This is a DECLARATION, not a predicate: tests keep their own root handling.
+# `tests/test_ci_runs_as_root_declared.py` compares it with the real uid when
+# the suite runs in CI, so a change of CI user reds that test instead of
+# silently changing which fixtures skip.
+CI_RUNS_AS_ROOT = True
+
+
 # What a child that runs uv on a project of the test's own may INHERIT. Built
 # from nothing, by name: stripping the uv settings one knows about leaves the
 # ones one does not, and uv reads more than fifty.

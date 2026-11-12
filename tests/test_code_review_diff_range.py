@@ -399,6 +399,23 @@ def _step2_block() -> str:
 
 requires_git = pytest.mark.skipif(shutil.which("git") is None, reason="requires git")
 
+# A SUCCESSFUL run of the block disarms its own cleanup trap and leaves
+# $DIFF_FILE in /tmp for the later blocks, which these tests never run. Three
+# tests here used to leave that file behind on every run, in the directory
+# tests/test_code_review_diff_file_cleanup.py was comparing before and after
+# (issue #1718, row 2). Each now reports the path and removes it.
+_REPORT_DIFF_FILE = '\necho "DIFF_FILE_PATH=$DIFF_FILE"\n'
+
+
+def _remove_reported_diff_file(stdout: str) -> Path:
+    """Remove the diff temp file a successful block run reported; returns its path."""
+    reported = re.search(r"^DIFF_FILE_PATH=(\S+)$", stdout, re.M)
+    assert reported, f"DIFF_FILE path not found in output:\n{stdout}"
+    path = Path(reported.group(1))
+    assert path.name.startswith("codex-review-diff-patch."), f"not the block's temp file: {path}"
+    path.unlink(missing_ok=True)
+    return path
+
 
 def _git(*args: str, cwd: Path, env_extra: dict[str, str] | None = None) -> str:
     env = {"PATH": ISOLATED_PATH,  # negative-fixture: allow PATH is isolation, not an absence
@@ -492,6 +509,7 @@ def test_step2_from_a_subdirectory_still_sees_a_sibling_new_file(tmp_path: Path)
     diff_file = re.search(r"^DIFF_FILE_PATH=(\S+)$", proc.stdout, re.M)
     assert diff_file, f"DIFF_FILE path not found in output:\n{proc.stdout}"
     diff_content = Path(diff_file.group(1)).read_text()
+    _remove_reported_diff_file(proc.stdout)
     assert "sibling_new.py" in diff_content, (
         "the sibling new file is still missing from the diff when run from a subdirectory"
     )
@@ -583,11 +601,13 @@ def test_the_failure_guard_actually_guards_something(tmp_path: Path) -> None:
                     "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x",
                     "BASE": "HEAD"}
         proc = subprocess.run(
-            ["bash", "-c", swallowed_block],
+            ["bash", "-c", swallowed_block + _REPORT_DIFF_FILE],
             cwd=work, env=full_env, capture_output=True, text=True,
         )
     finally:
         (work / ".git" / "index.lock").unlink(missing_ok=True)
+    # The swallowed form runs to the end, so the block kept its diff file.
+    _remove_reported_diff_file(proc.stdout)
 
     assert proc.returncode != 3, (
         "the swallowed form must NOT exit 3 - if it does, this test's "
@@ -658,7 +678,9 @@ def test_the_prefix_enumeration_reads_a_failed_listing_as_zero(tmp_path: Path) -
     )
     assert fixed, "Step 2 no longer enumerates through a checked temp file"
     prefix_block = block[: fixed.start()] + _PREFIX_ENUMERATION + block[fixed.end():]
-    proc = subprocess.run(["bash", "-c", prefix_block], cwd=work, env=env, capture_output=True, text=True)
+    proc = subprocess.run(["bash", "-c", prefix_block + _REPORT_DIFF_FILE], cwd=work, env=env,
+                          capture_output=True, text=True)
+    _remove_reported_diff_file(proc.stdout)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "Untracked files included in this diff: 0" in proc.stdout, proc.stdout
 

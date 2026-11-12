@@ -34,6 +34,10 @@ from tests.test_cicd_verify_invocation import CPP_VERIFY, LEGACY_VERIFY, VERIFY_
 ROOT = Path(__file__).resolve().parents[1]
 AUTO_MD = ROOT / ".claude" / "commands" / "flow" / "auto.md"
 
+# uv and bash are checked here. The documented command also pins Python 3.11
+# with downloads off; that prerequisite is carried by the `owned_cpp_checkout`
+# fixture, which skips with a reason naming the interpreter where it is absent
+# and errors on any other probe failure (issue #1718, rows 13 and 4).
 requires_uv = pytest.mark.skipif(
     shutil.which("uv") is None or shutil.which("bash") is None,
     reason="requires uv and bash on PATH",

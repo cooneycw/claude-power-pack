@@ -111,7 +111,6 @@ Before deploying, snapshot the currently-running system so the post-deploy run
 `health.deploy_verification.enabled` is set in `.claude/cicd.yml`.
 
 ```bash
-# Locate CPP source for lib/cicd
 CPP_DIR=""
 for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
   if [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ]; then
@@ -122,14 +121,10 @@ done
 
 if [ -n "$CPP_DIR" ] && grep -q "deploy_verification:" .claude/cicd.yml 2>/dev/null; then
     if command -v uv >/dev/null 2>&1; then
-        echo "Capturing pre-deploy baseline..."
-        # Invoke through uv, and point PYTHONPATH at CPP_DIR (the PARENT of
-        # lib/) - bare `python3 -m lib.cicd` with PYTHONPATH inside lib/ cannot
-        # resolve the package and has no pydantic (issue #595, same contract as
-        # the Step-6 quality-gate runner).
+        # uv, with PYTHONPATH at the PARENT of lib/ (issue #595).
         PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify --baseline --summary
     else
-        echo "NOTE: deploy verification configured but 'uv' is not installed; skipping baseline capture." >&2
+        echo "NOTE: no uv; baseline capture skipped." >&2
     fi
 fi
 ```
@@ -165,15 +160,21 @@ fi
 
 **Fallback path** (the runner did not run):
 
-Run security scan before deploying:
+The security scan must PASS first (#1760):
 
 ```bash
-PYTHONPATH="${HOME}/Projects/claude-power-pack" uv run --project "${HOME}/Projects/claude-power-pack" python -m lib.security gate flow_deploy
+CPP_DIR=""
+for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
+  [ -f "$dir/lib/security/__init__.py" ] && { CPP_DIR="$dir"; break; }
+done
+[ -n "$CPP_DIR" ] || { echo "STOP: no scanner in ~/Projects/claude-power-pack, /opt/claude-power-pack, ~/.claude-power-pack" >&2; exit 1; }
+GATE_OUT=$(PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.security gate flow_deploy 2>&1); GATE_EXIT=$?
+printf '%s\n' "$GATE_OUT"
+[ "$GATE_EXIT" -eq 0 ] && grep -q '^SECURITY_GATE: flow_deploy PASS' <<<"$GATE_OUT" || { echo "STOP: scan did not pass (exit $GATE_EXIT)" >&2; exit 1; }
 ```
 
-- If the gate **fails** (critical or high findings): **stop and report**. Show findings.
-- If the gate produces **warnings** (medium findings): display them but proceed.
-- If `lib/security` is not available, skip this step.
+- `STOP`: **stop and report** why. Never skip the scan.
+- **Warnings** (medium findings): display them but proceed.
 
 ### Step 5: Run Deploy (fallback only - runner includes this)
 
@@ -229,7 +230,6 @@ After a successful deployment, automatically run health checks and smoke tests i
 **Condition:** Only run if `.claude/cicd.yml` exists AND contains `health.post_deploy: true`.
 
 ```bash
-# Locate CPP source for lib/cicd
 CPP_DIR=""
 for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
   if [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ]; then

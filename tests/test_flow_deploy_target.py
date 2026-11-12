@@ -47,7 +47,11 @@ case "$*" in
     echo runner >> "$STUB_CALLS"
     [ -n "${STUB_RUNNER_FAILS:-}" ] && exit 5   # a plan step failed before `make deploy`
     exec make deploy ;;
-  *"lib.security gate flow_deploy"*) echo gate >> "$STUB_CALLS"; exit "${STUB_GATE_EXIT:-0}" ;;
+  *"lib.security gate flow_deploy"*)
+    echo gate >> "$STUB_CALLS"
+    # The real gate prints ONE verdict line on every path (lib/security/cli.py).
+    [ -n "${STUB_GATE_VERDICT:-}" ] && echo "SECURITY_GATE: flow_deploy $STUB_GATE_VERDICT (stub)"
+    exit "${STUB_GATE_EXIT:-0}" ;;
   *) echo "unexpected uv call: $*" >&2; exit 97 ;;
 esac
 """
@@ -92,9 +96,29 @@ def _script() -> str:
     )
 
 
+#: Where a CPP checkout can live; the documents look in exactly these.
+CPP_HOME_LOCATIONS = ("Projects/claude-power-pack", ".claude-power-pack")
+#: The document's list of places, and the same list with `/opt` pointed at a
+#: directory the fixture owns, so a real `/opt/claude-power-pack` on the host
+#: cannot answer for the fixture (counter-model review, #1760).
+LOOP = "for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do"
+FIXTURE_LOOP = 'for dir in ~/Projects/claude-power-pack "$FIXTURE_OPT" ~/.claude-power-pack; do'
+OPT = "opt"  # `cpp_at=OPT` puts the checkout at the fixture-owned /opt stand-in
+
+
 def _run(
-    tmp_path: Path, *, runner_found: bool, target: str | None, gate_exit: int = 0, runner_fails: bool = False
+    tmp_path: Path,
+    *,
+    runner_found: bool,
+    target: str | None,
+    gate_exit: int = 0,
+    runner_fails: bool = False,
+    gate_verdict: str | None = "auto",
+    cpp_at: str = CPP_HOME_LOCATIONS[0],
 ) -> dict[str, list[str]]:
+    """`runner_found` means a CPP checkout exists (at `cpp_at`, under HOME).
+    `gate_verdict`: "auto" prints PASS for exit 0 and FAIL otherwise, as the
+    real gate does; None prints no verdict line at all."""
     project = tmp_path / "project"
     home = tmp_path / "home"
     bin_dir = tmp_path / "bin"
@@ -102,10 +126,17 @@ def _run(
         directory.mkdir()
     subprocess.run(["git", "init", "-q", str(project)], check=True)
     (project / "Makefile").write_text(MAKEFILE, encoding="utf-8")
+    fixture_opt = tmp_path / "fixture-opt" / "claude-power-pack"
+    if not runner_found:
+        for place in (home / CPP_HOME_LOCATIONS[0], fixture_opt, home / CPP_HOME_LOCATIONS[1]):
+            assert not place.exists(), "negative-fixture precondition: no checkout at any place the blocks look"
     if runner_found:
-        cpp = home / "Projects" / "claude-power-pack"
-        cpp.mkdir(parents=True)
+        cpp = fixture_opt if cpp_at == OPT else home / cpp_at
+        (cpp / "lib" / "security").mkdir(parents=True)
         (cpp / "CLAUDE.md").write_text("stub checkout\n", encoding="utf-8")
+        (cpp / "lib" / "security" / "__init__.py").write_text("", encoding="utf-8")
+    if gate_verdict == "auto":
+        gate_verdict = "PASS" if gate_exit == 0 else "FAIL"
     stub = bin_dir / "uv"
     stub.write_text(UV_STUB, encoding="utf-8")
     stub.chmod(0o755)
@@ -114,24 +145,33 @@ def _run(
     env = {
         **os.environ,
         "HOME": str(home),
+        "FIXTURE_OPT": str(fixture_opt),
         "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
         "STUB_LOG": str(tmp_path / "uv.log"),
         "STUB_CALLS": str(calls),
         "STUB_GATE_EXIT": str(gate_exit),
+        "STUB_GATE_VERDICT": gate_verdict or "",
         "STUB_RUNNER_FAILS": "1" if runner_fails else "",
     }
-    args = ["bash", "-c", _script(), "flow-deploy"] + ([target] if target else [])
+    args = ["bash", "-c", _script().replace(LOOP, FIXTURE_LOOP), "flow-deploy"] + ([target] if target else [])
     ran = subprocess.run(args, cwd=project, env=env, capture_output=True, text=True, check=False)
     log = project / ".claude" / "deploy.log"
     markers = sorted(path.name for path in project.glob("marker-*"))
+    uv_log = tmp_path / "uv.log"
+    extra = {
+        "stderr": [ran.stderr],
+        "returncode": [str(ran.returncode)],
+        "uv": uv_log.read_text(encoding="utf-8").splitlines() if uv_log.is_file() else [],
+    }
     if not log.is_file():
-        return {"markers": markers, "calls": calls.read_text(encoding="utf-8").split(), "logged": []}
+        return {"markers": markers, "calls": calls.read_text(encoding="utf-8").split(), "logged": [], **extra}
     assert ran.returncode == 0, ran.stdout + ran.stderr
     fields = [field.strip() for field in log.read_text(encoding="utf-8").strip().splitlines()[-1].split("|")]
     return {
         "markers": markers,
         "calls": calls.read_text(encoding="utf-8").split(),
         "logged": [fields[1], fields[4]],  # the target named in the log line, and its status
+        **extra,
     }
 
 
@@ -143,12 +183,23 @@ def test_row_1_the_default_target_with_the_runner_found_takes_the_runner(tmp_pat
     assert result["logged"] == ["deploy", "0"]
 
 
-@pytest.mark.parametrize("target", [None, "deploy"])
-def test_row_2_the_default_target_with_no_runner_takes_the_gate_then_make(tmp_path: Path, target: str | None) -> None:
+@pytest.mark.parametrize("target", [None, "deploy", "deploy-other"])
+def test_rows_2_and_4_with_no_checkout_the_scan_cannot_run_so_nothing_is_deployed(
+    tmp_path: Path, target: str | None
+) -> None:
+    """Issue #1760. These rows used to read "takes the gate then make": the
+    scan command named one location and the next line said to skip it when
+    unavailable, so with no checkout the deploy went out unscanned. (The stub
+    `uv` answered for any path, which is how the old rows passed.)"""
     result = _run(tmp_path, runner_found=False, target=target)
-    assert result["calls"] == ["gate"]
-    assert result["markers"] == ["marker-deploy"]
-    assert result["logged"] == ["deploy", "0"]
+    assert result["calls"] == [], "no scanner exists, so nothing may be called"
+    assert result["markers"] == [], "a target ran with no security scan"
+    assert result["logged"] == []
+    assert result["returncode"] != ["0"]
+    stop = result["stderr"][0]
+    assert stop.startswith("STOP: no scanner in "), stop
+    for location in ("~/Projects/claude-power-pack", "/opt/claude-power-pack", "~/.claude-power-pack"):
+        assert location in stop, f"the stop message does not name {location}"
 
 
 def test_row_3_another_target_with_the_runner_found_runs_that_target_and_not_deploy(tmp_path: Path) -> None:
@@ -160,17 +211,60 @@ def test_row_3_another_target_with_the_runner_found_runs_that_target_and_not_dep
     assert result["logged"] == ["deploy-other", "0"]
 
 
-def test_row_4_another_target_with_no_runner_is_unchanged(tmp_path: Path) -> None:
-    result = _run(tmp_path, runner_found=False, target="deploy-other")
+@pytest.mark.parametrize("elsewhere", [CPP_HOME_LOCATIONS[1], OPT])
+def test_the_scan_runs_from_wherever_the_checkout_is(tmp_path: Path, elsewhere: str) -> None:
+    """Issue #1760: a checkout at another known location. The scan command
+    named `${HOME}/Projects/claude-power-pack` whatever was found."""
+    result = _run(tmp_path, runner_found=True, target="deploy-other", cpp_at=elsewhere)
     assert result["calls"] == ["gate"]
+    gate_call = next(line for line in result["uv"] if "lib.security gate flow_deploy" in line)
+    where = "fixture-opt/claude-power-pack" if elsewhere == OPT else elsewhere
+    assert f"/{where} " in gate_call + " ", gate_call
+    assert "Projects/claude-power-pack" not in gate_call
     assert result["markers"] == ["marker-deploy-other"]
-    assert result["logged"] == ["deploy-other", "0"]
 
 
-@pytest.mark.parametrize("runner_found", [True, False])
-def test_a_failing_non_default_target_is_logged_with_its_own_status(tmp_path: Path, runner_found: bool) -> None:
+@pytest.mark.parametrize(
+    ("gate_exit", "gate_verdict"),
+    [
+        (0, None),         # exit 0 and no verdict line: something else answered
+        (0, "FAIL"),       # a verdict line that is not PASS
+        (2, "UNKNOWN"),    # the gate's own "could not decide"
+        (2, None),         # uv could not start it at all
+    ],
+)
+def test_only_exit_0_WITH_the_pass_line_lets_a_deploy_through(
+    tmp_path: Path, gate_exit: int, gate_verdict: str | None
+) -> None:
+    """Exit 2 is both the gate's UNKNOWN and uv's "no such project", so the
+    exit code alone cannot say the scan passed (issue #1760)."""
+    result = _run(tmp_path, runner_found=True, target="deploy-other", gate_exit=gate_exit, gate_verdict=gate_verdict)
+    assert result["calls"] == ["gate"]
+    assert result["markers"] == [], "a target ran without a passing scan"
+    assert result["logged"] == []
+    assert "STOP: scan did not pass" in result["stderr"][0]
+
+
+def test_both_blocks_look_in_the_three_known_places_and_the_harness_owns_opt() -> None:
+    """The `/opt` isolation in `_run` only works while both blocks spell their
+    search this way; a changed loop shows here, not as a real
+    `/opt/claude-power-pack` on the host answering for the fixture."""
+    assert _script().count(LOOP) == 2, "the runner block and the scan block each look in the three places"
+    assert LOOP not in _script().replace(LOOP, FIXTURE_LOOP)
+
+
+def test_the_document_no_longer_tells_the_reader_to_skip_the_scan() -> None:
+    text = DOCUMENT.read_text(encoding="utf-8")
+    fallback = text[text.index("**Fallback path**") : text.index("### Step 5:")]
+    assert "skip this step" not in fallback.lower()
+    assert "${HOME}/Projects/claude-power-pack" not in fallback
+    assert "Never skip the scan" in fallback
+
+
+@pytest.mark.parametrize("cpp_at", CPP_HOME_LOCATIONS)
+def test_a_failing_non_default_target_is_logged_with_its_own_status(tmp_path: Path, cpp_at: str) -> None:
     """make exits 2 for a failed recipe; the log must carry that, for the target that ran."""
-    result = _run(tmp_path, runner_found=runner_found, target="deploy-broken")
+    result = _run(tmp_path, runner_found=True, target="deploy-broken", cpp_at=cpp_at)
     assert result["markers"] == ["marker-deploy-broken"]
     assert result["logged"] == ["deploy-broken", "2"]
 
@@ -188,11 +282,9 @@ def test_the_real_deploy_plan_still_ends_in_make_deploy() -> None:
 # The first version of `_script()` sent every outcome on to Step 6, so nothing
 # here showed that a refused gate or a failed runner deploys nothing.
 
-@pytest.mark.parametrize(("runner_found", "target"), [(True, "deploy-other"), (False, "deploy-other"), (False, None)])
-def test_a_failed_security_gate_deploys_nothing_and_logs_nothing(
-    tmp_path: Path, runner_found: bool, target: str | None
-) -> None:
-    result = _run(tmp_path, runner_found=runner_found, target=target, gate_exit=1)
+@pytest.mark.parametrize("cpp_at", CPP_HOME_LOCATIONS)
+def test_a_failed_security_gate_deploys_nothing_and_logs_nothing(tmp_path: Path, cpp_at: str) -> None:
+    result = _run(tmp_path, runner_found=True, target="deploy-other", gate_exit=1, cpp_at=cpp_at)
     assert result["calls"] == ["gate"]
     assert result["markers"] == [], "a target ran after the security gate refused"
     assert result["logged"] == [], "a deployment was logged after the security gate refused"
