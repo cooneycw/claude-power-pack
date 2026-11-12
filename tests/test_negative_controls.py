@@ -3035,6 +3035,10 @@ def test_the_real_historical_anchors_are_byte_verified_against_git_history() -> 
     MISMATCH under this check (see its comment) - a synthetic, constructed
     or vendored anchor's placeholder `sha` never resolves either way.
     """
+    # In CI's partial clone every read below is a network fetch (issue #1718).
+    from tests.conftest import skip_in_partial_clone
+
+    skip_in_partial_clone(ROOT)
     harness = _load_harness_module()
     for control in _HISTORICAL_ANCHOR_CONTROLS:
         manifest_path = ROOT / "controls" / control / "control.json"
