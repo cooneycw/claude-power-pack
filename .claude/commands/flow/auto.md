@@ -807,8 +807,8 @@ instead.
    Receipt: docs/measurements/counter-model/<file>.json
    ```
 
-2. **Quality gates** - ONE audited helper, `scripts/flow-finish-gate.sh`
-   (issue #613), owns the runner invocation and its Makefile fallback. Invoke
+2. **Quality gates** - ONE audited helper, `scripts/flow-finish-gate.sh`,
+   owns the runner invocation and its Makefile fallback. Invoke
    it BARE:
 
    ```bash
@@ -818,12 +818,13 @@ instead.
    (Exit 127: fall back to `${CLAUDE_PLUGIN_ROOT}/scripts/flow-finish-gate.sh`
    (#590), else the CPP-checkout copy; tell the user to run **`/flow:repair`**.)
 
-   If the project's gate needs the pushed head, `git push` the branch first
-   (it opens no PR), then gate (#1706).
+   If the project's gate needs the pushed head (it refuses an unpushed commit),
+   commit and `git push -u origin "$BRANCH"` first, then gate; same at Step 7
+   (#1706).
 
    **A run with no `FLOW_FINISH_GATE:` verdict line did not run the gate: **STOP**
    (issue #1547).** The trigger is the verdict LINE, never the exit code: 127,
-   126, 2, only the `FLOW_FINISH_GATE_EXIT=`
+   126 (an unset `CPP_SKILL_DIR`), 2, only the `FLOW_FINISH_GATE_EXIT=`
    trailer, or nothing at all, gave no verdict. Work the fallback chain; if no
    copy prints a verdict line, STOP and report that the gate did not run. It is
    NOT `skipped`, and the run never commits, pushes or merges on it.
@@ -849,8 +850,7 @@ instead.
      a repository with no `verify:` target (issue #1147); it does not stop the
      flow. In a repo that DOES have one, check the Makefile.
 
-   **Ignored-additions guard** (issue #430; blocking in a worktree since
-   #1258). Invoke bare (on exit 127 skip it):
+   **Ignored-additions guard** (issue #430). Invoke bare (on exit 127 skip it):
    ```bash
    ~/.claude/scripts/check-ignored-additions.sh
    ```
@@ -859,7 +859,7 @@ instead.
    Only if you are sure nothing reads the file at run time, re-run with
    `--advisory`.
 
-   **Worktree-leak guard** (issue #486; blocking since #576). Invoke bare with
+   **Worktree-leak guard** (issue #486). Invoke bare with
    `--strict`, and handle the `FLOW_WORKTREE_GUARD:` verdict exactly as in
    Step 4 (issue #1014): exit 3 stops - do not commit, and first read
    `git -C <main> diff -- <path>` to confirm the edit is YOURS before moving or

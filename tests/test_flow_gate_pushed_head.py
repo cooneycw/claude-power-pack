@@ -24,9 +24,11 @@ REPO = Path(__file__).resolve().parent.parent
 COMMANDS = REPO / ".claude" / "commands" / "flow"
 
 SENTENCE = (
-    "If the project's gate needs the pushed head, `git push` the branch first (it opens no PR), then gate (#1706)."
+    "If the project's gate needs the pushed head (it refuses an unpushed commit), "
+    'commit and `git push -u origin "$BRANCH"` first, then gate'
 )
 GATE_CALL = "~/.claude/scripts/flow-finish-gate.sh\n"
+PUSH_STEP = 'git push -u origin "$BRANCH"\n'  # the push STEP's own command line, not the sentence
 NO_VERDICT_STOP = "A run with no `FLOW_FINISH_GATE:` verdict line did not run the gate"
 
 
@@ -47,7 +49,7 @@ def test_the_sentence_sits_in_the_gate_step_before_the_first_push(name: str) -> 
     sentence_at = text.index("needs the pushed head")
     gate_at = text.index(GATE_CALL)
     stop_at = text.index(NO_VERDICT_STOP)
-    push_at = text.index("git push -u origin")
+    push_at = text.index(PUSH_STEP)
     assert gate_at < sentence_at < stop_at, f"flow/{name}: the sentence is outside the gate step"
     assert sentence_at < push_at, f"flow/{name}: the sentence comes after the push it is about"
 
@@ -56,7 +58,7 @@ def test_the_sentence_sits_in_the_gate_step_before_the_first_push(name: str) -> 
 def test_the_default_order_is_still_gate_then_push(name: str) -> None:
     """#1706 documents an exception. It must not have reordered the default."""
     text = (COMMANDS / name).read_text(encoding="utf-8")
-    assert text.index(GATE_CALL) < text.index("git push -u origin"), f"flow/{name}: the push now precedes the gate"
+    assert text.index(GATE_CALL) < text.index(PUSH_STEP), f"flow/{name}: the push now precedes the gate"
 
 
 def test_the_rationale_says_why_the_order_stays() -> None:
@@ -69,6 +71,7 @@ def test_the_trimmed_text_is_recorded() -> None:
     text = normalized((REPO / "docs" / "commands-reference.md").read_text(encoding="utf-8"))
     assert "Text moved out of `/flow:auto` and `/flow:finish` (#1706)" in text
     assert "used to share exit 0" in text
+    assert "blocking in a worktree since #1258" in text
     assert "(`make lint`, `make test`, `make typecheck`, `make verify`)" in text
 
 
@@ -86,4 +89,4 @@ def test_the_generated_codex_skill_carries_the_sentence(tmp_path: Path, skill: s
     files = [out / skill / name for name in ("SKILL.md", "reference.md") if (out / skill / name).is_file()]
     assert files, f"the build produced no {skill} skill - this test read nothing"
     text = normalized("".join(f.read_text(encoding="utf-8") for f in files))
-    assert "needs the pushed head, `git push` the branch first" in text
+    assert SENTENCE in text
