@@ -916,7 +916,8 @@ class DeterministicRunner:
         # verify persists those three as `not-run` with `current_index` at verify,
         # so on resume they sit BEFORE the loop's start and nothing would settle
         # them: a verify that now PASSES would return success over three `not-run`
-        # records, which `flow-finish-gate.sh` refuses (#1152).
+        # records, which `flow-finish-gate.sh` refuses (#1152). The shell is right
+        # on its inputs; it is the runner that must settle the state.
         #
         # NOT SETTLED FROM THE PERSISTED MAP, and this is the whole design
         # decision (orchestrator ratification; #1166's own body prefers the

@@ -44,7 +44,9 @@ _CPP_ROOT = str(Path(__file__).resolve().parents[2])
 #
 # A directory name is not evidence that a test runner runs (#1294, reversing
 # #621/#704): a flow worktree is named for its issue slug, so any issue with
-# "test" in its title would turn typecheck into a test step. Residual, stated:
+# "test" in its title would turn typecheck into a test step (the finish plan's
+# typecheck fallback embeds `_CPP_ROOT`), a local verdict CI at a different path
+# could never see. Residual, stated:
 # a path's FINAL component is still read, since a bare token cannot be told
 # from a program name. Pinned by tests/test_cicd_outcomes.py::TestStepGating.
 _TEST_STEP_HINT = re.compile(
@@ -815,7 +817,7 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
         ),
         # `make verify`, the full pipeline CLAUDE.md names (#1147): a plan that
         # runs only three of verify's prerequisites consumes verify's authority
-        # without running it. A test of an instrument is not a run of it.
+        # without running it (#1145). A test of an instrument is not a run of it.
         #
         # No `uv run` fallback, unlike the three above: `verify` is a Makefile
         # aggregate with no tool equivalent, so a repo without the target has
@@ -1715,7 +1717,8 @@ def get_plan_steps(plan_name: str, project_root: Optional[str] = None) -> list[S
 
     # A MANIFEST THAT EXISTS AND CANNOT BE READ IS A HARD FAILURE (issue #1163).
     # Falling through to BUILTIN_PLANS on an ImportError would SILENTLY
-    # SUBSTITUTE A DIFFERENT PLAN: a quiet change of which checks execute.
+    # SUBSTITUTE A DIFFERENT PLAN: a quiet change of which checks execute. The
+    # branch IS reachable: `python3 -m lib.cicd run` starts on the stdlib alone.
     #
     # So the two cases are separated. No manifest FILE means there is nothing
     # to lose and the built-in plans are the right answer. A manifest that is

@@ -2,8 +2,10 @@
 # flow-finish-gate.sh - Deterministic quality-gate runner invocation for the
 # flow commands (issue #613, the #581 pattern).
 #
-# It exists so the flow commands invoke ONE audited script at a stable path,
-# BARE, instead of a compound runner command line (the #581 pattern).
+# It exists so the flow commands (/flow:auto Step 6 and the Step-7 re-gate,
+# /flow:finish Step 2) invoke ONE audited script at a stable path, BARE: a
+# leading env-var assignment plus an interpolated $CPP_DIR can never match a
+# permission allow-rule PREFIX, so the raw runner line prompts every time (#581).
 #
 # What it does:
 #   Resolves the CPP checkout, checks `uv`, and invokes the runner with the
@@ -13,7 +15,8 @@
 #   is unavailable it degrades to the same Makefile gates the command docs
 #   describe - `make lint`, `make test`, `make typecheck` and, since issue
 #   #1147, `make verify`; with no Makefile gates either, it skips loudly. The
-#   fallback runs every gate the runner's `finish` plan runs (#617, #1147).
+#   fallback runs each gate of the runner's `finish` plan that it can (#617,
+#   #1147); a gate it cannot run is named in FALLBACK_UNRUNNABLE_GATES.
 #
 #: NEGATIVE-CONTROL: controls/flow-finish-gate
 #: NEGATIVE-CONTROL: controls/flow-finish-coordination
@@ -89,7 +92,7 @@
 # A warning is a signal, not a gate: callers proceed on it and report it, which
 # is why `warn` has its own exit code and is not folded into `fail`'s 1. A
 # gate SKIPS only when it genuinely cannot run, and is then named, never a
-# silent ok (#621, #628, #769).
+# silent ok (#628).
 #
 # The #769 opt-in reaches the runner as an environment variable, not a CLI flag,
 # because this helper invokes whatever CPP checkout is installed. That checkout
@@ -419,8 +422,7 @@ fi
 #: An ancestor receipt can therefore describe a review that never saw the code
 #: that merges; no instrument here says so.
 #: A tree signature is the honest tighter thing and is deliberately NOT done
-#: here - it is a separate decision under ADR 0009 oscillation control, and one
-#: contrary datum on the day a rule ships is not grounds to widen it.
+#: here - it is a separate decision under ADR 0009 oscillation control.
 #:
 #: SCOPED TO THE BRANCH SIDE, DELIBERATELY. This runs at Step 6 and Step 7,
 #: where the branch commits are still reachable. DO NOT extend this check to
@@ -590,6 +592,8 @@ cm_enrolment_evaluate() {
     fi
     # A DETACHED HEAD IS NORMAL, NOT UNKNOWN. CI checks out a SHA, so
     # `rev-parse --abbrev-ref HEAD` is literally `HEAD` on every Woodpecker run.
+    # The `controls/flow-finish-gate*` registrations run their cases IN PLACE
+    # inside the checkout, so a regression here shows only in CI, never locally.
     #
     # The branch is a NARROWING, not the match. Ancestry is what establishes that a
     # review belongs to this history; the branch additionally excludes a receipt
@@ -873,6 +877,8 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
     # WHICH IDS ARE GATES IS READ FROM THE JSON, never restated here (#1147,
     # #890): the runner emits the derived set, so there is one declaration
     # (`gate=` on the step) and readers follow it. A hardcoded list here drifts.
+    # The "skipped" array carries every skipped step, gate or not, so it is
+    # filtered to gates below.
     GATE_IDS=$(runner_json_strings gates | tr '\n' ' ' | sed 's/ *$//')
 
     # THE #1155 RECONCILIATION, read beside its sibling and for the same reason
