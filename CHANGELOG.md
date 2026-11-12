@@ -4,6 +4,16 @@
 
 ### Behaviour changes you may notice
 
+- **A defect now says where it came from.** A defect report carries an
+  `Origin:` line - the issue or pull request that delivered the behaviour that
+  broke, `never worked`, or `not traced - <what was tried>` - and the pull
+  request that fixes it adds `Missed because:` with one of seven fixed reasons.
+  The lists are written once, in `docs/agents/closing-report-contract.md`,
+  with the one `gh` search that reads them back. `/github:issue-create` asks
+  for the origin on its bug path, the bug form has an optional Origin field,
+  and `/project:init` now installs a bug form in a new repository (it
+  installed no issue templates before). Nothing checks the answer; `not
+  traced` is allowed and silence is not (#1697).
 - **A project can list its lanes, and plans then say which ones they tested.**
   A lane is a route one behaviour travels: main checkout or linked worktree,
   dev or prod, small fixture or real-size data. With a `.claude/lanes.md`, the

@@ -107,6 +107,67 @@ whose result differs from the plan is explained. The rule is
 claim about the check; "it passed" is a claim about this run. Brevity is never
 bought here.
 
+## A report that closes a defect says where it came from
+
+When the work fixed a defect, Evidence carries two lines, and so does the fix's
+pull request body, because the pull request is what can be searched later:
+
+```
+Origin: <one answer from the first list>
+Missed because: <one answer from the second list>
+```
+
+The spellings are fixed and the answers are a closed list. **This section is the
+only place the lists are written.** The issue contract, `/github:issue-create`
+and the two bug forms point here or are tested equal to it
+(`tests/test_defect_origin.py`), so the copies cannot drift.
+
+<!-- defect-origin-answers -->
+`Origin:` - where the behaviour that broke came from:
+
+- `#<number>` - the issue or pull request that delivered it
+- `never worked` - a combination nobody had exercised, or newly required behaviour. Not a regression
+- `not traced - <what was tried>` - an honest answer. A fix is never held up because its origin cannot be found
+<!-- /defect-origin-answers -->
+
+<!-- defect-missed-answers -->
+`Missed because:` - why the original work's test did not catch it:
+
+- `lane not exercised` - it was tested on one route and broke on another ([lanes](lanes.md))
+- `reader not tested against real output` - one side was tested against a hand-written copy of the other
+- `fixture smaller than real use` - the test data was smaller or simpler than what real use sends
+- `test could not fail` - a test covered it and could not report the other verdict
+- `no test covered it` - nothing exercised that path at all
+- `changed later by another change` - the original work was right when it merged
+- `not a defect in earlier work` - hardening, or a new requirement
+<!-- /defect-missed-answers -->
+
+**Silence is the one answer not allowed.** `not traced` with what was tried is
+fine; a fix that says nothing about its origin is unresolved on this point.
+
+**One defect, one origin.** A second report of the same underlying defect
+points at the first and carries no origin line of its own.
+
+### Reading them back
+
+No tool is needed. GitHub's phrase search is loose - it returns pull requests
+that do not carry the line - so search for candidates and keep the exact lines:
+
+```bash
+gh pr list --state merged --limit 200 --search '"Missed because:" in:body' \
+    --json number,title,body \
+    --jq '.[] | select(.body | test("(?m)^Missed because: ")) | "#\(.number) \([.body | scan("(?m)^(?:Origin|Missed because): .*$")] | join(" | "))"'
+```
+
+A result of exactly 200 pull requests is a truncated list, not a complete one:
+narrow the search by date and run it again. An empty result means no merged pull
+request carries the line yet; it does not show that fixes had no origin.
+
+**What this cannot do.** It records what the session fixing the defect
+concluded. Nothing checks that conclusion except the counter-model review of the
+fix, and an origin that reflects badly on earlier work is the one a session is
+most tempted to leave as `not traced`.
+
 ## Relayed reports
 
 `/codex:auto`, `/qwen:auto` and `/gemma:auto` summarise a run a **fenced model**

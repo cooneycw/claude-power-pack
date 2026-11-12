@@ -179,6 +179,17 @@ shows the same rows with results; the four answers and the format are in
 checks. Whether the intended behaviour arrived is a judgement, by an agent or a
 person, and the report should not let the first stand in for the second.
 
+### A defect says where it came from
+
+A defect report, and the report that closes its fix, each carry an `Origin:`
+line: the issue or pull request that delivered the behaviour that broke,
+`never worked`, or `not traced` with what was tried. The fix adds a
+`Missed because:` line saying why the original work's test did not catch it.
+Both answers come from one closed list, written once in
+[the closing-report contract](closing-report-contract.md#a-report-that-closes-a-defect-says-where-it-came-from).
+This is how a later reader finds the completions that fell short of their test
+without re-reading every fix. Blank is not an answer; `not traced` is.
+
 ### Closing has to agree with the accounting
 
 An issue closes when its promises were kept. If any material item is revised without
