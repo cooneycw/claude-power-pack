@@ -153,9 +153,11 @@ after the verdict word: `PLAN_COMPLIANCE: agreement, LANES NOT DEMONSTRATED
 or that file exists and cannot be read (issue #1767; committed cases in
 `controls/flow-plan-record-lanes-verdict`). The exit code does not change and
 nothing is refused. A project with no lane file, a waived plan, and a plan with
-no `will test` answer get the line exactly as it was. Writing the file is not
-itself a change to the plan: it is left out of the touched files, like the plan
-record beside it.
+no `will test` answer get the line exactly as it was. Where a lane result
+is owed, writing the file is not itself a change to the plan: it is left out of
+the touched files, like the plan record beside it. The file is a table - a
+header row, a `|---|---|` row, then `| <lane> | <what was demonstrated> |` per
+lane - and the stderr note beside the clause says so.
 
 The table itself is not machine-checked for truth. A plan can answer every
 lane `will test` and test none of them. Two readers check that:

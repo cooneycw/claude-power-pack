@@ -729,6 +729,29 @@ BYTE_IDENTICAL = {
 }
 
 
+@pytest.mark.parametrize("word", ["agreement", "divergence"])
+@pytest.mark.parametrize("case", sorted(BYTE_IDENTICAL))
+def test_where_nothing_is_owed_a_file_at_the_demonstrated_path_is_still_a_touched_file(
+        tmp_path: Path, case: str, word: str) -> None:
+    """The exclusion of the demonstrated file applies only where a lane result
+    is owed. Anywhere else the old helper called a file at that path TOUCHED
+    BUT NOT PLANNED, and so does this one: same stdout, same exit code."""
+    lanes, section, _unused = BYTE_IDENTICAL[case]
+    r = make_repo(tmp_path / "wt", lanes=lanes)
+    approved(r, section)
+    (r / SIBLING).write_text(DEMONSTRATED)
+    base = git(r, "rev-parse", "main").strip()
+    if word == "agreement":
+        (r / "src").mkdir()
+        (r / "src" / "app.py").write_text("x = 1\n")
+    new = run(r, "compliance", "42", "--base", base)
+    old = run(r, "compliance", "42", "--base", base, helper=PRE_1767)
+    assert f"TOUCHED BUT NOT PLANNED: {SIBLING}" in old.stdout, "precondition: the old helper counts it"
+    strip = lambda s: re.sub(r"FLOW_PLAN_RECORD_SELF: .*\n", "", s)   # noqa: E731
+    assert strip(new.stdout) == strip(old.stdout)
+    assert (new.returncode, new.stderr) == (old.returncode, old.stderr)
+
+
 @pytest.mark.parametrize("word", WORDS)
 @pytest.mark.parametrize("case", sorted(BYTE_IDENTICAL))
 def test_where_nothing_is_owed_stdout_is_what_it_was_before(tmp_path: Path, case: str, word: str) -> None:
@@ -786,7 +809,8 @@ def test_the_clause_is_the_only_change_and_the_exit_code_does_not_move(repo: Pat
     strip = lambda s: re.sub(r"FLOW_PLAN_RECORD_SELF: .*\n", "", s)   # noqa: E731
     assert strip(new.stdout).replace(", LANES NOT DEMONSTRATED (Checkout, Harness)", "") == strip(old.stdout)
     assert new.returncode == old.returncode
-    assert new.stderr == old.stderr, "the stderr note is worded as before"
+    assert old.stderr.strip().splitlines()[0] in new.stderr, "the note still opens as it did"
+    assert "a header row, a `|---|---|` row, then `| <lane> | <what was demonstrated> |`" in new.stderr
 
 
 def _load_helper():

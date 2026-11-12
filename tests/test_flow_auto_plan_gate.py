@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -50,20 +51,20 @@ def documented_verdicts(passage: str) -> list[str]:
     return re.findall(r"`(PLAN_COMPLIANCE: [a-z]+)`", passage)
 
 
-def documented_clauses(passage: str) -> list[str]:
-    """The clause openings the passage names, as the helper would print them."""
-    bullet = next(line for line in passage.split("\n   - ") if "LANES NOT DEMONSTRATED" in line)
-    found = ["LANES NOT DEMONSTRATED"] if "`, LANES NOT DEMONSTRATED (...)`" in bullet else []
-    if "`NOT CHECKED`" in bullet:
-        found.append("LANES NOT CHECKED")
-    return found
+def documented_clause(passage: str) -> str:
+    """The clause opening the passage tells a run to look for, with its `...`
+    standing for the rest: `, LANES NOT ...` documents `, LANES NOT `."""
+    found = re.findall(r"`(, LANES NOT )\.\.\.`", passage)
+    assert len(found) == 1, passage
+    return found[0]
 
 
-def test_the_passage_names_all_three_words_and_both_clauses() -> None:
+def test_the_passage_names_all_three_words_the_clause_and_where_the_remedy_is() -> None:
     passage = step_seven()
     assert documented_verdicts(passage) == [f"PLAN_COMPLIANCE: {word}" for word in WORDS]
-    assert documented_clauses(passage) == ["LANES NOT DEMONSTRATED", "LANES NOT CHECKED"]
-    assert "docs/flow-runs/issue-42.lanes-demonstrated.md" in passage
+    bullet = next(part for part in passage.split("\n   - ") if "LANES NOT" in part)
+    assert documented_clause(passage) == ", LANES NOT "
+    assert "stderr note" in bullet and "commit" in bullet and "re-run" in bullet
 
 
 @pytest.mark.parametrize("word", WORDS)
@@ -83,28 +84,62 @@ def test_the_real_line_is_read_by_the_passage_as_written(tmp_path: Path, word: s
     prefixes = [prefix for prefix in documented_verdicts(passage) if line.startswith(prefix)]
     assert prefixes == [f"PLAN_COMPLIANCE: {word}"], line
     after_word = line[len(prefixes[0]):]
-    clauses = [clause for clause in documented_clauses(passage) if after_word.startswith(f", {clause} (")]
-    expected = {"no clause": [], "not demonstrated": ["LANES NOT DEMONSTRATED"],
-                "not checked": ["LANES NOT CHECKED"]}[state]
-    assert clauses == expected, line
-    if not expected:
+    kinds = {"no clause": None, "not demonstrated": "DEMONSTRATED (", "not checked": "CHECKED ("}
+    opening = documented_clause(passage)
+    if kinds[state] is None:
         assert "LANES" not in line
+    else:
+        assert after_word.startswith(opening + kinds[state]), line
 
 
-def test_following_the_passage_clears_the_clause(tmp_path: Path) -> None:
-    """The remedy the passage gives - a row per named lane in the named file,
-    then re-run - is what removes the clause."""
+def stderr_note(done: subprocess.CompletedProcess) -> list[str]:
+    return [ln for ln in done.stderr.splitlines() if ln.startswith("flow-plan-record: ")]
+
+
+@pytest.mark.parametrize("start", ["no file", "one row missing"])
+def test_following_the_stderr_note_clears_the_clause(tmp_path: Path, start: str) -> None:
+    """The passage sends a run to the stderr note. Doing exactly what the note
+    says - nothing taken from this test's own knowledge of the format - is
+    what removes the clause."""
     repo = make_repo(tmp_path / "wt")
     approved(repo)
-    line = verdict(compliance_as(repo, "agreement"))
-    named = re.search(r", LANES NOT DEMONSTRATED \((.*?)\)", line)
-    assert named, line
-    rows = "".join(f"| {lane} | shown |\n" for lane in named.group(1).split(", "))
-    path = re.search(r"`(docs/flow-runs/issue-42\.lanes-demonstrated\.md)`", step_seven())
-    assert path
-    (repo / path.group(1)).write_text("| Lane | What happened |\n|---|---|\n" + rows)
-    again = verdict(compliance_as(repo, "agreement"))
-    assert again.startswith("PLAN_COMPLIANCE: agreement - "), again
+    if start == "one row missing":
+        (repo / SIBLING).write_text(DEMONSTRATED.replace("| Harness | tested through a symlink |\n", ""))
+    first = compliance_as(repo, "agreement")
+    assert ", LANES NOT DEMONSTRATED (" in verdict(first)
+    note = "\n".join(stderr_note(first))
+    path = re.search(r"(docs/flow-runs/issue-42\.lanes-demonstrated\.md)", note)
+    assert path and "`| <lane> | <what was demonstrated> |`" in note, note
+    lanes = re.search(r", LANES NOT DEMONSTRATED \((.*?)\)", verdict(first))
+    assert lanes
+    target = repo / path.group(1)
+    if "a header row, a `|---|---|` row" in note:
+        target.write_text("| Lane | What was demonstrated |\n|---|---|\n")
+    else:
+        assert target.exists(), "the note said to add to a table that is not there"
+    with target.open("a") as handle:
+        for lane in lanes.group(1).split(", "):
+            handle.write(f"| {lane} | shown |\n")
+    again = compliance_as(repo, "agreement")
+    assert verdict(again).startswith("PLAN_COMPLIANCE: agreement - "), verdict(again)
+    assert stderr_note(again) == []
+
+
+@pytest.mark.parametrize("what", ["demonstrated file", "lane file"])
+def test_a_not_checked_note_says_to_fix_it_or_report_unchecked(tmp_path: Path, what: str) -> None:
+    """Adding rows repairs nothing here, and the note does not say to."""
+    repo = make_repo(tmp_path / "wt")
+    approved(repo)
+    if what == "demonstrated file":
+        (repo / SIBLING).mkdir()
+    else:
+        (repo / ".claude" / "lanes.md").unlink()
+        (repo / ".claude" / "lanes.md").mkdir()
+    done = compliance_as(repo, "divergence")
+    assert ", LANES NOT CHECKED (" in verdict(done)
+    note = stderr_note(done)
+    assert len(note) == 1 and "Add `|" not in note[0]
+    assert "Fix that and re-run, or report the lanes as NOT CHECKED - never as demonstrated" in note[0]
 
 
 def test_the_codex_mirror_source_is_this_document() -> None:
