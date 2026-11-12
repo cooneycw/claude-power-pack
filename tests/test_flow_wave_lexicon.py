@@ -167,6 +167,58 @@ class TestMalformedTransitionsAreRefused:
         assert _detail(proc, "ERRORS") == "2"
 
 
+@requires_bash
+class TestRulingSpellings:
+    @pytest.mark.parametrize("token", ["RATIFY", "OVERRULE"])
+    @pytest.mark.parametrize("payload", ["", "anything", "#701", "701 the plan stands"])
+    def test_malformed_colon_ruling_is_refused(self, tmp_path: Path, token, payload):
+        body = f"{token}: {payload}"
+        assert not payload.startswith("#701 "), "fixture must lack issue or reason"
+        proc = _validate(tmp_path, body)
+        assert proc.returncode == 1, proc.stdout
+        assert _verdict(proc) == "invalid"
+        assert _detail(proc, "ERRORS") == "1"
+        assert f"line 1: {token}" in proc.stderr
+
+    @pytest.mark.parametrize("token", ["RATIFY", "OVERRULE"])
+    @pytest.mark.parametrize("separator", [" ", ": ", ":"])
+    def test_both_spellings_parse_and_output_round_trips(
+        self, tmp_path: Path, token, separator
+    ):
+        proc = _validate(tmp_path, f"{token}{separator}#701 the plan stands")
+        assert proc.returncode == 0, proc.stderr
+        assert _verdict(proc) == "ok"
+        assert _transitions(proc) == [f"{token}: #701 the plan stands"]
+        replay = _validate(tmp_path, _transitions(proc)[0])
+        assert replay.returncode == 0, replay.stderr
+        assert _transitions(replay) == _transitions(proc)
+
+    @pytest.mark.parametrize("token", ["RATIFY", "OVERRULE"])
+    @pytest.mark.parametrize("context", ["quote", "fence", "indent"])
+    def test_colon_ruling_obeys_citation_rules(self, tmp_path: Path, token, context):
+        ruling = f"{token}: anything"
+        body = {
+            "quote": f"> {ruling}",
+            "fence": f"```\n{ruling}\n```",
+            "indent": f"  {ruling}",
+        }[context]
+        proc = _validate(tmp_path, body)
+        assert _transitions(proc) == []
+        if context == "indent":
+            assert proc.returncode == 1
+            assert "line 1:" in proc.stderr
+        else:
+            assert proc.returncode == 0
+            assert _detail(proc, "CITATIONS") == "1"
+
+    @pytest.mark.parametrize("token", ["RATIFY", "OVERRULE"])
+    def test_colon_ruling_ends_preceding_block(self, tmp_path: Path, token):
+        proc = _validate(tmp_path, f"PUSHBACK\n{token}: #701 the plan stands")
+        assert proc.returncode == 1, proc.stdout
+        assert "PUSHBACK carries no argument" in proc.stderr
+        assert _transitions(proc) == [f"{token}: #701 the plan stands"]
+
+
 # --------------------------------------------------------------------------
 # Absence is not an error - the property that keeps prose prose.
 # --------------------------------------------------------------------------
