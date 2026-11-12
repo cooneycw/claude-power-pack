@@ -141,3 +141,31 @@ def test_the_wizard_does_not_call_the_deny_list_a_boundary() -> None:
     assert "while blocking dangerous commands" not in text
     assert "**A deny rule is not a boundary**" in text
     assert "use sandboxing for enforcement" in text
+
+
+def test_a_profile_installed_before_the_respelling_is_no_longer_recognised(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """A reader of the changed lists: init's own permission observer.
+
+    It names a project's profile by comparing its settings file with the
+    document. A Trusted file written before #1716 carries the two old
+    spellings, so it now reads as unverified: accurate, and the cue to re-run
+    the wizard. Pinned so the consequence is a known one.
+    """
+    from tests.test_cpp_init_profile_summary import CASES as OBSERVER_CASES
+    from tests.test_cpp_init_profile_summary import _observe
+
+    current = next(case for case in OBSERVER_CASES if case["name"] == "trusted")
+    settings = tmp_path / "settings.local.json"
+    settings.write_text(json.dumps(current["settings"]))
+    code, report = _observe(monkeypatch, settings)
+    assert code == 0 and report["verified"] is True  # the precondition: today's profile is recognised
+
+    old = json.loads(json.dumps(current["settings"]))
+    deny = old["permissions"]["deny"]
+    assert "Bash(dd if=*)" in deny and "Bash(mkfs*)" in deny
+    old["permissions"]["deny"] = [
+        {"Bash(dd if=*)": "Bash(dd if=:*)", "Bash(mkfs*)": "Bash(mkfs:*)"}.get(rule, rule) for rule in deny
+    ]
+    settings.write_text(json.dumps(old))
+    code, report = _observe(monkeypatch, settings)
+    assert code == 3 and report["verified"] is False
