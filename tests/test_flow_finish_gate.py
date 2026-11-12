@@ -3660,7 +3660,10 @@ def test_help_prints_all_four_tables_and_no_code() -> None:
 # one whose reviewed head has the fewest commits to HEAD is judged; a filename
 # only breaks a tie at one head.
 
-def _named_receipt(repo: Path, name: str, head: str, status: str = "ran") -> None:
+def _named_receipt(
+    repo: Path, name: str, head: str, status: str = "ran", *,
+    scope: str | None = None, skip_reason: str | None = None,
+) -> None:
     import json
 
     r = {
@@ -3669,6 +3672,10 @@ def _named_receipt(repo: Path, name: str, head: str, status: str = "ran") -> Non
         "head": head, "status": status,
         "reviewer": "codex/gpt-6-astra", "implementer": "claude/claude-opus-5",
     }
+    if scope:
+        r["scope"] = scope
+    if skip_reason:
+        r["skip_reason"] = skip_reason
     (repo / "docs/measurements/counter-model" / name).write_text(json.dumps(r, indent=2))
 
 
@@ -3862,3 +3869,54 @@ def test_two_reviewed_sides_of_a_merge_both_usable_pass(tmp_path: Path) -> None:
     result = _gate(repo)
     assert "receipt: " in _counter_model_line(result)
     assert "fail" not in _verdict(result)
+
+
+def _enrolment_only(repo: Path) -> subprocess.CompletedProcess:
+    env = dict(os.environ)
+    env["FLOW_GATE_CPP_DIR"] = ""
+    env["CM_RECEIPT_HELPER"] = str(ROOT / "scripts" / "counter-model-receipt.py")
+    return subprocess.run(
+        ["bash", str(SCRIPT), "--enrolment-only"], cwd=repo, env=env, capture_output=True, text=True,
+    )
+
+
+@requires_bash
+@requires_git
+@pytest.mark.parametrize("scopeless_first", [True, False])
+def test_enrolment_only_checks_the_scope_of_every_accepted_review(
+    tmp_path: Path, scopeless_first: bool,
+) -> None:
+    """Counter-model review, pass 2: with two reviewed heads at one distance the
+    scope check looked only at the LAST receipt, so a review recorded without a
+    scope passed when the other carried one - and failed with the filenames
+    swapped. Every accepted `ran` receipt is checked, in either order."""
+    repo, main, side = _diamond_repo(tmp_path)
+    first_scope, second_scope = (None, "full") if scopeless_first else ("full", None)
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", main, scope=first_scope)
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", side, scope=second_scope)
+    result = _enrolment_only(repo)
+    assert _verdict(result) == "FLOW_FINISH_GATE: fail (counter-model line receipt-without-scope)"
+    assert result.returncode == 1
+
+
+@requires_bash
+@requires_git
+def test_a_scopeless_review_is_not_excused_by_an_allowed_skip_beside_it(tmp_path: Path) -> None:
+    repo, main, side = _diamond_repo(tmp_path)
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", main)
+    _named_receipt(
+        repo, "2026-01-02T000000Z-issue-1707.json", side, status="skipped", skip_reason="codex-absent",
+    )
+    result = _enrolment_only(repo)
+    assert _verdict(result) == "FLOW_FINISH_GATE: fail (counter-model line receipt-without-scope)"
+
+
+@requires_bash
+@requires_git
+def test_two_scoped_reviews_at_one_distance_pass_enrolment_only(tmp_path: Path) -> None:
+    repo, main, side = _diamond_repo(tmp_path)
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", main, scope="full")
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", side, scope="diff-only")
+    result = _enrolment_only(repo)
+    assert _verdict(result) == "FLOW_FINISH_GATE: ok"
+    assert result.returncode == 0

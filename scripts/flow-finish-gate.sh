@@ -564,6 +564,10 @@ cm_enrolment_evaluate() {
     local cm_undecidable=0 cm_best_distance=0 cm_distance="" cm_uncounted=0
     local cm_sha cm_i cm_same_head
     local -a cm_best_files=() cm_best_heads=()
+    # EVERY `ran` receipt the judgement accepted, not only the last one named on
+    # the line: when two reviewed heads tie on distance both are accepted, and
+    # the enrolment-only scope check below must see both (counter-model review).
+    CM_ENROLMENT_RAN_FILES=()
     # PARTICIPATION IS ESTABLISHED BEFORE GIT IS REQUIRED. Asking git first
     # reports `unknown` - and so RED - for any directory that is not a checkout,
     # which is most of what this gate is pointed at outside a flow run. A
@@ -720,6 +724,7 @@ cm_enrolment_evaluate() {
         fi
         CM_ENROLMENT_STATE=receipt
         CM_ENROLMENT_RECEIPT_FILE="$f"
+        CM_ENROLMENT_RAN_FILES+=("$f")
         CM_ENROLMENT_LINE="receipt: $(basename "$f")$_cm_where"
     done
     if (( ${#cm_best_files[@]} > 0 )); then
@@ -829,12 +834,18 @@ if [[ "$MODE" == "enrolment" ]]; then
     # which a hand-built receipt could backdate. Here the receipt is the PR's own,
     # evaluated whatever date it claims, so the requirement holds at the merge
     # boundary. Delegated receipts carry none by design.
-    if [[ "$CM_ENROLMENT_STATE" == "receipt" && -n "${CM_ENROLMENT_RECEIPT_FILE:-}" ]] \
-            && [[ "$(cm_field "$CM_ENROLMENT_RECEIPT_FILE" direction)" != "delegated" ]] \
-            && [[ -z "$(cm_field "$CM_ENROLMENT_RECEIPT_FILE" scope)" ]]; then
-        echo "flow-finish-gate: receipt $(basename "$CM_ENROLMENT_RECEIPT_FILE") records a review that ran but carries no 'scope' (issue #1461); write it with --scope \"\$CODEX_REVIEW_SCOPE\"." >&2
-        echo "FLOW_FINISH_GATE: fail (counter-model line receipt-without-scope)"
-        gate_exit fail
+    # Every accepted `ran` receipt, whatever the last-judged state was: with two
+    # reviewed heads at one distance, a scope-less review must not pass because
+    # the OTHER receipt carried a scope or was an allowed skip (issue #1707).
+    if [[ "$CM_ENROLMENT_STATE" == "receipt" || "$CM_ENROLMENT_STATE" == "skipped" ]]; then
+        for _cm_ran in ${CM_ENROLMENT_RAN_FILES[@]+"${CM_ENROLMENT_RAN_FILES[@]}"}; do
+            if [[ "$(cm_field "$_cm_ran" direction)" != "delegated" ]] \
+                    && [[ -z "$(cm_field "$_cm_ran" scope)" ]]; then
+                echo "flow-finish-gate: receipt $(basename "$_cm_ran") records a review that ran but carries no 'scope' (issue #1461); write it with --scope \"\$CODEX_REVIEW_SCOPE\"." >&2
+                echo "FLOW_FINISH_GATE: fail (counter-model line receipt-without-scope)"
+                gate_exit fail
+            fi
+        done
     fi
     case "$CM_ENROLMENT_STATE" in
         receipt|skipped)
