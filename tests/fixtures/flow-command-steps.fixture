@@ -1050,7 +1050,7 @@
   },
   {
    "slug": "bash-0175",
-   "needle": "if [ -f .claude/deploy.log ] && awk -F'|' -v sha=\"$HEAD_SHA\" '$2 ~ /deploy/ && $3 ~ (\"^[[:space:]]*\" sha \"[[:space:]]*$\") && $5 ~ /^[[:space:]]*0[[:space:]]*$/ { found = 1 } END { exit !found }' .claude/deploy.log; then",
+   "needle": "if [ -f .claude/deploy.log ] && awk -F'|' -v sha=\"$HEAD_SHA\" '$2 ~ /^[[:space:]]*deploy[[:space:]]*$/ && $3 ~ (\"^[[:space:]]*\" sha \"[[:space:]]*$\") && $5 ~ /^[[:space:]]*0[[:space:]]*$/ { found = 1 } END { exit !found }' .claude/deploy.log; then",
    "kind": "bash-line",
    "count": 1
   },
