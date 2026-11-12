@@ -135,6 +135,32 @@ def test_following_the_stderr_note_clears_the_clause(tmp_path: Path, start: str)
     assert stderr_note(again) == []
 
 
+def test_following_the_note_for_a_lane_named_with_a_pipe(tmp_path: Path) -> None:
+    """A lane file may escape a pipe inside a name. The note prints the name as
+    read and says how to write it in a row; done that way, the clause clears -
+    pasted unescaped, the row has three cells and names a different lane."""
+    from tests.test_flow_plan_record_lanes import FULL_TABLE, LANES, PLAN
+
+    piped = "Checkout \\| linked"
+    repo = make_repo(tmp_path / "wt", lanes=LANES.replace("| Checkout |", f"| {piped} |"))
+    approved(repo, PLAN + FULL_TABLE.replace("| Checkout |", f"| {piped} |"))
+    (repo / SIBLING).write_text("| Lane | What was demonstrated |\n|---|---|\n| Harness | shown |\n")
+    first = compliance_as(repo, "agreement")
+    assert ", LANES NOT DEMONSTRATED (1)" in verdict(first)
+    note = stderr_note(first)
+    assert "A `|` inside a lane name is written `\\|` in its row" in note[0]
+    marker = f"has no row in {SIBLING} - "
+    names = [ln.split(marker, 1)[1] for ln in note if marker in ln]
+    assert names == ["Checkout | linked"]
+    with (repo / SIBLING).open("a") as handle:
+        handle.write(f"| {names[0]} | shown |\n")
+    assert ", LANES NOT DEMONSTRATED (1)" in verdict(compliance_as(repo, "agreement")), (
+        "precondition: pasted unescaped, the row does not name this lane")
+    with (repo / SIBLING).open("a") as handle:
+        handle.write("| " + names[0].replace("|", "\\|") + " | shown |\n")
+    assert verdict(compliance_as(repo, "agreement")).startswith("PLAN_COMPLIANCE: agreement - ")
+
+
 @pytest.mark.parametrize("what", ["demonstrated file", "lane file"])
 def test_a_not_checked_note_says_to_fix_it_or_report_unchecked(tmp_path: Path, what: str) -> None:
     """Adding rows repairs nothing here, and the note does not say to."""

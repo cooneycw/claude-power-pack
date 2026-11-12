@@ -721,8 +721,9 @@ def test_a_lane_file_that_cannot_be_read_at_close_is_not_checked_on_the_line(rep
     _damage_lane_file(repo, "unusable")
     done = compliance_as(repo, "divergence")
     assert verdict(done).startswith("PLAN_COMPLIANCE: divergence, LANES NOT CHECKED - ")
-    assert ".claude/lanes.md is not a regular file, so whether" in done.stderr
-    assert "was not checked" in done.stderr
+    assert ".claude/lanes.md is not a regular file, so the lanes this plan said it would test" in done.stderr
+    assert [ln.rsplit(" - ", 1)[1] for ln in done.stderr.splitlines() if "was not checked - " in ln] == [
+        "Checkout", "Harness"]
 
 
 BYTE_IDENTICAL = {
@@ -874,10 +875,10 @@ SHOWN_STATES = ("present", "missing", "unreadable")
 def _expected_state(lane_file: str, plan: str, shown: str) -> str:
     if lane_file == "absent":
         return "nothing-owed"
+    if plan != "table":
+        return "nothing-owed"       # the plan owes nothing, whatever the lane file's state
     if lane_file == "unusable":
         return "not-checked"
-    if plan != "table":
-        return "nothing-owed"
     return {"present": "all-shown", "missing": "missing", "unreadable": "not-checked"}[shown]
 
 
@@ -917,6 +918,30 @@ def test_every_combination_lands_in_exactly_one_of_the_four_states(
     done = compliance_as(r, "divergence")
     assert verdict(done) == f"PLAN_COMPLIANCE: divergence{clause} - the change and its approved plan disagree."
     assert [ln for ln in done.stderr.splitlines() if ln.startswith("flow-plan-record: ")] == note
+
+
+@pytest.mark.parametrize("shown", SHOWN_STATES)
+@pytest.mark.parametrize("plan", ["waived", "no-table", "nothing-will-test"])
+def test_a_plan_that_owes_nothing_is_untouched_by_an_unusable_lane_file(
+        tmp_path: Path, plan: str, shown: str) -> None:
+    """A lane file that has become unreadable since approval does not put a
+    clause on the line of a plan that waived its lanes or answered `will test`
+    for none: stdout, stderr and exit code are the old helper's."""
+    sections = {**PLAN_STATES, "nothing-will-test": NOTHING_WILL_TEST}
+    r = make_repo(tmp_path / "wt", lanes=None)
+    approved(r, sections[plan])
+    _damage_lane_file(r, "unusable")
+    if shown == "present":
+        (r / SIBLING).write_text(DEMONSTRATED)
+    elif shown == "unreadable":
+        (r / SIBLING).mkdir()
+    base = git(r, "rev-parse", "main").strip()
+    new = run(r, "compliance", "42", "--base", base)
+    old = run(r, "compliance", "42", "--base", base, helper=PRE_1767)
+    strip = lambda s: re.sub(r"FLOW_PLAN_RECORD_SELF: .*\n", "", s)   # noqa: E731
+    assert "LANES" not in new.stdout
+    assert strip(new.stdout) == strip(old.stdout)
+    assert (new.returncode, new.stderr) == (old.returncode, old.stderr)
 
 
 def test_the_combination_table_reaches_all_four_states() -> None:

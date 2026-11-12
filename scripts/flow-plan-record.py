@@ -1118,12 +1118,15 @@ def lanes_at_close(issue: str) -> LanesAtClose:
 
     - `nothing-owed`: the project has no lane file (it has not adopted lanes,
       and must behave exactly as before); or this run's plan waived the table,
-      has no table, or answered `will test` for no lane. Also when there is no
-      repository to ask: compliance's own verdict is already `unknown` there.
-    - `not-checked`: the lane file exists and cannot be read; this run has no
-      section in the plan record; the demonstrated file exists and cannot be
-      read; or looking failed in a way nobody anticipated. Never rendered as
-      "all shown" - an unreadable answer is not a clean one.
+      has no table, or answered `will test` for no lane - WHATEVER state the
+      lane file is in, because what is owed is decided by the plan's own
+      answers. Also when there is no repository to ask: compliance's own
+      verdict is already `unknown` there.
+    - `not-checked`: the plan answered `will test` and the lane file exists
+      and cannot be read; this run has no section in the plan record; the
+      demonstrated file exists and cannot be read; or looking failed in a way
+      nobody anticipated. Never rendered as "all shown" - an unreadable answer
+      is not a clean one.
     - `missing`: one or more will-test lanes have no row (or an empty one).
     - `all-shown`: every will-test lane has a row that says something.
 
@@ -1134,11 +1137,15 @@ def lanes_at_close(issue: str) -> LanesAtClose:
     except (Exception, SystemExit):     # noqa: BLE001 - `die` raises SystemExit
         return LanesAtClose("nothing-owed")
     try:
+        lane_file_unusable = ""
         try:
             if project_lanes(root) is None:
                 return LanesAtClose("nothing-owed")
         except LanesUnusable as exc:
-            return LanesAtClose("not-checked", why=str(exc))
+            # Not an answer yet: the PLAN is read first. A plan that owes no
+            # lane result owes none whether or not the lane file can be read,
+            # and its line must stay what it always was.
+            lane_file_unusable = str(exc)
         record = root / record_rel(issue)
         try:
             text = record.read_text()
@@ -1152,6 +1159,8 @@ def lanes_at_close(issue: str) -> LanesAtClose:
         if not owed:
             return LanesAtClose("nothing-owed")
         rel = demonstrated_rel(issue)
+        if lane_file_unusable:
+            return LanesAtClose("not-checked", lanes=tuple(owed), why=lane_file_unusable, rel=rel)
         try:
             shown_text = read_text_file(root / rel, rel)
         except LanesUnusable as exc:
@@ -1202,7 +1211,7 @@ def lanes_note(at_close: LanesAtClose) -> list[str]:
                    f"flow-plan-record: {len(at_close.lanes)} lane(s) answered `will test` at "
                    f"approval have no row in {at_close.rel}, named below. Add {row} for each to "
                    "its table (which needs a header row and a `|---|---|` row above it, if the "
-                   "file has none)")
+                   "file has none)") + ". A `|` inside a lane name is written `\\|` in its row"
         return [opening] + [f"flow-plan-record: lane answered `will test` at approval has no row "
                             f"in {at_close.rel} - {lane}" for lane in at_close.lanes]
     unchecked = "Fix that and re-run, or report the lanes as NOT CHECKED - never as demonstrated"
