@@ -671,7 +671,7 @@ delegated-core-write:
 scripts-inventory-check:
 	@python3 scripts/scripts-inventory-check.py
 
-## ADR 0008's census MEMBERSHIP, derived from scripts/ (issue #1060)
+## The instrument census's MEMBERSHIP (controls/census.md), derived from scripts/ (issue #1060)
 ## #1002 made the census COUNT derived; the ROWS stayed hand-appended, and
 ## nothing noticed when an instrument was never added. Eight were in neither
 ## table when this landed - among them counter-model-receipt.py, which then
@@ -684,7 +684,7 @@ scripts-inventory-check:
 ## stdlib-only, offline, git-free, so the slim CI image gives the same verdict.
 ## controls/instrument-census registers the committed BAD/GOOD cases.
 
-## verify-coverage: gate instrument-census-check - ADR 0008's census accounts for every file in scripts/; ci: runs instrument-census-check
+## verify-coverage: gate instrument-census-check - the instrument census (controls/census.md) accounts for every file in scripts/; ci: runs instrument-census-check
 instrument-census-check:
 	@python3 scripts/instrument-census-check.py
 
