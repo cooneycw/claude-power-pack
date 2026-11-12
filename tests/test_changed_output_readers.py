@@ -176,7 +176,9 @@ def test_the_exemption_is_stated_once_and_covers_lanes_and_readers() -> None:
     exemption = "A missing table or row is no defect for Tier 1 or standalone review."
     assert normalized(prompt).count(exemption) == 1
     assert "no defect for Tier 1" not in normalized(prompt).replace(exemption, "")
-    assert prompt.index(exemption) > prompt.index("For each row answered"), "the exemption must follow the questions it covers"
+    assert prompt.index(exemption) > prompt.index("For each row answered"), (
+        "the exemption must follow the questions it covers"
+    )
 
 
 def lanes_block() -> str:
