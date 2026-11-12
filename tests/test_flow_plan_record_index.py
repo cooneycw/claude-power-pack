@@ -196,3 +196,38 @@ def test_a_file_named_like_a_pattern_does_not_touch_its_neighbours(repo) -> None
     proc = helper(r, "compliance", "42", "--base", base)
     assert proc.returncode in (0, 3), proc.stdout + proc.stderr
     assert index_state(r) == before
+
+
+# --- lanes (docs/agents/lanes.md) ---------------------------------------------
+
+def test_the_index_is_restored_in_a_linked_worktree(repo, tmp_path: Path) -> None:
+    """Lane: Checkout, linked worktree. A linked worktree has its OWN index, and
+    a flow run always executes compliance from one. The other tests here run in
+    the main checkout of their fixture."""
+    r, base = repo
+    wt = tmp_path / "linked"
+    git(r, "worktree", "add", "-q", "-b", "issue-42-linked", str(wt), "issue-42-a-fixture")
+    assert (wt / ".git").is_file(), "precondition: a linked worktree has a .git FILE"
+    (wt / "src").mkdir()
+    (wt / "src" / "app.py").write_text("a\n")
+    before = index_state(wt)
+    assert "?? src/app.py" in before[1], "precondition: the new file is untracked"
+    proc = helper(wt, "compliance", "42", "--base", base)
+    assert proc.returncode in (0, 3), proc.stdout + proc.stderr
+    assert index_state(wt) == before
+    assert index_state(r)[1] == "", "the main checkout's index was not touched either"
+
+
+def test_the_index_is_restored_when_the_repository_has_no_plan_record(repo) -> None:
+    """Lane: Project state, a repository that has not adopted the record.
+    Compliance marks the files BEFORE it looks for the record, so the
+    not-adopted answer (UNKNOWN) must restore them too."""
+    r, base = repo
+    git(r, "rm", "-q", "docs/flow-runs/issue-42.md")
+    git(r, "commit", "-qm", "no record")
+    (r / "new.py").write_text("n\n")
+    before = index_state(r)
+    assert "?? new.py" in before[1] and not (r / "docs/flow-runs/issue-42.md").exists()
+    proc = helper(r, "compliance", "42", "--base", base)
+    assert proc.returncode == 4 and "no plan record" in proc.stdout, proc.stdout
+    assert index_state(r) == before

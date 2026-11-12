@@ -48,3 +48,16 @@ section; nothing earlier is edited, and every check reads only its own run.
 Scope: 6 files, about 60 lines of script change, about 200 lines of test.
 
 Risks: the restore must not unstage an entry the user marked before compliance ran; the pull-request check depends on gh returning a url and fails open on that one field; both helpers are bundled into generated Codex mirrors.
+
+### Lanes for this change
+
+Added after approval, on the approver's instruction (wave orchestrator, 2026-11-11: the plan was approved without this table, which `/flow:eli5` has required since #1695 landed).
+
+| Lane | Answer | How, or why not |
+|---|---|---|
+| Checkout | will test | Index restore: the first cut tested only a main checkout; `test_the_index_is_restored_in_a_linked_worktree` now runs compliance in a linked worktree, which has its own index and is where a flow run executes it. Pull-request refusal: tested from a clone; it happens before any layout-dependent step |
+| Harness | will test (Claude install); not covered (Codex install) | Claude install: the tests run the checkout's helpers, which the install symlinks. Codex install: both helpers are bundled into generated mirrors that `make codex-skills` rebuilds and checks in the gate; no test runs them from a Codex bundle |
+| Driver | not covered | The delegated drivers call the same helpers; no live delegated run is exercised. No driver-facing output changed |
+| Coordination | not applicable | No coordination path is touched |
+| CI provider | not applicable | No provider-dependent code is touched |
+| Project state | will test | A repository with no plan record: `test_the_index_is_restored_when_the_repository_has_no_plan_record`. Compliance marks files before it looks for the record, so the not-adopted answer must restore them too |
