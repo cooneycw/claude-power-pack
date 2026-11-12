@@ -560,6 +560,23 @@ class TestMailboxRefusesMalformedTransitions:
             timeout=60,
         )
 
+    @pytest.mark.parametrize("token", ["RATIFY", "OVERRULE"])
+    def test_malformed_colon_ruling_cannot_be_delivered(self, tmp_path: Path, token):
+        body = f"{token}: anything"
+        assert "#" not in body, "fixture has no issue number"
+        proc = self._send(tmp_path, body)
+        assert proc.returncode == 6, proc.stdout + proc.stderr
+        assert "FLOW_MAILBOX: refused" in proc.stdout
+        assert not (tmp_path / "mb" / WAVE / "outbox-worker-a.md").exists()
+
+    @pytest.mark.parametrize("token", ["RATIFY", "OVERRULE"])
+    def test_well_formed_colon_ruling_delivers(self, tmp_path: Path, token):
+        body = f"{token}: #701 the plan stands"
+        proc = self._send(tmp_path, body)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "FLOW_MAILBOX: sent" in proc.stdout
+        assert body in (tmp_path / "mb" / WAVE / "outbox-worker-a.md").read_text()
+
     def test_malformed_transition_is_refused_with_exit_6(self, tmp_path: Path):
         proc = self._send(tmp_path, "MERGE: AUTHORIZED #701 when CI passes")
         assert proc.returncode == 6
