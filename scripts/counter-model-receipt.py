@@ -100,8 +100,11 @@ def escalation_problems(passes: object, escalation: object) -> list[str]:
     bad: list[str] = []
     for key in ("ruled_by", "reference"):
         value = escalation.get(key)
-        if not (isinstance(value, str) and value.strip()):
-            bad.append(f"escalation.{key} is {value!r}, expected a non-blank string")
+        # A printable, non-space character is required, not merely a non-empty
+        # string: a ruler that is a single NUL would print as `ruled by  (file)`,
+        # a recorded ruling with nobody in it.
+        if not (isinstance(value, str) and any(ch.isprintable() and not ch.isspace() for ch in value)):
+            bad.append(f"escalation.{key} is {value!r}, expected a string naming someone or something")
     cap = escalation.get("raised_cap")
     if not isinstance(cap, int) or isinstance(cap, bool):
         bad.append(f"escalation.raised_cap is {cap!r}, expected an integer")

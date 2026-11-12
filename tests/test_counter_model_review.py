@@ -4291,3 +4291,17 @@ def test_a_skipped_receipt_must_not_carry_an_escalation() -> None:
     )
     extra = [p for p in with_escalation if p not in base_problems]
     assert any("must not carry 'escalation'" in p for p in extra), with_escalation
+
+
+@pytest.mark.parametrize("field", ["ruled_by", "reference"])
+@pytest.mark.parametrize("empty", ["\x00", "\x00\x00", "\t\x1f ", "​"])
+def test_a_ruling_with_nobody_in_it_is_refused(field: str, empty: str) -> None:
+    """Orchestrator read of pass 3's fix: a ruler that is a single NUL passed the
+    non-blank check and printed as `ruled by  (file)` - a recorded ruling with
+    nobody in it. A ruler or reference must hold a printable, non-space
+    character; write, validate and judge share this one rule."""
+    escalation = {"ruled_by": "the owner", "reference": "issue #1700", "raised_cap": 5}
+    assert CM.escalation_problems(5, dict(escalation)) == [], "precondition: the base ruling is valid"
+    escalation[field] = empty
+    problems = CM.escalation_problems(5, escalation)
+    assert any(f"escalation.{field}" in p for p in problems), problems
