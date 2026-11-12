@@ -273,6 +273,29 @@ def test_an_unreadable_lane_file_is_said_and_never_read_as_absent(repo: Path) ->
 ROW = re.compile(r"^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]*?)\s*\|\s*$")
 
 
+def test_a_dangling_symlink_in_the_lane_files_place_is_said(repo: Path) -> None:
+    """`[ ! -e ]` is false for a dangling symlink, so it read as "no lane file" (issue #1714, seq 735)."""
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "lanes.md").symlink_to(repo / "does-not-exist.md")
+    assert (repo / ".claude" / "lanes.md").is_symlink() and not (repo / ".claude" / "lanes.md").exists()
+    assert UNREAD in run_block(repo)
+
+
+def test_a_lane_file_under_an_unsearchable_directory_is_said(repo: Path) -> None:
+    """Without search permission on `.claude`, `-e` is false for a file that is there (issue #1714, seq 735)."""
+    if os.geteuid() == 0:
+        pytest.skip("root can search any directory")
+    claude = repo / ".claude"
+    claude.mkdir()
+    (claude / "lanes.md").write_text(read(FIXTURES / "lanes.md"), encoding="utf-8")
+    claude.chmod(0o600)
+    try:
+        assert not os.access(claude, os.X_OK)  # the precondition
+        assert UNREAD in run_block(repo)
+    finally:
+        claude.chmod(0o755)
+
+
 def lane_rows(text: str) -> list[tuple[str, str, str]]:
     rows = []
     for line in text.splitlines():

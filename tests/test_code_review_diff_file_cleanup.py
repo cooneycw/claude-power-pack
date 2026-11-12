@@ -100,9 +100,9 @@ def test_a_refused_review_leaves_no_diff_file_behind(tmp_path: Path) -> None:
     # `git merge-base HEAD "$BASE"` (BASE defaulting to origin/main) then fails
     # for want of any such ref, reproducing the "no common ancestor" refusal.
 
-    before = set((Path("/tmp")).glob("codex-review-diff.*.patch"))
+    before = set((Path("/tmp")).glob("codex-review-diff-patch.*"))
     result = _run_block(repo, env)
-    after = set((Path("/tmp")).glob("codex-review-diff.*.patch"))
+    after = set((Path("/tmp")).glob("codex-review-diff-patch.*"))
     leaked = after - before
 
     assert result.returncode == 3, (
@@ -147,9 +147,9 @@ def test_a_successful_review_keeps_its_diff_file(tmp_path: Path) -> None:
     assert _git("add", "-A", cwd=repo, env=env).returncode == 0
     assert _git("commit", "-qm", "my change", cwd=repo, env=env).returncode == 0
 
-    before = set((Path("/tmp")).glob("codex-review-diff.*.patch"))
+    before = set((Path("/tmp")).glob("codex-review-diff-patch.*"))
     result = _run_block(repo, env)
-    after = set((Path("/tmp")).glob("codex-review-diff.*.patch"))
+    after = set((Path("/tmp")).glob("codex-review-diff-patch.*"))
     created = after - before
 
     assert result.returncode == 0, (

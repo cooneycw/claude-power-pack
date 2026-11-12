@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+from .actions import CHECKOUT
 from .config import InfrastructureConfig
 from .models import CloudProvider, IaCProvider
 
@@ -611,7 +612,7 @@ def _generate_gh_infra_pipeline(
         lines.append("  plan:")
         lines.append("    runs-on: ubuntu-latest")
         lines.append("    steps:")
-        lines.append("      - uses: actions/checkout@v4")
+        lines.append(f"      - uses: {CHECKOUT}")
         lines.append("      - name: Init")
         lines.append(f"        working-directory: infra/{tier_name}")
         lines.append(f"        run: {init_cmd}")
@@ -630,7 +631,7 @@ def _generate_gh_infra_pipeline(
             lines.append(f"    environment: infra-{tier_name}")  # Requires environment approval
 
         lines.append("    steps:")
-        lines.append("      - uses: actions/checkout@v4")
+        lines.append(f"      - uses: {CHECKOUT}")
         lines.append("      - name: Init")
         lines.append(f"        working-directory: infra/{tier_name}")
         lines.append(f"        run: {init_cmd}")

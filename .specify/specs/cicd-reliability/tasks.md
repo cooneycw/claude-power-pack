@@ -25,7 +25,7 @@
 - [ ] **T001** [US1] Create `lib/cicd/state.py` - RunState dataclass with JSON persistence, step status tracking, save/load/cleanup
 - [ ] **T002** [US1] Create `lib/cicd/steps.py` - ShellStep implementation with subprocess timeout, retry with backoff, structured StepResult output (depends on T001)
 - [ ] **T003** [US1] Create `lib/cicd/runner.py` - DeterministicRunner with execute/resume, step iteration, state management, structured JSON output (depends on T001, T002)
-- [ ] **T004** [US1] Add `run` and `resume` subcommands to `lib/cicd/cli.py` (depends on T003)
+- [ ] **T004** [US1] Add the `run` subcommand to `lib/cicd/cli.py` (depends on T003). The explicit `resume` subcommand was removed under issue #1727; `run` resumes a failed run itself
 - [ ] **T005** [US1] Add StepStatus, StepResult, RunResult to `lib/cicd/models.py` (depends on T001)
 - [ ] **T006** [P] [US1] Unit tests for state persistence (save, load, resume from index, cleanup on success) `tests/test_runner_state.py` (depends on T001)
 - [ ] **T007** [P] [US1] Unit tests for runner execution (success path, failure halt, retry, resume) `tests/test_runner.py` (depends on T003)

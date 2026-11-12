@@ -669,7 +669,7 @@ Project created: {PROJECT_NAME}
   Directory:  ~/Projects/{PROJECT_NAME}
   GitHub:     github.com/{user}/{PROJECT_NAME} (private)
   Framework:  {Framework} ({PackageManager})
-  Makefile:   lint, test, build, deploy, clean, verify
+  Makefile:   lint, test, build, clean, verify
   CI:         {recorded provider list}; pipelines {paths}; required checks {derived contexts}
   Host CI:    {per-provider ready/missing/unknown; never inferred from config}
   CPP:        Commands + Skills + Hooks

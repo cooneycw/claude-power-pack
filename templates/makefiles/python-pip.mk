@@ -9,7 +9,7 @@
 # venv first, or adjust commands to use `python -m` prefix.
 # Copy to your project root as "Makefile" and customize.
 
-.PHONY: lint test typecheck format build deploy clean verify troubleshoot venv venv-stdlib ci-local
+.PHONY: lint test typecheck format build clean verify troubleshoot venv venv-stdlib ci-local
 
 ## Quality gates (used by /flow:finish)
 
@@ -50,11 +50,17 @@ verify: lint test typecheck
 
 ## Deployment (used by /flow:deploy)
 
-deploy: verify
-	@echo "TODO: Define your deploy steps here"
-	@echo "Examples:"
-	@echo "  ssh prod 'cd /app && git pull && systemctl restart app'"
-	@echo "  docker compose up -d --build"
+# No deploy target is defined yet, on purpose (issue #1712): a target that
+# only printed a TODO would report a successful deployment that deployed
+# nothing. Uncomment the block below, replace its recipe with real steps, and
+# add `deploy` to .PHONY (a .PHONY target with no rule makes `make deploy`
+# exit 0 with "Nothing to be done").
+#
+# deploy: verify
+# 	<your deploy command>
+# Examples:
+#    ssh prod 'cd /app && git pull && systemctl restart app'
+#    docker compose up -d --build
 
 ## Troubleshooting (single-command diagnostic pass)
 
