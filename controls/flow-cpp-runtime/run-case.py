@@ -129,7 +129,8 @@ fi
         make.chmod(0o755)
         assert shutil.which("make", path=str(binaries)) == str(make)
     env = dict(
-        os.environ, PATH=str(binaries), HOME=str(owned / "home"), FLOW_GATE_CPP_DIR=str(cpp), FLOW_GATE_RERUN="0"
+        os.environ, PATH=str(binaries), HOME=str(owned / "home"), FLOW_GATE_CPP_DIR=str(cpp), FLOW_GATE_RERUN="0",
+        FLOW_GATE_REBUILD_CPP_VENV="0",
     )
     if mode == "malformed-mismatch-optin":
         env["FLOW_GATE_REBUILD_CPP_VENV"] = "1"
