@@ -635,18 +635,29 @@ def venv_fingerprint(venv: Path) -> tuple[str, tuple[tuple[str, int], ...]] | No
     return interpreter, tuple(sorted(entries.items()))
 
 
-def env_without_uv_selectors(environ: Mapping[str, str] | None = None) -> dict[str, str]:
-    """The environment with nothing in it that tells uv WHICH project,
-    directory, environment, interpreter or configuration to use. A test that
-    hands uv a project of its own must start from this: an inherited
-    `UV_PROJECT` or `UV_WORKING_DIR` sends a nested `uv run` back to the
-    checkout the suite runs from, whatever `--project` the outer call named.
-    Every `UV_*` goes except where the installed interpreters are; a test
-    then sets the ones it means to."""
+# What a child that runs uv on a project of the test's own may INHERIT. Built
+# from nothing, by name: stripping the uv settings one knows about leaves the
+# ones one does not, and uv reads more than fifty.
+_UV_CHILD_INHERITS = (
+    "PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TMPDIR",
+    # where uv keeps its installed interpreters and its download cache
+    "UV_PYTHON_INSTALL_DIR", "XDG_DATA_HOME", "XDG_CACHE_HOME",
+    # reaching the package index from behind a proxy or a private CA
+    "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
+    "SSL_CERT_FILE", "SSL_CERT_DIR",
+)
+
+
+def uv_child_env(environ: Mapping[str, str] | None = None) -> dict[str, str]:
+    """The environment for a child that runs uv on a project of the test's
+    own: only the names in `_UV_CHILD_INHERITS`, taken from `environ`. Nothing
+    inherited can then tell uv WHICH project, directory, environment,
+    interpreter or configuration to use - an inherited `UV_PROJECT` or
+    `UV_WORKING_DIR` sends a nested `uv run` back to the checkout the suite
+    runs from, whatever `--project` the outer call named. A test then sets the
+    uv settings it means to."""
     source = os.environ if environ is None else environ
-    return {key: value for key, value in source.items()
-            if key != "VIRTUAL_ENV"
-            and (not key.startswith("UV_") or key == "UV_PYTHON_INSTALL_DIR")}
+    return {key: source[key] for key in _UV_CHILD_INHERITS if key in source}
 
 
 def find_python_311(uv: str, env: Mapping[str, str]) -> Path:
@@ -684,7 +695,7 @@ def build_owned_cpp_checkout(root: Path, dest: Path) -> Path:
             shutil.copytree(source, dest / part, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         else:
             shutil.copy2(source, dest / part)
-    env = env_without_uv_selectors()
+    env = uv_child_env()
     # The ONE prerequisite that may skip: no Python 3.11 on this host. Asked
     # separately, so that a build that fails for any other reason (a broken
     # lock, an unsatisfiable dependency) is an ERROR and not a quiet skip.

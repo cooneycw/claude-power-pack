@@ -24,8 +24,8 @@ import pytest
 
 from tests.conftest import (
     build_owned_cpp_checkout,
-    env_without_uv_selectors,
     find_python_311,
+    uv_child_env,
     venv_fingerprint,
 )
 
@@ -170,7 +170,7 @@ def test_the_interpreters_own_bytecode_cache_is_not_a_change(tmp_path: Path) -> 
 def test_a_build_that_fails_with_its_prerequisites_present_is_an_error(tmp_path: Path) -> None:
     """A skip here would let a broken lock or project file turn every test of
     the real gate off and leave the suite green."""
-    find_python_311("uv", env_without_uv_selectors())
+    find_python_311("uv", uv_child_env())
     broken = tmp_path / "source"
     broken.mkdir()
     (broken / "pyproject.toml").write_text("this is [not a project file\n")
@@ -183,24 +183,44 @@ def test_a_build_that_fails_with_its_prerequisites_present_is_an_error(tmp_path:
 
 # --- nothing inherited can point uv back at this checkout ---------------------
 
-HOSTILE = {
-    "UV_PROJECT": str(ROOT), "UV_WORKING_DIR": str(ROOT), "UV_PROJECT_ENVIRONMENT": str(ROOT / ".venv"),
-    "UV_PYTHON": "3.12", "UV_CONFIG_FILE": "/nonexistent/uv.toml", "UV_OFFLINE": "1",
-    "UV_CACHE_DIR": "/nonexistent/cache", "VIRTUAL_ENV": str(ROOT / ".venv"),
-}
+def _documented_uv_variables() -> set[str]:
+    """Every `UV_*` name the installed uv documents in its own help."""
+    import re
+
+    found: set[str] = set()
+    commands: list[list[str]] = [[], ["run"], ["sync"], ["lock"], ["venv"], ["python", "find"],
+                                 ["python", "install"], ["pip", "install"]]
+    for command in commands:
+        shown = subprocess.run(["uv", *command, "--help"], env=uv_child_env(),
+                               capture_output=True, text=True, timeout=30, check=False)
+        found.update(re.findall(r"\bUV_[A-Z0-9_]+", shown.stdout + shown.stderr))
+    return found
 
 
-def test_no_inherited_uv_selector_survives() -> None:
-    kept = env_without_uv_selectors({**HOSTILE, "LANG": "C", "UV_PYTHON_INSTALL_DIR": "/opt/py", "HOME": "/h"})
+def test_the_enumeration_of_uv_variables_finds_the_ones_known_to_matter() -> None:
+    """The test below is only as good as this list; an extractor that found
+    nothing would make it pass over an empty set."""
+    documented = _documented_uv_variables()
+    assert {"UV_PROJECT", "UV_WORKING_DIR", "UV_PYTHON", "UV_CONFIG_FILE", "UV_CACHE_DIR"} <= documented
+    assert len(documented) >= 40, sorted(documented)
+
+
+def test_only_named_variables_are_inherited() -> None:
+    kept = uv_child_env({"UV_PROJECT": str(ROOT), "VIRTUAL_ENV": "/v", "UV_ANYTHING_NEW": "1",
+                         "LANG": "C", "UV_PYTHON_INSTALL_DIR": "/opt/py", "HOME": "/h", "PYTHONPATH": "/p"})
     assert kept == {"LANG": "C", "UV_PYTHON_INSTALL_DIR": "/opt/py", "HOME": "/h"}
 
 
-def test_the_owned_copy_builds_under_hostile_inherited_selectors(
+def test_the_owned_copy_builds_with_every_documented_uv_variable_aimed_at_this_checkout(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """With every selector aimed at this checkout, the build still lands in
-    the copy and this checkout's environment reads the same afterwards."""
-    for key, value in HOSTILE.items():
-        monkeypatch.setenv(key, value)
+    """Every variable uv documents, not the ones somebody thought of, set to
+    this checkout. The build still lands in the copy, and this checkout's
+    environment reads the same afterwards."""
+    documented = _documented_uv_variables() - {"UV_PYTHON_INSTALL_DIR"}
+    for name in sorted(documented):
+        monkeypatch.setenv(name, str(ROOT))
+    monkeypatch.setenv("VIRTUAL_ENV", str(ROOT / ".venv"))
+    assert not documented & set(uv_child_env()), "a documented uv variable is inherited"
     before = venv_fingerprint(ROOT / ".venv")
     dest = build_owned_cpp_checkout(ROOT, tmp_path / "copy")
     assert (dest / ".venv" / "pyvenv.cfg").is_file()
@@ -212,7 +232,7 @@ def test_a_configuration_uv_cannot_read_is_an_error_not_a_missing_interpreter(tm
     must not be read as "no Python 3.11 here"."""
     bad = tmp_path / "uv.toml"
     bad.write_text("this is [not toml\n")
-    env = {**env_without_uv_selectors(), "UV_CONFIG_FILE": str(bad)}
+    env = {**uv_child_env(), "UV_CONFIG_FILE": str(bad)}
     with pytest.raises(AssertionError, match="could not answer"):
         find_python_311("uv", env)
 
@@ -224,4 +244,4 @@ def test_no_interpreter_is_the_one_answer_that_skips(tmp_path: Path) -> None:
         "#!/bin/sh\necho 'error: No interpreter found for Python 3.11 in managed installations' >&2\nexit 2\n")
     fake.chmod(0o755)
     with pytest.raises(pytest.skip.Exception):
-        find_python_311(str(fake), env_without_uv_selectors())
+        find_python_311(str(fake), uv_child_env())

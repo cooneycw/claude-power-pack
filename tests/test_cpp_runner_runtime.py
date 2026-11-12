@@ -24,7 +24,7 @@ SCRIPT = ROOT / "scripts" / "flow-finish-gate.sh"
 @pytest.mark.parametrize("explicit_user_policy", [False, True])
 @pytest.mark.parametrize("target_environment", [None, "relative", "absolute"])
 def test_actual_finish_preserves_dual_native_runtime_policy(
-    tmp_path, owned_cpp_checkout, explicit_user_policy, target_environment
+    tmp_path, monkeypatch, owned_cpp_checkout, explicit_user_policy, target_environment
 ):
     # The gate is pointed at an OWNED copy of the CPP runtime, never at the
     # checkout this suite is running from: its 3.11 pin makes uv rebuild the
@@ -34,12 +34,18 @@ def test_actual_finish_preserves_dual_native_runtime_policy(
     # carries only 3.11. So it runs on developer hosts only - which is exactly
     # where it used to be destructive. That is a known gap, stated on purpose:
     # the test is about a dual-runtime policy the CI image does not have.
-    from tests.conftest import env_without_uv_selectors, venv_fingerprint
+    from tests.conftest import uv_child_env, venv_fingerprint
 
     surrounding = venv_fingerprint(ROOT / ".venv")
-    # No inherited uv selector: the target Makefile's own `uv run` would follow
-    # an inherited UV_PROJECT back to this checkout, past the owned copy.
-    env = env_without_uv_selectors()
+    # Every case runs with the inherited environment aimed at this checkout:
+    # the target Makefile's own `uv run` would follow an inherited UV_PROJECT
+    # back here, past the owned copy. The child environment is built from
+    # nothing, so none of it arrives.
+    for hostile in ("UV_PROJECT", "UV_WORKING_DIR"):
+        monkeypatch.setenv(hostile, str(ROOT))
+    monkeypatch.setenv("UV_PROJECT_ENVIRONMENT", str(ROOT / ".venv"))
+    env = uv_child_env()
+    assert not {"UV_PROJECT", "UV_WORKING_DIR", "UV_PROJECT_ENVIRONMENT"} & set(env)
     env.update(UV_PYTHON_DOWNLOADS="never", UV_OFFLINE="1", UV_CACHE_DIR=str(tmp_path / "cache"), CPP_OFFLINE="1")
     interpreters = {}
     for minor in ("3.11", "3.12"):
