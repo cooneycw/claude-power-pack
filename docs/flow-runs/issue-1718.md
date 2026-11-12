@@ -119,3 +119,53 @@ Risks: the control runners are instruments, and a change to one can remove the d
 | Coordination | will test | The coordination-signal test is the one that failed; it is run in a loop before and after |
 | CI provider | will test (recorded output) | The stubs stand in for the Woodpecker API; the four controls are verified by name. No live provider is called |
 | Project state | not applicable | No adopted file or record is read |
+
+<!-- flow-run n=3 id=d5d37e52d4f14a508e0e203d7940433e -->
+## Run 3
+
+- Run-id:            d5d37e52d4f14a508e0e203d7940433e
+- Run-start:         87d155aa6128f9a5e48bc5ce1defb1895d32a674
+- Issue:             #1718
+- Base SHA:          87d155aa6128f9a5e48bc5ce1defb1895d32a674
+- Necessity verdict: Still needed
+- Approval:          granted
+- Approver:          the wave orchestrator (wave cpp-improvement, policy rev 1, orchestrator-only), by mailbox: "#1718 second PR: APPROVED as proposed. Fix rows 9, 2, 12, 13, 14, 16. Row 11: yes, the declaration half only", outbox rev 110
+- Recorded at:       2026-11-12T09:00:00Z
+
+### Section B evidence
+- Rows 3, 4 and 1 landed in PR #1764; rows 18 and 19 in PR #1777; row 8 in #1709; row 5 is #1768.
+- Twelve rows were left. By ruling: fix 9, 2, 12, 13, 14, 16 and the declaration half of 11; leave 15 and 10 with a stated reason; rows 6, 7, 17, the row 10 comment and the rest of row 11 are Nit Store comments (posted).
+- This change ends the issue: every row gets its end state in a table on #1718.
+
+### Rulings and gate conditions (orchestrator)
+- Test-only. Red first, by an injected cause where the natural one will not show; no sleeps or clocks in new tests.
+- Row order of value, 9 first; one commit per row, so a row that fights back can be dropped to the Nit Store without holding the rest.
+- Row 12: check that the harness can run against a throwaway root before building on it; say so if it cannot.
+- Two review passes at most; a row that takes a second finding of medium or worse is dropped, not given a third pass.
+- Full suite before the gate.
+
+### Section C - the approved plan
+1. `tests/test_flow_finish_gate.py` - row 9: the fixtures build the gate's environment from named variables, so a gate knob in the suite's own environment cannot reach them
+2. `tests/test_code_review_diff_file_cleanup.py` - row 2: each test watches the temp file its own block made, not a shared directory
+3. `tests/test_code_review_diff_range.py` - row 2: the neighbour that left such files behind cleans up its own
+4. `tests/test_negative_controls.py` - row 12: the untracked-control test plants its probe in a throwaway root, so the host-wide lock and its hold bound go
+5. `tests/test_step9_verify_executes.py` - row 13: skips, with the reason, where Python 3.11 is absent, through the shared probe
+6. `tests/test_silent_test_success.py` - row 14: the same
+7. `tests/test_delegated_lane_failure_detection.py` - row 16: the capture must follow the invocation itself, with two fixtures that must fail
+8. `tests/conftest.py` - row 11, declaration only: that CI runs as root is stated once, beside the image's binaries
+9. `tests/test_ci_runs_as_root_declared.py` - row 11: a tripwire that fails if the declaration and the pipeline disagree
+
+Scope: seven existing test files, conftest, one new test file. No file under scripts/ changes.
+
+Risks: row 12 assumes the harness can be run against a root other than the checkout; a fixture that builds its environment from nothing can drop a variable a test relied on without saying so; a tightened predicate (row 16) can start rejecting a real document.
+
+### Lanes for this change
+
+| Lane | Answer | How, or why not |
+|---|---|---|
+| Checkout | will test | Row 12 moves a test out of the real checkout into a throwaway repository; rows 9 and 2 run the same from a linked worktree |
+| Harness | not applicable | Tests and fixtures; nothing installed or bundled changes |
+| Driver | not applicable | No driver-facing output |
+| Coordination | not applicable | No coordination path |
+| CI provider | will test (Woodpecker); not covered (GitHub Actions) | The root declaration is checked against the pipeline file; the skip reasons are read from this PR's pipeline log |
+| Project state | not applicable | No adopted file or record is read |
