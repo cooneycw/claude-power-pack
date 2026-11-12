@@ -24,7 +24,7 @@ REPO = Path(__file__).resolve().parent.parent
 COMMANDS = REPO / ".claude" / "commands" / "flow"
 
 SENTENCE = (
-    "If the project's gate needs the pushed head (it refuses an unpushed commit), "
+    "If the project's gate needs the pushed head (it refuses unpushed commits), "
     'commit and `git push -u origin "$BRANCH"` first, then gate'
 )
 GATE_CALL = "~/.claude/scripts/flow-finish-gate.sh\n"

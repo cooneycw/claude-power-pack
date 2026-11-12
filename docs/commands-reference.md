@@ -190,9 +190,14 @@ Moved by #1706, to pay for one sentence in each document: when a project's
 own gate needs the pushed head, push the branch first, then run the gate.
 
 From `/flow:auto` Step 6 item 2. The helper "owns the runner invocation and
-its Makefile fallback", and the fallback targets were listed in parentheses:
+its Makefile fallback", and the fallback targets were listed in full:
 
 > (`make lint`, `make test`, `make typecheck`, `make verify`)
+
+They are now listed in a compact form, `make lint`/`test`/`typecheck`/`verify`.
+A first trim removed the list altogether, and
+`tests/test_flow_worktree_native.py::test_moat_preserved_in_auto` went red: it
+reads the document for the gate targets.
 
 The bare-invocation instruction carried its origin, "Invoke it BARE (#581
 discipline):"; the discipline is stated once near the top of the document.

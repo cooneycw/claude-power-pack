@@ -808,8 +808,8 @@ instead.
    ```
 
 2. **Quality gates** - ONE audited helper, `scripts/flow-finish-gate.sh`,
-   owns the runner invocation and its Makefile fallback. Invoke
-   it BARE:
+   owns the runner invocation and its Makefile fallback
+   (`make lint`/`test`/`typecheck`/`verify`). Invoke it BARE:
 
    ```bash
    ~/.claude/scripts/flow-finish-gate.sh
@@ -818,7 +818,7 @@ instead.
    (Exit 127: fall back to `${CLAUDE_PLUGIN_ROOT}/scripts/flow-finish-gate.sh`
    (#590), else the CPP-checkout copy; tell the user to run **`/flow:repair`**.)
 
-   If the project's gate needs the pushed head (it refuses an unpushed commit),
+   If the project's gate needs the pushed head (it refuses unpushed commits),
    commit and `git push -u origin "$BRANCH"` first, then gate; same at Step 7
    (#1706).
 

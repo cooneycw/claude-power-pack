@@ -135,7 +135,7 @@ the inline shape prompts on every run. Invoke it BARE (#581 discipline):
 #590), else the CPP-checkout copy; either may prompt once - tell the user to
 run **`/flow:repair`** to restore the prompt-free lane.)
 
-If the project's gate needs the pushed head (it refuses an unpushed commit),
+If the project's gate needs the pushed head (it refuses unpushed commits),
 commit and `git push -u origin "$BRANCH"` first, then gate (#1706).
 
 **A run with no `FLOW_FINISH_GATE:` verdict line did not run the gate: **STOP**
