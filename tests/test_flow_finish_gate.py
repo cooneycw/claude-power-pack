@@ -3651,3 +3651,515 @@ def test_help_prints_all_four_tables_and_no_code() -> None:
         "a non-comment line sits inside the --help range"
     )
     assert len(out.splitlines()) == end - 1
+
+
+# ── An exit nobody announced never reports a clean status (issue #1705) ─────
+#
+# The gate's EXIT trap also runs when the gate is killed, and `$?` is then the
+# status of the last command that completed - usually 0 - so an interrupted
+# gate printed `FLOW_FINISH_GATE_EXIT=0`. It now prints 128 for any exit that
+# was not the `exit` builtin. No signal is trapped: the gate must still stop
+# promptly when stopped alone, which the coordination and late-tee tests above
+# pin and which a signal trap would break.
+
+UNANNOUNCED_EXIT = 128
+
+
+def _gate_killed_mid_run(
+    tmp_path: Path, sig: int, *, group: bool, extra_env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess:
+    """Start a gate whose runner blocks, signal it, and return what it left.
+
+    `group=True` delivers to the gate's whole process group, as Ctrl-C and
+    `timeout` do; `group=False` delivers to the gate's pid alone.
+    """
+    import signal as _signal
+    import time
+
+    cpp = _fake_cpp(tmp_path)
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    started = tmp_path / "runner-started"
+    # `exec`, so no shell is left in the group to print its own "Terminated"
+    # onto the stderr the gate shares with it.
+    (bindir / "uv").write_text(f'#!/usr/bin/env bash\n: > "{started}"\nexec sleep 30\n')
+    (bindir / "uv").chmod(0o755)
+    env = os.environ.copy()
+    env.pop("FLOW_GATE_RERUN", None)
+    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env["FLOW_GATE_CPP_DIR"] = str(cpp)
+    for key in ("CPP_KYLE_FULL_SUITE_ACTIVE", "CPP_FLOW_FINISH_GATE_STATUS_FILE"):
+        env.pop(key, None)
+    # A host whose coordination admission is ON would route this gate through
+    # the real kyle-lock instead of the stub runner: point it at a file that
+    # does not exist, so the fixture owns the answer (counter-model review).
+    env["CPP_COORDINATION_ADMISSION_FILE"] = str(tmp_path / "no-coordination-admission")
+    env.update(extra_env or {})
+    proc = subprocess.Popen(
+        ["bash", str(SCRIPT)], cwd=tmp_path, env=env, start_new_session=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        deadline = time.monotonic() + 20
+        while not started.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert started.exists(), "precondition: the runner never started"
+        if group:
+            os.killpg(proc.pid, sig)
+        else:
+            proc.send_signal(sig)
+        # Promptness is part of the claim: well under the runner's 30s sleep.
+        # wait(), not communicate(): a runner left running still holds the
+        # pipes open, and EOF would not come until it ended.
+        returncode = proc.wait(timeout=10)
+    finally:
+        try:
+            os.killpg(proc.pid, _signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    stdout, stderr = proc.communicate(timeout=10)
+    return subprocess.CompletedProcess(proc.args, returncode, stdout, stderr)
+
+
+@requires_bash
+@requires_git
+@pytest.mark.parametrize("signame", ["SIGTERM", "SIGINT", "SIGHUP"])
+def test_a_gate_killed_mid_run_reports_128_once_and_still_dies_by_the_signal(
+    tmp_path: Path, signame: str,
+) -> None:
+    """RED on the pre-#1705 script: the marker read 0, the status of whatever
+    completed last, on a gate that never reached a verdict."""
+    import signal
+
+    sig = getattr(signal, signame)
+    result = _gate_killed_mid_run(tmp_path, sig, group=True)
+    assert "running deterministic gate" in result.stdout, "precondition: killed mid-run"
+    assert "FLOW_FINISH_GATE: " not in result.stdout, "precondition: before any verdict"
+    lines = [line for line in result.stderr.splitlines() if line.strip()]
+    markers = [line for line in lines if line.startswith("FLOW_FINISH_GATE_EXIT=")]
+    assert markers == [f"FLOW_FINISH_GATE_EXIT={UNANNOUNCED_EXIT}"], result.stderr
+    # NOT asserted: that the line is LAST on stderr. On a group kill bash itself
+    # reports the dead pipeline AFTER the EXIT trap has run ("Terminated", or a
+    # "Hangup ... | tee /dev/fd/9" job notice). Measured on the pre-#1705 script
+    # too: 12 of 12 runs for SIGTERM, 6 of 12 for SIGHUP, 0 of 12 for SIGINT. So
+    # the claim pinned here is narrower and true: nothing follows the line
+    # except bash's own notice about the killed job.
+    after = lines[lines.index(markers[0]) + 1:]
+    assert all(
+        "Terminated" in line or "Hangup" in line or line.rstrip().endswith("| tee /dev/fd/9")
+        for line in after
+    ), after
+    # Dies BY the signal, exactly as before: no handler turned it into an exit.
+    assert result.returncode == -sig
+
+
+@requires_bash
+@requires_git
+def test_a_gate_stopped_alone_stops_promptly_and_reports_128(tmp_path: Path) -> None:
+    """SIGTERM to the gate's pid ALONE, the runner left running: the gate must
+    not wait for its child (a signal trap would make it), and its line reads 128."""
+    import signal
+
+    result = _gate_killed_mid_run(tmp_path, signal.SIGTERM, group=False)
+    assert result.returncode == -signal.SIGTERM
+    assert result.stderr.strip().splitlines()[-1] == f"FLOW_FINISH_GATE_EXIT={UNANNOUNCED_EXIT}"
+
+
+@requires_bash
+@requires_git
+def test_a_continued_gate_killed_mid_run_records_128_in_its_status_file(tmp_path: Path) -> None:
+    """The coordination lane (kyle#2130): a gate continued under the supervisor
+    writes its status to a private file and prints no exit line. Killed mid-run
+    it recorded the stale 0 there; it must record 128."""
+    import signal
+
+    status_file = tmp_path / "continued-status"
+    result = _gate_killed_mid_run(
+        tmp_path, signal.SIGTERM, group=False,
+        extra_env={
+            "CPP_KYLE_FULL_SUITE_ACTIVE": "1",
+            "CPP_FLOW_FINISH_GATE_STATUS_FILE": str(status_file),
+        },
+    )
+    assert result.returncode == -signal.SIGTERM
+    assert status_file.read_text().strip() == str(UNANNOUNCED_EXIT)
+    assert "FLOW_FINISH_GATE_EXIT=" not in result.stderr, "a continued gate prints no exit line"
+
+
+@requires_bash
+@requires_git
+def test_an_announced_exit_never_reports_128(tmp_path: Path) -> None:
+    """The must-not-flip side: a deliberate exit keeps its own status. A real
+    pass printing 128 would be a worse lie than the one being fixed."""
+    usage = subprocess.run(
+        ["bash", str(SCRIPT), "--no-such-flag"], cwd=tmp_path, capture_output=True, text=True,
+    )
+    assert usage.returncode == 2
+    assert usage.stderr.strip().splitlines()[-1] == "FLOW_FINISH_GATE_EXIT=2"
+    helped = subprocess.run(
+        ["bash", str(SCRIPT), "--help"], cwd=tmp_path, capture_output=True, text=True,
+    )
+    assert helped.returncode == 0
+    assert helped.stderr.strip().splitlines()[-1] == "FLOW_FINISH_GATE_EXIT=0"
+
+
+def _mutated_gate_killed_while_running(tmp_path: Path, injected: str, stub_name: str | None) -> str:
+    """Run a copy of the gate with `injected` added after gate_map, kill it
+    while that line is the executing command, and return its exit line."""
+    import signal
+    import time
+
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    for lib in ("gate-lib.sh", "coordination-admission.sh"):
+        shutil.copy(SCRIPT.parent / lib, scripts / lib)
+    started = tmp_path / "mutant-started"
+    body = SCRIPT.read_text()
+    marker = "\ngate_map "
+    assert body.count(marker) == 1, "precondition: one gate_map line to inject after"
+    head, tail = body.split(marker)
+    first_line, rest = tail.split("\n", 1)
+    (scripts / "flow-finish-gate.sh").write_text(
+        f'{head}{marker}{first_line}\n: > "{started}"\n{injected}\n{rest}'
+    )
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    if stub_name:
+        (bindir / stub_name).write_text("#!/usr/bin/env bash\nexec sleep 30\n")
+        (bindir / stub_name).chmod(0o755)
+    env = os.environ.copy()
+    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env["CPP_COORDINATION_ADMISSION_FILE"] = str(tmp_path / "no-coordination-admission")
+    for key in ("CPP_KYLE_FULL_SUITE_ACTIVE", "CPP_FLOW_FINISH_GATE_STATUS_FILE"):
+        env.pop(key, None)
+    proc = subprocess.Popen(
+        ["bash", str(scripts / "flow-finish-gate.sh")], cwd=tmp_path, env=env,
+        start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        deadline = time.monotonic() + 20
+        while not started.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert started.exists(), "precondition: the injected line was never reached"
+        time.sleep(0.3)  # let the shell move from the marker line onto the injected command
+        proc.send_signal(signal.SIGTERM)
+        returncode = proc.wait(timeout=10)
+    finally:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    _, stderr = proc.communicate(timeout=10)
+    assert returncode == -signal.SIGTERM, "precondition: died by the signal, mid-command"
+    return [line for line in stderr.splitlines() if line.startswith("FLOW_FINISH_GATE_EXIT=")][-1]
+
+
+@requires_bash
+@requires_git
+@pytest.mark.parametrize("injected,stub_name", [
+    ("exit_handler --now", "exit_handler"),   # a COMMAND whose name starts with `exit`
+    ("exit_code=$(sleep 30)", None),          # an ASSIGNMENT whose name starts with `exit`
+    ("exitcode --flush", "exitcode"),         # no separator at all after the four letters
+])
+def test_only_the_exit_builtin_as_a_whole_word_counts_as_announced(
+    tmp_path: Path, injected: str, stub_name: str | None,
+) -> None:
+    """`exit` alone or `exit <args>` announces; anything that merely STARTS with
+    those letters does not. Killed while such a command is executing, the gate
+    must still read 128 - a prefix match would report the stale status."""
+    line = _mutated_gate_killed_while_running(tmp_path, injected, stub_name)
+    assert line == f"FLOW_FINISH_GATE_EXIT={UNANNOUNCED_EXIT}"
+
+
+def test_the_gate_never_replaces_its_shell_with_exec() -> None:
+    """The other way out of a bash script that is not the exit builtin: `exec
+    <program>` replaces the shell and the EXIT trap never runs at all. `exec`
+    may appear here only as a descriptor redirection."""
+    execs = [
+        line.strip() for line in SCRIPT.read_text().splitlines()
+        if re.match(r"\s*exec\b", line)
+    ]
+    assert execs, "precondition: the script still has its fd-9 redirections to look at"
+    for line in execs:
+        assert re.fullmatch(r"exec \d+>(&-|\S+)", line), f"exec that is not a redirection: {line}"
+
+
+def test_the_gate_never_ends_by_running_off_its_last_line() -> None:
+    """Announcement is "the shell was executing `exit`". A script that ended by
+    falling off its last line would be an unannounced exit and print 128 for a
+    real result, so its last statement must be an exit."""
+    statements = [
+        line.strip() for line in SCRIPT.read_text().splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    assert statements[-1].startswith(("gate_exit ", "exit ")), statements[-1]
+    assert UNANNOUNCED_EXIT not in {0, 1, 2, 3, 4, 5, 64}, "128 must not be a status the gate announces"
+
+
+# ── Enrolment judges the receipt NEAREST to HEAD (issue #1707) ──────────────
+#
+# The enrolment loop returned on the first receipt that passed its filters, in
+# filename order - the OLDEST. Every matching receipt is now a candidate and the
+# one whose reviewed head has the fewest commits to HEAD is judged; a filename
+# only breaks a tie at one head.
+
+def _named_receipt(
+    repo: Path, name: str, head: str, status: str = "ran", *,
+    scope: str | None = None, skip_reason: str | None = None,
+) -> None:
+    import json
+
+    r = {
+        "schema": 1, "recorded_at": "2026-09-21T12:00:00Z", "issue": "1707",
+        "branch": _git(repo, "rev-parse", "--abbrev-ref", "HEAD"),
+        "head": head, "status": status,
+        "reviewer": "codex/gpt-6-astra", "implementer": "claude/claude-opus-5",
+    }
+    if scope:
+        r["scope"] = scope
+    if skip_reason:
+        r["skip_reason"] = skip_reason
+    (repo / "docs/measurements/counter-model" / name).write_text(json.dumps(r, indent=2))
+
+
+def _repo_with_two_reviewed_commits(tmp_path: Path) -> tuple[Path, str, str]:
+    """An enrolled repo whose branch has an OLDER commit A and HEAD = B."""
+    repo = _enrolled_repo(tmp_path)
+    (repo / "f.txt").write_text("a\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "first reviewed")
+    older = _git(repo, "rev-parse", "HEAD")
+    (repo / "f.txt").write_text("b\n")
+    _git(repo, "commit", "-qam", "second reviewed")
+    return repo, older, _git(repo, "rev-parse", "HEAD")
+
+
+def _verdict(result: subprocess.CompletedProcess) -> str:
+    lines = [line for line in result.stdout.splitlines() if line.startswith("FLOW_FINISH_GATE: ")]
+    assert len(lines) == 1, result.stdout + result.stderr
+    return lines[0]
+
+
+def _counter_model_line(result: subprocess.CompletedProcess) -> str:
+    lines = [
+        line for line in result.stdout.splitlines()
+        if line.startswith("FLOW_FINISH_GATE_COUNTER_MODEL: ")
+    ]
+    assert len(lines) == 1, result.stdout + result.stderr
+    return lines[0]
+
+
+@requires_bash
+@requires_git
+def test_enrolment_names_the_receipt_for_this_head_not_the_oldest(tmp_path: Path) -> None:
+    """The acceptance case. RED before #1707: the line named the older receipt."""
+    repo, older, head = _repo_with_two_reviewed_commits(tmp_path)
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", older)
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", head)
+    line = _counter_model_line(_gate(repo))
+    assert "receipt: 2026-01-02T000000Z-issue-1707.json" in line, line
+
+
+@requires_bash
+@requires_git
+def test_an_older_valid_receipt_cannot_carry_an_unusable_one_at_head(tmp_path: Path) -> None:
+    """The fail-open direction. RED before #1707: the gate passed on the older
+    receipt and never judged the one for the commit being merged."""
+    repo, older, head = _repo_with_two_reviewed_commits(tmp_path)
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", older)
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", head, status="garbage")
+    result = _gate(repo)
+    assert "unknown: receipt 2026-01-02T000000Z-issue-1707.json has status 'garbage'" in _counter_model_line(result)
+    assert _verdict(result) == "FLOW_FINISH_GATE: fail (counter-model line unknown)"
+
+
+@requires_bash
+@requires_git
+def test_an_older_unusable_receipt_no_longer_reds_a_valid_one_at_head(tmp_path: Path) -> None:
+    """The false-red direction. RED before #1707: the older receipt decided."""
+    repo, older, head = _repo_with_two_reviewed_commits(tmp_path)
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", older, status="garbage")
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", head)
+    result = _gate(repo)
+    assert "receipt: 2026-01-02T000000Z-issue-1707.json" in _counter_model_line(result)
+    assert "fail" not in _verdict(result)
+
+
+@requires_bash
+@requires_git
+def test_commit_distance_beats_the_latest_filename(tmp_path: Path) -> None:
+    """A receipt written LATE for an OLDER head must not win. This is the case a
+    simpler "take the last file" rule gets wrong, so it is what pins the rule.
+    Three receipts: the nearest by count is neither first nor last by filename."""
+    repo, older, head = _repo_with_two_reviewed_commits(tmp_path)
+    base = _git(repo, "rev-parse", "HEAD~2")
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", base, status="garbage")
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", head)
+    _named_receipt(repo, "2026-01-03T000000Z-issue-1707.json", older, status="garbage")
+    result = _gate(repo)
+    assert "receipt: 2026-01-02T000000Z-issue-1707.json" in _counter_model_line(result)
+    assert "fail" not in _verdict(result)
+
+
+@requires_bash
+@requires_git
+def test_at_one_head_the_later_file_is_the_later_review(tmp_path: Path) -> None:
+    """The tie-break, and only a tie-break: two receipts for the SAME head."""
+    repo, _older, head = _repo_with_two_reviewed_commits(tmp_path)
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", head, status="garbage")
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", head)
+    assert "receipt: 2026-01-02T000000Z-issue-1707.json" in _counter_model_line(_gate(repo))
+    _named_receipt(repo, "2026-01-03T000000Z-issue-1707.json", head, status="garbage")
+    assert "unknown: receipt 2026-01-03T000000Z-issue-1707.json" in _counter_model_line(_gate(repo))
+
+
+def _gate_with_uncountable(repo: Path, tmp_path: Path, uncountable: str) -> subprocess.CompletedProcess:
+    """Run the gate with a `git` that cannot count the distance from heads whose
+    sha starts with one of the space-separated prefixes in `uncountable`."""
+    real_git = shutil.which("git")
+    assert real_git, "precondition: a real git to wrap"
+    bindir = tmp_path / "git-bin"
+    bindir.mkdir(exist_ok=True)
+    wrapper = bindir / "git"
+    wrapper.write_text(
+        "#!/usr/bin/env bash\n"
+        'if [[ "$1" == rev-list && "$2" == --count ]]; then\n'
+        f"  for p in {uncountable}; do\n"
+        '    [[ "$3" == "$p"* ]] && exit 128\n'
+        "  done\n"
+        "fi\n"
+        f'exec {real_git} "$@"\n'
+    )
+    wrapper.chmod(0o755)
+    env = dict(os.environ)
+    env["FLOW_GATE_CPP_DIR"] = ""
+    env["CM_RECEIPT_HELPER"] = str(ROOT / "scripts" / "counter-model-receipt.py")
+    env["PATH"] = f"{bindir}:{env['PATH']}"
+    return subprocess.run(["bash", str(SCRIPT)], cwd=repo, env=env, capture_output=True, text=True)
+
+
+@requires_bash
+@requires_git
+def test_a_receipt_whose_distance_cannot_be_computed_never_wins(tmp_path: Path) -> None:
+    repo, older, head = _repo_with_two_reviewed_commits(tmp_path)
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", older)
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", head, status="garbage")
+    # The nearest receipt (at HEAD, unusable) cannot be measured, so it is set
+    # aside and the measurable one is judged.
+    result = _gate_with_uncountable(repo, tmp_path, head[:12])
+    assert "receipt: 2026-01-01T000000Z-issue-1707.json" in _counter_model_line(result)
+
+
+@requires_bash
+@requires_git
+def test_when_no_distance_can_be_computed_the_answer_is_undecidable(tmp_path: Path) -> None:
+    """Not a fall back to the first match, which would restore the defect on
+    exactly the checkout that cannot measure."""
+    repo, older, head = _repo_with_two_reviewed_commits(tmp_path)
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", older)
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", head)
+    result = _gate_with_uncountable(repo, tmp_path, f"{older[:12]} {head[:12]}")
+    line = _counter_model_line(result)
+    assert line.startswith("FLOW_FINISH_GATE_COUNTER_MODEL: undecidable: 2 receipt(s) match"), line
+    assert "receipt: " not in line.split("undecidable:")[0]
+
+
+def _diamond_repo(tmp_path: Path) -> tuple[Path, str, str]:
+    """base -> B on one side, C on the other, merged at HEAD: B and C are two
+    DIFFERENT heads at the same distance from HEAD."""
+    repo = _enrolled_repo(tmp_path)
+    _git(repo, "checkout", "-q", "-b", "side")
+    (repo / "side.txt").write_text("c\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "side commit")
+    side = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "checkout", "-q", "master")
+    (repo / "main.txt").write_text("b\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "main commit")
+    main = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "merge", "-q", "--no-ff", "-m", "merge side", "side")
+    assert _git(repo, "rev-list", "--count", f"{main}..HEAD") == _git(
+        repo, "rev-list", "--count", f"{side}..HEAD"
+    ), "precondition: the two reviewed heads are equally far from HEAD"
+    return repo, main, side
+
+
+@requires_bash
+@requires_git
+@pytest.mark.parametrize("valid_first", [True, False])
+def test_two_heads_at_one_distance_are_both_judged_whatever_the_filenames(
+    tmp_path: Path, valid_first: bool,
+) -> None:
+    """Counter-model review: at equal distance the filename chose between two
+    DIFFERENT heads, so renaming a receipt switched the gate between pass and
+    fail. Both are judged now; one unusable receipt reds the gate either way."""
+    repo, main, side = _diamond_repo(tmp_path)
+    first, second = ("ran", "garbage") if valid_first else ("garbage", "ran")
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", main, status=first)
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", side, status=second)
+    result = _gate(repo)
+    assert "unknown: receipt " in _counter_model_line(result), result.stdout
+    assert _verdict(result) == "FLOW_FINISH_GATE: fail (counter-model line unknown)"
+
+
+@requires_bash
+@requires_git
+def test_two_reviewed_sides_of_a_merge_both_usable_pass(tmp_path: Path) -> None:
+    repo, main, side = _diamond_repo(tmp_path)
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", main)
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", side)
+    result = _gate(repo)
+    assert "receipt: " in _counter_model_line(result)
+    assert "fail" not in _verdict(result)
+
+
+def _enrolment_only(repo: Path) -> subprocess.CompletedProcess:
+    env = dict(os.environ)
+    env["FLOW_GATE_CPP_DIR"] = ""
+    env["CM_RECEIPT_HELPER"] = str(ROOT / "scripts" / "counter-model-receipt.py")
+    return subprocess.run(
+        ["bash", str(SCRIPT), "--enrolment-only"], cwd=repo, env=env, capture_output=True, text=True,
+    )
+
+
+@requires_bash
+@requires_git
+@pytest.mark.parametrize("scopeless_first", [True, False])
+def test_enrolment_only_checks_the_scope_of_every_accepted_review(
+    tmp_path: Path, scopeless_first: bool,
+) -> None:
+    """Counter-model review, pass 2: with two reviewed heads at one distance the
+    scope check looked only at the LAST receipt, so a review recorded without a
+    scope passed when the other carried one - and failed with the filenames
+    swapped. Every accepted `ran` receipt is checked, in either order."""
+    repo, main, side = _diamond_repo(tmp_path)
+    first_scope, second_scope = (None, "full") if scopeless_first else ("full", None)
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", main, scope=first_scope)
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", side, scope=second_scope)
+    result = _enrolment_only(repo)
+    assert _verdict(result) == "FLOW_FINISH_GATE: fail (counter-model line receipt-without-scope)"
+    assert result.returncode == 1
+
+
+@requires_bash
+@requires_git
+def test_a_scopeless_review_is_not_excused_by_an_allowed_skip_beside_it(tmp_path: Path) -> None:
+    repo, main, side = _diamond_repo(tmp_path)
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", main)
+    _named_receipt(
+        repo, "2026-01-02T000000Z-issue-1707.json", side, status="skipped", skip_reason="codex-absent",
+    )
+    result = _enrolment_only(repo)
+    assert _verdict(result) == "FLOW_FINISH_GATE: fail (counter-model line receipt-without-scope)"
+
+
+@requires_bash
+@requires_git
+def test_two_scoped_reviews_at_one_distance_pass_enrolment_only(tmp_path: Path) -> None:
+    repo, main, side = _diamond_repo(tmp_path)
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", main, scope="full")
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", side, scope="diff-only")
+    result = _enrolment_only(repo)
+    assert _verdict(result) == "FLOW_FINISH_GATE: ok"
+    assert result.returncode == 0

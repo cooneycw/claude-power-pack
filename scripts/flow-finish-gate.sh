@@ -27,6 +27,7 @@
 #: NEGATIVE-CONTROL: controls/flow-finish-gate-subsumption
 #: NEGATIVE-CONTROL: controls/flow-finish-gate-derivation
 #: NEGATIVE-CONTROL: controls/flow-finish-gate-resume
+#: NEGATIVE-CONTROL: controls/flow-finish-gate-interrupted
 #
 # Usage:
 #   flow-finish-gate.sh                  # run the 'finish' quality-gate plan
@@ -109,6 +110,14 @@
 #                       "no checkout found" and exercise the fallback)
 #   FLOW_GATE_RERUN     set to 0 to disable the #769 targeted re-run and get
 #                       the pre-#769 first-failure-is-fail behaviour
+#
+# FLOW_FINISH_GATE_EXIT=<n>, the gate's exit status, is printed exactly once and
+# is the last line the GATE writes to stderr. <n> is 128 when the gate ended
+# WITHOUT announcing an exit: it was terminated by a signal (a timeout, Ctrl-C,
+# a closed session) or the shell aborted. 128 says only that; the process's
+# real exit status carries the signal (#1705). After a kill of the whole
+# process group by SIGTERM or SIGHUP the shell may add its own job notice
+# ("Terminated", "Hangup ...") after that line.
 #: END-HELP
 
 set -uo pipefail
@@ -140,7 +149,27 @@ fi
 unset CPP_FLOW_FINISH_GATE_STATUS_FILE
 # shellcheck disable=SC2317  # invoked only from the EXIT trap below
 _gate_on_exit() {
-    local rc=$1
+    # $1 = `$?` and $2 = `$BASH_COMMAND` as the EXIT trap saw them.
+    #
+    # AN EXIT NOBODY ANNOUNCED REPORTS 128, NEVER A STALE STATUS (issue #1705).
+    # Bash also runs this trap when a fatal signal arrives or the shell aborts
+    # (an unbound variable under `set -u`), and `$?` is then the status of the
+    # last command that COMPLETED - usually 0 - so a killed gate printed
+    # `FLOW_FINISH_GATE_EXIT=0`. Every deliberate way out of this script is the
+    # `exit` builtin (directly, or inside gate_exit and gate-lib's refusals), and
+    # in the trap `$BASH_COMMAND` is the command that was executing when the
+    # shell began to leave: `exit ...` when the exit was announced, the
+    # interrupted command otherwise. This script must therefore never END by
+    # running off its last line; tests/test_flow_finish_gate.py pins that.
+    #
+    # 128 is one fixed value meaning "ended without announcing an exit:
+    # terminated by a signal, or aborted". It is not a status this gate
+    # announces (0-5, and 64 before gate_map runs). The signal is deliberately
+    # NOT recovered and NOT trapped: a signal trap is deferred until the
+    # foreground child ends, and a gate stopped alone must stop promptly
+    # (kyle#2130, #1313). The process's real exit status still carries the signal.
+    local rc=$1 announced='^exit([[:space:]]|$)'
+    [[ "${2:-}" =~ $announced ]] || rc=128
     if [[ -n "$_gate_status_file" ]]; then
         printf "%d\n" "$rc" 2>/dev/null > "$_gate_status_file"
     else
@@ -154,7 +183,7 @@ _gate_on_exit() {
     [[ -z "$_coordination_tmp" ]] || rm -rf -- "$_coordination_tmp"
 }
 _coordination_tmp=""
-trap '_gate_on_exit "$?"' EXIT
+trap '_gate_on_exit "$?" "$BASH_COMMAND"' EXIT
 
 # --- The shared gate conventions (issue #1061) ------------------------------
 # SIBLING FIRST, like every other helper this repository resolves: a generated
@@ -390,6 +419,7 @@ fi
 #: --- Counter-model enrolment (issue #1171) ---------------------------------
 #: NEGATIVE-CONTROL: controls/counter-model-enrolment
 #: NEGATIVE-CONTROL: controls/counter-model-enrolment-ci
+#: NEGATIVE-CONTROL: controls/counter-model-enrolment-selection
 #:
 #: WHAT THIS EXISTS FOR. `counter-model-uniformity-check.py` reads the receipts
 #: that EXIST. A review that never ran writes no receipt and simply shrinks the
@@ -560,7 +590,13 @@ cm_receipt_matches_head() {
 
 cm_enrolment_evaluate() {
     local root receipts branch f rbranch rhead rstatus rreason reasons
-    local cm_undecidable=0
+    local cm_undecidable=0 cm_best_distance=0 cm_distance="" cm_uncounted=0
+    local cm_sha cm_i cm_same_head
+    local -a cm_best_files=() cm_best_heads=()
+    # EVERY `ran` receipt the judgement accepted, not only the last one named on
+    # the line: when two reviewed heads tie on distance both are accepted, and
+    # the enrolment-only scope check below must see both (counter-model review).
+    CM_ENROLMENT_RAN_FILES=()
     # PARTICIPATION IS ESTABLISHED BEFORE GIT IS REQUIRED. Asking git first
     # reports `unknown` - and so RED - for any directory that is not a checkout,
     # which is most of what this gate is pointed at outside a flow run. A
@@ -632,6 +668,49 @@ cm_enrolment_evaluate() {
             1) continue ;;
             *) cm_undecidable=1; continue ;;
         esac
+        # NEAREST TO HEAD, NOT FIRST IN FILENAME ORDER (issue #1707). This loop
+        # used to judge and return on the first receipt that passed the filters
+        # above, and the glob sorts by filename, so on a branch with more than
+        # one receipt the OLDEST decided: an old valid review could carry a head
+        # whose own receipt was unusable, and the line named the wrong evidence.
+        # Every receipt that passes the filters is now a candidate, and the one
+        # whose reviewed head has the FEWEST commits between it and HEAD wins.
+        # The count decides; the filename only breaks a tie AT ONE HEAD, where
+        # the later file is the later review and replaces the earlier one.
+        # TWO DIFFERENT HEADS AT THE SAME DISTANCE (a merge whose two sides were
+        # each reviewed: `B..M` and `C..M` count the same) are BOTH kept and both
+        # judged below, and every one of them must be usable. Letting the
+        # filename choose between them would make renaming a receipt switch the
+        # gate between pass and fail (counter-model review).
+        # A distance that cannot be computed never wins: such a receipt is set
+        # aside, and if that leaves no candidate the answer is undecidable below
+        # - never a fall back to the first match, which would restore the defect.
+        if ! cm_distance=$(git rev-list --count "$rhead..HEAD" 2>/dev/null) \
+                || [[ ! "$cm_distance" =~ ^[0-9]+$ ]]; then
+            cm_uncounted=$(( ${cm_uncounted:-0} + 1 ))
+            continue
+        fi
+        cm_sha=$(git rev-parse --verify -q "$rhead^{commit}" 2>/dev/null) || cm_sha="$rhead"
+        if (( ${#cm_best_files[@]} == 0 )) || (( cm_distance < cm_best_distance )); then
+            cm_best_files=("$f")
+            cm_best_heads=("$cm_sha")
+            cm_best_distance="$cm_distance"
+        elif (( cm_distance == cm_best_distance )); then
+            cm_same_head=0
+            for cm_i in "${!cm_best_heads[@]}"; do
+                if [[ "${cm_best_heads[$cm_i]}" == "$cm_sha" ]]; then
+                    cm_best_files[cm_i]="$f"
+                    cm_same_head=1
+                fi
+            done
+            if (( ! cm_same_head )); then
+                cm_best_files+=("$f")
+                cm_best_heads+=("$cm_sha")
+            fi
+        fi
+    done
+
+    for f in ${cm_best_files[@]+"${cm_best_files[@]}"}; do
         rstatus=$(cm_field "$f" status)
         if [[ "$rstatus" == "skipped" ]]; then
             rreason=$(cm_field "$f" skip_reason)
@@ -658,7 +737,7 @@ cm_enrolment_evaluate() {
             fi
             CM_ENROLMENT_STATE=skipped
             CM_ENROLMENT_LINE="skipped: $rreason ($(basename "$f"))$_cm_where"
-            return
+            continue
         fi
         # STATUS IS CHECKED POSITIVELY, never by not-being-skipped (counter-model
         # review, HIGH). Treating "anything that is not `skipped`" as a completed
@@ -673,10 +752,17 @@ cm_enrolment_evaluate() {
             return
         fi
         CM_ENROLMENT_STATE=receipt
-        CM_ENROLMENT_RECEIPT_FILE="$f"
+        CM_ENROLMENT_RAN_FILES+=("$f")
         CM_ENROLMENT_LINE="receipt: $(basename "$f")$_cm_where"
-        return
     done
+    if (( ${#cm_best_files[@]} > 0 )); then
+        return
+    fi
+    if [[ "${cm_uncounted:-0}" -gt 0 ]]; then
+        CM_ENROLMENT_STATE=undecidable
+        CM_ENROLMENT_LINE="undecidable: ${cm_uncounted} receipt(s) match this history but the distance from each to HEAD could not be computed - no receipt was selected, so the enrolment decision was NOT made here"
+        return
+    fi
 
     # A SHALLOW CHECKOUT CANNOT BE TRUSTED TO SAY "NOT AN ANCESTOR" AT ALL, and this
     # is sharper than the exit-128 case below. CI clones `--depth=1 --filter=tree:0`:
@@ -776,12 +862,18 @@ if [[ "$MODE" == "enrolment" ]]; then
     # which a hand-built receipt could backdate. Here the receipt is the PR's own,
     # evaluated whatever date it claims, so the requirement holds at the merge
     # boundary. Delegated receipts carry none by design.
-    if [[ "$CM_ENROLMENT_STATE" == "receipt" && -n "${CM_ENROLMENT_RECEIPT_FILE:-}" ]] \
-            && [[ "$(cm_field "$CM_ENROLMENT_RECEIPT_FILE" direction)" != "delegated" ]] \
-            && [[ -z "$(cm_field "$CM_ENROLMENT_RECEIPT_FILE" scope)" ]]; then
-        echo "flow-finish-gate: receipt $(basename "$CM_ENROLMENT_RECEIPT_FILE") records a review that ran but carries no 'scope' (issue #1461); write it with --scope \"\$CODEX_REVIEW_SCOPE\"." >&2
-        echo "FLOW_FINISH_GATE: fail (counter-model line receipt-without-scope)"
-        gate_exit fail
+    # Every accepted `ran` receipt, whatever the last-judged state was: with two
+    # reviewed heads at one distance, a scope-less review must not pass because
+    # the OTHER receipt carried a scope or was an allowed skip (issue #1707).
+    if [[ "$CM_ENROLMENT_STATE" == "receipt" || "$CM_ENROLMENT_STATE" == "skipped" ]]; then
+        for _cm_ran in ${CM_ENROLMENT_RAN_FILES[@]+"${CM_ENROLMENT_RAN_FILES[@]}"}; do
+            if [[ "$(cm_field "$_cm_ran" direction)" != "delegated" ]] \
+                    && [[ -z "$(cm_field "$_cm_ran" scope)" ]]; then
+                echo "flow-finish-gate: receipt $(basename "$_cm_ran") records a review that ran but carries no 'scope' (issue #1461); write it with --scope \"\$CODEX_REVIEW_SCOPE\"." >&2
+                echo "FLOW_FINISH_GATE: fail (counter-model line receipt-without-scope)"
+                gate_exit fail
+            fi
+        done
     fi
     case "$CM_ENROLMENT_STATE" in
         receipt|skipped)
