@@ -4,6 +4,19 @@
 
 ### Behaviour changes you may notice
 
+- **The secret scan CPP generates is documented for what it is.** It catches
+  accidents; it is not a control against a change that wants to hide a leak.
+  The change under scan can excuse its own finding three ways (an in-tree
+  config, a `.gitleaksignore`, an inline `gitleaks:allow`), and on a
+  same-repository pull request the pipeline file is the change's own too.
+  `docs/skills/woodpecker-ci.md` says so, names the control that does the job
+  (review of four paths, enforced by the provider where it can be), and gives
+  a baseline procedure for adopting the scan in a repository with findings
+  already in its history, including why the raw report must not be committed. Taking the scanner's config from the base branch
+  was designed, measured and not built;
+  `docs/measurements/gitleaks-self-allowlist-2026-11.md` records why.
+  Nothing generated changes. The same document's example step no longer
+  shows `--verbose`, which prints matched values (#1712).
 - **`/flow:deploy <target>` now runs the target you name.** With a CPP
   checkout on the host, `/flow:deploy deploy-staging` validated
   `deploy-staging`, then ran the deterministic runner's deploy plan, whose
@@ -40,6 +53,20 @@
 - **Generated infrastructure workflows pin `actions/checkout` to the same
   commit as every other generated workflow**, not the moving `@v4`.
   Regenerate to get it (#1712).
+- **`/codex:code_review` blocks a patch that is too large for Codex, where it
+  used to record "reviewer unavailable".** Codex refuses input over 1,048,576
+  characters; the run used to exit 1 with no findings and be recorded as a
+  skipped review, which the finish gate accepts. The patch is now measured
+  first, in bytes, against that limit less a margin for the prompt. Over it,
+  at every scope, the run stops with `CODEX_REVIEW: blocked (patch too large
+  ...)`, exit 1, before any model call. **A change of about 1 MB or more that
+  used to pass with a skipped review now stops, and a person decides:** split
+  the change, or commit separately the bulk that needs no review. Having the
+  reviewer read such a change from the repository is not built (#1769). Also:
+  the scope probe no longer reads `unverified` under `pipefail` in a large
+  checkout, the temporary-file templates end in their `X` run, and a dangling
+  or unsearchable `.claude/lanes.md` is reported as unreadable, not treated
+  as absent (#1714).
 - **The flow documents say what to do when a project's gate needs the pushed
   head.** `/flow:auto` Step 6 and `/flow:finish` still run the gate before the
   push. When a project's own gate clones the ref under test from the remote,

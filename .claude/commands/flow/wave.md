@@ -151,13 +151,15 @@ register) rather than as a sentence in a message - the roster checks declared
 file lanes for overlap, and the reference wave's every real collision was
 file-level while the orchestrator held the paths in prose.
 
-Say `--repo <path>` in the same breath as `--files` (#800). Overlap detection is
-scoped to same-repo pairs, and `--repo` is REWRITTEN by every re-register while
-`--files` is PRESERVED - so a worker who re-registers with only `--files` to
-take a lane extension keeps the lane and loses the key that makes it comparable.
-Two workers held the same two files for ~40 minutes that way. The roster now
-reports such a role as UNKNOWN rather than clean (`FLOW_WAVE_OVERLAP_UNSCOPED`),
-so read that line before treating a quiet roster as a clear one.
+Say `--repo <path>` together with `--files` (#800): overlap detection compares
+same-repo pairs, and a re-register REWRITES `--repo` but PRESERVES `--files`, so
+one passing only `--files` keeps the lane and loses the key making it
+comparable. The roster reports such a role as UNKNOWN, not clean
+(`FLOW_WAVE_OVERLAP_UNSCOPED`); read that line before treating a quiet roster as
+clear. EXCEPTION (#1222): changing `--issue` or `--repo` between two non-empty
+values is a move to other work. Unless that call supplies them, the file lane
+(reported: `FLOW_WAVE_FILES_DROPPED`, stderr) and the `--pr`/`--base`/`--diff`
+observation (not reported) reset. Omitting or first adding either is no move.
 
 ## Setup: the delivery lane (consume #676, do not reimplement)
 
@@ -735,11 +737,11 @@ For each idle registered worker, pick the next startable issue subject to:
 - **Declare the lane, do not just describe it** (#699). Give the file lane as
   `--files a,b,c` for the worker's next register - with `--repo <path>` on the
   same call, since overlap detection compares same-repo pairs and `--repo` is
-  rewritten by every re-register while `--files` is preserved (#800) - so the
-  roster can warn when two lanes overlap. The reference wave's worst orchestrator error was a message
-  that fenced a worker's file lane out of one file and, three paragraphs later,
-  assigned it the issue whose fix lived in that file - a contradiction nothing
-  could check because the lane existed only as prose.
+  rewritten by every re-register (#800) - so the roster can warn when two lanes
+  overlap. The reference wave's worst orchestrator error: a message that fenced
+  a worker's file lane out of one file and, three paragraphs later, assigned it
+  the issue whose fix lived in that file - a contradiction nothing could check,
+  the lane being only prose.
 - **Route by declared role facts, not by guess.** `list` now shows each role's
   `model=`, `perm=` and `driver=`; a session in a prompting permission mode
   cannot take unattended work, and the hardest issue should not go to the
@@ -1308,10 +1310,10 @@ issue ledger alone does not mean its runtime wave has been closed.
   For native Codex, use the bounded native handoff; those shell states do not
   decide availability. No matching intended-worker reply means unconfirmed.
 - **`DEAD` is the state the roster used to render as `armed` (#801), and the
-  reason a heartbeat age is not evidence.** The watch is ONE-SHOT: it delivers
-  one message and exits. Its heartbeat stamp keeps looking fresh for the whole
-  300s stale window afterwards, so a role that just woke, handled its mail and
-  never re-armed read `watch=armed` while it was completely deaf. On the
+  reason a heartbeat age is not evidence.** The watch is ONE-SHOT: one wake
+  delivers every unread message and exits. Its heartbeat stamp looks fresh for
+  the whole 300s stale window afterwards, so a role that just woke, handled its
+  mail and never re-armed read `watch=armed` while it was deaf. On the
   `docker-list` wave (2026-09-07) an orchestrator broadcast "check `--status`;
   if it is still holding, do nothing" to three workers on the strength of that
   word. All three were deaf; one held a Step-3 gate request unheard for ~50

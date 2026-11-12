@@ -1,0 +1,70 @@
+{
+  "branch": "issue-1726-refusals-in-the-merge-and-cleanup-helpers-that-no",
+  "counts": {
+    "accepted": 9,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "extra_passes_reason": "Requested by the wave orchestrator (cpp-improvement, outbox rev 55): nine findings in two passes, all about the tests as instruments, in tests whose whole job is to be evidence that a deleting script refuses; the pass-2 fixes were unreviewed",
+  "head": "a427799e4aa47653f940ee7199bad7ff0b02274d",
+  "implementer": "claude/claude-fable-5-2",
+  "implementer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-fable-5-2"
+    ],
+    "runtime": "claude",
+    "session_id": "890b3b05-7b6e-481a-bb70-992a65b5e9a0",
+    "sources": [
+      {
+        "bytes": 17639459,
+        "path": "-home-user-Projects/890b3b05-7b6e-481a-bb70-992a65b5e9a0.jsonl",
+        "sha256": "498a651f6e8617b4ce61b1b031c677af098d04f3799acaf9e288a21ef9f6bf99"
+      }
+    ],
+    "transcript": "-home-user-Projects/890b3b05-7b6e-481a-bb70-992a65b5e9a0.jsonl"
+  },
+  "issue": "1726",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 3,
+  "recorded_at": "2026-11-12T05:12:50Z",
+  "red_cases": {
+    "already_covered": 55,
+    "proposed": 60
+  },
+  "reviewed_artifact": {
+    "base_sha": "0bf7ba72d98754cab02b52758241d6a7ff5175a1",
+    "merge_base": "ee4ca592f6a6c5da9c51750f9afe46abe091761b",
+    "method": "runtime-head",
+    "patch_sha256": "973b5ad01eb69d74da5172b8a82de54e87d6af6c1c47c210c1e9a247a3ae2f22",
+    "report_record": 62,
+    "target_head": "a427799e4aa47653f940ee7199bad7ff0b02274d"
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "exec_log": "codex-review.0ANNQT.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/12/rollout-2026-11-12T00-10-53-01a1ce2a-7eaa-7ec0-b345-9cd0c496b413.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 171206,
+        "path": "codex-review.0ANNQT.jsonl",
+        "sha256": "7b06c7e08fb8531f9cf472147effc19bfcc8693bb818046331926f7931011475"
+      },
+      {
+        "bytes": 663217,
+        "path": "2026/11/12/rollout-2026-11-12T00-10-53-01a1ce2a-7eaa-7ec0-b345-9cd0c496b413.jsonl",
+        "sha256": "10fe0a9106ad48d9b4d016d23b3f4a0fa6886a7687d71e0415b265ddda17cb99"
+      }
+    ],
+    "thread_id": "01a1ce2a-7eaa-7ec0-b345-9cd0c496b413"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}

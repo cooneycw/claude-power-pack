@@ -28,6 +28,10 @@ NOW=$((STARTED + elapsed * 60))
 
 cat > "$T/bin/curl" <<STUB
 #!/bin/sh
+# Read the header the gate pipes in. A stub that exits without reading it can
+# close the pipe before the writer runs; under pipefail that fails the whole
+# call and the gate reports it could not look (issue #1718).
+cat >/dev/null 2>&1 || true
 # POSIX "last argument" - \${@: -1} is bash-only and fails under dash.
 for url in "\$@"; do :; done
 case "\$url" in
@@ -80,9 +84,23 @@ if [ "$statuses" -ne 1 ] || [ "$pipeline" != "3374" ]; then
     exit 3
 fi
 
+# `running` is NOT the good answer when the gate says it could not look at the
+# stall question. A gate that could not read the pipeline detail also prints
+# `running`, with `FLOW_CI_STALL_CHECK: unavailable (...)`; scored as good, that
+# made the known-bad case read GOOD on two pipelines (issue #1718). A gate that
+# prints no stall-check line at all is the anchor from before #1552, which
+# never asks the question: its `running` is the blind answer this control
+# exists to tell apart, and stays `running`.
+stall_check=$(printf '%s\n' "$out" | sed -n 's/^FLOW_CI_STALL_CHECK: //p' | head -1)
 case "$status" in
     stalled) echo "FLOW_CI_STALLED_CONTROL: stalled"; exit 1 ;;
-    running) echo "FLOW_CI_STALLED_CONTROL: running"; exit 0 ;;
+    running)
+        case "$stall_check" in
+            unavailable*)
+                echo "FLOW_CI_STALLED_CONTROL: cannot-run - the gate reported running and said it could not check for a stall (FLOW_CI_STALL_CHECK: $stall_check)"
+                exit 3 ;;
+        esac
+        echo "FLOW_CI_STALLED_CONTROL: running"; exit 0 ;;
     *)
         echo "FLOW_CI_STALLED_CONTROL: cannot-run - unexpected FLOW_CI_STATUS '$status'"
         exit 3

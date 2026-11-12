@@ -103,6 +103,7 @@
 set -uo pipefail
 
 #: NEGATIVE-CONTROL: controls/flow-worktree-guard
+#: NEGATIVE-CONTROL: controls/flow-worktree-guard-leak
 
 # Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
 trap 'printf "FLOW_WORKTREE_GUARD_EXIT=%d\n" "$?" >&2' EXIT
@@ -132,7 +133,9 @@ for arg in "$@"; do
   case "$arg" in
     --strict) STRICT=1 ;;
     --help|-h)
-      sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'
+      # The header's own extent, to its first blank line. A fixed range
+      # ('2,36p') stopped before the Usage section of this very header.
+      sed -n '2,/^$/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *) echo "flow-worktree-guard.sh: unknown option '$arg'" >&2; exit 2 ;;

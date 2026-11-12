@@ -1,0 +1,9 @@
+# Lanes demonstrated - issue #1726
+
+One table for the whole issue, because the helper reads the first table only. The first change is the refusal tests for the merge and cleanup helpers and the guard's `--help`; the second (run 2 of the plan record) is two controls, for the claim helper and the guard's leak verdict. A third, for the sweep's `--apply`, is held as #1778.
+
+| Lane | What was demonstrated |
+|---|---|
+| Checkout | Every case in `tests/test_merge_tail_refusals.py` builds a main checkout plus a linked worktree in a temporary directory and runs the helper from the one the case names; 60 cases. With the refusal's exit deleted from the helper, 32 of 33 mutations fail a test (the one that does not is an equivalent mutant in the sweep, recorded on the issue). Not demonstrated: the helpers run from a bare repository. Second change: each control's runner builds a main checkout plus a linked worktree inside its own temporary directory, with an environment built from nothing; shown confined there with a decoy repository offered through GIT_DIR and through a bash startup file, recording hooks by three routes, and every temporary file watched as it was made. |
+| Harness | Claude install: `flow-worktree-guard.sh --help` is run through a symlink, as the installed copy is reached, and prints its own header (`tests/test_flow_helper_help.py`). Codex install: not covered - no test runs the helpers from a Codex bundle. |
+| CI provider | Recorded output only: `gh-pr-merge.sh`'s cases feed it recorded `gh` output through the stub the existing tests use. No live provider is called by these tests. Second change, Woodpecker: not yet demonstrated when this row was written - the two controls run in the `negative-controls` step and are to be read from this change's pipeline log. GitHub Actions: not covered. |
