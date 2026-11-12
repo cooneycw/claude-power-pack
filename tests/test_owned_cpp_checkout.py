@@ -22,7 +22,12 @@ from pathlib import Path
 
 import pytest
 
-from tests.conftest import build_owned_cpp_checkout, venv_fingerprint
+from tests.conftest import (
+    build_owned_cpp_checkout,
+    env_without_uv_selectors,
+    find_python_311,
+    venv_fingerprint,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -165,10 +170,7 @@ def test_the_interpreters_own_bytecode_cache_is_not_a_change(tmp_path: Path) -> 
 def test_a_build_that_fails_with_its_prerequisites_present_is_an_error(tmp_path: Path) -> None:
     """A skip here would let a broken lock or project file turn every test of
     the real gate off and leave the suite green."""
-    probe = subprocess.run(["uv", "python", "find", "3.11", "--no-python-downloads"],
-                           capture_output=True, text=True, timeout=60, check=False)
-    if probe.returncode != 0:
-        pytest.skip("requires a Python 3.11 interpreter")
+    find_python_311("uv", env_without_uv_selectors())
     broken = tmp_path / "source"
     broken.mkdir()
     (broken / "pyproject.toml").write_text("this is [not a project file\n")
@@ -177,3 +179,49 @@ def test_a_build_that_fails_with_its_prerequisites_present_is_an_error(tmp_path:
     (broken / "scripts").mkdir()
     with pytest.raises(AssertionError, match="did not build"):
         build_owned_cpp_checkout(broken, tmp_path / "copy")
+
+
+# --- nothing inherited can point uv back at this checkout ---------------------
+
+HOSTILE = {
+    "UV_PROJECT": str(ROOT), "UV_WORKING_DIR": str(ROOT), "UV_PROJECT_ENVIRONMENT": str(ROOT / ".venv"),
+    "UV_PYTHON": "3.12", "UV_CONFIG_FILE": "/nonexistent/uv.toml", "UV_OFFLINE": "1",
+    "UV_CACHE_DIR": "/nonexistent/cache", "VIRTUAL_ENV": str(ROOT / ".venv"),
+}
+
+
+def test_no_inherited_uv_selector_survives() -> None:
+    kept = env_without_uv_selectors({**HOSTILE, "LANG": "C", "UV_PYTHON_INSTALL_DIR": "/opt/py", "HOME": "/h"})
+    assert kept == {"LANG": "C", "UV_PYTHON_INSTALL_DIR": "/opt/py", "HOME": "/h"}
+
+
+def test_the_owned_copy_builds_under_hostile_inherited_selectors(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """With every selector aimed at this checkout, the build still lands in
+    the copy and this checkout's environment reads the same afterwards."""
+    for key, value in HOSTILE.items():
+        monkeypatch.setenv(key, value)
+    before = venv_fingerprint(ROOT / ".venv")
+    dest = build_owned_cpp_checkout(ROOT, tmp_path / "copy")
+    assert (dest / ".venv" / "pyvenv.cfg").is_file()
+    assert venv_fingerprint(ROOT / ".venv") == before
+
+
+def test_a_configuration_uv_cannot_read_is_an_error_not_a_missing_interpreter(tmp_path: Path) -> None:
+    """Passed straight to the probe, past the scrub: the answer "uv failed"
+    must not be read as "no Python 3.11 here"."""
+    bad = tmp_path / "uv.toml"
+    bad.write_text("this is [not toml\n")
+    env = {**env_without_uv_selectors(), "UV_CONFIG_FILE": str(bad)}
+    with pytest.raises(AssertionError, match="could not answer"):
+        find_python_311("uv", env)
+
+
+def test_no_interpreter_is_the_one_answer_that_skips(tmp_path: Path) -> None:
+    """A stand-in uv that answers the way uv does when there is no 3.11."""
+    fake = tmp_path / "uv"
+    fake.write_text(
+        "#!/bin/sh\necho 'error: No interpreter found for Python 3.11 in managed installations' >&2\nexit 2\n")
+    fake.chmod(0o755)
+    with pytest.raises(pytest.skip.Exception):
+        find_python_311(str(fake), env_without_uv_selectors())

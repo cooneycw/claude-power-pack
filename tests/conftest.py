@@ -9,6 +9,7 @@ import shutil
 import sys
 import tempfile
 import textwrap
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -634,6 +635,38 @@ def venv_fingerprint(venv: Path) -> tuple[str, tuple[tuple[str, int], ...]] | No
     return interpreter, tuple(sorted(entries.items()))
 
 
+def env_without_uv_selectors(environ: Mapping[str, str] | None = None) -> dict[str, str]:
+    """The environment with nothing in it that tells uv WHICH project,
+    directory, environment, interpreter or configuration to use. A test that
+    hands uv a project of its own must start from this: an inherited
+    `UV_PROJECT` or `UV_WORKING_DIR` sends a nested `uv run` back to the
+    checkout the suite runs from, whatever `--project` the outer call named.
+    Every `UV_*` goes except where the installed interpreters are; a test
+    then sets the ones it means to."""
+    source = os.environ if environ is None else environ
+    return {key: value for key, value in source.items()
+            if key != "VIRTUAL_ENV"
+            and (not key.startswith("UV_") or key == "UV_PYTHON_INSTALL_DIR")}
+
+
+def find_python_311(uv: str, env: Mapping[str, str]) -> Path:
+    """The host's Python 3.11, or a skip when uv says it has none. Any OTHER
+    failure of the question (a configuration uv cannot read, a crash) is an
+    error: read as "no interpreter" it would turn the tests off."""
+    import subprocess
+
+    probe = subprocess.run(
+        [uv, "python", "find", "3.11", "--no-python-downloads"],
+        env=dict(env), capture_output=True, text=True, timeout=60, check=False,
+    )
+    if probe.returncode != 0 and "No interpreter found" in probe.stderr:
+        pytest.skip("requires a Python 3.11 interpreter to build an owned CPP environment")
+    assert probe.returncode == 0, (
+        f"uv could not answer whether Python 3.11 is installed (exit {probe.returncode}): "
+        f"{probe.stderr.strip()[-400:]}")
+    return Path(probe.stdout.strip())
+
+
 def build_owned_cpp_checkout(root: Path, dest: Path) -> Path:
     """Copy `root`'s CPP runtime to `dest` and build its Python 3.11
     environment there. Skips ONLY for a missing prerequisite (uv, or a 3.11
@@ -651,17 +684,11 @@ def build_owned_cpp_checkout(root: Path, dest: Path) -> Path:
             shutil.copytree(source, dest / part, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         else:
             shutil.copy2(source, dest / part)
-    env = {k: v for k, v in os.environ.items()
-           if k not in ("UV_PROJECT_ENVIRONMENT", "UV_PYTHON", "VIRTUAL_ENV", "UV_OFFLINE", "UV_CACHE_DIR")}
+    env = env_without_uv_selectors()
     # The ONE prerequisite that may skip: no Python 3.11 on this host. Asked
     # separately, so that a build that fails for any other reason (a broken
     # lock, an unsatisfiable dependency) is an ERROR and not a quiet skip.
-    probe = subprocess.run(
-        [uv, "python", "find", "3.11", "--no-python-downloads"],
-        env=env, capture_output=True, text=True, timeout=60, check=False,
-    )
-    if probe.returncode != 0:
-        pytest.skip("requires a Python 3.11 interpreter to build an owned CPP environment")
+    find_python_311(uv, env)
     built = subprocess.run(
         [uv, "sync", "--python", "3.11", "--no-python-downloads", "--project", str(dest)],
         env=env, capture_output=True, text=True, timeout=110, check=False,

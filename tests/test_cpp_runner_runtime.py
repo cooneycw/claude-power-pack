@@ -34,12 +34,12 @@ def test_actual_finish_preserves_dual_native_runtime_policy(
     # carries only 3.11. So it runs on developer hosts only - which is exactly
     # where it used to be destructive. That is a known gap, stated on purpose:
     # the test is about a dual-runtime policy the CI image does not have.
-    from tests.conftest import venv_fingerprint
+    from tests.conftest import env_without_uv_selectors, venv_fingerprint
 
     surrounding = venv_fingerprint(ROOT / ".venv")
-    env = os.environ.copy()
-    env.pop("UV_PYTHON", None)
-    env.pop("UV_PROJECT_ENVIRONMENT", None)
+    # No inherited uv selector: the target Makefile's own `uv run` would follow
+    # an inherited UV_PROJECT back to this checkout, past the owned copy.
+    env = env_without_uv_selectors()
     env.update(UV_PYTHON_DOWNLOADS="never", UV_OFFLINE="1", UV_CACHE_DIR=str(tmp_path / "cache"), CPP_OFFLINE="1")
     interpreters = {}
     for minor in ("3.11", "3.12"):
