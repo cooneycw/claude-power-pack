@@ -1,0 +1,70 @@
+{
+  "branch": "issue-1707-counter-model-enrolment-in-the-finish-gate-selects",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "extra_passes_reason": "Requested by the wave orchestrator (wave cpp-improvement, mailbox rev 26, 2026-11-11): both capped passes returned a real MEDIUM in the selection path this change creates, and the pass-2 fix (scope checked on every accepted receipt) was unreviewed, in the function that decides whether a merge had a second-model review.",
+  "head": "d93e51e6810eaeeec2daaa60be71f2ad8e784fc1",
+  "implementer": "claude/claude-fable-5-2",
+  "implementer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-fable-5-2"
+    ],
+    "runtime": "claude",
+    "session_id": "813e8da8-6824-48fb-833a-ef59067edd8c",
+    "sources": [
+      {
+        "bytes": 7282083,
+        "path": "-home-user-Projects/813e8da8-6824-48fb-833a-ef59067edd8c.jsonl",
+        "sha256": "4ebee4d94dcb7eb3ff2eba26ca22ce59e3dbe60a750210badf004366ebec8afb"
+      }
+    ],
+    "transcript": "-home-user-Projects/813e8da8-6824-48fb-833a-ef59067edd8c.jsonl"
+  },
+  "issue": "1707",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 3,
+  "recorded_at": "2026-11-12T02:53:02Z",
+  "red_cases": {
+    "already_covered": 6,
+    "proposed": 6
+  },
+  "reviewed_artifact": {
+    "base_sha": "e33525d0f78c98cc613493a852e1bb0a777462a0",
+    "merge_base": "e2c0d037343d39e41dfade1e6dafa4c48684b789",
+    "method": "runtime-head",
+    "patch_sha256": "10b25d4b2eb6ea0d68e155c4a7e256b04a3853a4616e6f23eea146e0c37214dd",
+    "report_record": 47,
+    "target_head": "d93e51e6810eaeeec2daaa60be71f2ad8e784fc1"
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "exec_log": "codex-review.8TlfeI.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/11/rollout-2026-11-11T21-51-31-01a1cdaa-e70c-70f2-ae8b-1a44e644aa8d.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 84004,
+        "path": "codex-review.8TlfeI.jsonl",
+        "sha256": "c6bee17d9e9bc3901da552b1ebbf51de51de7a0fa505534660601f87df070513"
+      },
+      {
+        "bytes": 633010,
+        "path": "2026/11/11/rollout-2026-11-11T21-51-31-01a1cdaa-e70c-70f2-ae8b-1a44e644aa8d.jsonl",
+        "sha256": "eaf8e5844b5e928d13d9c04bd0499be44c9c4c933925dedc32586b9b07100a1e"
+      }
+    ],
+    "thread_id": "01a1cdaa-e70c-70f2-ae8b-1a44e644aa8d"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}

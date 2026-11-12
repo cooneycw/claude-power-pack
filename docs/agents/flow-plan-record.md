@@ -385,3 +385,41 @@ counter-model review (gpt-6-astra) and all reproduced:
   and "I could not look" is rendered as "I looked and it is missing". The
   helper separates the two: `absent` exits 1, `unverified` exits 4, and the
   procedure STOPs on both.
+
+
+## The lanes check at approval (issue #1731)
+
+`approve` reads `.claude/lanes.md`. With no such file it does nothing: its
+output and exit code are byte for byte what they were before the check
+existed, which a test asserts against the previous helper. With one, the run's
+section must carry a `### Lanes for this change` table whose rows answer every
+listed lane with will test, will refuse, not applicable or not covered, or the
+single line `Lanes: none - <reason>`. Otherwise `approve` prints
+`FLOW_PLAN_RECORD: error - ...` naming what is missing, exits 1 and writes
+nothing: no snapshot, no baseline. A lane file that exists and cannot be read,
+or lists nothing, is refused the same way with `unknown:` in the reason. It is
+never treated as a project with no lanes.
+
+The check reads the lane file itself and does not load `lane-file.py`, because
+the Codex `flow-auto` bundle ships this helper without that file. The two
+readers are held together by a test that runs both over every state.
+
+**Nothing in the record is outside the stability digest.** What a run
+demonstrated in each lane it said it would test is written at Step 6 to a file
+of its own, `docs/flow-runs/issue-<N>.lanes-demonstrated.md`: a table, one row
+per lane, saying what happened. It is not part of the plan record, so the
+digest code is unchanged from before this check and no part of an approved
+record may change afterwards. A first design kept those rows inside the record
+and left them out of the digest; three review passes each found another way to
+hide a plan edit in the part left out (a heading quoted in a code fence, an
+indented heading, a numbered plan line that contained a pipe), and the design
+was dropped for one with nothing left out.
+
+`compliance` then names, on stderr, each lane answered `will test` with no row
+in that file, says so when the file is missing, and says it is unreadable when
+it is. It reports and does not refuse; its stdout and exit code are unchanged.
+It speaks only where the project lists lanes and the run's section carries a
+lanes table. Headings, tables and the waiver line are read outside code fences
+only: a quoted example is not the thing itself.
+
+Not checked: whether an answer is true.
