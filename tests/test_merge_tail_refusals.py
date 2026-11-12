@@ -43,24 +43,78 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-#: Variables that would route git away from the fixture repository, or make a
-#: helper under test read state from outside its temporary directory.
-_ROUTING = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR",
-            "GIT_PREFIX", "GIT_NAMESPACE", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CEILING_DIRECTORIES",
-            "FLOW_CLAIM_PROC_ROOT", "FLOW_CLAIM_LIVE_PIDS", "FLOW_CLAIM_GIT", "FLOW_WORKTREE_GIT",
-            "FLOW_CLAIM_MUTEX_WAIT", "FLOW_LEAK_FRESH_MIN", "FLOW_WORKTREE_SWEEP_PROC_ROOT",
-            "WORKTREE_REMOVE_PROC_ROOT", "CODEX_THREAD_ID", "TMPDIR")
+#: Prefixes of every variable that could route git away from the fixture
+#: repository, inject git configuration, or steer a helper under test: git's
+#: own (GIT_DIR, GIT_INDEX_FILE, GIT_CONFIG_COUNT and its KEY/VALUE pairs,
+#: GIT_CONFIG_PARAMETERS, GIT_TEMPLATE_DIR, ...) and the helpers' documented
+#: seams. A prefix, not a list: a list is one new variable away from a hole.
+_SCRUBBED_PREFIXES = ("GIT_", "FLOW_", "GH_PR_MERGE_", "WORKTREE_REMOVE_")
+_SCRUBBED_NAMES = ("CODEX_THREAD_ID", "TMPDIR", "CPP_KYLE_COORDINATION_ADMISSION",
+                   "CPP_COORDINATION_ADMISSION_FILE")
+
+#: A temporary directory the current test owns, so nothing here writes to the
+#: host's /tmp or depends on it being usable. Set per test by `_own_tmp`.
+_TMP: Path | None = None
+
+
+def _scrubbed(name: str) -> bool:
+    return name.startswith(_SCRUBBED_PREFIXES) or name in _SCRUBBED_NAMES
+
+
+@pytest.fixture(autouse=True)
+def _own_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Scrub the test process's own environment too: some tests here go
+    through another module's harness, which copies os.environ as it finds it."""
+    global _TMP
+    _TMP = tmp_path / "own-tmp"
+    _TMP.mkdir()
+    for name in [n for n in os.environ if _scrubbed(n)]:
+        monkeypatch.delenv(name)
+    monkeypatch.setenv("TMPDIR", str(_TMP))
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    yield
+    _TMP = None
 
 
 def _clean_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     """The host environment minus anything that could point git, or a helper,
     at a repository or a state other than the fixture's own; with the user's
-    and the system's git configuration (hooks, templates, signing) switched
-    off. `extra` is applied last, so a test's deliberate override wins."""
-    env = {k: v for k, v in os.environ.items() if k not in _ROUTING}
+    and the system's git configuration switched off and TMPDIR pointing at a
+    directory this test owns. `extra` is applied last, so a test's deliberate
+    override (a missing TMPDIR, a seam) wins."""
+    env = {k: v for k, v in os.environ.items() if not _scrubbed(k)}
     env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+    if _TMP is not None:
+        env["TMPDIR"] = str(_TMP)
     env.update(extra or {})
     return env
+
+
+def test_the_cleaned_environment_carries_no_injected_git_configuration(tmp_path: Path,
+                                                                       monkeypatch: pytest.MonkeyPatch) -> None:
+    """Known-bad input for `_clean_env`: configuration injected through the
+    environment that would move git's work tree outside the fixture."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    for name, value in (("GIT_CONFIG_COUNT", "1"), ("GIT_CONFIG_KEY_0", "core.worktree"),
+                        ("GIT_CONFIG_VALUE_0", str(outside)), ("GIT_CONFIG_PARAMETERS", "'core.bare=true'"),
+                        ("GIT_TEMPLATE_DIR", str(outside)), ("GIT_INDEX_FILE", str(outside / "index")),
+                        ("GH_PR_MERGE_HOST_PREFLIGHT", "/bin/false"), ("FLOW_WORKTREE_GIT", "/bin/false")):
+        monkeypatch.setenv(name, value)
+    env = _clean_env()
+    assert not [k for k in env if k.startswith(("GIT_CONFIG_COUNT", "GIT_CONFIG_KEY", "GIT_CONFIG_VALUE",
+                                                 "GIT_CONFIG_PARAMETERS", "GIT_TEMPLATE", "GIT_INDEX",
+                                                 "GH_PR_MERGE_", "FLOW_"))]
+    main, _wt = _main_and_worktree(tmp_path)
+    assert _git(main, "rev-parse", "--show-toplevel").strip() == str(main.resolve())
+    assert not (outside / "index").exists(), "fixture git wrote an index outside the fixture"
+
+
+def _git_rc(cwd: Path, *args: str) -> int:
+    """Exit status of a git probe, in the same cleaned environment as everything else."""
+    return subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, check=False, timeout=60,
+                          env=_clean_env()).returncode
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -81,15 +135,31 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _TRAILER = re.compile(r"^[A-Z][A-Z_]*_EXIT=\d+$")
 
 
+def _unaccounted(lines: list[str], allowed: tuple[str, ...]) -> list[str]:
+    """Lines not accounted for by `allowed`: each allowance is the START of a
+    whole line and may be used once. So `removed; Usage: x` is not excused by
+    an allowance for `Usage:`, and neither is a second `Usage:` line."""
+    remaining = list(allowed)
+    stray = []
+    for line in lines:
+        match = next((a for a in remaining if line.startswith(a)), None)
+        if match is None:
+            stray.append(line)
+        else:
+            remaining.remove(match)
+    return stray
+
+
 def _assert_stopped_at(done: subprocess.CompletedProcess[str], message: str, *, then: tuple[str, ...] = (),
                        stdout: tuple[str, ...] = ()) -> None:
     """The script printed `message` ONCE and then stopped.
 
     On stderr, nothing follows it but lines that belong to the same refusal
-    (`then`) and the exit trailer. On stdout, every line is one the caller
-    named in `stdout` (text the script prints BEFORE it refuses) - by default
-    there must be none, because the two streams cannot be ordered against each
-    other and work done after a refusal would show up there.
+    (`then`: each the start of a line, each allowed once) and the exit trailer.
+    On stdout, every line must be one the caller named in `stdout` the same
+    way (text the script prints BEFORE it refuses) - by default there must be
+    none, because the two streams cannot be ordered against each other and
+    work done after a refusal would show up there.
 
     Asserting the message and the exit code is not enough. Several of these
     refusals are followed by a second line of defence with the same exit code,
@@ -97,13 +167,13 @@ def _assert_stopped_at(done: subprocess.CompletedProcess[str], message: str, *, 
     ran on, and was stopped later by something else - and a test that checked
     only message and code still passed. That is a script that kept going after
     saying it would not, and this is what notices."""
-    lines = [_ANSI.sub("", ln) for ln in done.stderr.splitlines() if ln.strip()]
+    lines = [_ANSI.sub("", ln).strip() for ln in done.stderr.splitlines() if ln.strip()]
     hits = [i for i, ln in enumerate(lines) if message in ln]
     assert len(hits) == 1, f"expected {message!r} exactly once on stderr, saw {len(hits)}:\n{done.stderr}"
-    after = [ln for ln in lines[hits[0] + 1:] if not _TRAILER.match(ln) and not any(t in ln for t in then)]
+    after = _unaccounted([ln for ln in lines[hits[0] + 1:] if not _TRAILER.match(ln)], then)
     assert not after, f"the script went on after refusing with {message!r}:\n" + "\n".join(after)
-    out = [_ANSI.sub("", ln) for ln in done.stdout.splitlines() if ln.strip()]
-    stray = [ln for ln in out if not any(t in ln for t in stdout)]
+    out = [_ANSI.sub("", ln).strip() for ln in done.stdout.splitlines() if ln.strip()]
+    stray = _unaccounted(out, stdout)
     assert not stray, f"unexpected stdout around the refusal {message!r}:\n" + "\n".join(stray)
 
 
@@ -122,12 +192,17 @@ def test_the_stop_assertion_accepts_a_script_that_stopped() -> None:
     ("X_EXIT=1\n", "", "the refusal never printed"),
     ("Error: no\nX_EXIT=1\n", "rm -rf -- /target\n", "work on stdout"),
     ("Error: no\nX_EXIT=1\n", "Usage: x\nremoved worktree\n", "an allowed stdout line plus a stray one"),
-], ids=["stderr-continues", "printed-twice", "never-printed", "stdout-work", "stdout-partly-allowed"])
+    ("Error: no\nX_EXIT=1\n", "removed worktree; Usage: x\n", "an allowance buried inside an unrelated line"),
+    ("Error: no\nX_EXIT=1\n", "Usage: x\nUsage: x\n", "an allowed line printed twice"),
+    ("Error: no\nrunning on; because\nX_EXIT=1\n", "", "a `then` allowance buried inside an unrelated line"),
+    ("Error: no\nbecause\nbecause\nX_EXIT=1\n", "", "a `then` line printed twice"),
+], ids=["stderr-continues", "printed-twice", "never-printed", "stdout-work", "stdout-partly-allowed",
+        "stdout-allowance-buried", "stdout-allowed-twice", "then-buried", "then-twice"])
 def test_the_stop_assertion_rejects_a_script_that_ran_on(stderr: str, stdout: str, why: str) -> None:
     """The helper is the instrument every refusal test here leans on, so it
     gets its own known-bad inputs."""
     with pytest.raises(AssertionError):
-        _assert_stopped_at(_result(stderr, stdout), "Error: no", stdout=("Usage:",))
+        _assert_stopped_at(_result(stderr, stdout), "Error: no", then=("because",), stdout=("Usage:",))
 
 
 def _main_and_worktree(tmp_path: Path) -> tuple[Path, Path]:
@@ -234,8 +309,8 @@ def test_sweep_outside_a_repository_is_an_error_not_an_empty_sweep(tmp_path: Pat
     is not a repository at all must not read as the same thing."""
     plain = tmp_path / "plain"
     plain.mkdir()
-    probe = subprocess.run(["git", "-C", str(plain), "rev-parse", "--git-dir"], capture_output=True, check=False)
-    assert probe.returncode != 0, "precondition: the temporary directory is outside every repository"
+    assert _git_rc(plain, "rev-parse", "--git-dir") != 0, (
+        "precondition: the temporary directory is outside every repository")
     if how == "repo-is-a-plain-directory":
         done = _run(SWEEP, "--repo", str(plain), cwd=tmp_path)
         named = str(plain)
@@ -299,7 +374,7 @@ def test_remove_a_gitdir_pointer_to_nowhere_cannot_find_the_main_repository(tmp_
     assert not (tmp_path / "nowhere").exists(), "precondition: the pointer leads nowhere"
     done = _run(REMOVE, str(orphan), "--force", cwd=tmp_path)
     assert done.returncode == 1, done.stdout + done.stderr
-    _assert_stopped_at(done, "Error: Could not find main repository", then=("Expected at:", "expected at"))
+    _assert_stopped_at(done, "Error: Could not find main repository", then=())
     assert (orphan / "work.txt").exists(), "the directory was touched"
 
 
@@ -499,8 +574,11 @@ def _guard(cwd: Path, env: dict[str, str] | None = None) -> subprocess.Completed
 
 
 def _verdict_line(done: subprocess.CompletedProcess[str]) -> str:
-    return next((ln for ln in (done.stdout + done.stderr).splitlines()
-                 if ln.startswith("FLOW_WORKTREE_GUARD:")), "")
+    """THE verdict line. Exactly one: a guard that printed a verdict and ran on
+    to print another has not stopped, whatever the first one said."""
+    found = [ln for ln in (done.stdout + done.stderr).splitlines() if ln.startswith("FLOW_WORKTREE_GUARD:")]
+    assert len(found) == 1, f"expected exactly one verdict line, saw {len(found)}:\n{done.stdout}{done.stderr}"
+    return found[0]
 
 
 def _git_seam(tmp_path: Path, body: str) -> dict[str, str]:
@@ -532,7 +610,8 @@ def test_guard_in_a_worktree_of_a_bare_repository_is_unknown(tmp_path: Path) -> 
     it must not be read as a clean one."""
     main, _wt = _main_and_worktree(tmp_path)
     bare = tmp_path / "bare.git"
-    subprocess.run(["git", "clone", "-q", "--bare", str(main), str(bare)], check=True, capture_output=True, timeout=60)
+    subprocess.run(["git", "clone", "-q", "--bare", str(main), str(bare)], check=True, capture_output=True,
+                   timeout=60, env=_clean_env())
     wt2 = tmp_path / "from-bare"
     _git(bare, "worktree", "add", "-q", "-b", "issue-7-y", str(wt2))
     done = _guard(wt2)
@@ -569,8 +648,7 @@ def test_guard_when_the_main_trees_status_fails_is_unknown(tmp_path: Path) -> No
     its own index, so every earlier probe still answers."""
     main, wt = _main_and_worktree(tmp_path)
     (main / ".git" / "index").write_bytes(b"this is not an index")
-    probe = subprocess.run(["git", "-C", str(main), "status", "--porcelain"], capture_output=True, check=False)
-    assert probe.returncode != 0, "precondition: git status fails in main"
+    assert _git_rc(main, "status", "--porcelain") != 0, "precondition: git status fails in main"
     done = _guard(wt)
     assert done.returncode == 4, done.stdout + done.stderr
     assert "FLOW_WORKTREE_GUARD: unknown - git status of the main tree" in _verdict_line(done)
@@ -584,8 +662,7 @@ def test_guard_when_this_runs_history_cannot_be_related_to_main_is_unknown(tmp_p
     (main / "a.txt").write_text("changed in main\n", encoding="utf-8")
     _git(wt, "checkout", "-q", "--orphan", "lonely")
     _git(wt, "commit", "-q", "--allow-empty", "-m", "unrelated")
-    probe = subprocess.run(["git", "-C", str(wt), "merge-base", "HEAD", "main"], capture_output=True, check=False)
-    assert probe.returncode != 0, "precondition: no merge base with main"
+    assert _git_rc(wt, "merge-base", "HEAD", "main") != 0, "precondition: no merge base with main"
     done = _guard(wt)
     assert done.returncode == 4, done.stdout + done.stderr
     assert "FLOW_WORKTREE_GUARD: unknown - git merge-base HEAD" in _verdict_line(done)
