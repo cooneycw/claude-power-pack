@@ -324,8 +324,6 @@ Run each sub-command in sequence. These are orchestrated directly - NOT by invok
 
 ### 4a: Makefile Generation (from lib/cicd)
 
-The `lib/cicd` library can detect the framework and generate a Makefile:
-
 ```bash
 # Locate CPP source
 CPP_DIR=""
@@ -424,15 +422,20 @@ if [ -n "$CPP_DIR" ]; then
     fi
 
     # No hooks.json is installed (issue #1206): Claude Code never loads it.
+
+    # Bug form (#1697).
+    F=.github/ISSUE_TEMPLATE/bug-report.yml
+    if [ ! -e "$F" ] && [ ! -L "$F" ]; then
+        mkdir -p "${F%/*}" && cp "$CPP_DIR/templates/github/ISSUE_TEMPLATE/bug-report.yml" "$F" \
+            || echo "Bug form NOT installed"
+    fi
 fi
 ```
 
 ### 4c: Config Scaffold (delegate to native /init)
 
 Do NOT hand-roll CLAUDE.md, skills, or hooks. Delegate this half to Claude Code's
-native `/init`, which interviews the project and generates a codebase-aware
-CLAUDE.md (and scaffolds skills/hooks) far better than a fixed template. CPP then
-layers its CI/CD governance directives on top so nothing is lost.
+native `/init`. CPP then layers its CI/CD governance directives on top.
 
 1. **Run native `/init`** to scaffold the config files. Invoke it with the `Skill`
    tool (`skill: "init"`). It reads the framework scaffold from Step 2 and the

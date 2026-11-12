@@ -1,0 +1,70 @@
+{
+  "branch": "issue-1705-flow-finish-gate-prints-flow-finish-gate-exit-0-fo",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "extra_passes_reason": "Requested by the wave orchestrator (wave cpp-improvement, mailbox rev 19, 2026-11-11): both capped passes returned a real finding, and the pass-2 fix is to the negative control's own good case, in a change to the gate's exit line that three repositories read.",
+  "head": "5918654d377ce628cb457675d11a94584085616c",
+  "implementer": "claude/claude-fable-5-2",
+  "implementer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-fable-5-2"
+    ],
+    "runtime": "claude",
+    "session_id": "813e8da8-6824-48fb-833a-ef59067edd8c",
+    "sources": [
+      {
+        "bytes": 6273383,
+        "path": "-home-user-Projects/813e8da8-6824-48fb-833a-ef59067edd8c.jsonl",
+        "sha256": "f845ce819606ca111745e07d373565d3608fb8dbc5b2692b6ec82ad8f2ccf5b6"
+      }
+    ],
+    "transcript": "-home-user-Projects/813e8da8-6824-48fb-833a-ef59067edd8c.jsonl"
+  },
+  "issue": "1705",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 3,
+  "recorded_at": "2026-11-12T02:14:33Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 5
+  },
+  "reviewed_artifact": {
+    "base_sha": "6b6cc29e39464cadefc5fea53fafd15a4ce95fb4",
+    "merge_base": "3eaf643dbbc4fc38f5fbe947e5a45e79ff2c9b2b",
+    "method": "runtime-head",
+    "patch_sha256": "e8d09f045a562b1504a8eb15aa1e3831793222787d0f0855c800016eef3f5694",
+    "report_record": 53,
+    "target_head": "5918654d377ce628cb457675d11a94584085616c"
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "exec_log": "codex-review.UrjEoc.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/11/rollout-2026-11-11T21-13-16-01a1cd87-e11b-7621-aeed-f5485332984f.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 91835,
+        "path": "codex-review.UrjEoc.jsonl",
+        "sha256": "e2603add2ec6a5210b4209d2aea1c9a634d847e90e77aa9001acb05d25e1ea22"
+      },
+      {
+        "bytes": 641103,
+        "path": "2026/11/11/rollout-2026-11-11T21-13-16-01a1cd87-e11b-7621-aeed-f5485332984f.jsonl",
+        "sha256": "a586c5e43520eba1b596a6684d2285f9639cc576522efe15d7cae5f447cb1b22"
+      }
+    ],
+    "thread_id": "01a1cd87-e11b-7621-aeed-f5485332984f"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}

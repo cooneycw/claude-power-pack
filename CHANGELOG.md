@@ -4,6 +4,31 @@
 
 ### Behaviour changes you may notice
 
+- **A defect now says where it came from.** A defect report carries an
+  `Origin:` line - the issue or pull request that delivered the behaviour that
+  broke, `never worked`, or `not traced - <what was tried>` - and the pull
+  request that fixes it adds `Missed because:` with one of seven fixed reasons.
+  The lists are written once, in `docs/agents/closing-report-contract.md`,
+  with the one `gh` search that reads them back. `/github:issue-create` asks
+  for the origin on its bug path, the bug form has an optional Origin field,
+  and `/project:init` now installs a bug form in a new repository (it
+  installed no issue templates before). Nothing checks the answer; `not
+  traced` is allowed and silence is not (#1697).
+- **The ignored-additions guard now names its own remedy.** When
+  `check-ignored-additions.sh` reports files the quality gate itself wrote
+  (kyle's `dashboard-runs/`, skillc's `reports/`), its message says to declare
+  the directory in `.claude/gate-scratch.txt`. One added stderr line; exit
+  codes and markers are unchanged (#1706).
+- **`codex-skill-sync.py --install` publishes exactly what it checked, and
+  says more about where.** It no longer copies `__pycache__` from a named tree
+  (`--write --install`, `--output-root DIR --install`); a bare `--install`
+  never did. Its "skill(s) in sync" line names the real output root when that
+  is outside the checkout, which includes the private build a bare `--install`
+  checks; the in-checkout line is unchanged. When `CODEX_HOME` points somewhere
+  other than `~/.codex` it prints one stderr `NOTE` that the install wrote
+  `~/.codex/skills` and did not use it. A command description over the
+  150-character cap now fails the tests unless it has a recorded exemption
+  (#1715).
 - **The secret scanner is unchanged, and its false positives are now a
   documented declaration.** Test passwords, sentinels and shell substitutions
   such as `pg_password="$(generate_secret)"` are still reported as

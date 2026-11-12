@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Derive ADR 0008's census MEMBERSHIP from `scripts/` (issue #1060).
+"""Derive the instrument census's MEMBERSHIP from `scripts/` (issue #1060).
 
 WHERE THE CENSUS IS (issue #1671). It is `controls/census.md`, data beside the
 registered controls. It lived inside ADR 0008 until then, which made a decision
