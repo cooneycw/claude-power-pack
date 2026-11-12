@@ -1173,10 +1173,29 @@ def lanes_clause(at_close: LanesAtClose) -> str:
     Empty for `nothing-owed` and `all-shown`, so that line is byte-identical to
     what it was before #1767 wherever no lane result is owed."""
     if at_close.state == "missing":
-        return f", LANES NOT DEMONSTRATED ({', '.join(at_close.lanes)})"
+        return f", LANES NOT DEMONSTRATED ({', '.join(map(clause_lane, at_close.lanes))})"
     if at_close.state == "not-checked":
-        return f", LANES NOT CHECKED ({at_close.why})"
+        return f", LANES NOT CHECKED ({clause_reason(at_close.why)})"
     return ""
+
+
+def clause_lane(name: str) -> str:
+    """A lane name as it appears inside the clause's parentheses.
+
+    The list is read by its delimiters - `(`, `, ` and `)` - and a lane name
+    is whatever the project's lane file says, so a name carrying one of them
+    would end the list early or split in two. Those characters, `%` itself and
+    anything that is not printable are percent-encoded; every ordinary name is
+    printed as written. `urllib.parse.unquote` gives the name back."""
+    return "".join(ch if ch.isprintable() and ch not in "%(),"
+                   else "".join(f"%{b:02X}" for b in ch.encode("utf-8")) for ch in name)
+
+
+def clause_reason(why: str) -> str:
+    """A could-not-check reason inside the clause's parentheses: one line, and
+    no parenthesis of its own to end the clause early. It is prose for a
+    person, never matched against anything, so brackets stand in."""
+    return " ".join(why.translate(str.maketrans("()", "[]")).split())
 
 
 def lanes_note(at_close: LanesAtClose) -> list[str]:
@@ -1192,7 +1211,8 @@ def lanes_note(at_close: LanesAtClose) -> list[str]:
                 f"what was demonstrated: a header row, a `|---|---|` row, then {row} for each"]
     if at_close.state == "missing":
         return [f"flow-plan-record: lane answered `will test` at approval has no row in "
-                f"{at_close.rel} - {lane}. Add {row} to its table" for lane in at_close.lanes]
+                f"{at_close.rel} - {lane}. Add {row} to its table (which needs a header row "
+                "and a `|---|---|` row above it, if the file has none)" for lane in at_close.lanes]
     unchecked = "Fix that and re-run, or report the lanes as NOT CHECKED - never as demonstrated"
     if at_close.state == "not-checked" and at_close.lanes:
         return [f"flow-plan-record: {at_close.why}, so the lanes this plan said it would test "

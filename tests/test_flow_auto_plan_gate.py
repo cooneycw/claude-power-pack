@@ -96,7 +96,7 @@ def stderr_note(done: subprocess.CompletedProcess) -> list[str]:
     return [ln for ln in done.stderr.splitlines() if ln.startswith("flow-plan-record: ")]
 
 
-@pytest.mark.parametrize("start", ["no file", "one row missing"])
+@pytest.mark.parametrize("start", ["no file", "one row missing", "an empty file", "prose and no table"])
 def test_following_the_stderr_note_clears_the_clause(tmp_path: Path, start: str) -> None:
     """The passage sends a run to the stderr note. Doing exactly what the note
     says - nothing taken from this test's own knowledge of the format - is
@@ -105,6 +105,10 @@ def test_following_the_stderr_note_clears_the_clause(tmp_path: Path, start: str)
     approved(repo)
     if start == "one row missing":
         (repo / SIBLING).write_text(DEMONSTRATED.replace("| Harness | tested through a symlink |\n", ""))
+    elif start == "an empty file":
+        (repo / SIBLING).write_text("")
+    elif start == "prose and no table":
+        (repo / SIBLING).write_text("# Lanes demonstrated\n\nTo be written.\n")
     first = compliance_as(repo, "agreement")
     assert ", LANES NOT DEMONSTRATED (" in verdict(first)
     note = "\n".join(stderr_note(first))
@@ -117,6 +121,10 @@ def test_following_the_stderr_note_clears_the_clause(tmp_path: Path, start: str)
         target.write_text("| Lane | What was demonstrated |\n|---|---|\n")
     else:
         assert target.exists(), "the note said to add to a table that is not there"
+        assert "needs a header row and a `|---|---|` row above it, if the file has none" in note
+        if "|---|" not in target.read_text():
+            with target.open("a") as handle:
+                handle.write("\n| Lane | What was demonstrated |\n|---|---|\n")
     with target.open("a") as handle:
         for lane in lanes.group(1).split(", "):
             handle.write(f"| {lane} | shown |\n")

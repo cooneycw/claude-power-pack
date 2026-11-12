@@ -813,6 +813,50 @@ def test_the_clause_is_the_only_change_and_the_exit_code_does_not_move(repo: Pat
     assert "a header row, a `|---|---|` row, then `| <lane> | <what was demonstrated> |`" in new.stderr
 
 
+HOSTILE_LANE = "Checkout) - linked worktree, 100% (really)"
+
+
+def test_a_lane_name_cannot_end_or_split_the_clause(tmp_path: Path) -> None:
+    """A lane file may name a lane anything. One carrying the clause's own
+    delimiters is approved like any other; in the clause it is encoded, so the
+    parenthesised list still ends where it ends and splits where it splits."""
+    from urllib.parse import unquote
+
+    lanes = LANES.replace("| Checkout |", f"| {HOSTILE_LANE} |")
+    section = PLAN + FULL_TABLE.replace("| Checkout |", f"| {HOSTILE_LANE} |")
+    r = make_repo(tmp_path / "wt", lanes=lanes)
+    approved(r, section)
+    line = verdict(compliance_as(r, "divergence"))
+    listed = re.fullmatch(r"PLAN_COMPLIANCE: divergence, LANES NOT DEMONSTRATED \(([^()]*)\) - "
+                          r"the change and its approved plan disagree\.", line)
+    assert listed, line
+    assert [unquote(name) for name in listed.group(1).split(", ")] == [HOSTILE_LANE, "Harness"]
+    (r / SIBLING).write_text(DEMONSTRATED.replace("| Checkout |", f"| {HOSTILE_LANE} |"))
+    assert "LANES" not in verdict(compliance_as(r, "divergence")), "the name still matches its own row"
+
+
+def test_an_ordinary_lane_name_is_printed_as_written() -> None:
+    helper = _load_helper()
+    for name in ("Checkout", "CI provider", "Project state", "A_B", "Lane-2 / other"):
+        assert helper.clause_lane(name) == name
+
+
+@pytest.mark.parametrize("kind", ["directory", "dangling symlink", "not text"])
+def test_a_reason_cannot_end_the_clause_either(repo: Path, kind: str) -> None:
+    """The could-not-check reasons carry parentheses of their own."""
+    approved(repo)
+    path = repo / SIBLING
+    if kind == "directory":
+        path.mkdir()
+    elif kind == "dangling symlink":
+        path.symlink_to(repo / "nowhere.md")
+    else:
+        path.write_bytes(b"\xff\xfe\x00\x80")
+    line = verdict(compliance_as(repo, "divergence"))
+    assert re.fullmatch(r"PLAN_COMPLIANCE: divergence, LANES NOT CHECKED \([^()\n]+\) - "
+                        r"the change and its approved plan disagree\.", line), line
+
+
 def _load_helper():
     import importlib.util
 
