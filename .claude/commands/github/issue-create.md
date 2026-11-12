@@ -25,8 +25,8 @@ shows the outcome was reached, any **proposed approach** (a revisable hypothesis
 an order), and **assumptions** worth checking.
 
 These are distinctions, not required headings. A routine bug report that says what
-broke, what should happen instead, and how to reproduce it has already satisfied the
-contract; do not pad it with an invented proposed solution or assumptions nobody
+broke, what should happen instead, how to reproduce it and where the behaviour
+came from has already satisfied the contract; do not pad it with an invented proposed solution or assumptions nobody
 holds. Keep a suggested fix phrased as a suggestion, so an implementer who finds a
 better one is free to use it and report the substitution.
 
@@ -48,11 +48,13 @@ Ask the user which type of issue they want to create:
 
 ### Step 2: Gather Information
 
-Based on the issue type, gather the required information:
+Based on the issue type, gather the required information, one question at a time:
 
 **For Best Practice:**
 - Title (required)
-- Category (Skills, MCP, Session Management, etc.)
+- Category: Skills & Activation, MCP Optimization, Session Management, Context
+  Efficiency, CLAUDE.md Configuration, Hooks & Automation, Workflow Patterns, Plan
+  Mode, Code Quality, or Other
 - Description (required)
 - Example (optional)
 - Source (optional)
@@ -75,6 +77,11 @@ Based on the issue type, gather the required information:
 - Component affected
 - Bug description
 - Steps to reproduce
+- Origin: which issue or pull request delivered the behaviour that broke.
+  Write it in the body as an `Origin:` line - `#N`, `never worked`, or
+  `not traced - <what was tried>` - from the Origin list in
+  [the closing-report contract](../../../docs/agents/closing-report-contract.md#a-report-that-closes-a-defect-says-where-it-came-from).
+  Ask the user; never guess a number. Blank is not an answer.
 - Error message (if any)
 - Environment details
 
@@ -101,43 +108,3 @@ gh issue create \
 After creation:
 1. Display the issue URL
 2. Offer to open in browser: `gh issue view NUMBER --web --repo cooneycw/claude-power-pack`
-
-## Example Interaction
-
-```
-User: /github:issue-create
-
-Claude: What type of issue would you like to create?
-1. Best Practice Suggestion
-2. Documentation Correction
-3. Feature Request
-4. Bug Report
-
-User: 1
-
-Claude: Great! Let's create a best practice suggestion.
-
-What's the title of this practice?
-
-User: Use session resets after git commits
-
-Claude: Which category does this practice belong to?
-- Skills & Activation
-- MCP Optimization
-- Session Management
-- Context Efficiency
-- CLAUDE.md Configuration
-- Hooks & Automation
-- Workflow Patterns
-- Plan Mode
-- Code Quality
-- Other
-
-User: Session Management
-
-Claude: Please describe the practice and why it's useful.
-
-User: After completing a feature and committing, reset your Claude Code session...
-
-[Claude creates the issue and returns the URL]
-```

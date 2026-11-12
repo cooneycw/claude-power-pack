@@ -74,6 +74,10 @@
 # blank lines are ignored, matching the `--baseline` file convention in
 # flow-pr-watch.sh. An undeclared gate-output directory still blocks - this
 # script cannot know a consumer's output path on its own.
+# The finding message NAMES that file (issue #1706): the remedy existed for
+# months while five reports of the same block arrived, because nothing a blocked
+# session read mentioned it. The line is added after the existing ones and the
+# MODE marker stays last, so nothing that reads the message by position moves.
 #
 # Exit codes: 0 clean (or advisory), 2 usage, 3 findings while blocking,
 # 4 the ignored-file inventory could NOT be read while blocking - never 0,
@@ -295,9 +299,11 @@ echo "  (e.g. '!$( [ "${#suspicious[@]}" -ge 1 ] && echo "${suspicious[0]}" )') 
 if [ "$MODE" = blocking ]; then
   echo "  If they are scratch or deliberately local files that are not meant to ship, delete" >&2
   echo "  them or re-run with --advisory (issue #1258)." >&2
+  echo "  If the quality gate itself wrote them, declare the directory in $GATE_SCRATCH_FILE (one path prefix per line)." >&2
   echo "CHECK_IGNORED_ADDITIONS_MODE=blocking" >&2
   exit 3
 fi
 echo "  If they are scratch files, ignore this warning." >&2
+echo "  If the quality gate itself wrote them, declare the directory in $GATE_SCRATCH_FILE (one path prefix per line)." >&2
 echo "CHECK_IGNORED_ADDITIONS_MODE=advisory" >&2
 exit 0
