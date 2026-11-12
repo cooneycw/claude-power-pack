@@ -93,9 +93,14 @@
 # user about to lose work.
 #
 # Env:
-#   CLAUDE_PID              owning process id (Claude Code sets it); falls back
-#                           to $PPID
-#   CLAUDE_CODE_SESSION_ID  owning session id; falls back to '-'
+#   CLAUDE_PID              owning process id (Claude Code sets it). Unset in a
+#                           Codex session (CODEX_THREAD_ID set): the nearest
+#                           ancestor process named `codex`, because $PPID there
+#                           is a tool shell that lives for one command (issue
+#                           #1709). Otherwise, and when no such ancestor is
+#                           found, $PPID
+#   CLAUDE_CODE_SESSION_ID  owning session id; falls back to CODEX_THREAD_ID,
+#                           then to '-'
 #   FLOW_CLAIM_MAX_AGE_HOURS  a claim whose process identity could NOT be
 #                           established - another host, or no readable witness -
 #                           is treated as stale once older than this (default
@@ -121,8 +126,54 @@ trap 'printf "FLOW_CLAIM_EXIT=%d\n" "$?" >&2' EXIT
 
 GIT="${FLOW_CLAIM_GIT:-git}"
 MAX_AGE_HOURS="${FLOW_CLAIM_MAX_AGE_HOURS:-24}"
-SELF_PID="${CLAUDE_PID:-$PPID}"
-SELF_SESSION="${CLAUDE_CODE_SESSION_ID:-}"
+PROC_ROOT="${FLOW_CLAIM_PROC_ROOT:-/proc}"
+
+# codex_owner_pid - print the pid of the nearest ancestor named `codex`, or
+# nothing (issue #1709).
+#
+# A Codex session runs each command in a tool shell that exits when the command
+# does. $PPID is that shell, so a claim recording it read `stale` to every other
+# session a moment after it was written: a LIVE owner reported as gone. The
+# process that lives as long as the session is the `codex` binary above the
+# shell, so walk up to it.
+#
+# Matched by NAME, never "the first ancestor that is not a shell": a walk that
+# stopped at a login shell or a terminal would record a process that outlives
+# the session by days and hold the worktree long after its owner left. A miss
+# here records $PPID exactly as before, so the failure is no improvement rather
+# than a wrong owner.
+#
+# comm is read from between the FIRST '(' and the LAST ')' of the stat line and
+# the parent from after that last ')' - the comm field may itself contain
+# spaces and parentheses (see start_time_of).
+codex_owner_pid() {
+  local pid="$PPID" hops=0 line comm rest
+  while [ -n "$pid" ] && [ "$hops" -lt 20 ]; do
+    case "$pid" in *[!0-9]* | "" | 0 | 1) return 0 ;; esac
+    line="$(cat "$PROC_ROOT/$pid/stat" 2>/dev/null)" || return 0
+    case "$line" in *"("*") "*) : ;; *) return 0 ;; esac
+    comm="${line#*(}"; comm="${comm%)*}"
+    if [ "$comm" = codex ]; then printf '%s' "$pid"; return 0; fi
+    rest="${line##*) }"
+    # shellcheck disable=SC2086
+    set -- $rest
+    pid="${2:-}"
+    hops=$((hops + 1))
+  done
+  return 0
+}
+
+if [ -n "${CLAUDE_PID:-}" ]; then
+  SELF_PID="$CLAUDE_PID"
+elif [ -n "${CODEX_THREAD_ID:-}" ]; then
+  SELF_PID="$(codex_owner_pid)"
+  SELF_PID="${SELF_PID:-$PPID}"
+else
+  SELF_PID="$PPID"
+fi
+# Claude's id wins when both are set (a Codex child of a Claude session works
+# for that session), the precedence flow-plan-record.py already uses.
+SELF_SESSION="${CLAUDE_CODE_SESSION_ID:-${CODEX_THREAD_ID:-}}"
 SELF_HOST="${FLOW_CLAIM_HOST:-${HOSTNAME:-$(hostname 2>/dev/null || echo unknown)}}"
 NOW="${FLOW_CLAIM_NOW:-$(date +%s)}"
 
@@ -149,8 +200,6 @@ emit() {
 abspath() {
   if [ -d "$1" ]; then (cd "$1" 2>/dev/null && pwd -P); else echo "$1"; fi
 }
-
-PROC_ROOT="${FLOW_CLAIM_PROC_ROOT:-/proc}"
 
 # start_time_of PID - print the process's start instant, or nothing when it
 # cannot be read (no such process, or no readable /proc on this host).
@@ -224,7 +273,22 @@ is_alive() {
     case "$line" in
       *") "*)
         rest="${line##*) }"
-        case "$rest" in Z\ *|X\ *) O_STALE_REASON=owner-zombie; return 1 ;; esac
+        case "$rest" in
+          X\ *) O_STALE_REASON=owner-zombie; return 1 ;;
+          Z\ *)
+            # State Z on the thread-group leader is NOT proof of death (issue
+            # #1709): a process whose main thread exited while other threads
+            # still run reads Z here too, and it can still write to the
+            # worktree. A reaped-pending zombie has exactly one thread left.
+            # Field 20 of the line (18 after the comm) is the thread count; an
+            # unreadable count is treated as one, the reading #1605 fixed.
+            # shellcheck disable=SC2086
+            set -- $rest
+            case "${18:-1}" in
+              *[!0-9]* | "" | 0 | 1) O_STALE_REASON=owner-zombie; return 1 ;;
+            esac
+            ;;
+        esac
         ;;
     esac
   fi

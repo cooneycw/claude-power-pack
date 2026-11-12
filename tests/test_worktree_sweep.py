@@ -992,3 +992,234 @@ def test_the_real_remove_helper_exists_where_the_sweep_looks(tmp_path: Path) -> 
     assert REMOVE.is_file()
     assert os.access(REMOVE, os.X_OK)
     assert REMOVE.parent == SWEEP.parent
+
+
+# --------------------------------------------------------------------------
+# Issue #1709: a locked worktree whose claim is PROVEN stale is not skipped.
+#
+# The sweep used to pass over every locked worktree. A session that finished
+# and exited without releasing its claim is the commonest end state, and
+# nothing else ever releases that claim, so finished worktrees piled up.
+#
+# The sweep now asks the claim helper, and looks past the lock for exactly
+# three reasons. The direction that matters is the other one: a claim whose
+# owner may still be running must stay final. These tests drive the REAL claim
+# helper for every reason word it can emit, then a fake one for a word it
+# cannot emit yet.
+# --------------------------------------------------------------------------
+
+CLAIM = ROOT / "scripts" / "flow-worktree-claim.sh"
+PROVEN_STALE = {"owner-exited", "owner-zombie", "recycled-pid"}
+NOT_PROVEN = {"aged-out-unverified", "aged-out-remote-host"}
+
+
+def _claim_env(proc: Path, live: str) -> dict[str, str]:
+    return {
+        "CLAUDE_PID": "4242", "CLAUDE_CODE_SESSION_ID": "the-sweeper",
+        "FLOW_CLAIM_HOST": "testhost", "FLOW_CLAIM_LIVE_PIDS": live,
+        "FLOW_CLAIM_PROC_ROOT": str(proc),
+    }
+
+
+def _owner_stat(proc: Path, pid: str, *, state: str = "S", start: str = "111") -> None:
+    rest = [state, "1"] + ["0"] * 18
+    rest[17] = "1"
+    rest[19] = start
+    (proc / pid).mkdir(parents=True, exist_ok=True)
+    (proc / pid / "stat").write_text(f"{pid} (owner) " + " ".join(rest) + "\n")
+
+
+def _pose_claim(main: Path, wt: Path, proc: Path, reason: str) -> dict[str, str]:
+    """Lock WT so the real claim helper answers `stale` with REASON (or `held`).
+    Returns the environment under which it does."""
+    proc.mkdir(parents=True, exist_ok=True)
+    now = int(time.time())
+    host, ts, start, live = "testhost", now, " start=111", "4242:9999"
+    if reason == "owner-exited":
+        live = "4242"
+    elif reason == "owner-zombie":
+        _owner_stat(proc, "9999", state="Z")
+    elif reason == "recycled-pid":
+        _owner_stat(proc, "9999", start="999")
+    elif reason == "aged-out-unverified":
+        ts, start = now - 48 * 3600, ""
+    elif reason == "aged-out-remote-host":
+        host, ts = "elsewhere", now - 48 * 3600
+    elif reason == "held":
+        _owner_stat(proc, "9999")
+    else:
+        raise AssertionError(reason)
+    _git(main, "worktree", "lock", str(wt), "--reason",
+         f"flow-claim issue=7 pid=9999 session=gone host={host} ts={ts}{start}")
+    return _claim_env(proc, live)
+
+
+def _claim_says(wt: Path, env: dict[str, str]) -> tuple[str, str]:
+    out = subprocess.run(["bash", str(CLAIM), "check", str(wt)], env={**os.environ, **env},
+                         capture_output=True, text=True, check=False).stdout
+    got = dict(ln.split("=", 1) for ln in out.splitlines() if "=" in ln)
+    verdict = next(ln.split(": ", 1)[1] for ln in out.splitlines() if ln.startswith("FLOW_CLAIM: "))
+    return verdict, got["FLOW_CLAIM_STALE_REASON"]
+
+
+def test_the_reason_words_the_claim_helper_can_emit_are_all_accounted_for() -> None:
+    """A reason word added to the helper must be sorted into one of the two
+    sets here, by a person, before this passes again."""
+    import re
+    words = set(re.findall(r"O_STALE_REASON=([a-z][a-z-]+)", CLAIM.read_text()))
+    assert words == PROVEN_STALE | NOT_PROVEN, words
+    sweep = SWEEP.read_text()
+    listed = re.search(r"case \"\$reason\" in\n\s+([a-z| -]+)\) return 0", sweep)
+    assert listed, "the sweep's allowlist of reasons was not found"
+    assert {w.strip() for w in listed.group(1).split("|")} == PROVEN_STALE
+
+
+@requires_git
+@requires_proc
+@pytest.mark.parametrize("reason", sorted(PROVEN_STALE))
+def test_a_claim_proven_stale_does_not_keep_a_finished_worktree(tmp_path: Path, reason: str) -> None:
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "widget-issue-7", "issue-7")
+    env = _pose_claim(main, wt, tmp_path / "proc", reason)
+    assert _claim_says(wt, env) == ("stale", reason), "precondition: the claim reads as posed"
+    bindir = tmp_path / "bin"
+    _fake_gh(bindir)
+    env["FAKE_GH_ROWS"] = f"issue-7=MERGED|{_tip(wt)}|7"
+
+    dry = _run_sweep(main, bindir=bindir, env=env)
+    assert _dispositions(dry.stdout)[str(wt)].startswith("removable"), dry.stdout
+    assert wt.exists()
+
+    applied = _run_sweep(main, "--apply", bindir=bindir, env=env)
+    assert _dispositions(applied.stdout)[str(wt)].startswith("removed"), applied.stdout + applied.stderr
+    assert not wt.exists()
+
+
+@requires_git
+@requires_proc
+@pytest.mark.parametrize("reason", sorted(NOT_PROVEN) + ["held"])
+def test_a_claim_whose_owner_may_be_running_stays_final(tmp_path: Path, reason: str) -> None:
+    """Expired is not gone. Both aged-out reasons are `stale` to a session that
+    needs the worktree, and both leave the process possibly alive."""
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "widget-issue-7", "issue-7")
+    env = _pose_claim(main, wt, tmp_path / "proc", reason)
+    expected = ("held", "-") if reason == "held" else ("stale", reason)
+    assert _claim_says(wt, env) == expected, "precondition: the claim reads as posed"
+    bindir = tmp_path / "bin"
+    _fake_gh(bindir)
+    env["FAKE_GH_ROWS"] = f"issue-7=MERGED|{_tip(wt)}|7"
+
+    res = _run_sweep(main, "--apply", bindir=bindir, env=env)
+    assert _dispositions(res.stdout)[str(wt)] == "skip locked", res.stdout
+    assert wt.exists()
+
+
+def _sweep_beside_a_fake_claim_helper(bindir: Path, verdict: str, reason: str) -> tuple[Path, Path]:
+    """The sweep, a recording remove helper, and a claim helper that says
+    whatever the test needs - the only way to pose a reason word the real
+    helper cannot emit."""
+    script, log = _recording_helper(bindir)
+    fake = bindir / "flow-worktree-claim.sh"
+    fake.write_text(
+        "#!/bin/bash\n"
+        f'echo "FLOW_CLAIM_STALE_REASON={reason}"\n'
+        f'echo "FLOW_CLAIM: {verdict}"\n'
+    )
+    fake.chmod(0o755)
+    return script, log
+
+
+@requires_git
+@requires_proc
+@pytest.mark.parametrize("verdict,reason,looked_past", [
+    ("stale", "owner-exited", True),            # shows the fake helper is consulted
+    ("stale", "a-reason-added-next-year", False),
+    ("stale", "-", False),
+    ("stale", "", False),
+    ("held", "owner-exited", False),            # a reason without the verdict is nothing
+    ("foreign", "-", False),
+    ("unknown", "-", False),
+    ("", "", False),                            # a helper that printed no verdict
+])
+def test_an_unlisted_reason_defaults_to_skip(tmp_path, verdict, reason, looked_past) -> None:
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "widget-issue-8", "issue-8")
+    _git(main, "worktree", "lock", str(wt), "--reason", "flow-claim issue=8 pid=1 host=x ts=1")
+    ghbin = tmp_path / "bin"
+    _fake_gh(ghbin)
+    script, log = _sweep_beside_a_fake_claim_helper(tmp_path / "helperbin", verdict, reason)
+
+    res = _run_sweep(main, "--apply", bindir=ghbin, script=script,
+                     env={"FAKE_GH_ROWS": f"issue-8=MERGED|{_tip(wt)}|8"})
+
+    if looked_past:
+        recorded = log.read_text()
+        assert str(wt) in recorded, res.stdout + res.stderr
+        flags = {tok for tok in recorded.split() if tok.startswith("--")}
+        assert flags == {"--delete-branch"}, f"the sweep passed {sorted(flags)}; never --steal"
+    else:
+        assert _dispositions(res.stdout)[str(wt)] == "skip locked", res.stdout
+        assert not log.exists(), "the remove helper was reached for a claim that is not proven stale"
+
+
+@requires_git
+@requires_proc
+def test_with_no_claim_helper_a_lock_stays_final(tmp_path: Path) -> None:
+    """Lane: an install that ships the sweep without its sibling. No helper is
+    not evidence the claim is stale."""
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "widget-issue-9", "issue-9")
+    env = _pose_claim(main, wt, tmp_path / "proc", "owner-exited")
+    assert _claim_says(wt, env) == ("stale", "owner-exited")
+    ghbin = tmp_path / "bin"
+    _fake_gh(ghbin)
+    script, log = _recording_helper(tmp_path / "helperbin")
+    empty_home = tmp_path / "home"
+    empty_home.mkdir()
+    assert not (tmp_path / "helperbin" / "flow-worktree-claim.sh").exists()
+
+    res = _run_sweep(main, "--apply", bindir=ghbin, script=script,
+                     env={**env, "HOME": str(empty_home),
+                          "FAKE_GH_ROWS": f"issue-9=MERGED|{_tip(wt)}|9"})
+    assert _dispositions(res.stdout)[str(wt)] == "skip locked", res.stdout
+    assert not log.exists()
+
+
+@requires_git
+@requires_proc
+@pytest.mark.parametrize("unfinished,expected", [
+    ("untracked", "skip dirty"),
+    ("unpushed", "skip unpushed"),
+    ("no-pr", "skip pr-none"),
+    ("open-pr", "skip pr-open"),
+])
+def test_a_stale_claim_does_not_weaken_the_five_conditions(tmp_path, unfinished, expected) -> None:
+    """Looking past the lock is not a decision to remove. A proven-stale claim
+    on a worktree that still holds work keeps the worktree AND its claim."""
+    main = _repo(tmp_path)
+    wt = _add_worktree(main, tmp_path / "widget-issue-10", "issue-10")
+    merged = _tip(wt)
+    rows = f"issue-10=MERGED|{merged}|10"
+    if unfinished == "untracked":
+        (wt / "notes.txt").write_text("never added\n")
+    elif unfinished == "unpushed":
+        (wt / "later.md").write_text("committed here and nowhere else\n")
+        _git(wt, "add", "-A")
+        _git(wt, "commit", "-qm", "local only")
+    elif unfinished == "no-pr":
+        rows = ""
+    elif unfinished == "open-pr":
+        rows = f"issue-10=OPEN|{merged}|10"
+    env = _pose_claim(main, wt, tmp_path / "proc", "owner-exited")
+    assert _claim_says(wt, env) == ("stale", "owner-exited")
+    bindir = tmp_path / "bin"
+    _fake_gh(bindir)
+    env["FAKE_GH_ROWS"] = rows
+
+    res = _run_sweep(main, "--apply", bindir=bindir, env=env)
+    assert _dispositions(res.stdout)[str(wt)].startswith(expected), res.stdout
+    assert wt.exists()
+    assert "locked flow-claim" in _git(main, "worktree", "list", "--porcelain"), (
+        "the sweep released a claim on a worktree it then kept"
+    )
