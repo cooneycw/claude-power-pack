@@ -1539,12 +1539,18 @@ class TestFinishGateFallbackParity:
         # named explicitly because it is the load-bearing part: with a pipe in
         # play, a bare `||` would read `tee`'s status and the lane would record
         # success for every failing gate.
+        #
+        # Since issue #1692 the make and uv forms share ONE body: each lane
+        # only chooses `cmd`, and the invocation and the grading are written
+        # once. So the two lanes are pinned by their `cmd` choice, and the
+        # shared invocation and its PIPESTATUS grading by exactly one line each.
         assert 'grep -q "^${id}:" Makefile 2>/dev/null' in body
-        assert 'make "${id}" 2>&1 | tee' in body
-        assert "uv run --extra dev ${uvargs} 2>&1 | tee" in body
-        assert body.count('[[ "${PIPESTATUS[0]}" -eq 0 ]] || FAILED=1') == 2, (
-            "both non-test fallback lanes must grade on the COMMAND's exit "
-            "status, not the tee's"
+        assert 'cmd=(make "${id}")' in body
+        assert "cmd=(uv run --extra dev ${uvargs})" in body
+        assert body.count('"${cmd[@]}" 2>&1 | tee "$gate_output"') == 1
+        assert body.count('[[ "${PIPESTATUS[0]}" -eq 0 ]] || FAILED=1') == 1, (
+            "the shared non-test fallback body must grade on the COMMAND's "
+            "exit status, not the tee's"
         )
         for gid in gate_ids:
             if f"run_fallback_gate {gid} " in body:

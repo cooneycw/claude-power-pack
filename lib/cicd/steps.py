@@ -16,7 +16,7 @@ import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional, Protocol
+from typing import Any, Optional
 
 from .coverage import StageCoverage, merge_stream_coverage, parse_stage_coverage
 from .manifest_path import MANIFEST_PATH
@@ -42,15 +42,13 @@ _CPP_ROOT = str(Path(__file__).resolve().parents[2])
 # basename that names the runner - which is all #621 needs to recognize a
 # `make test` recipe hiding under an unhelpful step id.
 #
-# This REVERSES a pinned trade-off. #621/#704 scanned paths too and called the
-# cost accepted; #704 only moved fixtures out of its way. But the finish plan's
-# own typecheck fallback embeds `_CPP_ROOT`, and a flow worktree is named for
-# its issue slug - so any issue with "test" in its title turned typecheck into
-# a test step with no summary and the gate into `warn`, a local verdict CI (at
-# a different path) could never see. A directory name is not evidence that a
-# test runner runs. Residual, stated: a path's FINAL component is still read,
-# since a bare token cannot be told from a program name. Pinned by
-# tests/test_cicd_outcomes.py::TestStepGating.
+# A directory name is not evidence that a test runner runs (#1294, reversing
+# #621/#704): a flow worktree is named for its issue slug, so any issue with
+# "test" in its title would turn typecheck into a test step (the finish plan's
+# typecheck fallback embeds `_CPP_ROOT`), a local verdict CI at a different path
+# could never see. Residual, stated:
+# a path's FINAL component is still read, since a bare token cannot be told
+# from a program name. Pinned by tests/test_cicd_outcomes.py::TestStepGating.
 _TEST_STEP_HINT = re.compile(
     r"(?:^|[^a-z])(?:tests?|pytest|jest|vitest|unittest|nose)(?:[^a-z]|$)",
     re.IGNORECASE,
@@ -237,17 +235,6 @@ def _command_names_runner(command: str, depth: int = 0) -> bool:
     return False
 
 
-class StepExecutor(Protocol):
-    """Protocol for step execution implementations."""
-
-    id: str
-    timeout_seconds: int
-    max_attempts: int
-    idempotent: bool
-
-    def execute(self, context: dict[str, Any]) -> StepResult: ...
-
-
 @dataclass
 class StepResult:
     """Result of executing a single step."""
@@ -283,7 +270,7 @@ TIMEOUT_EXIT_CODE = 124
 class StepDef:
     """Definition of a step from the task manifest or built-in plan.
 
-    This is the configuration - StepExecutor handles execution.
+    This is the configuration - ShellStep handles execution.
     """
 
     id: str
@@ -828,31 +815,15 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
             skip_if="! python3 -c 'import lib.security' 2>/dev/null",
             env={"PYTHONPATH": _CPP_ROOT},
         ),
-        # `make verify`, THE GATE THIS HELPER WAS ALREADY SPEAKING FOR (#1147).
-        #
-        # `/flow:auto` clears a PR on this plan's verdict, and CLAUDE.md's own
-        # directive is "after any fix, verify through the full pipeline with
-        # `make verify`" - but the plan ran three of verify's prerequisites and
-        # nothing else, so the gate consumed verify's authority without running
-        # it. Measured on af348f8: 25 verify gates, 3 run, 22 never. #1145 is
-        # the instance - `claude-md-behavior-check` exited 2 on that tree while
-        # this gate reported `ok` and cleared PR #1144.
-        #
-        # A TEST OF AN INSTRUMENT IS NOT A RUN OF IT. That checker's own tests
-        # passed in the same suite, because the checker works; its verdict on
-        # the real tree was never asked for.
+        # `make verify`, the full pipeline CLAUDE.md names (#1147): a plan that
+        # runs only three of verify's prerequisites consumes verify's authority
+        # without running it (#1145). A test of an instrument is not a run of it.
         #
         # No `uv run` fallback, unlike the three above: `verify` is a Makefile
         # aggregate with no tool equivalent, so a repo without the target has
         # nothing to degrade to. It SKIPS there, and the skip is reported by
         # name - "this repo has no verify target" and "verify passed" must not
         # render the same.
-        #
-        # KNOWN COST, measured and not hidden: verify's own prerequisites
-        # include lint, test and typecheck (Makefile:385), and these are
-        # separate `make` invocations, so those three run twice per gate. The
-        # subsumption - running verify INSTEAD of the three where it exists - is
-        # a change to the existing ids and is tracked separately.
         StepDef(
             id="verify",
             gate=True,
@@ -948,16 +919,10 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
 # the #628 false green, so the runner names skipped gates and
 # flow-finish-gate.sh reports `warn` rather than flattening the run to `ok`.
 #
-# DERIVED from the step declarations above, never hand-written (issue #890).
-# The literal it replaces said {"lint", "test", "typecheck"} and omitted
-# `security_scan` for three releases. That omission was not a typo - it was a
-# CATEGORICAL reading of the word "gate" (the three #617 quality gates) rather
-# than an answer to the question the set is actually consulted for. The two
-# readings agree for lint/test/typecheck and disagree for security_scan, whose
-# skip_if is `! python3 -c 'import lib.security'`: it skips exactly when the
-# scanner is not installed, which is precisely when a warn is warranted. A
-# containerised session has no CPP checkout, so it could run its gate, skip the
-# security scan and report a bare `ok`.
+# DERIVED from the step declarations above, never hand-written (issue #890):
+# a hand-written literal omitted `security_scan`, whose skip_if skips exactly
+# when the scanner is not installed, which is precisely when a warn is
+# warranted.
 #
 # Deriving it is what makes a repeat impossible rather than merely corrected:
 # there is no second place to update, so a gate cannot be declared and left out
@@ -1007,16 +972,6 @@ def plan_gate_ids(plan_name: str, step_defs: list[StepDef]) -> list[str]:
 #: `-p -n`). Doing it once per gate run rather than once per question keeps
 #: that at the minimum the answer requires.
 _MAKE_PREREQ_CACHE: dict[tuple[Any, ...], Optional[str]] = {}
-
-#: A makefile that reads `MAKEFLAGS` can resolve differently under the query
-#: than under the run, because `-p -n` ARE make flags (counter-model review,
-#: round 2). Measured: `verify: lint` guarded by
-#: `ifneq (,$(findstring n,$(MAKEFLAGS)))` is reported by the query and is NOT
-#: run by `make verify`, which is this issue's false green with the conditional
-#: keyed on the query itself. Naming the goal fixed `MAKECMDGOALS`; nothing can
-#: fix `MAKEFLAGS` while the query needs flags. So a makefile that mentions it
-#: is refused outright rather than answered wrongly.
-_MAKEFLAGS_SENSITIVE = re.compile(r"\bMAKEFLAGS\b")
 
 #: Make's OWN variables, removed from the query's environment.
 #:
@@ -1196,13 +1151,9 @@ def make_declares_target(
 
 #: THE POSITIVE GRAMMAR (issue #1165, orchestrator ratification of option B).
 #:
-#: Two counter-model passes produced FIFTEEN findings against this derivation,
-#: every one of them a way for a quality gate to be recorded as covered while
-#: never running, and every one a construct the reader had not anticipated:
-#: inactive conditionals, MAKECMDGOALS, MAKEFLAGS, recursive `$(MAKE)`,
-#: target-specific variables, escaped hashes, escaped spaces, `$(error)`. A
-#: sixteenth was always going to exist, because a list of FORBIDDEN constructs
-#: can only ever name the ones somebody already thought of.
+#: A list of FORBIDDEN constructs can only ever name the ones somebody already
+#: thought of (inactive conditionals, MAKECMDGOALS, MAKEFLAGS, recursive
+#: `$(MAKE)`, target-specific variables, escaped hashes and spaces, `$(error)`).
 #:
 #: So the set is what is ALLOWED, and it is CLOSED. A makefile is queried only
 #: when every one of its logical lines is one of four shapes; anything else -
@@ -1315,8 +1266,7 @@ def makefile_grammar_refusal(project_root: str) -> Optional[str]:
     THE REFUSAL IS CORRECT AND STAYS WIDE. Refusing costs a duplicate run;
     accepting wrongly costs the thing the gate exists for. Admitting an
     `include` of a VARIABLE would query a tree whose included CONTENT was never
-    inspected - `_reads_makeflags` reads the top-level makefile only and says
-    so - and admitting only a statically resolvable include is safe precisely
+    inspected, and admitting only a statically resolvable include is safe precisely
     because it excludes the variable form, so it would not reach the consumer
     that motivated the issue. Either the admission is unsafe or it is useless.
 
@@ -1356,29 +1306,6 @@ def makefile_grammar_refusal(project_root: str) -> Optional[str]:
                     continue  # a rule, all plain names
         return f"line {number}: {_construct_name(line)}"
     return None
-
-
-def _reads_makeflags(makefile: Path) -> bool:
-    """Does this makefile resolve differently depending on make's own flags?
-
-    The query runs `make -p -n`; the gate runs `make verify`. Those differ in
-    `MAKEFLAGS`, and a makefile is allowed to branch on it - so for such a tree
-    the query answers a question about itself. Measured (counter-model review,
-    round 2): `verify: lint` guarded by `ifneq (,$(findstring n,$(MAKEFLAGS)))`
-    is REPORTED by the query and is NOT run by `make verify`, so a broken lint
-    would be suppressed in favour of an aggregate that never runs it.
-
-    THE BOUND, STATED: this reads the top-level `Makefile` only. A reference
-    inside an `include`d file is not seen, so this narrows the hazard rather
-    than closing it. It is worth having anyway - the shape is rare, the check
-    is two lines, and the failure it removes is a silent false green - but a
-    reader must not take a pass here as proof the tree is flag-insensitive.
-    Unreadable counts AS sensitive: refusing costs a duplicate run.
-    """
-    try:
-        return bool(_MAKEFLAGS_SENSITIVE.search(makefile.read_text(encoding="utf-8", errors="replace")))
-    except OSError:
-        return True
 
 
 def _explicit_rule(database: str, target: str) -> Optional[list[str]]:
@@ -1461,38 +1388,6 @@ def _explicit_rule(database: str, target: str) -> Optional[list[str]]:
             return out
         previous = line
     return None
-
-
-#: Step commands that are a recognised way of running `make <target>`.
-#:
-#: An ALLOWLIST, defaulting to "not subsumed", because the question - does this
-#: step run the same check the aggregate's prerequisite runs? - is not decidable
-#: in general from a shell string. Two shapes exist in this repository and both
-#: are genuinely equivalent where the question arises:
-#:
-#:   `make lint`
-#:   `if grep -q "^lint:" Makefile 2>/dev/null; then make lint; else <alt>; fi`
-#:
-#: The second runs `make lint` exactly when a `lint:` target exists - and
-#: subsumption only arises when make NAMED lint a prerequisite, which requires
-#: that target. Anything else is reported by name WITH its command, so the
-#: duplicate run explains itself and the allowlist grows from evidence rather
-#: than from guessing.
-#: HORIZONTAL whitespace only, and the WHOLE command must match. `\s` spans
-#: newlines, so `make\nlint` - two shell commands - satisfied the direct form;
-#: and the conditional form matched a PREFIX, so `... && false; then make lint;
-#: else exit 1; fi` and a trailing `; exit 1` were both accepted. Suppressing
-#: such a step removes a failure the aggregate cannot reproduce (counter-model
-#: review).
-_MAKE_INVOCATION = re.compile(r"\Amake[ \t]+(?P<target>[A-Za-z0-9_.-]+)[ \t]*\Z")
-_GENERATED_CONDITIONAL = re.compile(
-    r'\Aif[ \t]+grep[ \t]+-q[ \t]+"\^(?P<guard>[A-Za-z0-9_.-]+):"[ \t]+Makefile'
-    r"[ \t]*(?:2>/dev/null)?[ \t]*;[ \t]*"
-    r"then[ \t]+make[ \t]+(?P<target>[A-Za-z0-9_.-]+);[ \t]*"
-    r"else[ \t]+[^;]+;[ \t]*fi[ \t]*\Z"
-)
-#: `verify: CHECKS = lint` and friends - an assignment, not a rule.
-_TARGET_VARIABLE = re.compile(r"\A[ \t]*[A-Za-z0-9_.-]+[ \t]*[:+?]?=")
 
 
 def command_runs_make_target(
@@ -1820,18 +1715,10 @@ def get_plan_steps(plan_name: str, project_root: Optional[str] = None) -> list[S
 
     root = Path(project_root) if project_root else Path(".")
 
-    # A MANIFEST THAT EXISTS AND CANNOT BE READ IS A HARD FAILURE (issue #1163,
-    # counter-model review post-merge). This used to catch ImportError and fall
-    # through to BUILTIN_PLANS, which was harmless only because the CLI could
-    # not START without pydantic - the process died before reaching here.
-    #
-    # #1163 deliberately removed that: `python3 -m lib.cicd run` now starts on
-    # the stdlib alone, so the fall-through became reachable, and it SILENTLY
-    # SUBSTITUTES A DIFFERENT PLAN. Measured on this repository with pydantic
-    # blocked: `deploy` returned the built-in steps, losing `drift_check` and
-    # gaining `stale_commit_check`, with no warning and a successful run. A
-    # loud failure had been turned into a quiet change of which checks execute,
-    # by a change whose whole purpose was to make a lane reachable.
+    # A MANIFEST THAT EXISTS AND CANNOT BE READ IS A HARD FAILURE (issue #1163).
+    # Falling through to BUILTIN_PLANS on an ImportError would SILENTLY
+    # SUBSTITUTE A DIFFERENT PLAN: a quiet change of which checks execute. The
+    # branch IS reachable: `python3 -m lib.cicd run` starts on the stdlib alone.
     #
     # So the two cases are separated. No manifest FILE means there is nothing
     # to lose and the built-in plans are the right answer. A manifest that is
