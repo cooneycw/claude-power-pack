@@ -43,33 +43,53 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+#: Variables that would route git away from the fixture repository, or make a
+#: helper under test read state from outside its temporary directory.
+_ROUTING = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR",
+            "GIT_PREFIX", "GIT_NAMESPACE", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CEILING_DIRECTORIES",
+            "FLOW_CLAIM_PROC_ROOT", "FLOW_CLAIM_LIVE_PIDS", "FLOW_CLAIM_GIT", "FLOW_WORKTREE_GIT",
+            "FLOW_CLAIM_MUTEX_WAIT", "FLOW_LEAK_FRESH_MIN", "FLOW_WORKTREE_SWEEP_PROC_ROOT",
+            "WORKTREE_REMOVE_PROC_ROOT", "CODEX_THREAD_ID", "TMPDIR")
+
+
+def _clean_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+    """The host environment minus anything that could point git, or a helper,
+    at a repository or a state other than the fixture's own; with the user's
+    and the system's git configuration (hooks, templates, signing) switched
+    off. `extra` is applied last, so a test's deliberate override wins."""
+    env = {k: v for k, v in os.environ.items() if k not in _ROUTING}
+    env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+    env.update(extra or {})
+    return env
+
+
 def _git(cwd: Path, *args: str) -> str:
     return subprocess.run(
         ["git", "-C", str(cwd), "-c", "user.email=t@example.com", "-c", "user.name=t",
-         "-c", "commit.gpgsign=false", *args],
-        check=True, capture_output=True, text=True, timeout=60,
+         "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", *args],
+        check=True, capture_output=True, text=True, timeout=60, env=_clean_env(),
     ).stdout
 
 
 def _run(script: Path, *args: str, cwd: Path, env: dict[str, str] | None = None,
          ) -> subprocess.CompletedProcess[str]:
-    full = dict(os.environ)
-    for leak in ("FLOW_CLAIM_PROC_ROOT", "FLOW_CLAIM_LIVE_PIDS", "FLOW_CLAIM_GIT", "FLOW_WORKTREE_GIT",
-                 "FLOW_CLAIM_MUTEX_WAIT", "CODEX_THREAD_ID"):
-        full.pop(leak, None)
-    full.update(env or {})
-    return subprocess.run(["bash", str(script), *args], cwd=cwd, env=full, stdin=subprocess.DEVNULL,
-                          capture_output=True, text=True, timeout=60, check=False)
+    return subprocess.run(["bash", str(script), *args], cwd=cwd, env=_clean_env(env),
+                          stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60, check=False)
 
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _TRAILER = re.compile(r"^[A-Z][A-Z_]*_EXIT=\d+$")
 
 
-def _assert_stopped_at(done: subprocess.CompletedProcess[str], message: str, *, then: tuple[str, ...] = ()) -> None:
-    """The script printed `message` ONCE and then stopped: nothing follows it
-    on stderr but lines that belong to the same refusal (`then`) and the exit
-    trailer.
+def _assert_stopped_at(done: subprocess.CompletedProcess[str], message: str, *, then: tuple[str, ...] = (),
+                       stdout: tuple[str, ...] = ()) -> None:
+    """The script printed `message` ONCE and then stopped.
+
+    On stderr, nothing follows it but lines that belong to the same refusal
+    (`then`) and the exit trailer. On stdout, every line is one the caller
+    named in `stdout` (text the script prints BEFORE it refuses) - by default
+    there must be none, because the two streams cannot be ordered against each
+    other and work done after a refusal would show up there.
 
     Asserting the message and the exit code is not enough. Several of these
     refusals are followed by a second line of defence with the same exit code,
@@ -82,6 +102,32 @@ def _assert_stopped_at(done: subprocess.CompletedProcess[str], message: str, *, 
     assert len(hits) == 1, f"expected {message!r} exactly once on stderr, saw {len(hits)}:\n{done.stderr}"
     after = [ln for ln in lines[hits[0] + 1:] if not _TRAILER.match(ln) and not any(t in ln for t in then)]
     assert not after, f"the script went on after refusing with {message!r}:\n" + "\n".join(after)
+    out = [_ANSI.sub("", ln) for ln in done.stdout.splitlines() if ln.strip()]
+    stray = [ln for ln in out if not any(t in ln for t in stdout)]
+    assert not stray, f"unexpected stdout around the refusal {message!r}:\n" + "\n".join(stray)
+
+
+def _result(stderr: str, stdout: str = "") -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess(args=["x"], returncode=1, stdout=stdout, stderr=stderr)
+
+
+def test_the_stop_assertion_accepts_a_script_that_stopped() -> None:
+    _assert_stopped_at(_result("Error: no\n  because\nX_EXIT=1\n", "Usage: x\n"), "Error: no",
+                       then=("because",), stdout=("Usage:",))
+
+
+@pytest.mark.parametrize("stderr,stdout,why", [
+    ("Error: no\nrunning on anyway\nX_EXIT=1\n", "", "more stderr after the refusal"),
+    ("Error: no\nError: no\nX_EXIT=1\n", "", "the refusal printed twice: a second site fired"),
+    ("X_EXIT=1\n", "", "the refusal never printed"),
+    ("Error: no\nX_EXIT=1\n", "rm -rf -- /target\n", "work on stdout"),
+    ("Error: no\nX_EXIT=1\n", "Usage: x\nremoved worktree\n", "an allowed stdout line plus a stray one"),
+], ids=["stderr-continues", "printed-twice", "never-printed", "stdout-work", "stdout-partly-allowed"])
+def test_the_stop_assertion_rejects_a_script_that_ran_on(stderr: str, stdout: str, why: str) -> None:
+    """The helper is the instrument every refusal test here leans on, so it
+    gets its own known-bad inputs."""
+    with pytest.raises(AssertionError):
+        _assert_stopped_at(_result(stderr, stdout), "Error: no", stdout=("Usage:",))
 
 
 def _main_and_worktree(tmp_path: Path) -> tuple[Path, Path]:
@@ -232,7 +278,7 @@ def test_remove_no_path_names_what_is_missing(tmp_path: Path) -> None:
     """Already reached by a test that asserts only the exit code; this pins the text."""
     done = _run(REMOVE, cwd=tmp_path)
     assert done.returncode == 1
-    _assert_stopped_at(done, "Error: Worktree path is required")
+    _assert_stopped_at(done, "Error: Worktree path is required", stdout=("Usage: worktree-remove.sh",))
 
 
 def test_remove_a_directory_that_is_not_a_worktree_says_so(tmp_path: Path) -> None:
@@ -268,7 +314,8 @@ def test_remove_refuses_when_it_cannot_enter_the_main_repository(tmp_path: Path)
     (wt / "work.txt").write_text("someone's work\n", encoding="utf-8")
     done = _run(REMOVE, str(wt), "--force", cwd=wt)
     assert done.returncode == 1, done.stdout + done.stderr
-    _assert_stopped_at(done, "Error: Failed to change to main repository")
+    _assert_stopped_at(done, "Error: Failed to change to main repository",
+                       stdout=("Currently inside worktree being removed.", "Changing to main repository:"))
     assert (wt / "work.txt").exists()
 
 
@@ -361,7 +408,11 @@ def test_a_find_stub_that_changes_nothing_does_not_produce_that_refusal(tmp_path
 
 
 @pytest.mark.parametrize("behaviour,body", [
-    ("readlink-fails", "exit 1"),
+    # Fails AND prints the right answer: if the failure refusal were gone the
+    # script would carry on with a good path and NOT reach the empty-answer
+    # refusal, so this case cannot be satisfied by its neighbour.
+    ("readlink-fails", 'REAL "$@"\nexit 1'),
+    # Succeeds and prints nothing: only the empty-answer refusal can catch it.
     ("readlink-prints-nothing", "exit 0"),
 ])
 def test_finish_partial_refuses_a_path_it_cannot_resolve(tmp_path: Path, behaviour: str, body: str) -> None:
@@ -559,8 +610,12 @@ def test_a_seam_git_that_changes_nothing_gives_the_ordinary_verdict(tmp_path: Pa
     pass-through git is an ordinary verdict about main, not `unknown`."""
     main, wt = _main_and_worktree(tmp_path)
     (main / "a.txt").write_text("changed in main\n", encoding="utf-8")
-    done = _guard(wt, env=_git_seam(tmp_path, 'exec REAL "$@"'))
-    assert "FLOW_WORKTREE_GUARD: unknown" not in _verdict_line(done), _verdict_line(done)
+    env = dict(_git_seam(tmp_path, 'exec REAL "$@"'), FLOW_LEAK_FRESH_MIN="30")
+    done = _guard(wt, env=env)
+    verdicts = [ln for ln in (done.stdout + done.stderr).splitlines() if ln.startswith("FLOW_WORKTREE_GUARD:")]
+    assert len(verdicts) == 1, f"expected exactly one verdict line:\n{done.stdout}{done.stderr}"
+    assert verdicts[0].startswith("FLOW_WORKTREE_GUARD: leak"), verdicts[0]
+    assert done.returncode == 3, "a fresh tracked change in main is a leak (exit 3), not could-not-look"
 
 
 def test_guard_idle_worktree_with_a_file_deleted_in_main_is_unknown(tmp_path: Path) -> None:
