@@ -74,3 +74,33 @@ Risks: a reader not yet found may expect a scaffolded deploy target; existing co
 | Project state | will test: a project with a freshly generated Makefile and one with a real deploy target |
 | Reader: /flow:auto Step 9 and /flow:deploy, which read whether a deploy target exists and the deploy log's status column | will test: the document's own target test and log line run against a real generated Makefile |
 | Reader: a consumer repository that already generated its files | not covered: nothing reaches it; stated in the changelog |
+
+<!-- flow-run n=2 id=575e90c8d6da466ea1c65ccc418b6fce -->
+## Run 2
+
+- Run-id:            575e90c8d6da466ea1c65ccc418b6fce
+- Run-start:         9e3bd1f8d5a6f65ab628f583960b2c121733b075
+- Issue:             #1712
+- Base SHA:          9e3bd1f8d5a6f65ab628f583960b2c121733b075
+- Necessity verdict: Needs reframing
+- Approval:          granted
+- Approver:          the wave orchestrator (wave cpp-improvement, policy rev 1, orchestrator-only), by mailbox rev 75: "RATIFY: the smaller option for #1712, part 1 only. No base-ref mechanism. No print-on-touch tripwire."
+- Recorded at:       2026-11-12T07:58:00Z
+
+### Section B evidence
+- PR ONE of this issue merged as #1772 (9e3bd1f8); it left seq 698 and 699 for this run
+- commits on docs/skills/woodpecker-ci.md or the generated secret-scan step since PR ONE: none
+- measured before this plan, on the pinned gitleaks v8.30.1 in scratch repositories with a red baseline before each case: the change under scan can excuse its own finding by three channels (an in-tree config with no --config; a .gitleaksignore, even untracked, which no flag switches off; an inline gitleaks:allow), and on a same-repository pull request the pipeline file is also the change's own
+- the design "config from the base ref" was written as states and does not hold; the orchestrator amends the issue's acceptance: not achievable in the generated step, the scan says what it is and is not, and the docs name the control that does the job
+
+### Scope of this run
+PR TWO of two, documentation only: seq 698 and seq 699. It closes the issue. No code, so no control and no census row.
+
+### Section C - the approved plan
+1. `docs/skills/woodpecker-ci.md` - what the generated secret scan is and is not, the four paths whose review is the control, the adoption path for a repository with findings already in history, and the same statement for this repository's own scan lines
+2. `docs/measurements/gitleaks-self-allowlist-2026-11.md` - the dated measurement: binary version, the three channels with baseline-red-then-case results, the blind first attempt named as such, and why a mechanism was not built
+3. `CHANGELOG.md` - entry
+Scope: 3 files, about 150 lines of prose.
+Risks: a statement about gitleaks that was not measured; each claim in the docs is one the measurement note records, and what was not measured is listed there.
+
+Lanes: none - documentation only; no behaviour changes in any lane, and the generated step and this repository's own scan lines are not edited

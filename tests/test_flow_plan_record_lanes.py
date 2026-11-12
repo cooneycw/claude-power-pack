@@ -559,9 +559,11 @@ SIBLING = Path("docs") / "flow-runs" / "issue-42.lanes-demonstrated.md"
 def test_no_demonstrated_file_is_reported_with_the_lanes_owed(repo: Path) -> None:
     approved(repo)
     done = compliance(repo)
-    assert f"no {SIBLING} - this plan answered `will test` for Checkout, Harness" in done.stderr
+    assert f"no {SIBLING} - this plan answered `will test` for 2 lane(s), named below" in done.stderr
+    assert [ln.rsplit(" - ", 1)[1] for ln in done.stderr.splitlines() if "has no row in" in ln] == [
+        "Checkout", "Harness"]
     assert "Project state" not in done.stderr, "not applicable owes no row"
-    assert "lanes-demonstrated" not in done.stdout, "the note is stderr only"
+    assert "lanes-demonstrated" not in done.stdout, "the file is named on stderr; the line names the lanes"
 
 
 def test_a_will_test_lane_with_no_row_is_named(repo: Path) -> None:
@@ -595,7 +597,8 @@ def test_an_unreadable_demonstrated_file_is_unreadable_not_missing(repo: Path, k
     done = compliance(repo)
     assert f"no {SIBLING}" not in done.stderr, "an unreadable file was reported as missing"
     assert "cannot be checked against what was demonstrated" in done.stderr
-    assert "Checkout, Harness" in done.stderr
+    assert [ln.rsplit(" - ", 1)[1] for ln in done.stderr.splitlines() if "was not checked - " in ln] == [
+        "Checkout", "Harness"]
 
 
 def test_rows_quoted_in_a_code_fence_are_not_rows(repo: Path) -> None:
@@ -619,17 +622,393 @@ def test_the_note_is_silent_where_nothing_is_owed(tmp_path: Path, why: str) -> N
     assert "lanes-demonstrated" not in done.stderr and "demonstrated" not in done.stderr
 
 
-def test_the_note_never_changes_compliances_stdout_or_exit(tmp_path: Path) -> None:
-    """Same record through the old helper's compliance and the new one's:
-    stdout and exit code identical; only stderr differs, by the note."""
-    r = make_repo(tmp_path / "wt")
-    approved(r)
+# --- the clause on the verdict line (#1767) -----------------------------------
+#
+# The note above is on stderr, and in its first three hours five changes merged
+# without the file because their authors read the verdict line and not the
+# note. So the same state is now on the line itself, right after the verdict
+# word. The exit code does not change: the owner chose the line, not a refusal.
+
+PRE_1767 = ROOT / "controls" / "flow-plan-record-lanes-verdict" / "anchors" / "pre-1767-flow-plan-record.py"
+WAIVED = PLAN + "\nLanes: none - documentation only\n"
+NOTHING_WILL_TEST = PLAN + FULL_TABLE.replace(
+    "will test (Claude install); not covered (Codex install)", "not covered").replace(
+    "| Checkout | will test |", "| Checkout | will refuse |")
+
+
+def verdict(done: subprocess.CompletedProcess) -> str:
+    lines = [ln for ln in done.stdout.splitlines() if ln.startswith("PLAN_COMPLIANCE: ")]
+    assert len(lines) == 1, done.stdout
+    return lines[0]
+
+
+def compliance_as(repo: Path, word: str, helper: Path = HELPER) -> subprocess.CompletedProcess:
+    """Compliance steered to one verdict word: the planned file is written for
+    `agreement`, left unwritten for `divergence`, and the base is a ref that
+    does not exist for `unknown`."""
+    planned = repo / "src" / "app.py"
+    if word == "agreement" and not planned.exists():
+        planned.parent.mkdir(exist_ok=True)
+        planned.write_text("x = 1\n")
+    base = "no-such-ref" if word == "unknown" else git(repo, "rev-parse", "main").strip()
+    done = run(repo, "compliance", "42", "--base", base, helper=helper)
+    assert verdict(done).startswith(f"PLAN_COMPLIANCE: {word}"), done.stdout
+    return done
+
+
+WORDS = ("agreement", "divergence", "unknown")
+
+
+@pytest.mark.parametrize("word", WORDS)
+def test_a_will_test_lane_with_nothing_shown_is_on_the_verdict_line(repo: Path, word: str) -> None:
+    approved(repo)
+    line = verdict(compliance_as(repo, word))
+    assert line.startswith(f"PLAN_COMPLIANCE: {word}, LANES NOT DEMONSTRATED (2)"), line
+    assert "Project state" not in line, "not applicable owes no row"
+
+
+@pytest.mark.parametrize("word", WORDS)
+def test_only_the_lanes_still_missing_are_named_and_a_full_file_clears_the_line(repo: Path, word: str) -> None:
+    approved(repo)
+    (repo / SIBLING).write_text(DEMONSTRATED.replace("| Harness | tested through a symlink |\n", ""))
+    assert verdict(compliance_as(repo, word)).startswith(
+        f"PLAN_COMPLIANCE: {word}, LANES NOT DEMONSTRATED (1)")
+    (repo / SIBLING).write_text(DEMONSTRATED.replace("tested through a symlink", " "))
+    assert ", LANES NOT DEMONSTRATED (1)" in verdict(compliance_as(repo, word)), "an empty cell is no row"
+    (repo / SIBLING).write_text(DEMONSTRATED)
+    assert "LANES" not in verdict(compliance_as(repo, word))
+
+
+@pytest.mark.parametrize("kind", ["directory", "dangling symlink", "not text"])
+def test_an_unreadable_demonstrated_file_reads_not_checked_never_clean(repo: Path, kind: str) -> None:
+    approved(repo)
+    path = repo / SIBLING
+    if kind == "directory":
+        path.mkdir()
+    elif kind == "dangling symlink":
+        path.symlink_to(repo / "nowhere.md")
+    else:
+        path.write_bytes(b"\xff\xfe\x00\x80")
+    line = verdict(compliance_as(repo, "divergence"))
+    assert line.startswith("PLAN_COMPLIANCE: divergence, LANES NOT CHECKED - "), line
+    assert "NOT DEMONSTRATED" not in line, "unreadable was reported as missing"
+
+
+def _damage_lane_file(repo: Path, how: str) -> None:
+    lane_file = repo / ".claude" / "lanes.md"
+    if how == "absent":
+        if lane_file.exists():
+            lane_file.unlink()
+        return
+    lane_file.parent.mkdir(exist_ok=True)
+    if lane_file.exists():
+        lane_file.unlink()
+    if how == "present":
+        lane_file.write_text(LANES)
+    elif how == "unusable":
+        lane_file.mkdir()
+    else:
+        raise AssertionError(how)
+
+
+def test_a_lane_file_that_cannot_be_read_at_close_is_not_checked_on_the_line(repo: Path) -> None:
+    """At approval an unusable lane file refuses. At close the plan is already
+    approved, so the answer is on the line: could not check - not silence, and
+    not the clean line a project without lanes gets."""
+    approved(repo)
+    (repo / SIBLING).write_text(DEMONSTRATED)
+    assert "LANES" not in verdict(compliance_as(repo, "divergence")), "precondition: clean before the damage"
+    _damage_lane_file(repo, "unusable")
+    done = compliance_as(repo, "divergence")
+    assert verdict(done).startswith("PLAN_COMPLIANCE: divergence, LANES NOT CHECKED - ")
+    assert ".claude/lanes.md is not a regular file, so the lanes this plan said it would test" in done.stderr
+    assert [ln.rsplit(" - ", 1)[1] for ln in done.stderr.splitlines() if "was not checked - " in ln] == [
+        "Checkout", "Harness"]
+
+
+BYTE_IDENTICAL = {
+    "no-lane-file": (None, PLAN + FULL_TABLE, False),
+    "waived": (LANES, WAIVED, False),
+    "nothing-will-test": (LANES, NOTHING_WILL_TEST, False),
+}
+
+
+@pytest.mark.parametrize("word", ["agreement", "divergence"])
+@pytest.mark.parametrize("case", sorted(BYTE_IDENTICAL))
+def test_where_nothing_is_owed_a_file_at_the_demonstrated_path_is_still_a_touched_file(
+        tmp_path: Path, case: str, word: str) -> None:
+    """The exclusion of the demonstrated file applies only where a lane result
+    is owed. Anywhere else the old helper called a file at that path TOUCHED
+    BUT NOT PLANNED, and so does this one: same stdout, same exit code."""
+    lanes, section, _unused = BYTE_IDENTICAL[case]
+    r = make_repo(tmp_path / "wt", lanes=lanes)
+    approved(r, section)
+    (r / SIBLING).write_text(DEMONSTRATED)
     base = git(r, "rev-parse", "main").strip()
-    old = run(r, "compliance", "42", "--base", base, helper=BEFORE)
+    if word == "agreement":
+        (r / "src").mkdir()
+        (r / "src" / "app.py").write_text("x = 1\n")
     new = run(r, "compliance", "42", "--base", base)
+    old = run(r, "compliance", "42", "--base", base, helper=PRE_1767)
+    assert f"TOUCHED BUT NOT PLANNED: {SIBLING}" in old.stdout, "precondition: the old helper counts it"
     strip = lambda s: re.sub(r"FLOW_PLAN_RECORD_SELF: .*\n", "", s)   # noqa: E731
-    assert strip(old.stdout) == strip(new.stdout) and old.returncode == new.returncode
-    assert "lanes-demonstrated" in new.stderr and "lanes-demonstrated" not in old.stderr
+    assert strip(new.stdout) == strip(old.stdout)
+    assert (new.returncode, new.stderr) == (old.returncode, old.stderr)
+
+
+@pytest.mark.parametrize("word", WORDS)
+@pytest.mark.parametrize("case", sorted(BYTE_IDENTICAL))
+def test_where_nothing_is_owed_stdout_is_what_it_was_before(tmp_path: Path, case: str, word: str) -> None:
+    """The whole of stdout, and the exit code, against the helper as it was
+    before this change - for each verdict word. This is what keeps a project
+    with no lane file unaffected: its line does not change by one byte."""
+    lanes, section, _unused = BYTE_IDENTICAL[case]
+    r = make_repo(tmp_path / "wt", lanes=lanes)
+    approved(r, section)
+    new = compliance_as(r, word)
+    old = compliance_as(r, word, helper=PRE_1767)
+    strip = lambda s: re.sub(r"FLOW_PLAN_RECORD_SELF: .*\n", "", s)   # noqa: E731
+    assert strip(new.stdout) == strip(old.stdout)
+    assert new.returncode == old.returncode
+    assert new.stderr == old.stderr
+
+
+@pytest.mark.parametrize("committed", [False, True])
+def test_writing_the_demonstrated_file_does_not_itself_make_a_divergence(repo: Path, committed: bool) -> None:
+    """The file the line asks for is the run's own record, like the plan record
+    beside it. Before #1767 it counted as a touched file nobody planned, so
+    writing it turned `agreement` into `divergence`; that is the one place the
+    line for a run with every lane demonstrated differs from the old helper's."""
+    approved(repo)
+    assert verdict(compliance_as(repo, "agreement")).startswith(
+        "PLAN_COMPLIANCE: agreement, LANES NOT DEMONSTRATED (2) - "), "precondition"
+    (repo / SIBLING).write_text(DEMONSTRATED)
+    if committed:
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", "work and lanes")
+    new = compliance_as(repo, "agreement")
+    assert verdict(new).startswith("PLAN_COMPLIANCE: agreement - the FILE SET matches the approved plan (")
+    assert str(SIBLING) not in new.stdout and new.returncode == 0
+    old = run(repo, "compliance", "42", "--base", git(repo, "rev-parse", "main").strip(), helper=PRE_1767)
+    assert f"TOUCHED BUT NOT PLANNED: {SIBLING}" in old.stdout, "the old helper is where this was a divergence"
+
+
+def test_a_demonstrated_file_for_another_issue_is_still_a_touched_file(repo: Path) -> None:
+    approved(repo)
+    (repo / "src").mkdir()
+    (repo / "src" / "app.py").write_text("x = 1\n")
+    other = repo / "docs" / "flow-runs" / "issue-43.lanes-demonstrated.md"
+    other.write_text(DEMONSTRATED)
+    done = run(repo, "compliance", "42", "--base", git(repo, "rev-parse", "main").strip())
+    assert "TOUCHED BUT NOT PLANNED: docs/flow-runs/issue-43.lanes-demonstrated.md" in done.stdout
+
+
+@pytest.mark.parametrize("word", WORDS)
+def test_the_clause_is_the_only_change_and_the_exit_code_does_not_move(repo: Path, word: str) -> None:
+    """Where a lane IS owed: remove the clause and stdout is the old stdout."""
+    approved(repo)
+    new = compliance_as(repo, word)
+    old = compliance_as(repo, word, helper=PRE_1767)
+    assert ", LANES NOT DEMONSTRATED (2)" in new.stdout
+    strip = lambda s: re.sub(r"FLOW_PLAN_RECORD_SELF: .*\n", "", s)   # noqa: E731
+    assert strip(new.stdout).replace(", LANES NOT DEMONSTRATED (2)", "") == strip(old.stdout)
+    assert new.returncode == old.returncode
+    assert "a header row, a `|---|---|` row, then `| <lane> | <what was demonstrated> |`" in new.stderr
+
+
+def make_checkout(tmp_path: Path, shape: str) -> Path:
+    """The same project as a plain repository, or as a LINKED WORKTREE of one:
+    the shape `/flow:auto` always runs in, where `.git` is a file and the
+    baseline lives under the main repository's git directory."""
+    if shape == "plain repository":
+        return make_repo(tmp_path / "wt")
+    main = tmp_path / "main"
+    main.mkdir()
+    git(main, "init", "-q", "-b", "main")
+    git(main, "config", "user.email", "t@e.com")
+    git(main, "config", "user.name", "t")
+    (main / "README.md").write_text("base\n")
+    (main / ".claude").mkdir()
+    (main / ".claude" / "lanes.md").write_text(LANES)
+    git(main, "add", "-A")
+    git(main, "commit", "-qm", "base")
+    linked = tmp_path / "wt"
+    git(main, "worktree", "add", "-q", "-b", "issue-42-a-fixture", str(linked))
+    assert (linked / ".git").is_file(), "precondition: a linked worktree's .git is a file"
+    assert (main / ".git").is_dir()
+    return linked
+
+
+@pytest.mark.parametrize("word", WORDS)
+@pytest.mark.parametrize("shape", ["plain repository", "linked worktree"])
+def test_the_clause_is_the_same_from_a_plain_repository_and_a_linked_worktree(
+        tmp_path: Path, shape: str, word: str) -> None:
+    """Nothing owed shown, one row shown, both shown - read from each checkout
+    shape, for each verdict word. A linked worktree is where every real run is."""
+    r = make_checkout(tmp_path, shape)
+    approved(r)
+    assert verdict(compliance_as(r, word)).startswith(f"PLAN_COMPLIANCE: {word}, LANES NOT DEMONSTRATED (2)")
+    (r / SIBLING).write_text(DEMONSTRATED.replace("| Harness | tested through a symlink |\n", ""))
+    assert verdict(compliance_as(r, word)).startswith(f"PLAN_COMPLIANCE: {word}, LANES NOT DEMONSTRATED (1)")
+    (r / SIBLING).write_text(DEMONSTRATED)
+    done = compliance_as(r, word)
+    assert "LANES" not in verdict(done) and str(SIBLING) not in done.stdout
+    (r / SIBLING).unlink()
+    (r / SIBLING).mkdir()
+    assert verdict(compliance_as(r, word)).startswith(f"PLAN_COMPLIANCE: {word}, LANES NOT CHECKED")
+
+
+def test_from_a_linked_worktree_the_lane_file_read_is_the_worktrees_own(tmp_path: Path) -> None:
+    """The lane file is read from the checkout the run is in, not from the main
+    checkout it is linked to: remove it in the worktree and nothing is owed
+    there, whatever the main checkout still holds."""
+    r = make_checkout(tmp_path, "linked worktree")
+    approved(r)
+    assert ", LANES NOT DEMONSTRATED (2)" in verdict(compliance_as(r, "divergence"))
+    (r / ".claude" / "lanes.md").unlink()
+    assert (tmp_path / "main" / ".claude" / "lanes.md").is_file(), "precondition: main still has one"
+    assert "LANES" not in verdict(compliance_as(r, "divergence"))
+
+
+HOSTILE_LANE = "Checkout) - linked worktree, 100% (really)"
+
+
+def test_a_lane_named_with_delimiters_cannot_change_the_shape_of_the_line(tmp_path: Path) -> None:
+    """A lane file may name a lane anything. The line carries a state and a
+    count, so no name reaches it; the name is on stderr, whole, on its own line."""
+    lanes = LANES.replace("| Checkout |", f"| {HOSTILE_LANE} |")
+    section = PLAN + FULL_TABLE.replace("| Checkout |", f"| {HOSTILE_LANE} |")
+    r = make_repo(tmp_path / "wt", lanes=lanes)
+    approved(r, section)
+    done = compliance_as(r, "divergence")
+    assert verdict(done) == ("PLAN_COMPLIANCE: divergence, LANES NOT DEMONSTRATED (2) - "
+                             "the change and its approved plan disagree.")
+    marker = f"has no row in {SIBLING} - "
+    assert [ln.split(marker, 1)[1] for ln in done.stderr.splitlines() if marker in ln] == [
+        HOSTILE_LANE, "Harness"]
+    (r / SIBLING).write_text(DEMONSTRATED.replace("| Checkout |", f"| {HOSTILE_LANE} |"))
+    assert "LANES" not in verdict(compliance_as(r, "divergence")), "the name still matches its own row"
+
+
+CLAUSE_SHAPE = re.compile(r", LANES NOT (DEMONSTRATED \([1-9][0-9]*\)|CHECKED)")
+
+
+@pytest.mark.parametrize("kind", ["directory", "dangling symlink", "not text"])
+def test_no_reason_reaches_the_line(repo: Path, kind: str) -> None:
+    """The could-not-check reasons carry parentheses and file names of their
+    own. They are on stderr; the line says NOT CHECKED and nothing more."""
+    approved(repo)
+    path = repo / SIBLING
+    if kind == "directory":
+        path.mkdir()
+    elif kind == "dangling symlink":
+        path.symlink_to(repo / "nowhere.md")
+    else:
+        path.write_bytes(b"\xff\xfe\x00\x80")
+    done = compliance_as(repo, "divergence")
+    assert verdict(done) == ("PLAN_COMPLIANCE: divergence, LANES NOT CHECKED - "
+                             "the change and its approved plan disagree.")
+    assert str(SIBLING) in done.stderr
+
+
+def _load_helper():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("flow_plan_record_under_test", HELPER)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+LANE_FILE_STATES = ("absent", "present", "unusable")
+PLAN_STATES = {"table": PLAN + FULL_TABLE, "waived": WAIVED, "no-table": PLAN}
+SHOWN_STATES = ("present", "missing", "unreadable")
+
+
+def _expected_state(lane_file: str, plan: str, shown: str) -> str:
+    if lane_file == "absent":
+        return "nothing-owed"
+    if plan != "table":
+        return "nothing-owed"       # the plan owes nothing, whatever the lane file's state
+    if lane_file == "unusable":
+        return "not-checked"
+    return {"present": "all-shown", "missing": "missing", "unreadable": "not-checked"}[shown]
+
+
+@pytest.mark.parametrize("shown", SHOWN_STATES)
+@pytest.mark.parametrize("plan", sorted(PLAN_STATES))
+@pytest.mark.parametrize("lane_file", LANE_FILE_STATES)
+def test_every_combination_lands_in_exactly_one_of_the_four_states(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lane_file: str, plan: str, shown: str) -> None:
+    """Lane file x plan table x demonstrated file: 27 combinations, each in one
+    named state, and the line and the note both follow from that state alone."""
+    # Approved with no lane file (approval then accepts any of the three plans),
+    # and the lane file put into its state afterwards.
+    r = make_repo(tmp_path / "wt", lanes=None)
+    approved(r, PLAN_STATES[plan])
+    _damage_lane_file(r, lane_file)
+    if shown == "present":
+        (r / SIBLING).write_text(DEMONSTRATED)
+    elif shown == "unreadable":
+        (r / SIBLING).mkdir()
+    helper = _load_helper()
+    monkeypatch.chdir(r)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-lanes")
+    at_close = helper.lanes_at_close("42")
+    assert at_close.state in helper.LANES_AT_CLOSE_STATES
+    assert len(helper.LANES_AT_CLOSE_STATES) == 4
+    assert at_close.state == _expected_state(lane_file, plan, shown)
+    clause, note = helper.lanes_clause(at_close), helper.lanes_note(at_close)
+    quiet = at_close.state in ("nothing-owed", "all-shown")
+    assert (clause == "") is quiet and (note == []) is quiet, "the line and the note disagree"
+    assert quiet or CLAUSE_SHAPE.fullmatch(clause), clause
+    named = [ln.rsplit(" - ", 1)[1] for ln in note if "has no row in" in ln]
+    if at_close.state == "missing":
+        assert clause == f", LANES NOT DEMONSTRATED ({len(named)})" and named == list(at_close.lanes)
+        assert len(named) >= 1
+    else:
+        assert named == []
+    done = compliance_as(r, "divergence")
+    assert verdict(done) == f"PLAN_COMPLIANCE: divergence{clause} - the change and its approved plan disagree."
+    assert [ln for ln in done.stderr.splitlines() if ln.startswith("flow-plan-record: ")] == note
+
+
+@pytest.mark.parametrize("shown", SHOWN_STATES)
+@pytest.mark.parametrize("plan", ["waived", "no-table", "nothing-will-test"])
+def test_a_plan_that_owes_nothing_is_untouched_by_an_unusable_lane_file(
+        tmp_path: Path, plan: str, shown: str) -> None:
+    """A lane file that has become unreadable since approval does not put a
+    clause on the line of a plan that waived its lanes or answered `will test`
+    for none: stdout, stderr and exit code are the old helper's."""
+    sections = {**PLAN_STATES, "nothing-will-test": NOTHING_WILL_TEST}
+    r = make_repo(tmp_path / "wt", lanes=None)
+    approved(r, sections[plan])
+    _damage_lane_file(r, "unusable")
+    if shown == "present":
+        (r / SIBLING).write_text(DEMONSTRATED)
+    elif shown == "unreadable":
+        (r / SIBLING).mkdir()
+    base = git(r, "rev-parse", "main").strip()
+    new = run(r, "compliance", "42", "--base", base)
+    old = run(r, "compliance", "42", "--base", base, helper=PRE_1767)
+    strip = lambda s: re.sub(r"FLOW_PLAN_RECORD_SELF: .*\n", "", s)   # noqa: E731
+    assert "LANES" not in new.stdout
+    assert strip(new.stdout) == strip(old.stdout)
+    assert (new.returncode, new.stderr) == (old.returncode, old.stderr)
+
+
+def test_the_combination_table_reaches_all_four_states() -> None:
+    reached = {_expected_state(a, b, c) for a in LANE_FILE_STATES for b in PLAN_STATES for c in SHOWN_STATES}
+    assert reached == {"nothing-owed", "all-shown", "missing", "not-checked"}
+
+
+def test_a_run_with_no_section_in_the_record_is_not_checked(repo: Path) -> None:
+    """A lane file, and a record this run never wrote to: nothing can be said
+    about what it owes, and that is said."""
+    done = run(repo, "compliance", "42", "--base", git(repo, "rev-parse", "main").strip())
+    assert verdict(done).startswith("PLAN_COMPLIANCE: unknown, LANES NOT CHECKED ("), done.stdout
+    assert ", LANES NOT CHECKED (" in verdict(done), "the unknown line's own reason follows in parentheses"
 
 
 def test_a_lane_name_with_something_appended_is_unanswered_and_the_refusal_says_why(repo: Path) -> None:

@@ -145,10 +145,80 @@ as the **first** stage so credentials never reach later steps or logs:
   - name: secret-scan
     image: zricethezav/gitleaks:v8.30.1
     commands:
-      - gitleaks detect --source . --config .gitleaks.toml --verbose
+      - gitleaks detect --source . --config .gitleaks.toml --redact
 ```
 
 Gate everything else behind it (`depends_on: [secret-scan]` in DAG mode).
+
+### What the secret scan is, and what it is not
+
+The generated scan catches accidents: a key pasted into a file, a `.env`
+committed by mistake. **It is not a control against a change that wants to hide
+something.** The change under scan decides what the scanner ignores, three
+ways (measured on the pinned gitleaks v8.30.1; the record is
+`docs/measurements/gitleaks-self-allowlist-2026-11.md`):
+
+| The change adds | Effect | A flag that switches it off |
+|---|---|---|
+| a `.gitleaks.toml` that allowlists the file (when no `--config` is given), or an entry in the configured one | the finding disappears | an explicit `--config` pointing elsewhere |
+| a `.gitleaksignore` with the finding's fingerprint, even untracked | the finding disappears | none found: neither `-i` form tried switched it off; removing the file did |
+| an inline `gitleaks:allow` comment on the line | the finding disappears for that version of the line; a history scan still reports an earlier commit that has the value without the comment | `--ignore-gitleaks-allow` |
+
+And a fourth: on a same-repository pull request the pipeline file itself comes
+from the pull request, so the scan step can be edited or removed. (That is how
+both providers are understood to behave; it was not part of the measurement.)
+
+Taking the scanner's configuration from the base branch does not close this;
+the measurement record says why.
+
+**The control that does the job is review of four paths:** the scanner's
+config (`.gitleaks.toml`, or whatever `secret_scan_config` names), the
+`.gitleaksignore` file, the pipeline file (`.woodpecker.yml` or
+`.github/workflows/`), and any added `gitleaks:allow` comment. Enforce that
+review where the provider can: a `CODEOWNERS` entry plus required review for
+those paths on GitHub; required approval for pipeline changes on Woodpecker.
+Whether to do so is each repository owner's decision.
+
+### Adopting the scan in a repository that already has findings
+
+The scan reads the whole history, so a repository with an old leaked value
+fails on its first run, long after the value was removed from the tree.
+
+1. **Rotate first.** A value that was ever pushed is compromised whatever the
+   scanner says.
+2. Run the scan once and write its findings to a report:
+   `gitleaks detect --source . --redact --report-path gitleaks-baseline.json`.
+3. **Do not commit that report as it is.** `--redact` is not a guarantee: it
+   cannot mask a secret that sits inside another rule's match (issue #1288,
+   which is why CPP's own pipeline prints rule, file and line only), and the
+   report also carries each commit's author name and email. Remove the `Match`
+   and `Secret` fields from every entry first. Measured: a baseline without
+   those two fields still ignores the recorded findings and still fails on a
+   new one; a baseline cut down further, to rule, file, line, commit and
+   fingerprint, no longer matches anything. Then read what is left before it
+   goes anywhere, or keep the baseline in protected CI storage and out of the
+   repository.
+4. Pass it on every run with `--baseline-path`: findings already in the
+   baseline are ignored, new ones fail.
+5. Burn the baseline down. It is an allowlist like the three above, and the
+   same review applies to it.
+
+A change to any of these files takes effect for the scan as soon as it is in
+the tree being scanned, including on the pull request that makes the change.
+
+### This repository's own scan
+
+CPP's own pipeline is in the same position. `.woodpecker.yml` (the
+`secret-scan` step, `gitleaks detect --source . --config .gitleaks.toml ...`)
+and `make secret-scan` (the same command with `--no-git`) read `.gitleaks.toml`
+from the tree being scanned, and both honour a `.gitleaksignore` and inline
+`gitleaks:allow` comments. Those lines are deliberately unchanged. (The
+measurement used the history scan; that `--no-git` and the GitHub Actions
+container form honour the same three channels is expected, not measured.)
+
+Nothing enforces review of those four paths here today:
+`.claude/branch-protection.json` declares zero required approvals and no
+code-owner review. Whether to require it is the owner's decision.
 
 ### 2. Image security (Trivy)
 
