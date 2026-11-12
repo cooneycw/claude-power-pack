@@ -14,6 +14,11 @@
   and `/project:init` now installs a bug form in a new repository (it
   installed no issue templates before). Nothing checks the answer; `not
   traced` is allowed and silence is not (#1697).
+- **The ignored-additions guard now names its own remedy.** When
+  `check-ignored-additions.sh` reports files the quality gate itself wrote
+  (kyle's `dashboard-runs/`, skillc's `reports/`), its message says to declare
+  the directory in `.claude/gate-scratch.txt`. One added stderr line; exit
+  codes and markers are unchanged (#1706).
 - **A project can list its lanes, and plans then say which ones they tested.**
   A lane is a route one behaviour travels: main checkout or linked worktree,
   dev or prod, small fixture or real-size data. With a `.claude/lanes.md`, the

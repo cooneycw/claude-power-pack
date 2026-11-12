@@ -3653,6 +3653,249 @@ def test_help_prints_all_four_tables_and_no_code() -> None:
     assert len(out.splitlines()) == end - 1
 
 
+# ── An exit nobody announced never reports a clean status (issue #1705) ─────
+#
+# The gate's EXIT trap also runs when the gate is killed, and `$?` is then the
+# status of the last command that completed - usually 0 - so an interrupted
+# gate printed `FLOW_FINISH_GATE_EXIT=0`. It now prints 128 for any exit that
+# was not the `exit` builtin. No signal is trapped: the gate must still stop
+# promptly when stopped alone, which the coordination and late-tee tests above
+# pin and which a signal trap would break.
+
+UNANNOUNCED_EXIT = 128
+
+
+def _gate_killed_mid_run(
+    tmp_path: Path, sig: int, *, group: bool, extra_env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess:
+    """Start a gate whose runner blocks, signal it, and return what it left.
+
+    `group=True` delivers to the gate's whole process group, as Ctrl-C and
+    `timeout` do; `group=False` delivers to the gate's pid alone.
+    """
+    import signal as _signal
+    import time
+
+    cpp = _fake_cpp(tmp_path)
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    started = tmp_path / "runner-started"
+    # `exec`, so no shell is left in the group to print its own "Terminated"
+    # onto the stderr the gate shares with it.
+    (bindir / "uv").write_text(f'#!/usr/bin/env bash\n: > "{started}"\nexec sleep 30\n')
+    (bindir / "uv").chmod(0o755)
+    env = os.environ.copy()
+    env.pop("FLOW_GATE_RERUN", None)
+    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env["FLOW_GATE_CPP_DIR"] = str(cpp)
+    for key in ("CPP_KYLE_FULL_SUITE_ACTIVE", "CPP_FLOW_FINISH_GATE_STATUS_FILE"):
+        env.pop(key, None)
+    # A host whose coordination admission is ON would route this gate through
+    # the real kyle-lock instead of the stub runner: point it at a file that
+    # does not exist, so the fixture owns the answer (counter-model review).
+    env["CPP_COORDINATION_ADMISSION_FILE"] = str(tmp_path / "no-coordination-admission")
+    env.update(extra_env or {})
+    proc = subprocess.Popen(
+        ["bash", str(SCRIPT)], cwd=tmp_path, env=env, start_new_session=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        deadline = time.monotonic() + 20
+        while not started.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert started.exists(), "precondition: the runner never started"
+        if group:
+            os.killpg(proc.pid, sig)
+        else:
+            proc.send_signal(sig)
+        # Promptness is part of the claim: well under the runner's 30s sleep.
+        # wait(), not communicate(): a runner left running still holds the
+        # pipes open, and EOF would not come until it ended.
+        returncode = proc.wait(timeout=10)
+    finally:
+        try:
+            os.killpg(proc.pid, _signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    stdout, stderr = proc.communicate(timeout=10)
+    return subprocess.CompletedProcess(proc.args, returncode, stdout, stderr)
+
+
+@requires_bash
+@requires_git
+@pytest.mark.parametrize("signame", ["SIGTERM", "SIGINT", "SIGHUP"])
+def test_a_gate_killed_mid_run_reports_128_once_and_still_dies_by_the_signal(
+    tmp_path: Path, signame: str,
+) -> None:
+    """RED on the pre-#1705 script: the marker read 0, the status of whatever
+    completed last, on a gate that never reached a verdict."""
+    import signal
+
+    sig = getattr(signal, signame)
+    result = _gate_killed_mid_run(tmp_path, sig, group=True)
+    assert "running deterministic gate" in result.stdout, "precondition: killed mid-run"
+    assert "FLOW_FINISH_GATE: " not in result.stdout, "precondition: before any verdict"
+    lines = [line for line in result.stderr.splitlines() if line.strip()]
+    markers = [line for line in lines if line.startswith("FLOW_FINISH_GATE_EXIT=")]
+    assert markers == [f"FLOW_FINISH_GATE_EXIT={UNANNOUNCED_EXIT}"], result.stderr
+    # NOT asserted: that the line is LAST on stderr. On a group kill bash itself
+    # reports the dead pipeline AFTER the EXIT trap has run ("Terminated", or a
+    # "Hangup ... | tee /dev/fd/9" job notice). Measured on the pre-#1705 script
+    # too: 12 of 12 runs for SIGTERM, 6 of 12 for SIGHUP, 0 of 12 for SIGINT. So
+    # the claim pinned here is narrower and true: nothing follows the line
+    # except bash's own notice about the killed job.
+    after = lines[lines.index(markers[0]) + 1:]
+    assert all(
+        "Terminated" in line or "Hangup" in line or line.rstrip().endswith("| tee /dev/fd/9")
+        for line in after
+    ), after
+    # Dies BY the signal, exactly as before: no handler turned it into an exit.
+    assert result.returncode == -sig
+
+
+@requires_bash
+@requires_git
+def test_a_gate_stopped_alone_stops_promptly_and_reports_128(tmp_path: Path) -> None:
+    """SIGTERM to the gate's pid ALONE, the runner left running: the gate must
+    not wait for its child (a signal trap would make it), and its line reads 128."""
+    import signal
+
+    result = _gate_killed_mid_run(tmp_path, signal.SIGTERM, group=False)
+    assert result.returncode == -signal.SIGTERM
+    assert result.stderr.strip().splitlines()[-1] == f"FLOW_FINISH_GATE_EXIT={UNANNOUNCED_EXIT}"
+
+
+@requires_bash
+@requires_git
+def test_a_continued_gate_killed_mid_run_records_128_in_its_status_file(tmp_path: Path) -> None:
+    """The coordination lane (kyle#2130): a gate continued under the supervisor
+    writes its status to a private file and prints no exit line. Killed mid-run
+    it recorded the stale 0 there; it must record 128."""
+    import signal
+
+    status_file = tmp_path / "continued-status"
+    result = _gate_killed_mid_run(
+        tmp_path, signal.SIGTERM, group=False,
+        extra_env={
+            "CPP_KYLE_FULL_SUITE_ACTIVE": "1",
+            "CPP_FLOW_FINISH_GATE_STATUS_FILE": str(status_file),
+        },
+    )
+    assert result.returncode == -signal.SIGTERM
+    assert status_file.read_text().strip() == str(UNANNOUNCED_EXIT)
+    assert "FLOW_FINISH_GATE_EXIT=" not in result.stderr, "a continued gate prints no exit line"
+
+
+@requires_bash
+@requires_git
+def test_an_announced_exit_never_reports_128(tmp_path: Path) -> None:
+    """The must-not-flip side: a deliberate exit keeps its own status. A real
+    pass printing 128 would be a worse lie than the one being fixed."""
+    usage = subprocess.run(
+        ["bash", str(SCRIPT), "--no-such-flag"], cwd=tmp_path, capture_output=True, text=True,
+    )
+    assert usage.returncode == 2
+    assert usage.stderr.strip().splitlines()[-1] == "FLOW_FINISH_GATE_EXIT=2"
+    helped = subprocess.run(
+        ["bash", str(SCRIPT), "--help"], cwd=tmp_path, capture_output=True, text=True,
+    )
+    assert helped.returncode == 0
+    assert helped.stderr.strip().splitlines()[-1] == "FLOW_FINISH_GATE_EXIT=0"
+
+
+def _mutated_gate_killed_while_running(tmp_path: Path, injected: str, stub_name: str | None) -> str:
+    """Run a copy of the gate with `injected` added after gate_map, kill it
+    while that line is the executing command, and return its exit line."""
+    import signal
+    import time
+
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    for lib in ("gate-lib.sh", "coordination-admission.sh"):
+        shutil.copy(SCRIPT.parent / lib, scripts / lib)
+    started = tmp_path / "mutant-started"
+    body = SCRIPT.read_text()
+    marker = "\ngate_map "
+    assert body.count(marker) == 1, "precondition: one gate_map line to inject after"
+    head, tail = body.split(marker)
+    first_line, rest = tail.split("\n", 1)
+    (scripts / "flow-finish-gate.sh").write_text(
+        f'{head}{marker}{first_line}\n: > "{started}"\n{injected}\n{rest}'
+    )
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    if stub_name:
+        (bindir / stub_name).write_text("#!/usr/bin/env bash\nexec sleep 30\n")
+        (bindir / stub_name).chmod(0o755)
+    env = os.environ.copy()
+    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env["CPP_COORDINATION_ADMISSION_FILE"] = str(tmp_path / "no-coordination-admission")
+    for key in ("CPP_KYLE_FULL_SUITE_ACTIVE", "CPP_FLOW_FINISH_GATE_STATUS_FILE"):
+        env.pop(key, None)
+    proc = subprocess.Popen(
+        ["bash", str(scripts / "flow-finish-gate.sh")], cwd=tmp_path, env=env,
+        start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        deadline = time.monotonic() + 20
+        while not started.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert started.exists(), "precondition: the injected line was never reached"
+        time.sleep(0.3)  # let the shell move from the marker line onto the injected command
+        proc.send_signal(signal.SIGTERM)
+        returncode = proc.wait(timeout=10)
+    finally:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    _, stderr = proc.communicate(timeout=10)
+    assert returncode == -signal.SIGTERM, "precondition: died by the signal, mid-command"
+    return [line for line in stderr.splitlines() if line.startswith("FLOW_FINISH_GATE_EXIT=")][-1]
+
+
+@requires_bash
+@requires_git
+@pytest.mark.parametrize("injected,stub_name", [
+    ("exit_handler --now", "exit_handler"),   # a COMMAND whose name starts with `exit`
+    ("exit_code=$(sleep 30)", None),          # an ASSIGNMENT whose name starts with `exit`
+    ("exitcode --flush", "exitcode"),         # no separator at all after the four letters
+])
+def test_only_the_exit_builtin_as_a_whole_word_counts_as_announced(
+    tmp_path: Path, injected: str, stub_name: str | None,
+) -> None:
+    """`exit` alone or `exit <args>` announces; anything that merely STARTS with
+    those letters does not. Killed while such a command is executing, the gate
+    must still read 128 - a prefix match would report the stale status."""
+    line = _mutated_gate_killed_while_running(tmp_path, injected, stub_name)
+    assert line == f"FLOW_FINISH_GATE_EXIT={UNANNOUNCED_EXIT}"
+
+
+def test_the_gate_never_replaces_its_shell_with_exec() -> None:
+    """The other way out of a bash script that is not the exit builtin: `exec
+    <program>` replaces the shell and the EXIT trap never runs at all. `exec`
+    may appear here only as a descriptor redirection."""
+    execs = [
+        line.strip() for line in SCRIPT.read_text().splitlines()
+        if re.match(r"\s*exec\b", line)
+    ]
+    assert execs, "precondition: the script still has its fd-9 redirections to look at"
+    for line in execs:
+        assert re.fullmatch(r"exec \d+>(&-|\S+)", line), f"exec that is not a redirection: {line}"
+
+
+def test_the_gate_never_ends_by_running_off_its_last_line() -> None:
+    """Announcement is "the shell was executing `exit`". A script that ended by
+    falling off its last line would be an unannounced exit and print 128 for a
+    real result, so its last statement must be an exit."""
+    statements = [
+        line.strip() for line in SCRIPT.read_text().splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    assert statements[-1].startswith(("gate_exit ", "exit ")), statements[-1]
+    assert UNANNOUNCED_EXIT not in {0, 1, 2, 3, 4, 5, 64}, "128 must not be a status the gate announces"
+
+
 # ── Enrolment judges the receipt NEAREST to HEAD (issue #1707) ──────────────
 #
 # The enrolment loop returned on the first receipt that passed its filters, in

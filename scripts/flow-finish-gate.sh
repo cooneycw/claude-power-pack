@@ -27,6 +27,7 @@
 #: NEGATIVE-CONTROL: controls/flow-finish-gate-subsumption
 #: NEGATIVE-CONTROL: controls/flow-finish-gate-derivation
 #: NEGATIVE-CONTROL: controls/flow-finish-gate-resume
+#: NEGATIVE-CONTROL: controls/flow-finish-gate-interrupted
 #
 # Usage:
 #   flow-finish-gate.sh                  # run the 'finish' quality-gate plan
@@ -109,6 +110,14 @@
 #                       "no checkout found" and exercise the fallback)
 #   FLOW_GATE_RERUN     set to 0 to disable the #769 targeted re-run and get
 #                       the pre-#769 first-failure-is-fail behaviour
+#
+# FLOW_FINISH_GATE_EXIT=<n>, the gate's exit status, is printed exactly once and
+# is the last line the GATE writes to stderr. <n> is 128 when the gate ended
+# WITHOUT announcing an exit: it was terminated by a signal (a timeout, Ctrl-C,
+# a closed session) or the shell aborted. 128 says only that; the process's
+# real exit status carries the signal (#1705). After a kill of the whole
+# process group by SIGTERM or SIGHUP the shell may add its own job notice
+# ("Terminated", "Hangup ...") after that line.
 #: END-HELP
 
 set -uo pipefail
@@ -140,7 +149,27 @@ fi
 unset CPP_FLOW_FINISH_GATE_STATUS_FILE
 # shellcheck disable=SC2317  # invoked only from the EXIT trap below
 _gate_on_exit() {
-    local rc=$1
+    # $1 = `$?` and $2 = `$BASH_COMMAND` as the EXIT trap saw them.
+    #
+    # AN EXIT NOBODY ANNOUNCED REPORTS 128, NEVER A STALE STATUS (issue #1705).
+    # Bash also runs this trap when a fatal signal arrives or the shell aborts
+    # (an unbound variable under `set -u`), and `$?` is then the status of the
+    # last command that COMPLETED - usually 0 - so a killed gate printed
+    # `FLOW_FINISH_GATE_EXIT=0`. Every deliberate way out of this script is the
+    # `exit` builtin (directly, or inside gate_exit and gate-lib's refusals), and
+    # in the trap `$BASH_COMMAND` is the command that was executing when the
+    # shell began to leave: `exit ...` when the exit was announced, the
+    # interrupted command otherwise. This script must therefore never END by
+    # running off its last line; tests/test_flow_finish_gate.py pins that.
+    #
+    # 128 is one fixed value meaning "ended without announcing an exit:
+    # terminated by a signal, or aborted". It is not a status this gate
+    # announces (0-5, and 64 before gate_map runs). The signal is deliberately
+    # NOT recovered and NOT trapped: a signal trap is deferred until the
+    # foreground child ends, and a gate stopped alone must stop promptly
+    # (kyle#2130, #1313). The process's real exit status still carries the signal.
+    local rc=$1 announced='^exit([[:space:]]|$)'
+    [[ "${2:-}" =~ $announced ]] || rc=128
     if [[ -n "$_gate_status_file" ]]; then
         printf "%d\n" "$rc" 2>/dev/null > "$_gate_status_file"
     else
@@ -154,7 +183,7 @@ _gate_on_exit() {
     [[ -z "$_coordination_tmp" ]] || rm -rf -- "$_coordination_tmp"
 }
 _coordination_tmp=""
-trap '_gate_on_exit "$?"' EXIT
+trap '_gate_on_exit "$?" "$BASH_COMMAND"' EXIT
 
 # --- The shared gate conventions (issue #1061) ------------------------------
 # SIBLING FIRST, like every other helper this repository resolves: a generated
