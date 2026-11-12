@@ -857,14 +857,17 @@ steps:
     commands:
       - export PATH="$PWD/.ci-bin:$PATH"
       - |
-        if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
-          ok=0
-          for attempt in 1 2 3; do
-            if git fetch --quiet --unshallow origin; then ok=1; break; fi
-            sleep 10
-          done
-          [ "$ok" = 1 ] || { echo "counter-model-enrolment: could not deepen the clone after 3 attempts - a fetch failure, not a finding; retry the pipeline"; exit 1; }
-        fi
+        # The clone's state is re-read on every attempt (issue #1732): the
+        # `negative-controls` step deepens this same workspace on pull requests,
+        # so a fetch here can lose a lock race to it, and `--unshallow` on a
+        # clone the other step has just completed is an error, not a no-op.
+        ok=0
+        for attempt in 1 2 3; do
+          if [ "$(git rev-parse --is-shallow-repository)" != true ]; then ok=1; break; fi
+          if git fetch --quiet --unshallow origin; then ok=1; break; fi
+          sleep 10
+        done
+        [ "$ok" = 1 ] || { echo "counter-model-enrolment: could not deepen the clone after 3 attempts - a fetch failure, not a finding; retry the pipeline"; exit 1; }
       - bash scripts/flow-finish-gate.sh --enrolment-only --branch "$CI_COMMIT_SOURCE_BRANCH"
 
   negative-controls:
@@ -885,7 +888,58 @@ steps:
       # staging step stopped delivering - and the note under `shellcheck-stage`
       # below, plus tests/test_shellcheck_stage.py, both rest on this step
       # REDDENING in exactly that case rather than reporting a shorter battery.
-      - PATH="$PWD/.ci-bin:$PATH" python3 scripts/check-negative-controls.py --strict
+      #
+      # ARE THE ANCHORS WHAT THEIR MANIFESTS SAY THEY ARE? (issue #1732)
+      # On a PULL REQUEST the battery also runs `--verify-provenance`, which
+      # byte-compares every HISTORICAL anchor with the commit it claims to come
+      # from. Until #1732 nothing passed that flag anywhere.
+      #
+      # PULL REQUESTS ONLY: a push to main is a tree a pull-request pipeline
+      # already verified, so main pushes do not run it and do not pay for the
+      # history it needs.
+      #
+      # IT NEEDS HISTORY. The clone is `--depth=1`, where a historical anchor's
+      # commit does not exist. `counter-model-enrolment` deepens the same shared
+      # workspace on pull requests and may be doing so at this moment, so the
+      # loop re-reads the clone's state on every attempt: whichever step gets
+      # there first deepens it, and the other finds it already done.
+      #
+      # IT CANNOT PASS BLIND, in either of two ways. In a shallow clone the
+      # harness answers UNCOMPARED for a historical anchor, not `unverified`,
+      # and `--strict` fails on it - so a run that lost its history reds, where
+      # before #1732 it would have printed `unverified` for every control and
+      # stayed green. And an event this step cannot name is a failure, not a
+      # quiet run without the flag.
+      #
+      # IN THE SAME STEP, NOT A SECOND ONE: scripts/control-ci-deps-check.py
+      # derives the environment the controls must satisfy from the ONE step that
+      # runs this harness, and a second would also run the whole battery twice.
+      - |
+        PROVENANCE=""
+        case "${CI_PIPELINE_EVENT:-}" in
+          pull_request)
+            ok=0
+            for attempt in 1 2 3; do
+              if [ "$(PATH="$PWD/.ci-bin:$PATH" git rev-parse --is-shallow-repository)" != true ]; then ok=1; break; fi
+              if PATH="$PWD/.ci-bin:$PATH" git fetch --quiet --unshallow origin; then ok=1; break; fi
+              sleep 10
+            done
+            [ "$ok" = 1 ] || { echo "negative-controls: could not deepen the clone after 3 attempts - a fetch failure, not a finding; retry the pipeline"; exit 1; }
+            PROVENANCE="--verify-provenance"
+            ;;
+          "") echo "negative-controls: CI_PIPELINE_EVENT is not set, so this step cannot tell whether to verify anchor provenance - refusing to run without knowing"; exit 1 ;;
+        esac
+        # No braces round a variable this script sets: Woodpecker substitutes
+        # every braced variable when it compiles the pipeline, before the shell
+        # runs, so the braced default form always printed its default - "not
+        # passed" on the very run that passed it (pipeline 3754).
+        if [ -n "$PROVENANCE" ]; then
+          echo "negative-controls: event ${CI_PIPELINE_EVENT}; provenance flag: $PROVENANCE"
+        else
+          echo "negative-controls: event ${CI_PIPELINE_EVENT}; provenance flag: not passed (main pushes do not verify provenance)"
+        fi
+        printf '%s' "$PROVENANCE" > .ci-bin/provenance-flag
+      - PATH="$PWD/.ci-bin:$PATH" python3 scripts/check-negative-controls.py --strict $(cat .ci-bin/provenance-flag)
 
   # THE SECOND HALF OF THE SAME QUESTION (issue #970). `negative-controls` above
   # asks "does this control discriminate". It cannot ask "does this BATTERY cover
