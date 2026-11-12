@@ -123,8 +123,8 @@
 #   MERGE: AUTHORIZED #N when <predicate>
 #   MERGE: PRIORITY #N <argument>
 #   STATE: as-of <commit-ish>
-#   RATIFY #N <reason>
-#   OVERRULE #N <reason>
+#   RATIFY: #N <reason>                 (RATIFY #N <reason> also accepted)
+#   OVERRULE: #N <reason>               (OVERRULE #N <reason> also accepted)
 #   PUSHBACK <argument>
 #   LEDGER                              (block carrying delivered:/in-scope:/
 #                                        residual:)
@@ -294,8 +294,8 @@ reserved_kind() {
     LANE:*)    printf 'LANE' ;;
     MERGE:*)   printf 'MERGE' ;;
     STATE:*)   printf 'STATE' ;;
-    RATIFY|RATIFY\ *)     printf 'RATIFY' ;;
-    OVERRULE|OVERRULE\ *) printf 'OVERRULE' ;;
+    RATIFY|RATIFY\ *|RATIFY:*)     printf 'RATIFY' ;;
+    OVERRULE|OVERRULE\ *|OVERRULE:*) printf 'OVERRULE' ;;
     PUSHBACK|PUSHBACK\ *|PUSHBACK:*) printf 'PUSHBACK' ;;
     LEDGER|LEDGER\ *|LEDGER:*)       printf 'LEDGER' ;;
     *) printf '' ;;
@@ -811,7 +811,8 @@ parse_state() { # parse_state LINENO REST
 
 parse_ruling() { # parse_ruling LINENO TOKEN REST
   local ln="$1" tok="$2" rest="$3" issue reason
-  rest="$(trim "$rest")"
+  # Accept the colon spelling printed by report_parse, retaining no-colon input.
+  rest="$(trim "${rest#:}")"
   if [[ ! "$rest" =~ ^#([0-9]+)([[:space:]]|$) ]]; then
     add_err "$ln" "$tok must name the issue whose deviation it answers (e.g. '$tok #701 narrower boundary accepted')"
     return
@@ -943,8 +944,8 @@ parse_body() {
       LANE:*)     parse_lane    "$ln" "${s#LANE:}" ;;
       MERGE:*)    parse_merge   "$ln" "${s#MERGE:}" ;;
       STATE:*)    parse_state   "$ln" "${s#STATE:}" ;;
-      RATIFY|RATIFY\ *)     parse_ruling "$ln" "RATIFY"   "${s#RATIFY}" ;;
-      OVERRULE|OVERRULE\ *) parse_ruling "$ln" "OVERRULE" "${s#OVERRULE}" ;;
+      RATIFY|RATIFY\ *|RATIFY:*)     parse_ruling "$ln" "RATIFY"   "${s#RATIFY}" ;;
+      OVERRULE|OVERRULE\ *|OVERRULE:*) parse_ruling "$ln" "OVERRULE" "${s#OVERRULE}" ;;
       PUSHBACK|PUSHBACK\ *|PUSHBACK:*) parse_pushback "$ln" "${s#PUSHBACK}" "$((i + 1))" ;;
       LEDGER|LEDGER\ *|LEDGER:*)       parse_ledger   "$ln" "$((i + 1))" ;;
     esac
