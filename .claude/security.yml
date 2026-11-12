@@ -14,3 +14,9 @@ suppressions:
     path: '^controls/lib-security-gate/cases/bad-critical-secret/leaked\.py$'
     secret: 'AKIAIOSFODNN7EXAMPLE'
     reason: "planted negative-control fixture (AWS documentation example key, not a real secret)"
+  # The same planted value in a script with a shebang and no extension (issue
+  # #1737): the BAD case that shows the gate reads extensionless scripts.
+  - id: AWS_ACCESS_KEY
+    path: '^controls/lib-security-gate/cases/bad-extensionless-script/deploy$'
+    secret: 'AKIAIOSFODNN7EXAMPLE'
+    reason: "planted negative-control fixture (AWS documentation example key, not a real secret)"

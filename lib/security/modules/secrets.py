@@ -7,13 +7,24 @@ Detects well-known secret patterns with low false-positive rates:
 - Google API keys (AIza...)
 - Anthropic keys (sk-ant-...)
 - Generic high-entropy strings assigned to secret-like variables
+
+Assumption (issue #1737): the scan reads a tree that is NOT being modified
+while it runs. It is not hardened against a concurrent writer - a file or
+directory swapped between being listed and being read - for either population
+it reads. The guards on extensionless files protect it from an odd file (a
+symlink, a FIFO or device, a binary, a very large file), not from a race.
 """
 
 from __future__ import annotations
 
+import errno
+import os
 import re
+import stat
 import subprocess
+from collections import Counter
 from pathlib import Path
+from typing import Optional
 
 from ..models import Finding, ScanResult, Severity
 
@@ -113,6 +124,36 @@ SKIP_DIRS = {
 
 SKIP_FILES = {"package-lock.json", "yarn.lock", "uv.lock", "poetry.lock"}
 
+# Files with no extension (issue #1737). `SCAN_EXTENSIONS` selects by suffix, so
+# `bin/deploy`, a git hook, a `Makefile` or a `Dockerfile` was never opened, and
+# the scan still said "No secrets found in N source files" over a population
+# that left them out. Two rules bring them in, and both are deliberately
+# narrow: this must not turn into "read everything".
+#
+# - a file with NO suffix whose first two bytes are `#!`. The shebang decides,
+#   not the execute bit: mode bits are lost on some checkouts, and an
+#   executable with no shebang is far more often a binary than a script;
+# - the well-known build-file names below, matched on the EXACT basename, plus
+#   the `Dockerfile.<x>` form. `Makefile.bak` and `my-Dockerfile` are not on it.
+#
+# The extension population above is selected exactly as before. Everything
+# here ADDS files; nothing here can remove one.
+SCAN_NAMES = frozenset({"Makefile", "GNUmakefile", "makefile", "Dockerfile", "Containerfile"})
+SCAN_NAME_PREFIXES = ("Dockerfile.",)
+
+# Bounds for the NEW population only. The head is read to find the shebang and
+# to refuse a binary (a NUL byte); a file over the cap is not read at all.
+EXTENSIONLESS_HEAD_BYTES = 8192
+EXTENSIONLESS_MAX_BYTES = 1_000_000
+
+# Why an extensionless file was not read, in the order the summary prints them.
+UNREAD_NO_SIGNAL = "no shebang or known name"
+UNREAD_BINARY = "binary"
+UNREAD_TOO_LARGE = "over 1 MB"
+UNREAD_NOT_REGULAR = "a symlink or not a regular file"
+UNREAD_UNREADABLE = "could not be opened"
+UNREAD_REASONS = (UNREAD_NO_SIGNAL, UNREAD_BINARY, UNREAD_TOO_LARGE, UNREAD_NOT_REGULAR, UNREAD_UNREADABLE)
+
 # The deterministic runner's OWN state directory, relative to the scan root
 # (issue #1341). `lib/cicd/state.py` writes `.claude/runs/<run_id>.json` there
 # while its `security_scan` step is executing, so without this skip the scan
@@ -147,9 +188,21 @@ def scan(project_root: str) -> ScanResult:
     files_scanned = 0
     files_unreadable = 0
 
-    for file_path in _find_source_files(root):
+    unread: Counter[str] = Counter()
+    # The extension population is read exactly as before. An extensionless
+    # candidate is opened once and read through the descriptor its checks ran
+    # on (issue #1737).
+    sources: list[tuple[Path, bool]] = [(p, False) for p in _find_source_files(root)]
+    sources += [(p, True) for p in _find_extensionless_candidates(root)]
+
+    for file_path, extensionless in sources:
+        if extensionless:
+            guarded, reason = _read_extensionless(file_path)
+            if guarded is None:
+                unread[reason or UNREAD_UNREADABLE] += 1
+                continue
         try:
-            content = file_path.read_text(errors="ignore")
+            content = guarded if extensionless and guarded is not None else file_path.read_text(errors="ignore")
         except OSError:
             # Counted only AFTER a successful read (issue #1027, cross-model
             # review). This used to increment above the `try`, so a file the
@@ -223,6 +276,17 @@ def scan(project_root: str) -> ScanResult:
             f"{files_unreadable} source file(s) could not be read and were NOT scanned"
         )
 
+    if sum(unread.values()):
+        # Its own field, NOT `skipped` (issue #1737): `len(result.skipped)` is
+        # printed as `skipped-checks=` on the SECURITY_GATE line, where it means
+        # "checks that could not run". Nearly every repository holds an
+        # extensionless file with no shebang (LICENSE), so this line there would
+        # move that number almost everywhere and change what it says.
+        reasons = ", ".join(f"{unread[r]} {r}" for r in UNREAD_REASONS if unread[r])
+        result.unexamined.append(
+            f"{sum(unread.values())} file(s) with no recognised extension were NOT read ({reasons})"
+        )
+
     if files_scanned and not result.findings:
         result.passed.append(f"No secrets found in {files_scanned} source files")
     elif not files_scanned:
@@ -254,13 +318,110 @@ def _find_source_files(root: Path) -> list[Path]:
             # suppressing that one finding left the file's actual content
             # (if any secret inside it) completely uninspected. Matches
             # `env_files.py`'s own `name.startswith(".env")` convention.
-            if (
-                path.suffix in SCAN_EXTENSIONS
-                or path.name in (".env.example", ".env.sample")
-                or path.name.startswith(".env")
-            ):
+            if _selected_by_extension(path):
                 files.append(path)
     return _filter_gitignored(root, files)
+
+
+def _selected_by_extension(path: Path) -> bool:
+    """The pre-#1737 selection rule, in one place so both finders agree on it."""
+    return (
+        path.suffix in SCAN_EXTENSIONS
+        or path.name in (".env.example", ".env.sample")
+        or path.name.startswith(".env")
+    )
+
+
+def _has_scan_name(name: str) -> bool:
+    """An exact well-known name, or `Dockerfile.<x>` with a NON-EMPTY `<x>`."""
+    return name in SCAN_NAMES or any(name.startswith(p) and len(name) > len(p) for p in SCAN_NAME_PREFIXES)
+
+
+def _find_extensionless_candidates(root: Path) -> list[Path]:
+    """Extensionless paths that are CANDIDATES for reading (issue #1737).
+
+    Selection only: nothing is opened here. A path the extension rule already
+    selects is never a candidate, so the two populations cannot overlap and no
+    file is counted twice. Whether a candidate is actually read is decided by
+    `_read_extensionless`, at the moment it is read.
+    """
+    candidates: list[Path] = []
+    for path in root.rglob("*"):
+        rel = path.relative_to(root)
+        if any(skip in path.parts for skip in SKIP_DIRS):
+            continue
+        if rel.parts[: len(RUNNER_STATE_DIR)] == RUNNER_STATE_DIR or rel.parts == DEPLOY_BASELINE_FILE:
+            continue
+        if path.name in SKIP_FILES or path.name in SKIP_PATTERN_FILES:
+            continue
+        if _selected_by_extension(path):
+            continue
+        if path.suffix and not _has_scan_name(path.name):
+            continue
+        try:
+            mode = path.lstat().st_mode
+        except OSError:
+            continue
+        if stat.S_ISDIR(mode):
+            continue
+        candidates.append(path)
+    return _filter_gitignored(root, candidates)
+
+
+def _read_extensionless(path: Path) -> tuple[Optional[str], Optional[str]]:
+    """Read one extensionless candidate: ``(content, None)`` or ``(None, reason)``.
+
+    These guards protect the scan from an odd FILE. They do not make it safe
+    against a tree that is modified while it is scanned; nothing here does, and
+    the module docstring says so.
+
+    - The file is opened `O_NOFOLLOW | O_NONBLOCK` and `fstat`ed on the
+      descriptor before a byte is read: a symlink is not followed, and a FIFO
+      or device is refused rather than waited on.
+    - The first `EXTENSIONLESS_HEAD_BYTES` are read and judged before anything
+      else, so a file with no shebang or known name, or a binary, costs at most
+      that head.
+    - A qualifying file is read to at most `EXTENSIONLESS_MAX_BYTES + 1` bytes
+      in total, so the read is bounded whatever the file's size turns out to be.
+    """
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError as exc:
+        return None, UNREAD_NOT_REGULAR if exc.errno == errno.ELOOP else UNREAD_UNREADABLE
+    try:
+        opened = os.fstat(fd)
+        if not stat.S_ISREG(opened.st_mode):
+            return None, UNREAD_NOT_REGULAR
+        if opened.st_size > EXTENSIONLESS_MAX_BYTES:
+            return None, UNREAD_TOO_LARGE
+        head = _read_up_to(fd, EXTENSIONLESS_HEAD_BYTES)
+        if b"\0" in head:
+            return None, UNREAD_BINARY
+        if not (_has_scan_name(path.name) or head.startswith(b"#!")):
+            return None, UNREAD_NO_SIGNAL
+        rest = b""
+        if len(head) == EXTENSIONLESS_HEAD_BYTES:  # a shorter head already reached end of file
+            rest = _read_up_to(fd, EXTENSIONLESS_MAX_BYTES + 1 - len(head))
+    except OSError:
+        return None, UNREAD_UNREADABLE
+    finally:
+        os.close(fd)
+    if len(head) + len(rest) > EXTENSIONLESS_MAX_BYTES:
+        return None, UNREAD_TOO_LARGE
+    return (head + rest).decode("utf-8", errors="ignore"), None
+
+
+def _read_up_to(fd: int, limit: int) -> bytes:
+    """Read at most ``limit`` bytes from ``fd``; stops early only at end of file."""
+    chunks: list[bytes] = []
+    remaining = limit
+    while remaining > 0:
+        chunk = os.read(fd, min(remaining, 1 << 16))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
 
 
 def _filter_gitignored(root: Path, files: list[Path]) -> list[Path]:

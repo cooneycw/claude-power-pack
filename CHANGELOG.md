@@ -19,6 +19,17 @@
   name, and a lane or reader test that uses a stand-in where the real thing
   could be used or that could not fail. The reader rows apply with or without a
   lane file. See `docs/agents/changed-output-readers.md` (#1697).
+- **The secret scan now reads scripts and build files with no extension, so
+  finding counts can go up.** A file with no suffix that starts with `#!`, and
+  `Makefile`, `GNUmakefile`, `makefile`, `Dockerfile`, `Containerfile` and
+  `Dockerfile.<x>`, were never opened before. Files the scan already read are
+  selected and reported exactly as they were. Binary files, files over 1 MB,
+  symlinks and non-regular files in the new group are left unread, and the
+  scan says how many extensionless files it did not read on a new `NOT READ:`
+  line (`unexamined` in `--json`). The `SECURITY_GATE` line keeps its shape;
+  only `secrets-scanned=` rises. A Makefile's `PASSWORD=$(VAR)` lines are
+  reported like any other assignment: declare them with a path suppression in
+  `.claude/security.yml`, which can be added before upgrading (#1737).
 - **A defect now says where it came from.** A defect report carries an
   `Origin:` line - the issue or pull request that delivered the behaviour that
   broke, `never worked`, or `not traced - <what was tried>` - and the pull

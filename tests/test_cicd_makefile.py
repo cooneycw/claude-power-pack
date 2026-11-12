@@ -270,3 +270,45 @@ class TestSharedRecipeSurvivesARedeclaration:
 
         mk = Declaration(self.TEXT + "other: build\n")
         assert mk.recipe_text("other") == ""
+
+
+_THREE_RULES = "lint:\n\t@true\ntest:\n\t@true\nbuild:\n\t@true\n"
+
+
+class TestCheckReadsPhonyThroughTheReader:
+    """`check_makefile` reports `.PHONY` from the declaration reader (#1692).
+
+    It used to re-read the file with a one-line regex beside the reader, and
+    the regex answer was the one printed.
+    """
+
+    def test_a_continued_declaration_is_read_whole(self, tmp_path):
+        _write(tmp_path, ".PHONY: lint test \\\n\tbuild\n" + _THREE_RULES)
+        result = check_makefile(tmp_path)
+        assert result.phony_declared == ["build", "lint", "test"]
+        assert result.phony_missing == []
+
+    def test_a_space_before_the_colon_still_declares(self, tmp_path):
+        _write(tmp_path, ".PHONY : lint test build\n" + _THREE_RULES)
+        result = check_makefile(tmp_path)
+        assert result.phony_declared == ["build", "lint", "test"]
+        assert result.phony_missing == []
+
+    def test_a_trailing_comment_is_not_a_declared_name(self, tmp_path):
+        _write(tmp_path, ".PHONY: lint test build # all three\n" + _THREE_RULES)
+        assert check_makefile(tmp_path).phony_declared == ["build", "lint", "test"]
+
+    def test_an_undeclared_target_is_still_reported_missing(self, tmp_path):
+        """The other verdict: the fix must not pass by reporting nothing."""
+        _write(tmp_path, ".PHONY: lint test\n" + _THREE_RULES)
+        result = check_makefile(tmp_path)
+        assert result.phony_declared == ["lint", "test"]
+        assert result.phony_missing == ["build"]
+
+    def test_known_limit_a_variable_in_phony_is_not_expanded(self, tmp_path):
+        """KNOWN LIMIT, not a bug to rediscover: no reader here expands make
+        variables, so targets declared through one read as missing."""
+        _write(tmp_path, "T = lint test build\n.PHONY: $(T)\n" + _THREE_RULES)
+        result = check_makefile(tmp_path)
+        assert result.phony_declared == ["$(T)"]
+        assert result.phony_missing == ["lint", "test", "build"]
