@@ -1219,10 +1219,7 @@ boxes_for_role() {
 #
 # A supervisor must never acknowledge. An ack is a receipt, and #815 separated
 # surfacing from receiving precisely so that one event could not stand in for
-# the other; `supervise` re-joined them by arming `watch --consume`, so a
-# detached daemon printing to a log recorded mail as RECEIVED by an agent that
-# had not seen it. Measured on a live wave: 7 of 7 assignments acked, 0
-# delivered (#873).
+# the other: a detached daemon printing to a log is not a recipient (#873).
 #
 # So the daemon peeks. The obvious version of that spins - with `--peek`
 # nothing moves, so the next arm re-fires on the same mail immediately - and
@@ -1407,15 +1404,12 @@ EOF
 # --- Watcher counting (#792 item 5) --------------------------------------------
 # Count LIVE `watch --role <role> --wave <wave>` processes, excluding this
 # process. A flattened-string match over `ps -eo args` - what `pgrep -f`
-# does, and what a first draft of this fix also did - double-counts
+# does - double-counts
 # structurally, not just by accident: a background launcher's `/bin/bash -c
 # "<text>"` wrapper does not exec, so its argv is a SEPARATE live process
 # whose one `-c` argument IS the inner command's text, and that text
 # contains this same pattern - one logical watcher, two OS processes, both
-# matching. Verified empirically while building this fix: a single
-# multi-line test harness command containing three unrelated
-# `flow-wave-mailbox.sh watch --role 1 ...` substrings inflated the count to
-# 2 for a role that had zero real watchers running.
+# matching.
 #
 # Reading each candidate's REAL argv - /proc/<pid>/cmdline, NUL-separated,
 # no shell re-parsing involved - fixes this structurally instead of by
@@ -1705,9 +1699,7 @@ watcher_roles_proc() {
     # (issue #821 follow-up - see the header's IDENTITY section). Two
     # processes claiming the same wave name can be serving two entirely
     # different mailboxes - every test in this suite does exactly that, one
-    # fresh tmp-path wave root per test, one wave name per test file. (That
-    # name is per pytest invocation since #881/#882; it used to be the literal
-    # "testwave", shared by every checkout on the host.)
+    # fresh tmp-path wave root per test, one wave name per test file.
     # The actual identity check is the resolved DIRECTORY: a candidate whose
     # own environment resolves to a different wave root than THIS invocation
     # is not the same wave, whatever it calls itself, and a candidate whose
@@ -1795,17 +1787,11 @@ self_chain_ps() {
 # either direction, and not silently treated as "0, nothing to see" either,
 # which would be the opposite wrong answer (a live watcher reading `dead`).
 #
-# `unknown` now surfaces from THIS lane more often than before - worth
-# saying plainly, because on its own that reads as a regression. It is not
-# one: the two watcher_count consumers fail in DELIBERATELY OPPOSITE
-# directions (see the block above watcher_roles_live), and this moves the
-# failure OUT of the disfavoured one. Before this fix, a cross-mailbox
-# match returned a wrong POSITIVE count, which the duplicate-arm guard
-# would read as "already covered" and refuse to arm - deafness, the
-# explicitly worse outcome. After it, the guard sees `unknown`, fails open,
-# and arms - an occasional false duplicate at worst, the explicitly
-# preferred outcome. The reporting consumer's higher `unknown` frequency is
-# the visible cost of that trade, not an unrelated new weakness.
+# `unknown` from THIS lane is the preferred failure, not a regression: the two
+# consumers of the count fail in DELIBERATELY OPPOSITE directions (the header
+# says how, below its STATE table), so the duplicate-arm guard sees `unknown`,
+# fails open, and arms - an occasional false duplicate at worst - where a
+# wrong POSITIVE count would read as "already covered" and refuse to arm.
 watcher_roles_ps_fallback() {
   local wave="$1" line pid ppid args rest found_role seen=0
   local self_chain matched_pids=" " records=() rec rpid rppid rrole surviving=()
@@ -2027,10 +2013,6 @@ EOF
   # this script, so whether the `--role` and `--wave` fields survive the cut
   # depends on HOW LONG THE CHECKOUT PATH IS.
   #
-  # Measured on this host, same moment, same processes:
-  #   ps -eo pid,ppid,args --no-headers        max line 120, 2 watchers found
-  #   ps -ww -eo pid,ppid,args --no-headers    max line 2576, 5 watchers found
-  #
   # The failure direction is the dangerous one. A cut landing before `--role`
   # leaves a line this loop never recognises as watcher-shaped, so it `continue`s
   # - and the lane reports a CONFIDENT lower count rather than `unknown`. #917
@@ -2183,11 +2165,10 @@ LOCK_FILE="$WAVE_DIR/.mailbox.lock"
 E_WAVE="$WAVE"; E_DIR="$WAVE_DIR"
 E_ROLE=""; E_BOX=""; E_REV=""; E_UNREAD=""; E_ACKED=""
 
-# Only the WRITING verbs create the wave directory (issue #1260). This used to
-# be an unconditional `mkdir -p` for every verb, so `list` - and through it
-# `flow-wave-registry.sh list` - and every re-arm of a supervise daemon
-# recreated a wave someone had deleted, destroying the one piece of evidence
-# that the wave was gone. Inspecting a thing must not change it.
+# Only the WRITING verbs create the wave directory (issue #1260). Inspecting a
+# thing must not change it: a `list`, or a supervise daemon's re-arm, that
+# recreated a deleted wave would destroy the one piece of evidence that the
+# wave was gone.
 #   create:  send, escalate, supervise (launch), watch (arming)
 #   never:   list, read, ack, watch --status, __supervise_daemon
 # FLOW_WAVE_MAILBOX_NO_CREATE=1 withdraws the right from an arming watch too;
@@ -3196,9 +3177,7 @@ EOF
         # could not tell "this session deliberately never uses the
         # registry" apart from "this session's --wave is a typo" - both
         # look IDENTICAL from here, an empty wave and a free role - and
-        # #814 already settled which of those two readings wins. Measured
-        # directly: every existing supervise-without-registry test in this
-        # suite broke the instant this check ran unconditionally.
+        # #814 already settled which of those two readings wins.
         #
         # Only `no-roles-ended` is handled here. `--any-live`'s other two
         # non-`yes` answers correctly fall through to "keep supervising":
@@ -3238,10 +3217,6 @@ EOF
       # whatever this child currently is - reparented to init - still holding
       # fd 8 until IT exits on its own, so a new `supervise` refuses as
       # `duplicate` against a lock the daemon that held it is already dead.
-      # Verified directly: SIGKILL the daemon, then attempt a new `supervise`
-      # immediately - with this line, it succeeds at once, WITH the orphaned
-      # child still alive in the process table; the orphan no longer matters
-      # because it no longer holds anything.
       #
       # FLOW_WAVE_MAILBOX_NO_CREATE=1 (issue #1260): this re-arm must find a
       # deleted wave deleted (exit 9, handled below), never recreate it.
@@ -3257,11 +3232,9 @@ EOF
 
       case "$INNER_RC" in
         0)
-          # SURFACED, not delivered and not acknowledged. The old wording here
-          # said "delivered rc=0", which meant only that the inner watch exited
-          # zero - i.e. that a print succeeded - and an orchestrator reading
-          # this log took it for evidence a model had read something (#873).
-          # It is not, it never was, and the log now says which fact it holds.
+          # SURFACED, not delivered and not acknowledged: rc=0 means only that
+          # the inner watch exited zero - i.e. that a print succeeded - never
+          # that a model read anything (#873). The log says which fact it holds.
           log_event "surfaced rc=0 (NOT acknowledged - mail stays unread until the agent acks it)"
           BACKOFF=0
           LAST_INNER_RC=""
@@ -3319,10 +3292,9 @@ EOF
     ;;
 
   list)
-    # A missing wave is reported, never recreated (issue #1260). `list` used
-    # to run after an unconditional mkdir, so asking about a deleted wave
-    # brought it back - and `flow-wave-registry.sh list`, which calls this,
-    # did the same to every wave it rendered. `absent` is its own VERDICT - an
+    # A missing wave is reported, never recreated (issue #1260) - and
+    # `flow-wave-registry.sh list`, which calls this, must not recreate every
+    # wave it renders either. `absent` is its own VERDICT - an
     # empty listing would read as "a wave with no mail yet" - but exit 0: a
     # wave that does not exist (never created, or ended) is a state to report,
     # not an error, which is the contract `list` already held for an untouched

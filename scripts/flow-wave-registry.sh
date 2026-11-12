@@ -737,8 +737,7 @@ pid_state() {
 # NEVER a positional `awk '{print $22}'` on the raw line. `comm` (field 2) is
 # parenthesised and MAY ITSELF CONTAIN SPACES OR PARENTHESES - a process can
 # set its own name to anything - so a naive positional split silently shifts
-# every field after it. Measured directly: this read a start time from BEFORE
-# the process could have existed, for exactly this reason. The kernel's own
+# every field after it. The kernel's own
 # convention (and every tool that gets this right, `ps` included) is to split
 # on the LAST `)` in the line - `${stat##*)}` removes the longest matching
 # prefix ending in `)`, so any parens embedded in `comm` are consumed as part
@@ -889,16 +888,9 @@ with_lock() {
   ) 9>"$LOCK_FILE"
   #: A FAILED WRITE MUST NOT REPORT SUCCESS (#1190).
   #:
-  #: The three failure paths above exit 3 inside this SUBSHELL, and nothing used
-  #: to read that status - so the script carried on and emitted its own verdict.
-  #: Measured before the fix: with a corrupt registry.json, `register` printed
-  #: `FLOW_WAVE: registered` and exited 0 while the update had failed and NOTHING
-  #: was recorded. That is worse than the missing verdict this issue is named for:
-  #: the line is present, well-formed, and says the opposite of what happened.
-  #:
-  #: So exit 3 never reached a caller at all, and "preserve the exit code" had no
-  #: behaviour to preserve. Surfacing it necessarily changes the observed exit
-  #: from 0 to 3 on a path that was already broken.
+  #: The three failure paths above exit 3 inside this SUBSHELL, so that status
+  #: has to be read here - or the script carries on and emits its own verdict
+  #: over a write that failed.
   lock_status=$?
   if [ "$lock_status" -ne 0 ]; then
     rm -f "${LOCK_SNAP_PREV:-}" "${LOCK_SNAP_NEW:-}" 2>/dev/null
@@ -1046,25 +1038,16 @@ entry_read_or_die() {
 # it from the state alone (#869 acceptance: the two `kill -0` failure modes are
 # distinguishable, and the code says which one it saw).
 #
-# THE SOCKET FILE IS CORROBORATION, NEVER PROOF (#869). It used to be sufficient
-# on its own, and evaluated AFTER the pid had already been reported dead:
+# THE SOCKET FILE IS CORROBORATION, NEVER PROOF (#869). The kernel does not
+# unlink a unix domain socket when its owner dies, so the file outlives the
+# process: taken as sufficient on its own, the WEAKER evidence overrides the
+# STRONGER one and a SIGKILLed session keeps reading `live` for as long as its
+# socket sits on disk. It must never override a DEFINITE ESRCH.
 #
-#     uds:*) [ -S "${sock#uds:}" ] && { echo live; return; } ;;
-#
-# The kernel does not unlink a unix domain socket when its owner dies, so the
-# file outlives the process and the WEAKER evidence overrode the STRONGER one: a
-# SIGKILLed session kept reading `live` for as long as its socket sat on disk.
-#
-# What #675 actually asked for is preserved. Its words are that the socket file
-# is "a SECOND, independent proof, covering a pid the helper cannot signal" -
-# that is the EPERM case, and `pid_state` now answers it directly and correctly.
-# What is removed is only the socket's power to override a DEFINITE ESRCH, which
-# #675 never claimed and which was a bug in the mechanism rather than in the
-# intent. #689 then made the branch uds-only and recorded that transports
-# without sockets get one factor, "a property of the design, not an oversight".
-# That asymmetry is now GONE rather than documented: errno needs no socket, so
-# every transport gets the same primary evidence. The socket survives only in
-# the BASIS, where it corroborates an already-undeterminable pid and changes no
+# The case #675 wanted the socket for - a pid the helper cannot signal, EPERM -
+# is answered directly by `pid_state`. Errno needs no socket, so every
+# transport gets the same primary evidence. The socket survives only in the
+# BASIS, where it corroborates an already-undeterminable pid and changes no
 # verdict.
 _liveness_compute() {
   local e="$1" pid host sock released st recorded_started current_started
@@ -1075,11 +1058,8 @@ _liveness_compute() {
   sock="$(printf '%s' "$e" | jq -r '.socket // "unknown"')"
 
   # ANOTHER HOST'S PID CANNOT BE OBSERVED FROM HERE (#1014 Part 2, ruling RA).
-  # This used to read `stale other-host`, and `stale` is the one state
-  # `register`/`release` treat as a PROVEN death - so any session on this host
-  # silently took over a role a session on another host might still be driving,
-  # without --force. That is the #869 defect (weaker evidence read as a death)
-  # reached by a different road: we did not look, because we cannot. It is
+  # `stale` is the one state `register`/`release` treat as a PROVEN death, and
+  # this is not one: we did not look, because we cannot. It is
   # `unknown`, which holds the role until the operator says --force, and the
   # BASIS keeps it distinguishable from an undeterminable LOCAL pid. The local
   # pid table is deliberately never consulted: a local pid with the same number
@@ -1207,11 +1187,6 @@ cwd_is_shared_parent() {
 # COLLISION DETECTION STRICTLY WORSE THAN DECLARING NOTHING, at the one moment a
 # lane is being handed over and is most likely to collide.
 #
-# Observed in production, not hypothesised: an orchestrator granted
-# `docs/scripts.md` to three roles at once and told a worker in writing that two
-# files were free while another role held them, then concluded it had failed to
-# re-read the roster between grants. The roster could not have told it.
-#
 # THE FIX IS NARROW ON PURPOSE. Making the file-lane arm additive instead would
 # restore the noise the precedence was built to control, and the next person to
 # meet that noise would re-suppress it - the oscillation. So only the match that
@@ -1230,9 +1205,6 @@ cwd_is_shared_parent() {
 # line, which is every other call site. Here it would stand down a worktree
 # warning between a genuine checkout and a role working in a subdirectory of it,
 # and a suppressed TRUE warning is the thing this whole change exists to stop.
-#
-# Found by counter-model review; the nested-worktree guard test used empty
-# directories and could not see it.
 _is_checkout_root() { [ -e "$1/.git" ]; }
 
 # _is_inside_checkout DIR -> 0 when DIR is at or below a git checkout root.
@@ -1437,14 +1409,9 @@ shared_files() {
       #: The exact-match rule above it exists to stop prefix-GUESSING inventing
       #: collisions the roles never declared (#683). A declared DIRECTORY is not a
       #: guess: `codex/skills/` contains `codex/skills/flow-repair/reference.md`
-      #: by definition, and that is what declaring a directory means. Live case:
-      #: a role declared the bare `codex/skills` and thereby claimed three other
-      #: roles' mirror trees while this predicate reported no overlap at all.
-      #:
-      #: The same file already does containment for CWD comparison (`case "$ca/"
-      #: in "$cb"/*`) and refused it here, so the codebase had decided both ways
-      #: in one file. A rule applied to one half of a comparison and refused for
-      #: the other is not a policy, it is an accident.
+      #: by definition, and that is what declaring a directory means. It is also
+      #: the rule this file already applies to CWD comparison (`case "$ca/" in
+      #: "$cb"/*`).
       #:
       #: TWO-SIDED, so the REVERSAL TRIGGER lives here rather than in a PR nobody
       #: will read: if containment warnings start firing on pairs the roles
@@ -1676,11 +1643,9 @@ EOF
 # The branch and same/nested-worktree arms are repo-INDEPENDENT and unaffected.
 # This predicate is deliberately about the two that are not.
 #
-# Found in a live wave: a worker re-registered passing only `--files` to extend
-# its lane. `files` is PRESERVED across a re-register that omits it while `repo`
-# is REWRITTEN, so the lane survived and its scoping key did not - two workers
-# held the same two files for ~40 minutes against a roster that read clean. The
-# act of declaring a lane was the act that stopped the lane being checked.
+# How a role gets here: `files` is PRESERVED across a re-register that omits it
+# while `repo` is REWRITTEN, so a lane survives a re-register that loses its
+# scoping key.
 lane_unscoped() {
   local repo="$1" files="$2" issue="$3"
   [ -z "$repo" ] || [ ! -d "$repo" ] || return 1
@@ -2113,12 +2078,8 @@ lane_split() { # lane_split ARRAY_NAME CSV
   #: contain: a different lane on every machine, and a gate MANUFACTURING the
   #: paths it grades.
   #:
-  #: The previous guard was `set -f` around each loop with an unconditional
-  #: `set +f` on the way out. That restores globbing ON rather than to the
-  #: caller's state, so the first lane_covers call re-enabled expansion for
-  #: every loop after it, and the unused-lane scan expanded `*.md` into real
-  #: filenames and reported those invented paths as unused - and could report
-  #: them CONTESTED against another role (Codex pass 2 on #985).
+  #: Not `set -f` around each loop either: an unconditional `set +f` on the way
+  #: out restores globbing ON rather than to the caller's state (#985).
   #:
   #: `read -ra` splits on IFS and never globs, so the hazard cannot return by
   #: someone adding another CSV loop. `-d ''` so a lane entry containing a
@@ -2629,12 +2590,6 @@ case "$VERB" in
     #: it with `$(...)`. Appending the detail block and a `FLOW_WAVE:` line would
     #: make that capture multi-line garbage and break every such caller.
     #:
-    #: This was tried during #1190 and reverted. Two long-standing tests pin the
-    #: contract - `test_self_address_names_why_it_failed` and
-    #: `test_self_address_walk_starts_at_the_session_pid` both assert
-    #: `stdout.strip()` equals the address EXACTLY - and they caught it. They are
-    #: the contract, not an obstacle to it.
-    #:
     #: So this sits with `--help` and the `--any-live-only` sub-mode: a query
     #: whose payload is its output. The verdict contract binds the REPORTING
     #: verbs. `tests/test_flow_wave_registry.py` carries a guard asserting this
@@ -3072,9 +3027,7 @@ case "$VERB" in
     # step that cannot fire. `verify` needs a transport-observed from=, which
     # needs a DELIVERED message, which needs someone to already hold a real
     # address - so with no address here, the fallback is not "later", it is
-    # structurally blocked until one of the bootstrap lanes below runs. This
-    # REPLACES the "the orchestrator's verify will supply it" line, which was
-    # the promise #672 was filed about.
+    # structurally blocked until one of the bootstrap lanes below runs.
     if [ "$SOCK" = "unknown" ]; then
       case "$SOCK_REASON" in
         no-sock-dir)
@@ -3120,9 +3073,7 @@ case "$VERB" in
     # Both sides of the delta come from the LOCKED transaction (issue #1266):
     # the entry this write replaced, and the entry it wrote. `$CUR`, read before
     # the lock for the ownership checks above, is NOT the entry replaced when a
-    # concurrent registration committed in between - measured with the test
-    # seam: the delta reported DROPPED=b.py against the stale read when the
-    # lane actually lost c.py.
+    # concurrent registration committed in between.
     REPLACED_ENTRY="$(cat "$LOCK_SNAP_PREV" 2>/dev/null)"
     NEW_ENTRY="$(cat "$LOCK_SNAP_NEW" 2>/dev/null)"
     rm -f "$LOCK_SNAP_PREV" "$LOCK_SNAP_NEW"
@@ -3166,12 +3117,10 @@ case "$VERB" in
     FILES_ADDED="$LANE_MISSING"
     if [ "$FILES_DROPPED_N" -gt 0 ]; then
       echo "flow-wave-registry: role '$ROLE' DROPPED $FILES_DROPPED_N path(s) from its declared lane: $FILES_DROPPED" >&2
-      # SAYS ONLY WHAT THIS COMMAND CHECKED (counter-model review, #1026). The
-      # earlier wording claimed "nothing else holds these paths now" - a
-      # ROSTER-WIDE fact that `register` never looks up, and which another live
-      # role may flatly contradict. The per-role delta is what was measured; who
-      # holds a path now is `list`'s question, so the reader is sent there
-      # rather than handed a fabricated answer.
+      # SAYS ONLY WHAT THIS COMMAND CHECKED (counter-model review, #1026): the
+      # per-role delta. Who holds a path now is a ROSTER-WIDE fact that
+      # `register` never looks up - it is `list`'s question, so the reader is
+      # sent there rather than handed a fabricated answer.
       echo "  --files REPLACES the lane; it does not extend it. THIS role no longer holds those paths, and a path it has stopped claiming reads on the roster exactly like an uncontested one (#1026)." >&2
       echo "  Run 'list --wave $WAVE' for who holds them now; re-register naming the COMPLETE lane if that was not the intent." >&2
     fi
@@ -3237,13 +3186,9 @@ case "$VERB" in
     echo "FLOW_WAVE_DRIVER_META=$(driver_cap_dash "$REG_DRIVER" META)"
     echo "FLOW_WAVE_DRIVER_CANNOT=$(driver_cap_dash "$REG_DRIVER" CANNOT)"
     # THE TOOLCHAIN THIS SESSION WILL ACTUALLY RUN (#1029). Registration is where
-    # a session declares its vantage, and until now vantage meant address, lane
-    # and policy - never which VERSION of the instruments it holds. On 2026-09-15
-    # a wave ran for eleven hours on a shared checkout 21 commits behind
-    # `origin/main`: every helper resolved, every gate was green, and none of the
-    # merged work those commits carried was reachable from any of it. The gap was
-    # found only when a worker tried to use a flag that had shipped and did not
-    # exist here.
+    # a session declares its vantage, and that includes which VERSION of the
+    # instruments it holds: on a checkout behind `origin/main` every helper
+    # resolves and every gate is green while merged work is unreachable.
     #
     # A NUMBER, not a boolean, and `unknown` is not zero - the helper owns that
     # distinction and this only relays it. Emitted on EVERY registration, because
@@ -3517,11 +3462,9 @@ case "$VERB" in
       emit refused
       exit 1
     fi
-    #: A RELEASED ROW IS HISTORY, NOT A CLAIM (#1222). This used to set
-    #: `released` and clear nothing, so a role whose session had ended still
-    #: advertised a closed issue, a merged PR and an eight-path file lane, and
-    #: the roster could not tell "held by a live role" from "left behind by one
-    #: that ended". The lane facts move under `released_lane`, which no lane
+    #: A RELEASED ROW IS HISTORY, NOT A CLAIM (#1222): the roster must be able
+    #: to tell "held by a live role" from "left behind by one that ended". The
+    #: lane facts move under `released_lane`, which no lane
     #: reader consults, and the live keys are blanked. `repo` stays: `list`
     #: reads it from every row, released or not, to find which repos to scan
     #: for unregistered claims (#687).
@@ -3768,8 +3711,6 @@ case "$VERB" in
     #:     fires at push time, and is the only thing that can see a path claimed
     #:     but never touched when no other role has declared it - a collision that
     #:     has not happened yet.
-    #: A live over-claim in this wave was invisible to both: too wide for the diff
-    #: check to have run on, and invisible to exact-match.
     #:
     #: DELIBERATELY NOT GRADED. An unused lane entry is common and usually
     #: innocent - a worker may hold a file it did not need this run - so a report
@@ -3986,10 +3927,7 @@ case "$VERB" in
     # population supports.
     # Computed HERE, above every render branch, for the same reason #800 counts
     # unscoped lanes above the `--json` split (counter-model review pass 2,
-    # #1026): the empty-roster path returned before reaching the place these
-    # were derived, so `list` on an empty wave omitted
-    # FLOW_WAVE_MERGE_STRICT_SUPPRESSING while `list --json` on the SAME wave
-    # emitted it. A contract line present in one render mode and absent in
+    # #1026): a contract line present in one render mode and absent in
     # another cannot be told from "not suppressing" by anything reading it.
     MERGE_STRICT="$(policy_field "$POL" merge_strict)"
     [ -n "$MERGE_STRICT" ] || MERGE_STRICT="unknown"
@@ -4411,10 +4349,7 @@ EOF
       r_repo="$(printf '%s' "$e" | jq -r '.repo // ""')"
       r_files="$(printf '%s' "$e" | jq -r '.files // ""')"
       # The orchestrator is exempt only while it DECLARES no lane (issue #1260).
-      # This used to be keyed on the role NAME alone, so an orchestrator
-      # registered with --files, an issue or a branch - one that really was
-      # holding a claim - was still skipped, under a notice promising the skip
-      # lasted "until they declare one". "Never implements" is a policy, not a
+      # "Never implements" is a policy, not a
       # fact about the record; the record is what this check compares.
       if [ "$r" = "orchestrator" ] && [ -z "$r_iss" ] && [ -z "$r_br" ] && [ -z "$r_files" ]; then
         EXEMPT_ROLES="$EXEMPT_ROLES $r"
