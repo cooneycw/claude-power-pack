@@ -7,7 +7,7 @@
 # gate's three calls - the repo lookup, the pipeline list, and the one
 # pipeline's workflow detail - from fixed JSON plus the ONE thing this
 # control varies: the failed step's `exit_code`, read from the case's own
-# `exit_code` file.
+# `exit_code` file - and, since issue #1508, optionally its `error` text.
 #
 # The gate's own exit code does not vary with its FAILURE_ORIGIN verdict (it
 # is 0 unless `--exit-code` is passed, and then it is 1 for ANY failure,
@@ -51,12 +51,23 @@ if [ -f "$case_dir/step_name" ]; then
     esac
 fi
 
-# An optional `error` file is the failed step's error text, as the provider
-# reports it; it may span lines (issue #1711). jq encodes it, so the case file
-# holds the raw text.
-error_json='""'
+# The failed step's ERROR text (issue #1508): optional, default absent (the
+# step record then carries no `error` field at all, exactly as before). A case
+# supplies the provider's own message verbatim; jq encodes it, so quotes and
+# backslashes in a real daemon message survive into the stub's JSON.
+# The text may span lines (issue #1711): only the file's final newline is
+# dropped, interior ones are kept.
+step_error_json=""
 if [ -f "$case_dir/error" ]; then
-    error_json=$(jq -Rs . < "$case_dir/error") || { echo "FLOW_CI_CONTROL: cannot-run - error file could not be encoded"; exit 3; }
+    step_error_json=$(jq -Rs 'sub("\\n$"; "")' < "$case_dir/error") || {
+        echo "FLOW_CI_CONTROL: cannot-run - could not encode the case's error file"; exit 3; }
+    case "$step_error_json" in
+        '""'|'')
+            echo "FLOW_CI_CONTROL: cannot-run - error file is empty"
+            exit 3
+            ;;
+    esac
+    step_error_json=", \"error\": $step_error_json"
 fi
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/flow-ci-status-control.XXXXXX") || { echo "FLOW_CI_CONTROL: cannot-run - no tmpdir"; exit 3; }
@@ -91,7 +102,7 @@ JSON
         cat <<JSON
 {"workflows": [{"name": "woodpecker", "children": [
     {"name": "clone", "type": "clone", "state": "success", "exit_code": 0},
-    {"name": "$step_name", "type": "commands", "state": "failure", "exit_code": $exit_code, "error": $error_json}
+    {"name": "$step_name", "type": "commands", "state": "failure", "exit_code": $exit_code$step_error_json}
 ]}]}
 JSON
         ;;

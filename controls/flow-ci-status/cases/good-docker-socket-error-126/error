@@ -1,0 +1,1 @@
+error during connect: Get "http://%2Fvar%2Frun%2Fdocker.sock/v1.51/containers/wp_01M5N647S73330TV257S5KM78H/json": received signal: 0xc0002585b0
