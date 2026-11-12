@@ -113,6 +113,7 @@
 #                                  reachable on a host with a working /proc.
 #
 #: NEGATIVE-CONTROL: controls/flow-worktree-sweep
+#: NEGATIVE-CONTROL: controls/flow-worktree-sweep-apply
 #: ADR 0008 row 8, class X: `removable` is consumed by the removal of OTHER
 #: sessions' checkouts and nothing re-derives it (issue #1281). The control's
 #: GOOD cases (dirty, unpushed, occupied, no PR, open PR) are what catch this

@@ -1,0 +1,56 @@
+{
+  "_comment": [
+    "Registration for `--apply` on scripts/flow-worktree-sweep.sh (issue #1726).",
+    "",
+    "WHY A SECOND REGISTRATION ON THE SAME GATE: controls/flow-worktree-sweep runs the",
+    "dry run only and scores what the sweep SAYS. `--apply` is the mode that deletes,",
+    "and nothing registered ran it; nor did any registered case produce the `partial`",
+    "verdict (exit 3). This control scores what is left on disk after `--apply`.",
+    "",
+    "ITS RUNNER AND ITS ANCHOR DELETE. run-case.sh builds its target under one",
+    "temporary directory and refuses to invoke anything if a worktree of that",
+    "repository lies outside it; tests/test_sweep_apply_control_runner.py shows",
+    "that refusal firing."
+  ],
+  "gate": "scripts/flow-worktree-sweep.sh",
+  "invocation": [
+    "sh",
+    "controls/flow-worktree-sweep-apply/run-case.sh",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^FLOW_WORKTREE_SWEEP_APPLY_CONTROL: finding - ",
+  "good_signal": "^FLOW_WORKTREE_SWEEP_APPLY_CONTROL: no-finding - ",
+  "unavailable_signal": "^FLOW_WORKTREE_SWEEP_APPLY_CONTROL: unavailable - ",
+  "limits": "Covers `--apply` for one worktree with a merged PR: a commit after the merge is kept, a lookup that fails is undecidable and makes the run partial, and a finished worktree is removed. Its anchor is CONSTRUCTED, not a past version of the sweep: a naive sweep written to miss both bad cases, by treating 'the PR merged' as 'the worktree is finished' and a failed lookup as 'nothing to do'. It does not cover dirty trees, occupancy, closed PRs, locked worktrees and stale claims, the removal helper's own refusals, or the race between classification and removal - those are pinned by tests/test_worktree_sweep.py.",
+  "cases": [
+    {
+      "name": "bad-unpushed-commit-after-the-merge",
+      "input": "cases/bad-unpushed-commit-after-the-merge",
+      "expect": "BAD",
+      "why": "The PR merged and the worktree has a commit made afterwards that exists nowhere else. If it scores GOOD the sweep deleted the only copy of that commit's checkout on the strength of the merge."
+    },
+    {
+      "name": "bad-github-cannot-answer",
+      "input": "cases/bad-github-cannot-answer",
+      "expect": "BAD",
+      "why": "The PR lookup fails. The sweep must say it could not tell (undecidable, run partial, exit 3). If it scores GOOD, 'I could not look' is being reported as a clean sweep."
+    },
+    {
+      "name": "good-merged-and-nothing-left",
+      "input": "cases/good-merged-and-nothing-left",
+      "expect": "GOOD",
+      "why": "Merged at exactly the local tip, clean, idle: the worktree is removed. Separates a working sweep from one that never removes anything, which is the state #916 found it in."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "origin": "scripts/flow-worktree-sweep.sh",
+      "path": "anchors/constructed-merged-means-remove-flow-worktree-sweep.sh",
+      "sha256": "82c95bf77c8fead5b3a3aa19603eac1fe87f14d13754219cc777e01836dc4ba8",
+      "why": "CONSTRUCTED: 'the pull request merged, so the worktree is finished'. It never compares the merged head with the local tip and treats a failed lookup as nothing to do. It removes the worktree in the first bad case and reports the run clean in the second."
+    }
+  ]
+}

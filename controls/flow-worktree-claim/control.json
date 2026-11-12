@@ -1,0 +1,63 @@
+{
+  "_comment": [
+    "Registration for the liveness judgement of scripts/flow-worktree-claim.sh (issue #1726).",
+    "",
+    "WHY IT NEEDS COMMITTED CASES (ADR 0008): the helper's verdict decides whether a",
+    "second session may take a worktree and whether worktree-remove.sh may delete it,",
+    "and neither caller re-derives it. Until #1726 the script had tests and no",
+    "registered control at all.",
+    "",
+    "TWO BAD CASES, the two ways 'some process has this number' is not 'the owner is",
+    "alive': the pid was recycled (#1032), and the owner exited but was never reaped",
+    "(#1605). Each read `held`, which left --steal - the override for a genuinely",
+    "live owner - as the only way to clean up after a dead one."
+  ],
+  "gate": "scripts/flow-worktree-claim.sh",
+  "invocation": [
+    "sh",
+    "controls/flow-worktree-claim/run-case.sh",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^FLOW_CLAIM_CONTROL: finding - the claim's owner is gone",
+  "good_signal": "^FLOW_CLAIM_CONTROL: no-finding - ",
+  "unavailable_signal": "^FLOW_CLAIM_CONTROL: unavailable - ",
+  "limits": "Covers the CHECK verdict for a same-host claim whose owner pid exists: recycled, zombie, alive. It does not cover a Codex session's owner pid, a live process whose main thread exited, the age bound for an unverifiable claim, another host, the claim and release verbs or their mutex, or any usage error - those are pinned by tests/test_flow_worktree_claim.py, tests/test_flow_worktree_claim_owner.py and tests/test_merge_tail_refusals.py. The process table is a fixture, so nothing here depends on a real process.",
+  "cases": [
+    {
+      "name": "bad-owner-pid-recycled",
+      "input": "cases/bad-owner-pid-recycled",
+      "expect": "BAD",
+      "why": "The pid exists but started at a different instant than the claim recorded: another process wearing a recycled number. If it scores GOOD the claim is held forever by a session that is gone."
+    },
+    {
+      "name": "bad-owner-is-a-zombie",
+      "input": "cases/bad-owner-is-a-zombie",
+      "expect": "BAD",
+      "why": "The owner exited and was never reaped: pid and start time still match, and it can never touch the worktree again. If it scores GOOD, kill -0 succeeding is being read as alive."
+    },
+    {
+      "name": "good-owner-alive",
+      "input": "cases/good-owner-alive",
+      "expect": "GOOD",
+      "why": "The owning process is running and is the one that claimed. Separates a working check from one wedged at stale, which would hand a live session's worktree to the next caller."
+    },
+    {
+      "name": "good-no-claim",
+      "input": "cases/good-no-claim",
+      "expect": "GOOD",
+      "why": "An unclaimed worktree reads free, not stale."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "0c11b453d49ca6ae4e6f93cd558502aaf76dae13",
+      "origin": "scripts/flow-worktree-claim.sh",
+      "path": "anchors/historical-pre-1032-flow-worktree-claim.sh",
+      "sha256": "8b1f9028227bd502405c4433ec23168725861828aab957bdb953db27920cbcd3",
+      "why": "HISTORICAL: the helper at the last commit before #1032, where liveness was kill -0 alone. It calls both the recycled and the zombie owner held. The commit is on main's history, so --verify-provenance can compare it."
+    }
+  ]
+}
