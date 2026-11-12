@@ -184,6 +184,23 @@ From `/codex:code_review` Step 2, the empty-diff rule (issue #1015):
 > whose reason names an inability that did not happen. The reviewer was available
 > and was never asked.
 
+### Text moved out of `/cpp:init` (#1716)
+
+Moved by #1716, to pay for what the wizard now says about deny rules, the
+capability question asked as two questions, and step 8b skipped after 5d.
+
+From the Tier 2 installer block, the comment after the host-write seam prints
+its status (`echo "Host-write seam: $SEAM_STATUS"`). It recorded why that
+status line claims only what its own call measured:
+
+> THE STATUS SAYS WHAT IT MEASURED (counter-model review). An earlier draft
+> announced that a deferred bootstrap meant "every host write below will
+> report deferred", which this call does not establish: --defer
+> ~/.claude/scripts defers the SEAM'S OWN INSTALL and says nothing about
+> ~/.claude/settings.json or ~/.bashrc, each of which consults its own
+> defer-set entry and reports its own verdict below. Overclaiming from one
+> surface to all of them is this issue's defect wearing the fix's clothes.
+
 ## Workflow commands - detail beyond the skill listing
 
   - Optional second arg `PROJECT` targets a repo other than the session cwd (resolved as a path, else `~/Projects/<name>`); such cross-repo runs ride the deterministic git-worktree lane end-to-end instead of `EnterWorktree`, which cannot leave the session repo (#578)
