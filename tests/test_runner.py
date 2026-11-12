@@ -5,6 +5,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 from io import StringIO
 from pathlib import Path
@@ -143,28 +144,6 @@ class TestDeterministicRunner:
         result2 = runner.run("check", step_defs=fixed_steps)
         assert result2.success
         assert result2.run_id == run_id  # same run, resumed
-
-    def test_explicit_resume(self, tmp_project: Path):
-        steps = [
-            StepDef(id="step1", command="echo ok", timeout_seconds=30),
-            StepDef(id="step2", command="exit 1", timeout_seconds=30),
-        ]
-        runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
-        result1 = runner.run("test_plan", step_defs=steps)
-        assert not result1.success
-
-        # Manually update the state to fix the command (simulate code fix)
-        state = RunState.load(result1.run_id, tmp_project)
-        state.status = "running"
-        state.save(tmp_project)
-
-        # Resume will try to load "test_plan" from built-in plans, which won't exist.
-        # This verifies the resume mechanism loads state correctly.
-        # In production, the manifest would provide the steps.
-        try:
-            runner.resume(result1.run_id)
-        except ValueError:
-            pass  # Expected: "test_plan" is not a built-in plan
 
     def test_skip_condition(self, tmp_project: Path):
         steps = [
@@ -5064,19 +5043,6 @@ class TestRunnerResumeEvidence:
         assert self.calls == ["stage-a", "stage-b"]
         assert self.evidence(second)["consumed"]["status"] == "none"
 
-    def test_resume_state_noop_resume_has_no_generation_or_fresh_stages(self, tmp_project):
-        state = RunState.create("check", ["stage-a", "stage-b"])
-        for index in range(2):
-            state.mark_step_success(index)
-        state.mark_complete()
-        state.save(tmp_project)
-        result = DeterministicRunner(tmp_project, output=StringIO()).resume(state.run_id)
-        assert result.success and self.calls == []
-        observed = self.evidence(result)
-        assert observed["consumed"]["status"] == "loaded"
-        assert observed["generated"]["status"] == "none"
-        assert all(x["executed_in_this_run"] is False for x in result.to_dict()["step_details"])
-
     def test_resume_state_post_cleanup_file_cannot_reconstruct_cli_stages(
             self, tmp_project, monkeypatch, capsys):
         import json
@@ -5097,20 +5063,27 @@ class TestRunnerResumeEvidence:
         assert "forged" not in json.dumps(document)
         assert document["resume_state_evidence"]["final_state"]["status"] == "present"
 
-    def test_resume_state_json_corrupt_explicit_input_is_safe_failure(self, tmp_project, capsys):
+    def test_resume_state_corrupt_candidate_is_seen_unreadable_and_not_used(self, tmp_project, capsys):
+        """A corrupt state file met by `run`'s own selection is recorded as
+        unreadable, supplies nothing, and leaks nothing; the plan runs fresh.
+
+        Until issue #1727 the unreadable-input evidence was pinned only through
+        the explicit `resume` entry point, where a corrupt NAMED input ended in
+        a single safe-failure object. That entry point is removed; `run` never
+        takes a named input, so it has no such ending."""
         import json
         directory = tmp_project / ".state"
         directory.mkdir()
         path = directory / "check-corrupt.json"
         path.write_text("not JSON: private content")
         assert not path.read_text().startswith("{")
-        assert self.module.resume_run("check-corrupt", str(tmp_project)) == 1
+        self.fail_second = False
+        assert self.module.run_plan("check", str(tmp_project)) == 0
         output = capsys.readouterr().out
         document = json.loads(output)
-        assert document["success"] is False
+        assert document["success"] is True and self.calls == ["stage-a", "stage-b"]
         assert document["resume_state_evidence"]["consumed"]["status"] == "unreadable"
         assert "private content" not in output and str(tmp_project) not in output
-        assert "steps_total" not in document  # unknown population is not invented zero
 
     @pytest.mark.parametrize("json_mode", [False, True])
     def test_resume_state_save_error_identity_and_json_boundary(
@@ -5236,3 +5209,59 @@ class TestRunnerResumeEvidence:
             assert "step_details" not in data  # unavailable is not an empty/partial population
         assert "private-value" not in raw and "private diagnostic error" not in raw
         assert "unsafe/diagnostic" not in raw and str(tmp_project) not in raw
+
+
+# --------------------------------------------------------------------------- #
+# Issue #1727: the explicit `resume` entry point is REMOVED, not repaired.
+# It carried earlier results without comparing the tree, and reported an old
+# green run as green. `run` resumes on its own, after the comparison.
+# --------------------------------------------------------------------------- #
+
+class TestExplicitResumeIsGone:
+    def test_the_subcommand_is_an_invalid_choice(self, tmp_project: Path):
+        proc = subprocess.run(
+            [sys.executable, "-m", "lib.cicd", "resume", "some-run-id", "--path", str(tmp_project)],
+            capture_output=True, text=True, cwd=str(Path(__file__).resolve().parents[1]),
+        )
+        assert proc.returncode == 2, proc.stdout + proc.stderr
+        assert "invalid choice: 'resume'" in proc.stderr
+
+    def test_the_function_and_the_method_are_gone(self):
+        import lib.cicd
+        import lib.cicd.runner as runner_module
+
+        assert not hasattr(runner_module, "resume_run")
+        assert not hasattr(DeterministicRunner, "resume")
+        with pytest.raises(ImportError):
+            from lib.cicd.runner import resume_run  # noqa: F401
+        with pytest.raises((ImportError, AttributeError)):
+            lib.cicd.resume_run  # noqa: B018
+        assert "resume_run" not in lib.cicd.__all__
+
+    def test_status_still_reads_a_run_recorded_earlier(self, tmp_project: Path, capsys):
+        """What stays: `status <run_id>`, on a state file written before."""
+        import json
+
+        state = RunState.create("check", ["lint", "test"])
+        state.mark_step_success(0)
+        state.save(tmp_project)
+        from lib.cicd.runner import show_status
+
+        assert show_status(state.run_id, str(tmp_project)) == 0
+        summary = json.loads(capsys.readouterr().out)
+        assert summary["run_id"] == state.run_id and summary["plan"] == "check"
+
+    def test_run_still_resumes_a_failed_run_on_an_unchanged_tree(self, tmp_project: Path):
+        """The checked path that replaces it, end to end."""
+        steps = [
+            StepDef(id="step1", command="echo ok", timeout_seconds=30),
+            StepDef(id="step2", command="test -f fixed", timeout_seconds=30),
+        ]
+        runner = DeterministicRunner(project_root=tmp_project, output=StringIO())
+        first = runner.run("check", step_defs=steps)
+        assert not first.success
+        recorded = RunState.load(first.run_id, tmp_project).tree_signature
+        with patch("lib.cicd.runner.compute_tree_signature", return_value=recorded):
+            (tmp_project / "fixed").write_text("")
+            second = runner.run("check", step_defs=steps)
+        assert second.success and second.run_id == first.run_id

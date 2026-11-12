@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 # INSIDE the commands that use them
 # (issue #1163), not here. Both pull in pydantic, and `python3 -m lib.cicd run`
 # - the entry point scripts/flow-finish-gate.sh invokes - needs neither:
-# cmd_run, cmd_resume and cmd_status touch no configuration at all.
+# cmd_run and cmd_status touch no configuration at all.
 #
 # That mattered to the negative-controls battery, whose CI image has no pydantic
 # and no virtualenv: with these at module scope `-m lib.cicd` could not START
@@ -51,7 +51,7 @@ if TYPE_CHECKING:
 # tests/test_cicd_imports.py runs this entry point in a subprocess with pydantic
 # blocked, so putting either back at module scope fails loudly.
 from .detector import detect_framework, detect_infrastructure
-from .runner import resume_run, run_plan, show_status
+from .runner import run_plan, show_status
 
 
 def cmd_doctor_ci(args: argparse.Namespace) -> int:
@@ -906,15 +906,6 @@ def cmd_run(args: argparse.Namespace) -> int:
     )
 
 
-def cmd_resume(args: argparse.Namespace) -> int:
-    """Resume a failed CI/CD run."""
-    return resume_run(
-        run_id=args.run_id,
-        project_root=args.path,
-        json_output=not args.no_json,
-    )
-
-
 def cmd_status(args: argparse.Namespace) -> int:
     """Show status of a CI/CD run."""
     return show_status(
@@ -997,22 +988,6 @@ def create_parser() -> argparse.ArgumentParser:
         "--no-json",
         action="store_true",
         help="Disable JSON output (human-readable only)",
-    )
-
-    # 'resume' subcommand
-    resume_parser = subparsers.add_parser(
-        "resume",
-        help="Resume a failed CI/CD run from the last successful step",
-    )
-    _add_common_args(resume_parser)
-    resume_parser.add_argument(
-        "run_id",
-        help="Run ID to resume (from previous run output)",
-    )
-    resume_parser.add_argument(
-        "--no-json",
-        action="store_true",
-        help="Disable JSON output",
     )
 
     # 'status' subcommand
@@ -1249,7 +1224,6 @@ def main(argv: list[str] | None = None) -> int:
         "validate": cmd_validate,
         "run": cmd_run,
         "evidence": cmd_evidence,
-        "resume": cmd_resume,
         "status": cmd_status,
         "detect": cmd_detect,
         "check": cmd_check,
