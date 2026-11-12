@@ -364,6 +364,64 @@ def test_a_declared_gate_output_dir_is_silent(tmp_path: Path) -> None:
     assert without_status(result.stderr) == ""
 
 
+GATE_SCRATCH_HINT = (
+    "  If the quality gate itself wrote them, declare the directory in "
+    ".claude/gate-scratch.txt (one path prefix per line)."
+)
+
+
+def test_a_blocking_finding_names_the_gate_scratch_remedy(tmp_path: Path) -> None:
+    """#1706: the remedy existed and five blocked sessions never found it.
+
+    The hint is one added line. Everything a caller could key on is asserted
+    unchanged beside it: the exit code, the first line, and the MODE marker,
+    which stays the LAST line of the message.
+    """
+    wt = _dashboard_runs_worktree(tmp_path)
+    assert not (wt / ".claude" / "gate-scratch.txt").exists()  # the negative precondition
+    result = _run(wt)
+    assert result.returncode == 3
+    lines = without_status(result.stderr).splitlines()
+    assert GATE_SCRATCH_HINT in lines
+    assert lines[0].startswith("[flow] ERROR: 1 file(s) are git-ignored and will NOT be committed")
+    assert lines[-1] == "CHECK_IGNORED_ADDITIONS_MODE=blocking"
+    assert lines[-2] == GATE_SCRATCH_HINT, "the hint must sit after the existing lines, before the marker"
+    assert "  them or re-run with --advisory (issue #1258)." in lines
+
+
+def test_an_advisory_finding_names_the_gate_scratch_remedy(tmp_path: Path) -> None:
+    repo, _ = _worktree(tmp_path)
+    (repo / "manifest.json").write_text("{}", encoding="utf-8")
+    result = _run(repo)
+    assert result.returncode == 0
+    lines = without_status(result.stderr).splitlines()
+    assert lines[0].startswith("[flow] WARNING: 1 file(s) are git-ignored and will NOT be committed")
+    assert lines[-1] == "CHECK_IGNORED_ADDITIONS_MODE=advisory"
+    assert lines[-2] == GATE_SCRATCH_HINT
+    assert "  If they are scratch files, ignore this warning." in lines
+
+
+def test_the_hint_names_the_file_the_guard_actually_reads(tmp_path: Path) -> None:
+    """With the override set, naming the default file would send the reader to the wrong place."""
+    wt = _dashboard_runs_worktree(tmp_path)
+    result = _run_with_gate_scratch(wt, "unrelated/\n")
+    assert result.returncode == 3
+    declared = str(wt.parent / "gate-scratch.txt")
+    assert f"declare the directory in {declared} (one path prefix per line)." in result.stderr
+    assert ".claude/gate-scratch.txt" not in result.stderr
+
+
+def test_following_the_hint_clears_the_block(tmp_path: Path) -> None:
+    """The remedy the message names is the remedy that works."""
+    wt = _dashboard_runs_worktree(tmp_path)
+    assert _run(wt).returncode == 3
+    (wt / ".claude").mkdir()
+    (wt / ".claude" / "gate-scratch.txt").write_text("dashboard-runs/\n", encoding="utf-8")
+    result = _run(wt)
+    assert result.returncode == 0, result.stderr
+    assert "dashboard-runs" not in result.stderr
+
+
 def test_gate_scratch_file_ignores_comments_and_blank_lines(tmp_path: Path) -> None:
     wt = _dashboard_runs_worktree(tmp_path)
     result = _run_with_gate_scratch(
