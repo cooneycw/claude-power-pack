@@ -50,14 +50,6 @@ Lines 138-139:
 #                    for a required review (#579): automation must not bypass a
 ````
 
-Lines 165-167:
-
-````text
-#                    Before #1543 a caller who needed this pin had to bypass the
-#                    helper with a plain `gh pr merge`, and so lost every
-#                    close-keyword guard: that is how skillc#513 was closed.
-````
-
 Lines 1085-1088:
 
 ````text
@@ -65,4 +57,10 @@ Lines 1085-1088:
 # That is also the answer to "measure before designing": you cannot wait for a
 # second observation using an instrument that cannot observe. This adds the
 # instrument, not a fix for a cause nobody has seen.
+````
+
+Lines 1210-1210:
+
+````text
+    # surviving, and the `push --delete` three lines below removes it. This
 ````

@@ -165,6 +165,9 @@
 #                    escalated to --admin, because a different head is a
 #                    different change, not a race to win. Marker:
 #                    `GH_PR_MERGE_HEAD_PIN: 0|<pinned> -> <actual>|skipped|-`.
+#                    Before #1543 a caller who needed this pin had to bypass the
+#                    helper with a plain `gh pr merge`, and so lost every
+#                    close-keyword guard: that is how skillc#513 was closed.
 # Deletion surfacing + post-merge completeness (issue #657):
 #   A collapse onto a moved base (`git reset --soft origin/main` + commit, the
 #   #655-thread workaround) silently records the DELETION of everything the
@@ -1185,7 +1188,7 @@ finish_merged() {
     # `git log HEAD --not --remotes`. After a SQUASH merge the branch's commits
     # are rewritten onto main under a different sha, so they are ancestors of
     # nothing; the verdict then rests entirely on `refs/remotes/origin/<branch>`
-    # surviving, and the `push --delete` three lines below removes it. This
+    # surviving, and the `push --delete` further below removes it. This
     # repository squash-merges exclusively, so every merged worktree read as
     # holding unreachable commits and #887's sweep removed NOTHING.
     #

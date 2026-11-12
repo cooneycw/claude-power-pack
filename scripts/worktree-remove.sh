@@ -34,21 +34,29 @@
 # override it; --steal does.
 #
 # help:begin
+# Safely remove a git worktree. If you are inside the worktree being removed,
+# the script changes to the main repository first, so your shell is not left
+# in a deleted directory.
+#
 # Usage:
 #   worktree-remove.sh <worktree-path> [--force] [--delete-branch] [--steal] [--allow-dirty] [--allow-unpushed]
 #   worktree-remove.sh <worktree-path> --finish-partial-removal --owner-repo <path> --allow-dirty
 #
 # Options:
-#   --force          Pass --force to git worktree remove; does not override
-#                    any data-loss refusal
+#   --force          Pass --force to git worktree remove (the worktree is
+#                    busy); does not override any data-loss refusal - being
+#                    busy is not the same as being expendable (#899)
 #   --delete-branch  Also delete the associated branch after removal
-#   --steal          Remove even when another live session claims it (#597),
-#                    or when it is in use by a live process (#888, #1032)
+#                    (force-deletes a squash-merged branch non-interactively)
+#   --steal          Remove even when another live session claims it (#597;
+#                    without it a live claim is a hard stop), or when it is
+#                    in use by a live process (#888, #1032)
 #   --allow-dirty    Remove even though uncommitted work would be destroyed
-#                    (implies --force: git worktree remove makes its own
-#                    separate dirty-tree judgment that --allow-dirty alone
-#                    does not clear, Nit Store #864)
+#                    (#899; exit 6 without it; implies --force: git worktree
+#                    remove makes its own separate dirty-tree judgment that
+#                    --allow-dirty alone does not clear, Nit Store #864)
 #   --allow-unpushed Remove even though commits exist on no remote ref
+#                    (#899; exit 7 without it)
 #   --finish-partial-removal
 #                    VERIFY (never remove) a worktree already left half-
 #                    deleted (no .git file, directory still present).
@@ -61,16 +69,18 @@
 #                    actually unreachable from a remote - unlike dirtiness,
 #                    this IS verifiable even with no .git file. On success
 #                    this PRINTS the exact `rm -rf` command for a human to
-#                    run; it does not run it. See POSITIVE OWNERSHIP, and
-#                    VERIFY-AND-PRINT, below (issue #1524).
+#                    run; it does not run it. See POSITIVE OWNERSHIP and
+#                    VERIFY-AND-PRINT in this script's header comment
+#                    (issue #1524).
 #   --owner-repo <path>
 #                    The repository whose OWN `git worktree list --porcelain`
 #                    must positively list the target as prunable before
 #                    anything is printed. Required by, and meaningless
 #                    without, --finish-partial-removal.
 #
-# Each refusal has its own override on purpose: one flag that silenced all
-# three would be one flag away from silencing everything.
+# Each refusal has its own override on purpose: one flag that silenced the
+# claim, dirty and unpushed refusals together would be one flag away from
+# silencing everything.
 #
 # Exit codes:
 #   0  removed (or already absent - stale refs pruned) - the NORMAL
@@ -79,7 +89,8 @@
 #   4  claimed by another live /flow session (#597)
 #   5  in use by a live process (#888, #1032)
 #   6  holds uncommitted work without --allow-dirty (#899)
-#   7  holds commits on no remote ref without --allow-unpushed (#899)
+#   7  holds commits on no remote ref without --allow-unpushed (#899); for
+#      --finish-partial-removal this is checked via the owner's own refs
 #   8  --delete-branch asked for, but the directory name and the checked-out
 #      branch name different issues (#1032)
 #   9  a path inside the worktree (or its parent directory) cannot be deleted -
@@ -118,7 +129,10 @@
 # has no .git file, so the normal path below - which derives the main
 # repository FROM the worktree's own .git file - cannot run at all. There is
 # no global worktree registry to query, so "nobody nearby admits to owning
-# this" can never mean "nobody owns this". The caller must NAME the owner
+# this" can never mean "nobody owns this". An earlier version (#1491,
+# reverted) searched sibling and ancestor directories for the owner; a repo
+# that truthfully lacks the path answers exactly like one never asked, so a
+# search cannot work. DO NOT reintroduce discovery. The caller must NAME the owner
 # with --owner-repo, and that repo's own registry must say so, in git's own
 # words - a `prunable` attribute on the exact matching record - or this
 # script refuses. A read failure (the porcelain call itself fails) is also a
@@ -128,6 +142,11 @@
 # --finish-partial-removal VERIFIES every precondition (positive ownership,
 # occupancy, the undeletable pre-scan, dirty, unpushed) and, on a pass,
 # PRINTS the exact command for a human to run - it removes nothing itself.
+# Three review passes each found a path-handling defect feeding the automatic
+# `rm -rf`; none is a hazard once the deletion is a human's own typed command.
+# DO NOT make this branch remove automatically. The review passes that later
+# comments in this file cite by number (#1524 passes 1-4) are recorded in
+# docs/scripts/worktree-remove.md.
 #
 # `worktree prune` is deliberately never run OR printed as a ready command:
 # it prunes every eligible stale entry in the owner's WHOLE registry, not
@@ -208,7 +227,7 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             # The header's help region, bounded by its own markers (never a
             # line range: an edit above it must not cut the output).
-            sed -n '/^# help:begin$/,/^# help:end$/p' "$0" | sed -e '1d' -e '$d' -e 's/^# \{0,1\}//'
+            sed -n '/^# help:begin$/,/^# help:end$/p' "${BASH_SOURCE[0]}" | sed -e '1d' -e '$d' -e 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -230,7 +249,8 @@ if [[ -z "$WORKTREE_PATH" ]]; then
 fi
 
 # Reject a literal newline in the RAW argument for EVERY invocation, before
-# any normalization (issue #1524). The relative-path resolution two blocks
+# any normalization (issue #1524). This ONE guard protects both the normal
+# path and --finish-partial-removal; do not move it into that branch. The relative-path resolution two blocks
 # below wraps `basename` in command substitution, which strips ALL trailing
 # newlines: "collider" + a trailing newline would normalize to the
 # newline-free sibling "collider", and the script would act on that.
@@ -265,7 +285,8 @@ if [[ "$FINISH_PARTIAL_REMOVAL" != true && -n "$OWNER_REPO" ]]; then
     exit 10
 fi
 
-# Resolve to absolute path. REFUSE if the parent cannot be entered: a `cd`
+# Resolve to absolute path. REFUSE, for EVERY invocation, if the parent
+# cannot be entered: a `cd`
 # failure inside a combined command substitution would yield "", making
 # WORKTREE_PATH "/$(basename ...)" - a filesystem-ROOT path unrelated to the
 # argument. The `cd` is split out so its own exit status is checked. CDPATH
@@ -292,6 +313,11 @@ WORKTREE_PATH="${WORKTREE_PATH%/}"
 # load-bearing for --finish-partial-removal, which must never `rm -rf` a
 # symlink the caller passed in (see below).
 WT_REAL="$(readlink -f "$WORKTREE_PATH" 2>/dev/null || echo "$WORKTREE_PATH")"
+
+# WT_REAL, occupancy_self_pids, PROC_ROOT, occupancy_scan, undeletable_find and
+# sticky_dir_is_safe are defined HERE, above the --finish-partial-removal
+# branch, because that branch runs much earlier than the normal path's own
+# use of them. Keep their definitions before that branch.
 
 # This script plus its ancestors. /flow:auto invokes us from a shell whose cwd
 # may still be the worktree, so without this the guard trips over its own caller
@@ -483,8 +509,9 @@ if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
     fi
 
     # --finish-partial-removal (issue #1524): positive ownership only - see the
-    # header. The raw-argument newline guard is global (near the top), and the
-    # NUL-delimited registry parser below does not depend on it.
+    # header. The raw-argument newline guard is global (near the top) and is
+    # deliberately NOT repeated here. The NUL-delimited registry parser below
+    # does not depend on it: a naive line-based parse cannot survive a newline.
 
     if [[ -z "$OWNER_REPO" ]]; then
         # Already validated above; unreachable, but a defensive refusal costs
@@ -497,7 +524,8 @@ if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
         exit 12
     fi
 
-    # Resolved AGAIN here, robustly, for THIS branch only (issue #1524): the
+    # Resolved AGAIN here, robustly, for THIS branch only - never touching the
+    # shared WT_REAL the normal path relies on (issue #1524): the
     # shared WT_REAL above is plain command substitution, which strips ALL
     # trailing newlines, so it can never show one. Capture with a non-newline
     # sentinel appended in the SAME command substitution, then peel the

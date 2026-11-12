@@ -14,6 +14,35 @@ Per-script history, indexed from [the scripts inventory](../scripts.md).
 
 Everything below was in `scripts/worktree-remove.sh` at `4c8aa79a` and was removed or condensed there by issue #1693. It is kept here verbatim, with the line numbers it had at that commit, so the script reads shorter and nothing is lost.
 
+Lines 41-42:
+
+````text
+#   --force          Pass --force to git worktree remove; does not override
+#                    any data-loss refusal
+````
+
+Lines 44-45:
+
+````text
+#   --steal          Remove even when another live session claims it (#597),
+#                    or when it is in use by a live process (#888, #1032)
+````
+
+Lines 47-49:
+
+````text
+#                    (implies --force: git worktree remove makes its own
+#                    separate dirty-tree judgment that --allow-dirty alone
+#                    does not clear, Nit Store #864)
+````
+
+Lines 63-64:
+
+````text
+#                    run; it does not run it. See POSITIVE OWNERSHIP, and
+#                    VERIFY-AND-PRINT, below (issue #1524).
+````
+
 Lines 71-122:
 
 ````text
@@ -69,6 +98,12 @@ Lines 71-122:
 # resolved path for both the registry match and the printed command - never
 # the caller's own symlink, which may live anywhere (a different repo, a
 # home directory) and is not part of the worktree this script verifies.
+````
+
+Lines 131-131:
+
+````text
+#   7  holds commits on no remote ref without --allow-unpushed (#899)
 ````
 
 Lines 225-286:
@@ -176,10 +211,9 @@ Lines 362-362:
     WT_REAL_DIR="$(cd -- "$WT_DIR_PART" 2>/dev/null && pwd)" || {
 ````
 
-Lines 381-388:
+Lines 382-388:
 
 ````text
-
 # Hoisted here (originally defined just above their own call sites further
 # down) so --finish-partial-removal's own branch - which runs much earlier,
 # at the "no .git file" check below, before a normal worktree's main
