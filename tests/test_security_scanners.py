@@ -775,6 +775,8 @@ class TestTheConsumerDeclaresWhatIsHarmless:
         )
         assert self._found(tmp_path) == [("docker/install.sh", 2), ("tests/test_login.py", 1)]
 
+_REAL_FSTAT = os.fstat
+
 
 class TestExtensionlessFilesAreRead:
     """Scripts and build files with no extension join the scan (issue #1737).
@@ -979,10 +981,31 @@ class TestExtensionlessFilesAreRead:
         assert result.findings == [] and result.units_scanned == 0
         assert result.unexamined == ["1 file(s) with no recognised extension were NOT read (1 over 1 MB)"]
 
+    @staticmethod
+    def _count_reads(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+        """Record how many bytes each `os.read` in the scanner returned."""
+        real_read = os.read
+        real_fstat = _REAL_FSTAT  # the scanner's own `os.fstat` may be patched by the caller
+        sizes: list[int] = []
+
+        def counting_read(fd: int, n: int) -> bytes:
+            data = real_read(fd, n)
+            if stat.S_ISREG(real_fstat(fd).st_mode):  # not the pipes of the git child process
+                sizes.append(len(data))
+            return data
+
+        monkeypatch.setattr(secrets.os, "read", counting_read)
+        return sizes
+
     def test_the_read_is_bounded_even_when_the_size_check_is_passed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A file that grows AFTER `fstat`: the read stops at the cap plus one byte and refuses it."""
+        """A file that grows AFTER `fstat`: at most the cap plus one byte is ever read.
+
+        The verdict alone would not show this: an unlimited read followed by a
+        length check gives the same "over 1 MB" on a file that eventually ends.
+        So the bytes actually read are counted, on a file three times the cap.
+        """
         target = tmp_path / "deploy"
         target.write_text("#!/bin/sh\ntrue\n")
         real_fstat = os.fstat
@@ -993,14 +1016,53 @@ class TestExtensionlessFilesAreRead:
             if not grown and stat.S_ISREG(result.st_mode) and result.st_size < 100:
                 grown.append(True)
                 with target.open("a") as handle:
-                    handle.write(self.BODY + "x" * (secrets.EXTENSIONLESS_MAX_BYTES + 10))
+                    handle.write(self.BODY + "x" * (3 * secrets.EXTENSIONLESS_MAX_BYTES))
             return result
 
         monkeypatch.setattr(secrets.os, "fstat", fstat_then_grow)
+        sizes = self._count_reads(monkeypatch)
         result = secrets.scan(str(tmp_path))
         assert grown, "precondition: the file grew between the size check and the read"
+        assert target.stat().st_size > 3 * secrets.EXTENSIONLESS_MAX_BYTES, "precondition: far more than the cap"
+        assert sum(sizes) == secrets.EXTENSIONLESS_MAX_BYTES + 1, "the read did not stop at the cap plus one byte"
         assert result.findings == [] and result.units_scanned == 0
         assert result.unexamined == ["1 file(s) with no recognised extension were NOT read (1 over 1 MB)"]
+
+    def test_a_file_that_does_not_qualify_costs_only_its_head(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No shebang, no known name: judged on the first 8 KB and never read further."""
+        (tmp_path / "notes").write_text(self.BODY + "x" * 900_000)
+        (tmp_path / "blob").write_bytes(b"#!/bin/sh\n\x00" + b"x" * 900_000)
+        sizes = self._count_reads(monkeypatch)
+        result = secrets.scan(str(tmp_path))
+        assert sum(sizes) == 2 * secrets.EXTENSIONLESS_HEAD_BYTES, f"read {sum(sizes)} bytes of two rejected files"
+        assert result.findings == [] and result.units_scanned == 0
+        assert result.unexamined == [
+            "2 file(s) with no recognised extension were NOT read (1 no shebang or known name, 1 binary)"
+        ]
+
+    def test_a_scan_root_swapped_for_a_symlink_after_listing_is_not_followed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The root is opened once, before listing; a later swap of the root's NAME changes nothing."""
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "deploy").write_text(f"#!/bin/sh\n{self.BODY}")
+        root = tmp_path / "root"
+        root.mkdir()
+        (root / "deploy").write_text("#!/bin/sh\ntrue\n")
+        moved = tmp_path / "root-moved-aside"
+
+        def swap() -> None:
+            root.rename(moved)
+            root.symlink_to(outside, target_is_directory=True)
+
+        self._swap_after_listing(monkeypatch, swap)
+        result = secrets.scan(str(root))
+        assert root.is_symlink() and (root / "deploy").read_text().count("\n") == 2, "precondition: the swap happened"
+        assert result.findings == [], "a file outside the scan root was read and attributed to this project"
+        assert result.units_scanned == 1, "the original root's own script is what was read"
 
     def test_a_file_under_a_symlinked_directory_is_not_read(self, tmp_path: Path) -> None:
         outside = tmp_path / "outside"

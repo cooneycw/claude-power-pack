@@ -187,74 +187,87 @@ def scan(project_root: str) -> ScanResult:
     # candidate is read ONCE, through the same descriptor its checks ran on
     # (issue #1737): reopening it by name after checking would let a file
     # swapped in between be followed, waited on, or read without bound.
-    sources: list[tuple[Path, bool]] = [(p, False) for p in _find_source_files(root)]
-    sources += [(p, True) for p in _find_extensionless_candidates(root)]
+    #
+    # The root is opened ONCE, before anything is listed, and every
+    # extensionless read walks down from that descriptor. A root swapped for a
+    # symlink while the scan runs cannot then redirect a read into another
+    # tree: the descriptor still names the directory the scan started on.
+    try:
+        root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError:
+        root_fd = -1
+    try:
+        sources: list[tuple[Path, bool]] = [(p, False) for p in _find_source_files(root)]
+        sources += [(p, True) for p in _find_extensionless_candidates(root)]
 
-    for file_path, extensionless in sources:
-        if extensionless:
-            guarded, reason = _read_extensionless(root, file_path)
-            if guarded is None:
-                unread[reason or UNREAD_UNREADABLE] += 1
+        for file_path, extensionless in sources:
+            if extensionless:
+                guarded, reason = _read_extensionless(root_fd, file_path.relative_to(root))
+                if guarded is None:
+                    unread[reason or UNREAD_UNREADABLE] += 1
+                    continue
+            try:
+                content = guarded if extensionless and guarded is not None else file_path.read_text(errors="ignore")
+            except OSError:
+                # Counted only AFTER a successful read (issue #1027, cross-model
+                # review). This used to increment above the `try`, so a file the
+                # scanner could not open still counted as examined - and once
+                # `files_scanned` became the exported coverage number, one
+                # unreadable file was enough to report `scanned=1` for a scan that
+                # inspected no content at all. That is precisely the
+                # looked-and-found-nothing / nothing-to-look-at collapse this
+                # field exists to prevent, reintroduced inside the fix for it.
+                files_unreadable += 1
                 continue
-        try:
-            content = guarded if extensionless and guarded is not None else file_path.read_text(errors="ignore")
-        except OSError:
-            # Counted only AFTER a successful read (issue #1027, cross-model
-            # review). This used to increment above the `try`, so a file the
-            # scanner could not open still counted as examined - and once
-            # `files_scanned` became the exported coverage number, one
-            # unreadable file was enough to report `scanned=1` for a scan that
-            # inspected no content at all. That is precisely the
-            # looked-and-found-nothing / nothing-to-look-at collapse this
-            # field exists to prevent, reintroduced inside the fix for it.
-            files_unreadable += 1
-            continue
-        files_scanned += 1
+            files_scanned += 1
 
-        rel_path = str(file_path.relative_to(root))
+            rel_path = str(file_path.relative_to(root))
 
-        # Check high-confidence patterns
-        for pattern, finding_id, title, why in SECRET_PATTERNS:
-            for match in re.finditer(pattern, content):
-                line_num = content[: match.start()].count("\n") + 1
-                matched = match.group()
-                masked = matched[:4] + "*" * min(16, len(matched) - 4)
-                result.findings.append(
-                    Finding(
-                        id=finding_id,
-                        severity=Severity.CRITICAL,
-                        title=title,
-                        file_path=rel_path,
-                        line_number=line_num,
-                        why=why,
-                        fix="Move the key to your secrets store and load from environment.",
-                        command="# Remove from source, add to .env, load via os.environ",
-                        time_estimate="~5 minutes",
-                        raw_match=masked,
-                        secret_value=matched,
+            # Check high-confidence patterns
+            for pattern, finding_id, title, why in SECRET_PATTERNS:
+                for match in re.finditer(pattern, content):
+                    line_num = content[: match.start()].count("\n") + 1
+                    matched = match.group()
+                    masked = matched[:4] + "*" * min(16, len(matched) - 4)
+                    result.findings.append(
+                        Finding(
+                            id=finding_id,
+                            severity=Severity.CRITICAL,
+                            title=title,
+                            file_path=rel_path,
+                            line_number=line_num,
+                            why=why,
+                            fix="Move the key to your secrets store and load from environment.",
+                            command="# Remove from source, add to .env, load via os.environ",
+                            time_estimate="~5 minutes",
+                            raw_match=masked,
+                            secret_value=matched,
+                        )
                     )
-                )
 
-        # Check assignment patterns
-        for pattern, finding_id, title, why in ASSIGNMENT_PATTERNS:
-            for match in re.finditer(pattern, content, re.IGNORECASE):
-                line_num = content[: match.start()].count("\n") + 1
-                value = match.group(1)
-                masked = value[:4] + "*" * min(16, len(value) - 4) if len(value) > 4 else "****"
-                result.findings.append(
-                    Finding(
-                        id=finding_id,
-                        severity=Severity.HIGH,
-                        title=title,
-                        file_path=rel_path,
-                        line_number=line_num,
-                        why=why,
-                        fix="Move to environment variable or secrets manager.",
-                        time_estimate="~5 minutes",
-                        raw_match=masked,
-                        secret_value=value,
+            # Check assignment patterns
+            for pattern, finding_id, title, why in ASSIGNMENT_PATTERNS:
+                for match in re.finditer(pattern, content, re.IGNORECASE):
+                    line_num = content[: match.start()].count("\n") + 1
+                    value = match.group(1)
+                    masked = value[:4] + "*" * min(16, len(value) - 4) if len(value) > 4 else "****"
+                    result.findings.append(
+                        Finding(
+                            id=finding_id,
+                            severity=Severity.HIGH,
+                            title=title,
+                            file_path=rel_path,
+                            line_number=line_num,
+                            why=why,
+                            fix="Move to environment variable or secrets manager.",
+                            time_estimate="~5 minutes",
+                            raw_match=masked,
+                            secret_value=value,
+                        )
                     )
-                )
+    finally:
+        if root_fd >= 0:
+            os.close(root_fd)
 
     # Stated unconditionally, including the zero (issue #1027). The prose below
     # already distinguished the two cases for a human reader, but only on the
@@ -363,31 +376,37 @@ def _find_extensionless_candidates(root: Path) -> list[Path]:
     return _filter_gitignored(root, candidates)
 
 
-def _read_extensionless(root: Path, path: Path) -> tuple[Optional[str], Optional[str]]:
+def _read_extensionless(root_fd: int, rel: Path) -> tuple[Optional[str], Optional[str]]:
     """Read one extensionless candidate: ``(content, None)`` or ``(None, reason)``.
 
-    Every check and the read itself happen on ONE descriptor, reached by
-    walking down from the scan root one component at a time:
+    ``root_fd`` is the scan root, opened once before the tree was listed, and
+    ``rel`` is the candidate's path below it. Every check and the read itself
+    happen on ONE descriptor, reached by walking down from ``root_fd``:
 
     - each directory on the way is opened `O_DIRECTORY | O_NOFOLLOW` relative
       to its parent's descriptor, so a parent swapped for a symlink after
       enumeration is refused instead of leading out of the root (`O_NOFOLLOW`
-      on a whole path guards only its last component);
+      on a whole path guards only its last component), and a swapped ROOT
+      changes nothing because the walk never looks the root up by name again;
     - the file is opened `O_NOFOLLOW | O_NONBLOCK` and `fstat`ed on the
       descriptor before a byte is read, so a symlink is never followed and a
       FIFO or device is refused rather than waited on;
-    - at most `EXTENSIONLESS_MAX_BYTES + 1` bytes are read, so a file that
-      grows after it was listed is refused as too large, never read without
-      bound.
+    - the first `EXTENSIONLESS_HEAD_BYTES` are read and judged before anything
+      else, so a file with no shebang or known name, or a binary, costs at most
+      that head;
+    - a qualifying file is then read to at most `EXTENSIONLESS_MAX_BYTES + 1`
+      bytes in total, so a file that grows after it was listed is refused as
+      too large, never read without bound.
 
     The content returned is exactly what was checked. Nothing reopens the path.
     """
-    rel = path.relative_to(root)
+    if root_fd < 0:
+        return None, UNREAD_UNREADABLE
     dir_fd = -1
     fd = -1
     try:
         try:
-            dir_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+            dir_fd = os.dup(root_fd)
             for part in rel.parts[:-1]:
                 next_fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dir_fd)
                 os.close(dir_fd)
@@ -405,28 +424,36 @@ def _read_extensionless(root: Path, path: Path) -> tuple[Optional[str], Optional
                 return None, UNREAD_NOT_REGULAR
             if opened.st_size > EXTENSIONLESS_MAX_BYTES:
                 return None, UNREAD_TOO_LARGE
-            chunks: list[bytes] = []
-            remaining = EXTENSIONLESS_MAX_BYTES + 1
-            while remaining > 0:
-                chunk = os.read(fd, min(remaining, 1 << 16))
-                if not chunk:
-                    break
-                chunks.append(chunk)
-                remaining -= len(chunk)
+            head = _read_up_to(fd, EXTENSIONLESS_HEAD_BYTES)
+            if b"\0" in head:
+                return None, UNREAD_BINARY
+            if not (_has_scan_name(rel.name) or head.startswith(b"#!")):
+                return None, UNREAD_NO_SIGNAL
+            rest = b""
+            if len(head) == EXTENSIONLESS_HEAD_BYTES:  # a shorter head already reached end of file
+                rest = _read_up_to(fd, EXTENSIONLESS_MAX_BYTES + 1 - len(head))
         except OSError:
             return None, UNREAD_UNREADABLE
     finally:
         for descriptor in (fd, dir_fd):
             if descriptor >= 0:
                 os.close(descriptor)
-    data = b"".join(chunks)
-    if len(data) > EXTENSIONLESS_MAX_BYTES:
+    if len(head) + len(rest) > EXTENSIONLESS_MAX_BYTES:
         return None, UNREAD_TOO_LARGE
-    if b"\0" in data[:EXTENSIONLESS_HEAD_BYTES]:
-        return None, UNREAD_BINARY
-    if not (_has_scan_name(path.name) or data.startswith(b"#!")):
-        return None, UNREAD_NO_SIGNAL
-    return data.decode("utf-8", errors="ignore"), None
+    return (head + rest).decode("utf-8", errors="ignore"), None
+
+
+def _read_up_to(fd: int, limit: int) -> bytes:
+    """Read at most ``limit`` bytes from ``fd``; stops early only at end of file."""
+    chunks: list[bytes] = []
+    remaining = limit
+    while remaining > 0:
+        chunk = os.read(fd, min(remaining, 1 << 16))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
 
 
 def _filter_gitignored(root: Path, files: list[Path]) -> list[Path]:
