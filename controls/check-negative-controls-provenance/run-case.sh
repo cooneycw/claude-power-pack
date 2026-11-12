@@ -14,7 +14,9 @@ command -v git >/dev/null 2>&1 || { echo "PROVENANCE_CONTROL: unavailable - git 
 work="$(mktemp -d)" || { echo "PROVENANCE_CONTROL: unavailable - mktemp failed"; exit 3; }
 trap 'rm -rf "$work"' EXIT
 repo="$work/repo"
-mkdir "$repo" && cp -R "$case_dir"/. "$repo"/ || { echo "PROVENANCE_CONTROL: unavailable - copy failed"; exit 3; }
+if ! { mkdir "$repo" && cp -R "$case_dir"/. "$repo"/; }; then
+  echo "PROVENANCE_CONTROL: unavailable - copy failed"; exit 3
+fi
 g() { git -C "$repo" -c user.name=control -c user.email=control@example.com -c commit.gpgsign=false "$@"; }
 {
   git init -q -b main "$repo" &&
