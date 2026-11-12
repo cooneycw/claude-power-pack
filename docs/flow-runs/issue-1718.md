@@ -75,3 +75,47 @@ Risks: an owned copy must be cheap; moving tests onto a fixture process table ca
 | Coordination | not applicable | Only a curl stub changes in the coordination-signal test |
 | CI provider | will test (Woodpecker); not covered (GitHub Actions) | The skip-reason line and the root tripwire are read from the PR's own pipeline log |
 | Project state | not applicable | No adopted file or record is read |
+
+<!-- flow-run n=2 id=510dae0f52144152ab0e1e7ec3f29ac1 -->
+## Run 2
+
+- Run-id:            510dae0f52144152ab0e1e7ec3f29ac1
+- Run-start:         fa87091af894dec8a554bb6987fee9fc951cc1a0
+- Issue:             #1718
+- Base SHA:          fa87091af894dec8a554bb6987fee9fc951cc1a0
+- Necessity verdict: Still needed
+- Approval:          granted
+- Approver:          the wave orchestrator (wave cpp-improvement, policy rev 1, orchestrator-only), by mailbox: "YES to cutting rows 18 and 19 out as their own small test-only change: build it now, branch from main, its own plan record and lanes line, one Codex pass", outbox rev 94
+- Recorded at:       2026-11-12T07:50:00Z
+
+### Section B evidence
+- Row 19 failed again on PR pipeline 3773 (PR #1757, `[true]`), after pipelines 3612 and 3635; row 18 read BLIND on pipelines 3553 and 3620. One cause, established in the survey: the script pipes an Authorization header into curl under `pipefail`, and the fixture's curl stub exits without reading stdin.
+- commits touching these files since run 1: PR #1764 (run 1's first change) touched none of them
+- This is the second change under run 1's survey, cut out of the remaining rows so it can land first; the other rows stay for a later change.
+
+### Rulings and gate conditions (orchestrator)
+- Test-only; branch from main; one Codex pass; goes directly after #1732.
+- Show it red first: run the unfixed test in a loop until it fails once, or state the count run if it will not; then the fixed one the same count.
+
+### Section C - the approved plan
+1. `tests/test_gh_pr_merge.py` - the curl stub reads the header it is piped, so the writer cannot lose a race to the stub's exit (row 19)
+2. `controls/flow-ci-status-stalled/run-case.sh` - the stub reads its stdin; `running` counts as the good answer only with `FLOW_CI_STALL_CHECK: checked` (row 18)
+3. `controls/flow-ci-status/run-case.sh` - the stub reads its stdin (row 18, sibling)
+4. `controls/flow-ci-status-wait/run-case.sh` - the stub reads its stdin (row 18, sibling)
+5. `controls/flow-ci-status-cancellation/run-case.sh` - the stub reads its stdin (row 18, sibling)
+6. `tests/test_curl_stubs_read_stdin.py` - every curl stub fed a header on stdin reads it; the stalled control's runner refuses `running` without a checked stall
+
+Scope: 6 files, about 15 changed lines in fixtures and one new test file.
+
+Risks: the control runners are instruments, and a change to one can remove the distinction it draws - each control is re-verified by name with its anchor after the change; a stub that reads stdin where nothing is piped would wait on an open stdin, so the read happens only where the header is piped.
+
+### Lanes for this change
+
+| Lane | Answer | How, or why not |
+|---|---|---|
+| Checkout | not applicable | Fixtures build their own temporary directories; no checkout shape is read |
+| Harness | not applicable | Tests and control runners; nothing installed or bundled changes |
+| Driver | not applicable | No driver-facing output |
+| Coordination | will test | The coordination-signal test is the one that failed; it is run in a loop before and after |
+| CI provider | will test (recorded output) | The stubs stand in for the Woodpecker API; the four controls are verified by name. No live provider is called |
+| Project state | not applicable | No adopted file or record is read |
