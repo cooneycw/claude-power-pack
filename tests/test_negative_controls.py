@@ -1272,11 +1272,13 @@ def live_controls_tree_exclusive(
     accidental shared mutable fixture), but the same remedy: give the test
     exercising the MECHANISM its own private resource instead.
 
-    WHY A LOCK AND NOT A MARKER (issue #1061). Three tests in this file use the
-    REAL tree and one of them DIRTIES it: `test_an_untracked_control_file_
-    refuses_the_green` plants an untracked probe (for at most `_HOLD_BUDGET`,
-    which that test enforces on itself, #1444) because a committed one would be
-    tracked and the case would stop reproducing. Anything
+    WHY A LOCK AND NOT A MARKER (issue #1061). Three tests in this file used the
+    REAL tree and one of them DIRTIED it: `test_an_untracked_control_file_
+    refuses_the_green` planted an untracked probe (for at most `_HOLD_BUDGET`,
+    which that test enforced on itself, #1444) because a committed one would be
+    tracked and the case would stop reproducing. SINCE #1718 THAT TEST PLANTS
+    ITS PROBE IN A THROWAWAY ROOT OF ITS OWN and takes no lock; what follows
+    is why the lock exists, and it still serialises the readers that remain. Anything
     else scanning the tree in that window sees a control that does not exist in
     a clean clone - which is true, and nothing to do with that scanner's
     subject. `Makefile:155` runs `pytest -n` with no `--dist`, so xdist's
@@ -1470,8 +1472,8 @@ def test_self_registration_is_blind_to_a_verdict_assignment_breakage(tmp_path: P
     blind to a forced-PASS mutation", which is FALSE. The true state was "the
     live tree was dirty and I could not evaluate this". The cause was a sibling
     in this very file - `test_an_untracked_control_file_refuses_the_green`
-    plants an untracked probe in the REAL tree (now for at most `_HOLD_BUDGET`,
-    #1444), and
+    planted an untracked probe in the REAL tree (it has used a throwaway root
+    of its own since #1718), and
     `Makefile:155` runs `pytest -n` with no `--dist`, so xdist's default `load`
     splits same-file tests across workers. Reproduction was 2 of 2 on the full
     suite; the pair alone under `-n 2` passes, so a green from the pair proves
