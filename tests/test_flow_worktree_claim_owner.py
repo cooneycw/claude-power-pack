@@ -11,7 +11,7 @@ from `stale` to `held` and none of which moves one the other way:
 - State `Z` in /proc/<pid>/stat is a dead owner only when one thread is left.
   A process whose main thread exited while others still run reads `Z` too.
 
-THE PROPERTY, pinned by `test_no_scenario_moves_towards_stale`: over a matrix
+THE PROPERTY, pinned by `test_no_scenario_moves_towards_stale` (15 slices): over a matrix
 of every input the classifier reads, a claim the helper called held, foreign
 or unknown BEFORE this change is never called stale after it, and is
 called `self` only by the session whose id the claim carries. A live owner
@@ -466,60 +466,104 @@ def _scenarios():
         yield (CODEX_PID, *combo)
 
 
-def test_no_scenario_moves_towards_stale(tmp_path, repo) -> None:
+CHUNKS = 15
+
+
+def _judge(tmp_path: Path, main: Path, wt: Path, n: int, scenario: tuple[str, ...]) -> tuple[str, str]:
+    """One scenario through the helper before and after: (before, after)."""
+    owner_pid, owner_state, witness, age, host, owner_session, caller = scenario
+    proc = tmp_path / f"proc-{n}"
+    proc.mkdir()
+    if caller == "codex":
+        _codex_tree(proc)
+    elif caller == "codex-no-ancestor":
+        _codex_tree(proc, session_comm="node")
+    if owner_state not in ("nostat", "dead"):
+        # Written after the tree, so an owner that IS the caller's parent
+        # keeps its place in the chain (same parent) with the posed state.
+        comm, parent = "owner", "1"
+        if owner_pid == str(os.getpid()):
+            comm, parent = "bash", "5000"
+        elif owner_pid == CODEX_PID:
+            comm, parent = ("codex" if caller == "codex" else "node"), "7000"
+        _stat(proc, owner_pid, comm, parent, state=owner_state[0],
+              start="999" if witness == "mismatch" else "111",
+              threads="5" if owner_state == "Zmany" else "1")
+    live = ":".join(p for p in ("4242", CODEX_PID, str(os.getpid()),
+                                "" if owner_state == "dead" else owner_pid) if p)
+    start = "" if witness == "absent" else " start=111"
+    _lock(main, wt, f"flow-claim issue=42 pid={owner_pid} session={owner_session} host={host} "
+                    f"ts={NOW - int(age)}{start}")
+    env = _scenario_env(proc, caller, live)
+    return (_verdict(_helper(BEFORE, "check", str(wt), env=env)),
+            _verdict(_helper(CLAIM, "check", str(wt), env=env)))
+
+
+def test_the_scenario_matrix_is_the_size_it_claims() -> None:
+    scenarios = list(_scenarios())
+    assert len(scenarios) == 1350
+    assert len(set(scenarios)) == 1350, "a scenario is listed twice"
+    assert sum(len(scenarios[i::CHUNKS]) for i in range(CHUNKS)) == 1350, "the chunks cover it once"
+
+
+@pytest.mark.parametrize("chunk", range(CHUNKS))
+def test_no_scenario_moves_towards_stale(tmp_path, repo, chunk: int) -> None:
     """Every combination of what the classifier reads, judged by the helper
-    before and after: 1,350 claims plus the states that are not claims."""
+    before and after: 1,350 claims, in CHUNKS interleaved slices so that no
+    one case outruns the suite's per-test time limit on a slow CI agent (the
+    whole matrix in one test did: 95 seconds here, over 120 there). Each slice
+    takes every CHUNKS-th scenario, so each sees every owner state and caller."""
     main, wt = repo
     moved: list[str] = []
     seen_before: set[str] = set()
     flips: set[tuple[str, str]] = set()
-    self_to_stale: list[tuple[str, str, str]] = []
-    n = 0
-    for owner_pid, owner_state, witness, age, host, owner_session, caller in _scenarios():
-        n += 1
-        proc = tmp_path / f"proc-{n}"
-        proc.mkdir()
-        if caller == "codex":
-            _codex_tree(proc)
-        elif caller == "codex-no-ancestor":
-            _codex_tree(proc, session_comm="node")
-        if owner_state not in ("nostat", "dead"):
-            # Written after the tree, so an owner that IS the caller's parent
-            # keeps its place in the chain (same parent) with the posed state.
-            comm, parent = "owner", "1"
-            if owner_pid == str(os.getpid()):
-                comm, parent = "bash", "5000"
-            elif owner_pid == CODEX_PID:
-                comm, parent = ("codex" if caller == "codex" else "node"), "7000"
-            _stat(proc, owner_pid, comm, parent, state=owner_state[0],
-                  start="999" if witness == "mismatch" else "111",
-                  threads="5" if owner_state == "Zmany" else "1")
-        live = ":".join(p for p in ("4242", CODEX_PID, str(os.getpid()),
-                                    "" if owner_state == "dead" else owner_pid) if p)
-        start = "" if witness == "absent" else " start=111"
-        _lock(main, wt, f"flow-claim issue=42 pid={owner_pid} session={owner_session} host={host} "
-                        f"ts={NOW - age}{start}")
-        env = _scenario_env(proc, caller, live)
-        before = _verdict(_helper(BEFORE, "check", str(wt), env=env))
-        after = _verdict(_helper(CLAIM, "check", str(wt), env=env))
+    self_to_stale: list[tuple[str, str]] = []
+    for n, scenario in enumerate(list(_scenarios())[chunk::CHUNKS]):
+        owner_pid, owner_state, witness, age, host, owner_session, caller = scenario
+        before, after = _judge(tmp_path, main, wt, n, scenario)
         seen_before.add(before)
         if before != after:
             flips.add((before, after))
         if before == "self" and after == "stale":
-            self_to_stale.append((owner_state, caller, owner_session))
+            self_to_stale.append((owner_state, caller))
         # `self` is as dangerous as `stale` when it is false: it makes
         # worktree-remove.sh drop the claim AND skip its in-use check. The only
         # true one is a caller whose own session id the claim carries.
         own = caller.startswith("codex") and owner_session == "thread-a"
+        what = f"pid={owner_pid}/{owner_state}/{witness}/{age}s/{host}/owner={owner_session}/caller={caller}"
         if before in PROTECTED and after == "self" and not own:
-            moved.append(f"pid={owner_pid}/{owner_state}/{witness}/owner={owner_session}/"
-                         f"caller={caller}: {before} -> a FALSE self")
+            moved.append(f"{what}: {before} -> a FALSE self")
         if before in PROTECTED and after == "stale":
-            moved.append(f"pid={owner_pid}/{owner_state}/{witness}/{age}s/{host}/"
-                         f"owner={owner_session}/caller={caller}: {before} -> {after}")
-    assert n == 1350
+            moved.append(f"{what}: {before} -> {after}")
 
-    # The states that are not claims at all.
+    assert not moved, "a claim moved TOWARDS stale:\n" + "\n".join(moved)
+    # A slice must have exercised the protected state, or the assertion above
+    # proved nothing for it.
+    assert {"held", "stale"} <= seen_before, seen_before
+    # One other move ends at stale, and it is not a live owner being misread:
+    # a Codex caller whose claim names its own PARENT, where that parent is
+    # posed as an exited single-thread zombie. A process cannot be running as
+    # the child of a parent in that state, so the row is reachable only in this
+    # matrix. It is listed, not hidden, and pinned to exactly that shape.
+    assert {before for before, after in flips if after == "stale"} <= {"self"}, flips
+    assert set(self_to_stale) <= {("Z1", "codex")}, self_to_stale
+
+
+def test_the_matrix_can_show_a_difference_and_the_states_that_are_not_claims(tmp_path, repo) -> None:
+    """The matrix is only evidence if it can produce the intended flip and the
+    one pinned exception. Both are found by scenario, not by luck of a slice."""
+    main, wt = repo
+    scenarios = list(_scenarios())
+    multi_thread = next(s for s in scenarios if s[:2] == ("9999", "Zmany") and s[2] == "match"
+                        and s[4] == "testhost" and s[6] == "claude")
+    assert _judge(tmp_path, main, wt, 1, multi_thread) == ("stale", "held"), "the intended flip"
+    own_parent = next(s for s in scenarios if s[0] == str(os.getpid()) and s[1] == "Z1"
+                      and s[2] == "match" and s[5] == "-" and s[6] == "codex")
+    assert _judge(tmp_path, main, wt, 2, own_parent) == ("self", "stale"), "the pinned exception"
+    own = next(s for s in scenarios if s[0] == "4242" and s[1] == "S" and s[2] == "match"
+               and s[5] == "-" and s[6] == "claude")
+    assert _judge(tmp_path, main, wt, 3, own) == ("self", "self")
+
     env = _scenario_env(tmp_path / "proc-1", "claude", "4242")
     _lock(main, wt, "someone locked this by hand")
     assert _verdict(_helper(BEFORE, "check", str(wt), env=env)) == "foreign"
@@ -529,20 +573,6 @@ def test_no_scenario_moves_towards_stale(tmp_path, repo) -> None:
         assert _verdict(_helper(CLAIM, "check", str(path), env=env)) == word
     _git(main, "worktree", "unlock", str(wt))
     assert _verdict(_helper(CLAIM, "check", str(wt), env=env)) == "free"
-
-    assert not moved, "a claim moved TOWARDS stale:\n" + "\n".join(moved)
-    # The matrix must be able to show a difference, and must have exercised
-    # the protected states, or the assertion above proves nothing.
-    assert {"held", "stale", "self"} <= seen_before, seen_before
-    assert ("stale", "held") in flips, f"the matrix never produced the intended flip: {flips}"
-    # One other move ends at stale, and it is not a live owner being misread:
-    # a Codex caller whose claim names its own PARENT, where that parent is
-    # posed as an exited single-thread zombie. A process cannot be running as
-    # the child of a parent in that state, so the row is reachable only in this
-    # matrix. It is listed, not hidden, and pinned to exactly that shape.
-    assert {before for before, after in flips if after == "stale"} <= {"self"}, flips
-    assert self_to_stale, "expected the unreachable self row; the matrix changed shape"
-    assert {(state, caller) for state, caller, _s in self_to_stale} == {("Z1", "codex")}, self_to_stale
 
 
 # --- the mutex must not outlive the helper (orchestrator's read of the branch)
