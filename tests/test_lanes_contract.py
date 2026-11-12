@@ -68,7 +68,8 @@ def test_the_reference_says_no_lane_file_asks_nothing() -> None:
 def test_the_reference_states_what_is_not_enforced() -> None:
     """The honest half: a reader must not infer a gate from the rule's existence."""
     text = normalized(read(CANONICAL))
-    assert "The table itself is not machine-checked." in text
+    assert "its truth is not." in text
+    assert "The table itself is not machine-checked for truth." in text
     assert "an observation, not a repeatable check" in text
     assert "Not covered." in text
 
@@ -104,7 +105,7 @@ def test_the_issue_contract_states_the_rule() -> None:
 def test_the_plan_gate_pointer_sits_outside_the_vendored_core() -> None:
     text = read(Path(".claude/commands/flow/eli5.md"))
     end = text.index("<!-- eli5-core:end -->")
-    assert text.index("answer the lane file") > end, "the lane pointer was written inside the vendored core"
+    assert text.index("CPP integration: lanes and readers") > end, "the lane pointer is inside the vendored core"
     pointer = normalized(text[end:])
     assert "Section C answers EVERY listed lane" in pointer
     for answer in ANSWERS:
@@ -114,9 +115,10 @@ def test_the_plan_gate_pointer_sits_outside_the_vendored_core() -> None:
 # --- the counter-model question ----------------------------------------------
 
 QUESTION_OMITTED = "each listed lane that the plan's 'Lanes for this change' table in this diff does not answer"
-QUESTION_NO_TABLE = "with no such table, say so once (no defect for Tier 1 or a standalone review)"
+QUESTION_NO_TABLE = "with no such table, say so once;"
+QUESTION_EXEMPT = "A missing table or row is no defect for Tier 1 or standalone review."
 QUESTION_UNTESTED = "each lane the plan marks 'will test' that no test in the diff exercises"
-QUESTION_SILENT = "With no LANE LIST, do not raise lanes."
+QUESTION_SILENT = "With no LANE LIST, skip (1) and (2)."
 
 
 def review_prompt(text: str) -> str:
@@ -128,6 +130,7 @@ def test_the_review_prompt_carries_the_lane_question() -> None:
     prompt = normalized(review_prompt(read(REVIEW_COMMAND)))
     assert QUESTION_OMITTED in prompt
     assert QUESTION_NO_TABLE in prompt
+    assert QUESTION_EXEMPT in prompt
     assert QUESTION_UNTESTED in prompt
     assert QUESTION_SILENT in prompt
     assert "${LANES_LINE}" in prompt, "the prompt asks the lane question but is never handed the lane list"

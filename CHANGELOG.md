@@ -4,6 +4,21 @@
 
 ### Behaviour changes you may notice
 
+- **The flow documents say what to do when a project's gate needs the pushed
+  head.** `/flow:auto` Step 6 and `/flow:finish` still run the gate before the
+  push. When a project's own gate clones the ref under test from the remote,
+  the first gate run on an unpushed commit was red; both documents now say to
+  commit and push the branch first (that opens no pull request), then gate. No helper
+  changed (#1706).
+- **A plan that changes an output names who reads it, and the review judges
+  the tests, not only their presence.** When a change alters a response shape,
+  file format, status line, exit code or record field, the plan adds a
+  `Reader:` row per reader to the lanes table and says whether a test feeds the
+  reader the writer's real output; a hand-written copy of the other side is not
+  evidence. `/codex:code_review` now also reports a reader the plan does not
+  name, and a lane or reader test that uses a stand-in where the real thing
+  could be used or that could not fail. The reader rows apply with or without a
+  lane file. See `docs/agents/changed-output-readers.md` (#1697).
 - **The secret scan now reads scripts and build files with no extension, so
   finding counts can go up.** A file with no suffix that starts with `#!`, and
   `Makefile`, `GNUmakefile`, `makefile`, `Dockerfile`, `Containerfile` and

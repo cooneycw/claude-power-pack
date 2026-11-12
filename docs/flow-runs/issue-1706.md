@@ -50,3 +50,46 @@ Risks: an added stderr line could move something a consumer parses by position; 
 | Coordination | not covered: no Kyle repository is exercised |
 | CI provider | not applicable |
 | Project state | will test: with a gate-scratch file the declared paths stay silent; without one the message names the file |
+
+<!-- flow-run n=2 id=8c037a03ebd14f0980b66d75d0369d55 -->
+## Run 2
+
+- Run-id:            8c037a03ebd14f0980b66d75d0369d55
+- Run-start:         d152fae166613cdb035be40b904518a363929ed4
+- Issue:             #1706
+- Base SHA:          d152fae166613cdb035be40b904518a363929ed4
+- Necessity verdict: Still needed
+- Approval:          granted
+- Approver:          the wave orchestrator (wave cpp-improvement, policy rev 1, orchestrator-only), by mailbox rev 39: "#1706 PR two: cut it from main now (PR one is in). It is already approved"
+- Recorded at:       2026-11-12T03:55:00Z
+
+### Section B evidence
+- commits since 2026-11-11T23:07:32Z on flow/auto.md, flow/finish.md or docs/reference/flow-auto-rationale.md: none
+- merged PRs on those paths: none; PR one of this issue was #1739 (e33525d0), the guard's message; open: #1701 (draft)
+- duplicate/superseding issues: none
+- another worker (#1700) will reword flow/auto.md lines 745-746 and 785-786; this run stays inside Step 6 item 2 (lines 810-827)
+- checked against the tree at d152fae1: both documents still run the gate before git push and neither says what to do when a project's gate needs the pushed head
+
+### Scope of this run
+PR TWO of two: one sentence in each flow document, paid for by an equal trim. Closes the issue (seq 631, 652, 654, 655, 671).
+
+### Section C - the approved plan
+1. `.claude/commands/flow/auto.md` - Step 6 item 2 gains one sentence: when the project's gate needs the pushed head, push the branch first, then gate; trimmed in the same item so the budget is not raised
+2. `.claude/commands/flow/finish.md` - the same sentence after the gate invocation; an equal trim of history prose in the same section
+3. `docs/reference/flow-auto-rationale.md` - why the order stays gate-then-push by default
+4. `docs/commands-reference.md` - the trimmed text, recorded in a commit before it is removed
+5. `tests/test_flow_gate_pushed_head.py` - both documents and both generated Codex skills carry the sentence, placed after the gate invocation; fails on d152fae1
+6. `CHANGELOG.md` - entry
+Scope: 6 files, about 80 lines, most of it the test.
+Risks: a trim removes an instruction rather than explanation; an independent old-versus-new read checks that before review.
+
+### Lanes for this change
+| Lane | Answer |
+|---|---|
+| Checkout | not applicable: prose with no path-dependent behaviour |
+| Harness | will test, with a new test in this diff: the generated flow-auto and flow-finish Codex skills carry the sentence |
+| Driver | not covered: the delegated drivers' own finish text is not changed |
+| Coordination | not covered: no Kyle repository is exercised; whether Kyle's gate then passes on a pushed head is not measured here |
+| CI provider | not applicable |
+| Project state | not applicable: the sentence is conditional prose; no file or record is adopted |
+| Reader: an agent following /flow:auto or /flow:finish in a consumer repository | not covered by a deterministic test: whether it pushes first is a model's behaviour |
