@@ -52,3 +52,11 @@ like one, and the write such a filter is most likely to meet.
 
 Its verdict names the two documents it scanned and claims nothing about the
 other command families, which are not in its input.
+
+**A known limit, declined in #1716.** The `embedded-python` pattern flags every
+`write_text`, `json.dump` or `open(..., "w")` inside the two install documents
+as an inline host write, whatever its destination, so a write to a project path
+is flagged too. Telling a project path from a host path there means following
+variables through embedded code with a pattern, and a wrong guess is a host
+write nobody sees. The remedy is the one #1647 used: move project I/O out of
+the document into a declared, tested checkout helper.

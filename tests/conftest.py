@@ -635,6 +635,57 @@ def venv_fingerprint(venv: Path) -> tuple[str, tuple[tuple[str, int], ...]] | No
     return interpreter, tuple(sorted(entries.items()))
 
 
+# --- a partial clone turns a read of git history into a network request -------
+#
+# CI clones with `--depth=1 --filter=tree:0`. In such a clone, reading an
+# object that is not present makes git fetch it from the remote, per read, so
+# a test that reads real history there takes as long as the remote takes to
+# answer (issue #1718: pipeline 3760 lost a test to its 120 second limit that
+# takes 0.4 seconds in a full checkout). The comparison that needs the network
+# belongs to the `negative-controls` CI step, where it is counted.
+
+PARTIAL_CLONE_SKIP_REASON = (
+    "partial clone: real-history comparison is done by the negative-controls CI step on pull requests"
+)
+
+
+def is_partial_clone(root: Path) -> bool:
+    """Whether `root`'s repository is a partial clone, read from git's own
+    configuration: a promisor remote, or `extensions.partialclone`. Only those
+    two facts answer yes. A configuration git cannot read, or any other
+    failure of the question, is an error - never a quiet no, and never a skip."""
+    import subprocess
+
+    # Outside a repository `git config` still answers, from the user's own
+    # configuration, with a clean "no such key". That is not an answer about
+    # `root`, so ask first whether there is a repository there at all.
+    inside = subprocess.run(["git", "-C", str(root), "rev-parse", "--git-dir"],
+                            capture_output=True, text=True, timeout=30, check=False)
+    assert inside.returncode == 0, (
+        f"git could not say whether {root} is a partial clone: it is not a repository git can read "
+        f"(exit {inside.returncode}): {inside.stderr.strip()[-300:]}")
+    for args in (["--get-regexp", r"^remote\..*\.promisor$"], ["--get", "extensions.partialclone"]):
+        asked = subprocess.run(["git", "-C", str(root), "config", *args],
+                               capture_output=True, text=True, timeout=30, check=False)
+        if asked.returncode == 0:
+            if args[0] == "--get" or any(line.split()[-1].lower() == "true"
+                                         for line in asked.stdout.splitlines() if line.split()):
+                return True
+            continue
+        # `git config` exits 1 for "no such key": the one clean no.
+        assert asked.returncode == 1 and not asked.stderr.strip(), (
+            f"git could not say whether {root} is a partial clone "
+            f"(exit {asked.returncode}): {asked.stderr.strip()[-300:]}")
+    return False
+
+
+def skip_in_partial_clone(root: Path) -> None:
+    """Skip the calling test, with the reason that names who compares instead,
+    when and only when `root` is a partial clone."""
+    if is_partial_clone(root):
+        pytest.skip(PARTIAL_CLONE_SKIP_REASON)
+
+
 # What a child that runs uv on a project of the test's own may INHERIT. Built
 # from nothing, by name: stripping the uv settings one knows about leaves the
 # ones one does not, and uv reads more than fifty.
