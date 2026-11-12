@@ -532,9 +532,12 @@ control-ci-deps-check:
 ## against #1117 implemented naively - a gate that lets work through cannot be
 ## trusted on a clean tree alone, and this one is the gate that decides whether
 ## the other gates can fail.
-## verify-coverage: gate negative-controls - runs the whole registered control battery with --strict --allow-unavailable; UNAVAILABLE (a gate whose own tool is absent) is named as unexamined rather than failed, every other non-PASS verdict reds (#1117); ci: runs negative-controls
+## `--verify-provenance` (issue #1732): every HISTORICAL anchor is byte-compared
+## with the commit it names, and one that cannot be compared fails. Measured
+## cost over 120 controls: 3 to 16 seconds on top of about 120.
+## verify-coverage: gate negative-controls - runs the whole registered control battery with --strict --allow-unavailable --verify-provenance; UNAVAILABLE (a gate whose own tool is absent) is named as unexamined rather than failed, every other non-PASS verdict reds (#1117), and a historical anchor that differs from, or cannot be compared with, the commit it names reds (#1732); ci: runs negative-controls
 negative-controls:
-	@python3 scripts/check-negative-controls.py --strict --allow-unavailable
+	@python3 scripts/check-negative-controls.py --strict --allow-unavailable --verify-provenance
 
 ## MUTATION-PROBING THE REGISTERED BATTERIES (issue #970), AND WHY IT IS NOT IN
 ## `verify`. ADR 0008's committed-control bound is necessary and not sufficient:
