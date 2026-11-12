@@ -57,7 +57,13 @@ _GIT = ["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t", "-c", 
 
 
 def _clean_env() -> dict[str, str]:
-    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    """No inherited git steering, and no user or system git configuration:
+    a host whose own configuration turns hooks off, or points them at real
+    ones, must neither break the precondition probe nor have its hooks run."""
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith(("GIT_", "FLOW_", "WORKTREE_REMOVE_", "GH_PR_MERGE_"))}
+    env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+    return env
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -149,6 +155,37 @@ def test_a_runner_never_runs_an_inherited_hook(
     done = _run(control, case, gate, env)
     assert not record.exists(), f"an inherited hook ran: {record.read_text()}"
     assert expected in done.stdout, done.stdout[-800:] + done.stderr[-400:]
+
+
+OVERRIDES = {
+    "flow-worktree-claim": ("FLOW_CLAIM_GIT",),
+    "flow-worktree-guard-leak": ("FLOW_WORKTREE_GIT",),
+    "flow-worktree-sweep-apply": ("FLOW_WORKTREE_SWEEP_GIT", "WORKTREE_REMOVE_GIT", "FLOW_CLAIM_GIT"),
+}
+
+
+@pytest.mark.parametrize(("control", "case", "gate", "expected"), RUNNERS)
+def test_a_runner_does_not_hand_the_gate_an_inherited_git_override(
+        tmp_path: Path, control: str, case: str, gate: str, expected: str) -> None:
+    """The helpers take a replacement git from their own variables. One left
+    in the session's environment must not reach the gate: here it is a
+    recorder that also fails, so reaching it would both show and break."""
+    record = tmp_path / "the-override-ran.log"
+    fake = tmp_path / "not-git"
+    fake.write_text(f'#!/bin/sh\necho "$0 $*" >> "{record}"\nexit 1\n')
+    fake.chmod(0o755)
+    env = {**_clean_env(), **{name: str(fake) for name in OVERRIDES[control]},
+           "FLOW_SOMETHING_NOBODY_LISTED": str(fake)}
+    done = _run(control, case, gate, env)
+    assert not record.exists(), f"an inherited override reached the gate: {record.read_text()}"
+    assert expected in done.stdout, done.stdout[-800:] + done.stderr[-400:]
+
+
+def test_the_claim_helper_really_does_honour_that_override() -> None:
+    """Precondition for the test above: the variable is read by the helper, so
+    dropping it in the runner is what keeps it out."""
+    assert "FLOW_CLAIM_GIT" in (ROOT / "scripts" / "flow-worktree-claim.sh").read_text()
+    assert "FLOW_WORKTREE_GIT" in (ROOT / "scripts" / "flow-worktree-guard.sh").read_text()
 
 
 # --- a good case requires ITS answer ------------------------------------------

@@ -45,6 +45,11 @@ case "$PR" in merged-at-tip|merged-behind|lookup-fails) ;; *) echo "$N: cannot-r
 # a list of the ones thought of, configuration is confined to what follows,
 # and hooks are off for the fixture and for the gate alike.
 for inherited in $(env | sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$inherited"; done
+# The helpers under test take their own overrides from the environment too
+# (FLOW_CLAIM_GIT, FLOW_WORKTREE_GIT, WORKTREE_REMOVE_*, ...): a test stub or a
+# wrapper left there by the session would replace git inside the gate. Those go
+# the same way, by prefix; the ones this runner means to set are set below.
+for inherited in $(env | sed -n 's/^\(\(FLOW\|WORKTREE_REMOVE\|GH_PR_MERGE\)_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$inherited"; done
 GIT_CONFIG_GLOBAL=/dev/null
 GIT_CONFIG_SYSTEM=/dev/null
 GIT_CONFIG_NOSYSTEM=1
