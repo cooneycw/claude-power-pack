@@ -29,6 +29,16 @@
   `~/.codex/skills` and did not use it. A command description over the
   150-character cap now fails the tests unless it has a recorded exemption
   (#1715).
+- **The secret scanner is unchanged, and its false positives are now a
+  documented declaration.** Test passwords, sentinels and shell substitutions
+  such as `pg_password="$(generate_secret)"` are still reported as
+  `HARDCODED_PASSWORD`: a pattern cannot tell a harmless one from a real one.
+  `lib/security/README.md` shows the two declarations a repository makes in
+  `.claude/security.yml`, a path suppression and an exact-value `secret:` pin,
+  with the risk of each. An in-scanner exemption for shell substitutions was
+  built, failed two reviews on five bypasses and was withdrawn; the README
+  lists them. Also corrected: assignment-pattern findings DO carry their value
+  and can be pinned with `secret:` (#1717).
 - **A project can list its lanes, and plans then say which ones they tested.**
   A lane is a route one behaviour travels: main checkout or linked worktree,
   dev or prod, small fixture or real-size data. With a `.claude/lanes.md`, the

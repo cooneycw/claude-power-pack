@@ -1,0 +1,35 @@
+{
+  "gate": "scripts/flow-finish-gate.sh",
+  "invocation": [
+    "sh",
+    "controls/counter-model-enrolment-selection/run-case.sh",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 4,
+  "good_signal": "^FLOW_FINISH_GATE_COUNTER_MODEL: receipt: ",
+  "detect_signal": "^FLOW_FINISH_GATE: fail \\(counter-model line unknown\\)$",
+  "unavailable_signal": "^CM_ENROLMENT_SELECTION_CONTROL: unavailable - ",
+  "limits": "WHAT THIS ESTABLISHES (issue #1707): WHICH receipt the finish gate's counter-model enrolment judges when a branch carries more than one. The check used to return on the first receipt that passed its filters, in filename order - the oldest. It now judges the receipt whose reviewed head has the fewest commits to HEAD; a filename only breaks a tie at one head. THE BAD CASE is the fail-open direction: an older valid `ran` receipt at an ancestor and an unusable receipt (status `garbage`) for the commit being merged. The gate must judge the nearest and red with `fail (counter-model line unknown)`; the anchor - the gate script at e2c0d037, before #1707 - passes on the older receipt, which is the miss. THE GOOD CASE, `good-late-file-for-an-older-head`, has a receipt written LATE for an OLDER head, so a 'take the last file' rule would judge the wrong one and red - commit distance must decide. NOT REGISTERED, and why: the mirror of the bad case (an older UNUSABLE receipt and a valid one at HEAD, which the old selection wrongly reds). The checker also runs the anchor on good cases and scores it INERT when it disagrees with the gate there, and on that input the pre-#1707 anchor answers BAD - measured when the case was first registered. It is pinned by tests/test_flow_finish_gate.py::test_an_older_unusable_receipt_no_longer_reds_a_valid_one_at_head. good_signal requires the gate to have named a receipt, so a good verdict is not merely exit 4. WHY A SECOND CONTROL beside controls/counter-model-enrolment: the checker scores an anchor INERT unless it misses EVERY bad case of its control, and the pre-#1707 script catches that control's other bad cases (no receipt, an uncommitted skip reason, and so on), so it could not be an anchor there; that control's constructed anchor is blind to everything and says nothing about the selection. WHAT IT DOES NOT ESTABLISH: that a review COVERED the commits made after it (the ancestry weakening is unchanged and is #1082's subject); anything about a DETACHED checkout with no branch given, where a receipt recorded for another branch name still matches by ancestry - unchanged by #1707 and a stated limit; the tie-break at one head, an uncomputable distance, and the `--enrolment-only --branch` form CI uses (those are in tests/test_flow_finish_gate.py). The gate is staged with the CURRENT scripts/gate-lib.sh and scripts/counter-model-receipt.py, so the anchor runs against today's library; if a future gate-lib change left the old script unable to load, the run would end without a verdict and the harness would report it unresolved, not blind. No runner, Makefile or network is involved.",
+  "cases": [
+    {
+      "name": "bad-older-valid-carries-unusable-at-head",
+      "input": "cases/bad-older-valid-carries-unusable-at-head",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-late-file-for-an-older-head",
+      "input": "cases/good-late-file-for-an-older-head",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "e2c0d037",
+      "origin": "scripts/flow-finish-gate.sh",
+      "path": "anchors/pre-1707-flow-finish-gate.sh",
+      "sha256": "99db9b34771b052431a5bb0e6b411dce3d9648cb4699f60b8826e217319f8cf5"
+    }
+  ]
+}
