@@ -50,7 +50,8 @@ def _logged_status(root: Path) -> str:
 def test_the_fallback_path_logs_makes_own_status(tmp_path: Path, recipe: str, expected: str) -> None:
     """A failed recipe is make's exit 2; the log must say 2, not the 0 of the `mkdir` after it."""
     _project(tmp_path, recipe)
-    script = "TARGET=deploy\n" + _block_after("### Step 5:", 'make "$TARGET"') + _block_after("### Step 6:", "deploy.log")
+    fallback = _block_after("### Step 5:", 'make "$TARGET"')
+    script = "TARGET=deploy\n" + fallback + _block_after("### Step 6:", "deploy.log")
     subprocess.run(["bash", "-c", script], cwd=tmp_path, capture_output=True, text=True, check=False)
     assert _logged_status(tmp_path) == expected
 
