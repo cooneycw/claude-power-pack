@@ -58,16 +58,28 @@ with tempfile.TemporaryDirectory() as directory:
     (binaries / "git").chmod(0o755)
     mode = case["mode"]
     venv = cpp / ".venv"
-    if mode in ("existing-runtime", "mismatched-environment", "broken-environment"):
+    if mode in (
+        "existing-runtime", "virtualenv-runtime", "mismatched-environment", "broken-environment",
+        "invalid-config-version", "disagreeing-version",
+    ):
         (venv / "bin").mkdir(parents=True)
         version = "3.12.3" if mode == "mismatched-environment" else "3.11.9"
-        (venv / "pyvenv.cfg").write_text(f"version_info = {version}\n")
+        cfg_version = version + ".final.0" if mode == "virtualenv-runtime" else version
+        if mode == "invalid-config-version":
+            cfg_version = "unknown"
+        elif mode == "disagreeing-version":
+            cfg_version = "3.12.3.final.0"
+        (venv / "pyvenv.cfg").write_text(f"version_info = {cfg_version}\n")
         interpreter = venv / "bin/python"
         interpreter.write_text("#!/bin/bash\n" + ("exit 7\n" if mode == "broken-environment" else f"echo {version}\n"))
         interpreter.chmod(0o755)
-        assert interpreter.is_file() and (venv / "pyvenv.cfg").read_text().strip().endswith(version)
+        assert interpreter.is_file() and (venv / "pyvenv.cfg").read_text().strip().endswith(cfg_version)
         probe = subprocess.run([str(interpreter)], capture_output=True, text=True)
         assert (probe.returncode != 0) if mode == "broken-environment" else probe.stdout.strip() == version
+        if mode == "invalid-config-version":
+            assert cfg_version == "unknown"
+        elif mode == "disagreeing-version":
+            assert cfg_version.startswith("3.12.") and probe.stdout.startswith("3.11.")
         before = {str(p.relative_to(venv)): p.read_bytes() for p in venv.rglob("*") if p.is_file()}
     trace = owned / "uv.argv"
     download = owned / "would-download"
@@ -116,7 +128,9 @@ fi
     )
     result = subprocess.run(["bash", str(helper)], cwd=target, env=env, capture_output=True, text=True, timeout=30)
     text = result.stdout + result.stderr
-    if mode in ("mismatched-environment", "broken-environment") and result.returncode == 1:
+    if mode in (
+        "mismatched-environment", "broken-environment", "invalid-config-version", "disagreeing-version",
+    ) and result.returncode == 1:
         reason = "mismatch" if mode == "mismatched-environment" else "unverified"
         assert f"cpp-runtime-environment-{reason}" in text, text
         assert "3.11" in text and ("3.12" in text if reason == "mismatch" else True)

@@ -99,7 +99,7 @@ def test_mismatched_environment_is_refused_without_mutation(tmp_path, mode, rebu
     or shutil.which("git") is None or shutil.which("make") is None,
     reason="requires uv, bash, git and make",
 )
-@pytest.mark.parametrize("dev", [False, True, None])
+@pytest.mark.parametrize("dev", [False, True, None, "stdlib", "virtualenv"])
 def test_fresh_pin_and_matching_environment_are_preserved(tmp_path, dev):
     from tests.conftest import find_python, uv_child_env
 
@@ -111,10 +111,19 @@ def test_fresh_pin_and_matching_environment_are_preserved(tmp_path, dev):
     if dev is not None:
         # Plain sync must follow the committed pin, with no --python hint.
         sync = subprocess.run(
-            ["uv", "sync", "--no-python-downloads", "--project", str(cpp)] + (["--extra", "dev"] if dev else []),
+            ["uv", "sync", "--no-python-downloads", "--project", str(cpp)]
+            + (["--extra", "dev"] if dev is True else []),
             env=env, capture_output=True, text=True, timeout=60,
         )
         assert sync.returncode == 0, sync.stderr
+        if dev in ("stdlib", "virtualenv"):
+            cfg = venv / "pyvenv.cfg"
+            content = cfg.read_text()
+            line = next(line for line in content.splitlines() if line.startswith("version_info = "))
+            version = line.split(" = ")[1]
+            spelling = f"version = {version}" if dev == "stdlib" else f"version_info = {version}.final.0"
+            cfg.write_text(content.replace(line, spelling))
+            assert spelling in cfg.read_text()
         before = fingerprint(venv)
     else:
         assert not venv.exists(), "this case must exercise automatic bootstrap"

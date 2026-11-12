@@ -41,6 +41,21 @@
       "name": "bad-broken-environment",
       "input": "cases/bad-broken-environment",
       "expect": "BAD"
+    },
+    {
+      "name": "good-virtualenv-runtime",
+      "input": "cases/good-virtualenv-runtime",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-invalid-config-version",
+      "input": "cases/bad-invalid-config-version",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-disagreeing-version",
+      "input": "cases/bad-disagreeing-version",
+      "expect": "BAD"
     }
   ],
   "anchors": [

@@ -9,7 +9,10 @@ selects the same interpreter minor as the finish gate. Before invoking uv for
 the outer CPP runner, both normal and `--check-summary` modes inspect the
 checkout's `.venv/pyvenv.cfg` and run `.venv/bin/python` directly. A different
 minor fails with `cpp-runtime-environment-mismatch`, naming the found and
-wanted versions. Missing, unreadable, malformed or disagreeing interpreter
+wanted versions. Both stdlib's `version = 3.11.14` and virtualenv's
+`version_info = 3.11.14.final.0` spellings are supported by comparing the first
+two numeric components with the executable interpreter's major and minor.
+Missing, unreadable, malformed or disagreeing interpreter
 evidence in an existing environment fails with
 `cpp-runtime-environment-unverified`. Neither refusal falls back to Makefile
 gates or invokes uv. An absent `.venv` still bootstraps automatically.

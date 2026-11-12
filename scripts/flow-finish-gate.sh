@@ -536,10 +536,16 @@ cpp_environment_check() {
         cfg_version=""
         python_version=""
     fi
-    cfg_minor="${cfg_version%.*}"
-    python_minor="${python_version%.*}"
-    if [[ ! "$cfg_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ||
-          ! "$python_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ || "$cfg_minor" != "$python_minor" ]]; then
+    cfg_minor=""
+    python_minor=""
+    # virtualenv appends release metadata (for example 3.11.14.final.0).
+    if [[ "$cfg_version" =~ ^([0-9]+\.[0-9]+)(\.|$) ]]; then
+        cfg_minor="${BASH_REMATCH[1]}"
+    fi
+    if [[ "$python_version" =~ ^([0-9]+\.[0-9]+)\.[0-9]+$ ]]; then
+        python_minor="${BASH_REMATCH[1]}"
+    fi
+    if [[ -z "$cfg_minor" || -z "$python_minor" || "$cfg_minor" != "$python_minor" ]]; then
         echo "FLOW_FINISH_GATE: fail (cpp-runtime-environment-unverified: $venv; pyvenv.cfg=${cfg_version:-unreadable}, bin/python=${python_version:-unavailable}; wanted Python 3.11)"
         gate_exit fail
     fi
