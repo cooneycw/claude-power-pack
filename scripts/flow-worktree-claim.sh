@@ -120,6 +120,7 @@
 #                           whose /proc works, which is every host the suite
 #                           runs on.
 
+#: NEGATIVE-CONTROL: controls/flow-worktree-claim
 set -uo pipefail
 
 # Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).

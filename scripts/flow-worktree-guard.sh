@@ -103,6 +103,7 @@
 set -uo pipefail
 
 #: NEGATIVE-CONTROL: controls/flow-worktree-guard
+#: NEGATIVE-CONTROL: controls/flow-worktree-guard-leak
 
 # Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
 trap 'printf "FLOW_WORKTREE_GUARD_EXIT=%d\n" "$?" >&2' EXIT
