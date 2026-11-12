@@ -271,10 +271,7 @@ call) by reading one tracked file inside it, and emits `CODEX_REVIEW_SCOPE:`:
 **The NETWORK fence is measured too, and the reviewer never holds a GitHub
 credential (issue #1450).** A `--sandbox read-only` reviewer on a host whose
 sandbox started once ran `gh api .../comments --method POST` and posted to an
-issue as the owner. The cause was not confirmed. Three candidates were left: the
-read-only sandbox did not fence the network there, a host configuration let a
-sandbox-denied command be approved to run outside it, or the caller supplied
-`danger-full-access`. So the fix does not rely on any one of them:
+issue as the owner. The cause was never confirmed, so each measure stands alone:
 
 - `CODEX_REVIEW_NETWORK:` is measured before the run, against the GitHub API
   (the endpoint the incident reached). It is a measurement of one endpoint, not
@@ -529,7 +526,13 @@ Review for: correctness bugs, security issues, missed edge cases, broken or miss
 
 If the diff adds or changes a check, gate, guard, tripwire or allowlist, ask two further questions of it and report a failure of either as a finding: (1) does its success message claim more than its input population supports - can a zero distinguish 'I looked and found nothing' from 'there was nothing to look at'; and (2) can a non-zero distinguish 'our thing changed' from 'a neighbour changed'. Widening the detector is not always the remedy: where the narrow answer is deliberately correct, say so and say where the larger question should be answered instead.
 
-If a LANE LIST is given above and the diff changes behaviour, report as a finding: (1) each listed lane that the plan's 'Lanes for this change' table in this diff does not answer - with no such table, say so once (no defect for Tier 1 or a standalone review); (2) each lane the plan marks 'will test' that no test in the diff exercises. With no LANE LIST, do not raise lanes.
+If a LANE LIST is given above and the diff changes behaviour, report: (1) each listed lane that the plan's 'Lanes for this change' table in this diff does not answer - with no such table, say so once; (2) each lane the plan marks 'will test' that no test in the diff exercises. With no LANE LIST, skip (1) and (2).
+
+If the diff changes an output another part reads (response shape, file format, status line, exit code), report each reader with no 'Reader:' row in the plan's table, LANE LIST or not; with no plan in the diff, say so once.
+
+For each row answered 'will test' or 'tested against real output', report any test reaching it only through a stand-in where the real thing could be used, or that could not fail.
+
+A missing table or row is no defect for Tier 1 or standalone review.
 
 Return a findings report AND a red cases section, in exactly this format. Emit the report headings as unfenced Markdown; code examples may use fences:
 
@@ -681,8 +684,9 @@ gap to fill.
   canonical statement, with the instance index and the test shapes a finding
   should ask for, is
   [the detector contracts](../../../docs/agents/detector-contracts.md); read it
-  when triaging a detector finding in Step 4. The lane question is inline
-  likewise: [the lanes reference](../../../docs/agents/lanes.md).
+  when triaging a detector finding in Step 4. These are inline
+  likewise: [lanes](../../../docs/agents/lanes.md),
+  [readers](../../../docs/agents/changed-output-readers.md).
 - Uses the user's **Codex account** (real quota/billing per call). One review
   pass plus at most one re-review is the intended cadence - never loop.
 - Read-only sandbox: Codex cannot write to the tree. Whether it can reach the
@@ -699,10 +703,8 @@ gap to fill.
   heading and, for a clean review, the `None - no defects found.` sentinel - so
   keep the prompt's format block intact if you adjust the prompt.
 - The `## Red cases` section is part of this command's own contract (issue
-  #1030), not something a caller has to ask for separately - it was previously
-  supplied only by `/flow:auto`'s call site, which meant a document reading
-  this contract alone and following "Return ONLY a findings report" would
-  silently get no red cases. `None - no instrument changed.` is the explicit
+  #1030), not something a caller has to ask for separately.
+  `None - no instrument changed.` is the explicit
   empty case, so an absent section stays distinguishable from a considered
   zero.
 - For a review by non-OpenAI models, use `/second-opinion:start` instead.
