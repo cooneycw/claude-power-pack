@@ -3,9 +3,9 @@
 
 `host-surface-check.py` catches a reachable script with NO declaration,
 mechanically. It cannot catch one that UNDERSTATES - lists one surface and
-writes two - and it prints that bound in its own verdict line. Every declaration
-in the tree therefore reads `certified=authored`: a person read the code and
-wrote down what it writes.
+writes two - and it prints that bound in its own verdict line. Until this
+instrument existed, every declaration in the tree therefore read
+`certified=authored`: a person read the code and wrote down what it writes.
 
 Detecting understatement by PARSING was rejected in #1139 with measurements that
 still hold: a write-verb pattern over the two command documents matched 228
