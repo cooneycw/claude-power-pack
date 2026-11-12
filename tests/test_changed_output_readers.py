@@ -165,6 +165,20 @@ def test_the_reader_question_is_not_inside_the_lane_list_condition() -> None:
     assert "LANE LIST" not in tests, "the test-quality question must not depend on a lane list"
 
 
+def test_the_exemption_is_stated_once_and_covers_lanes_and_readers() -> None:
+    """Tier 1 and standalone reviews owe neither table (counter-model review, #1697).
+
+    One sentence, after all three questions, so it cannot be read as belonging
+    to the lane paragraph alone - which is where it sat when the reader
+    question was added without it.
+    """
+    prompt = review_prompt(read(REVIEW_COMMAND))
+    exemption = "A missing table or row is no defect for Tier 1 or standalone review."
+    assert normalized(prompt).count(exemption) == 1
+    assert "no defect for Tier 1" not in normalized(prompt).replace(exemption, "")
+    assert prompt.index(exemption) > prompt.index("For each row answered"), "the exemption must follow the questions it covers"
+
+
 def lanes_block() -> str:
     match = re.search(r'^LANES_LINE=""\n.*?^fi\n', read(REVIEW_COMMAND), re.DOTALL | re.MULTILINE)
     assert match, "the LANES_LINE block is no longer in the review command"
@@ -228,6 +242,23 @@ def test_the_reader_pair_differs_only_in_whether_the_reader_sees_real_output() -
     assert "STATUS_OUTPUT" not in real
 
 
+def test_the_omitted_reader_plan_differs_only_by_the_missing_row() -> None:
+    """The case for the FIRST reader question: a reader nobody named.
+
+    The stand-in pairs cannot exercise it, because both of them name the
+    reader. This plan is `plan-real-output.md` with that one row replaced by a
+    row about something else, so the table still exists.
+    """
+    real, omits = fixture("plan-real-output.md"), fixture("plan-omits-reader.md")
+    assert "| Reader:" in real and "| Reader:" not in omits
+    assert "### Lanes for this change" in omits and "| Checkout |" in omits
+    differing = [
+        (a, b) for a, b in zip(real.splitlines(), omits.splitlines(), strict=True) if a != b
+    ]
+    assert len(differing) == 1, "the two plans must differ in exactly the table row"
+    assert 'echo "STATUS: ok ($checks checks)"' in omits, "the output change must still be in the plan"
+
+
 def test_the_lane_pair_differs_only_in_whether_the_lane_is_reached_for_real() -> None:
     stub, real = fixture("plan-lane-stub-only.md"), fixture("plan-lane-real.md")
     for plan in (stub, real):
@@ -239,11 +270,15 @@ def test_the_lane_pair_differs_only_in_whether_the_lane_is_reached_for_real() ->
 
 
 @pytest.mark.parametrize(
-    "name", ["plan-stale-stub.md", "plan-real-output.md", "plan-lane-stub-only.md", "plan-lane-real.md"]
+    "name",
+    [
+        "plan-stale-stub.md", "plan-real-output.md", "plan-omits-reader.md",
+        "plan-lane-stub-only.md", "plan-lane-real.md",
+    ],
 )
 def test_an_example_plan_does_not_give_the_answer_away(name: str) -> None:
     body = fixture(name).lower()
-    for tell in ("bad case", "good case", "stale", "stand-in", "hand-written", "stub", "this plan does not"):
+    for tell in ("bad case", "good case", "stale", "stand-in", "hand-written", "stub", "omit", "this plan does not"):
         assert tell not in body, f"{name} tells the reviewer the verdict ({tell!r})"
 
 

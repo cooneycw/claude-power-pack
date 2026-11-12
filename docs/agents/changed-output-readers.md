@@ -100,8 +100,12 @@ fail.
 
 **The second reader is a model, so its red case is a model's judgement on a
 committed example pair, not a repeatable check.** `tests/fixtures/readers/`
-holds two pairs:
+holds three cases, each against the sound plan it differs from:
 
+- the plan names no reader at all for an output it changes
+  (`plan-omits-reader.md`), against the same plan with the reader's row
+  (`plan-real-output.md`). This is the only case for the first question, a
+  reader nobody named; the two below both name their reader;
 - a writer gains a field and the reader's test uses a hand-written copy
   (`plan-stale-stub.md`), against the same change with the reader fed the
   writer's real output (`plan-real-output.md`);
@@ -109,15 +113,18 @@ holds two pairs:
   (`plan-lane-stub-only.md`), against the same lane exercised for real
   (`plan-lane-real.md`).
 
-Both questions were put to Codex (`gpt-6.1-sol`) over all four plans on
-2026-11-11, twice: once with a first wording and once with the wording that
-shipped. Each time it reported the hand-written copy in the first pair and the
-stand-in in the second, naming the real thing that was available, and reported
-nothing for either sound plan. That is eight runs agreeing. It does not
-establish that a ninth will, and the plans are small and plain; a stand-in
-buried in a large diff is a harder case nobody has measured. To repeat it, hand
-the reviewer each plan with the two questions from `/codex:code_review`, and
-the fixture lane list (`tests/fixtures/lanes/lanes.md`) for the lane pair.
+The questions were put to Codex (`gpt-6.1-sol`) over these plans on
+2026-11-11, in three rounds as the wording was tightened; the last round used
+the wording that shipped. In every round it reported the hand-written copy and
+the stand-in, naming the real thing that was available, and reported nothing
+for either sound plan: twelve runs agreeing on the stand-in question. The
+omitted reader was added after review and run ONCE, with the shipped wording:
+it was reported, and the sound plan beside it was not. None of this
+establishes the next run, and the plans are small and plain; a stand-in or a
+missing reader buried in a large diff is a harder case nobody has measured. To
+repeat it, hand the reviewer each plan with the questions from
+`/codex:code_review`, and the fixture lane list
+(`tests/fixtures/lanes/lanes.md`) for the lane pair.
 
 **Not covered.** The delegated-driver review surfaces (`/codex:auto`,
 `/qwen:auto`, `/gemma:auto`) ask neither question. A reader nobody knows about

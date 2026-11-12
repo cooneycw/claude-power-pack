@@ -114,7 +114,8 @@ def test_the_plan_gate_pointer_sits_outside_the_vendored_core() -> None:
 # --- the counter-model question ----------------------------------------------
 
 QUESTION_OMITTED = "each listed lane that the plan's 'Lanes for this change' table in this diff does not answer"
-QUESTION_NO_TABLE = "with no such table, say so once (no defect for Tier 1 or a standalone review)"
+QUESTION_NO_TABLE = "with no such table, say so once;"
+QUESTION_EXEMPT = "A missing table or row is no defect for Tier 1 or standalone review."
 QUESTION_UNTESTED = "each lane the plan marks 'will test' that no test in the diff exercises"
 QUESTION_SILENT = "With no LANE LIST, skip (1) and (2)."
 
@@ -128,6 +129,7 @@ def test_the_review_prompt_carries_the_lane_question() -> None:
     prompt = normalized(review_prompt(read(REVIEW_COMMAND)))
     assert QUESTION_OMITTED in prompt
     assert QUESTION_NO_TABLE in prompt
+    assert QUESTION_EXEMPT in prompt
     assert QUESTION_UNTESTED in prompt
     assert QUESTION_SILENT in prompt
     assert "${LANES_LINE}" in prompt, "the prompt asks the lane question but is never handed the lane list"
