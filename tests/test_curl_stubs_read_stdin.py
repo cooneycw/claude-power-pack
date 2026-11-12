@@ -153,7 +153,8 @@ def test_the_merge_helpers_curl_stub_leaves_stdin_alone_when_nothing_is_piped(tm
     that never closes and no `@-`, it must not wait on it."""
     stubs = _make_stubs(tmp_path, merge_exit=0, pr_state="MERGED")
     curl = stubs["GH_PR_MERGE_CURL"]
-    held = subprocess.Popen(["sleep", "30"], stdout=subprocess.PIPE)
+    # A Python holder, not `sleep`: one binary fewer to depend on.
+    held = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], stdout=subprocess.PIPE)
     try:
         done = subprocess.run([curl, "-sf", "https://wp.example.invalid/api/repos/lookup/o/r"],
                               stdin=held.stdout, capture_output=True, text=True, timeout=10, check=False)
