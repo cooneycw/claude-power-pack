@@ -111,10 +111,13 @@
 #   FLOW_GATE_RERUN     set to 0 to disable the #769 targeted re-run and get
 #                       the pre-#769 first-failure-is-fail behaviour
 #
-# The last stderr line is FLOW_FINISH_GATE_EXIT=<n>, the gate's exit status.
-# <n> is 128 when the gate ended WITHOUT announcing an exit: it was terminated
-# by a signal (a timeout, Ctrl-C, a closed session) or the shell aborted. 128
-# says only that; the process's real exit status carries the signal (#1705).
+# FLOW_FINISH_GATE_EXIT=<n>, the gate's exit status, is printed exactly once and
+# is the last line the GATE writes to stderr. <n> is 128 when the gate ended
+# WITHOUT announcing an exit: it was terminated by a signal (a timeout, Ctrl-C,
+# a closed session) or the shell aborted. 128 says only that; the process's
+# real exit status carries the signal (#1705). After a kill of the whole
+# process group by SIGTERM or SIGHUP the shell may add its own job notice
+# ("Terminated", "Hangup ...") after that line.
 #: END-HELP
 
 set -uo pipefail

@@ -3803,6 +3803,87 @@ def test_an_announced_exit_never_reports_128(tmp_path: Path) -> None:
     assert helped.stderr.strip().splitlines()[-1] == "FLOW_FINISH_GATE_EXIT=0"
 
 
+def _mutated_gate_killed_while_running(tmp_path: Path, injected: str, stub_name: str | None) -> str:
+    """Run a copy of the gate with `injected` added after gate_map, kill it
+    while that line is the executing command, and return its exit line."""
+    import signal
+    import time
+
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    for lib in ("gate-lib.sh", "coordination-admission.sh"):
+        shutil.copy(SCRIPT.parent / lib, scripts / lib)
+    started = tmp_path / "mutant-started"
+    body = SCRIPT.read_text()
+    marker = "\ngate_map "
+    assert body.count(marker) == 1, "precondition: one gate_map line to inject after"
+    head, tail = body.split(marker)
+    first_line, rest = tail.split("\n", 1)
+    (scripts / "flow-finish-gate.sh").write_text(
+        f'{head}{marker}{first_line}\n: > "{started}"\n{injected}\n{rest}'
+    )
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    if stub_name:
+        (bindir / stub_name).write_text("#!/usr/bin/env bash\nexec sleep 30\n")
+        (bindir / stub_name).chmod(0o755)
+    env = os.environ.copy()
+    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env["CPP_COORDINATION_ADMISSION_FILE"] = str(tmp_path / "no-coordination-admission")
+    for key in ("CPP_KYLE_FULL_SUITE_ACTIVE", "CPP_FLOW_FINISH_GATE_STATUS_FILE"):
+        env.pop(key, None)
+    proc = subprocess.Popen(
+        ["bash", str(scripts / "flow-finish-gate.sh")], cwd=tmp_path, env=env,
+        start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        deadline = time.monotonic() + 20
+        while not started.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert started.exists(), "precondition: the injected line was never reached"
+        time.sleep(0.3)  # let the shell move from the marker line onto the injected command
+        proc.send_signal(signal.SIGTERM)
+        returncode = proc.wait(timeout=10)
+    finally:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    _, stderr = proc.communicate(timeout=10)
+    assert returncode == -signal.SIGTERM, "precondition: died by the signal, mid-command"
+    return [line for line in stderr.splitlines() if line.startswith("FLOW_FINISH_GATE_EXIT=")][-1]
+
+
+@requires_bash
+@requires_git
+@pytest.mark.parametrize("injected,stub_name", [
+    ("exit_handler --now", "exit_handler"),   # a COMMAND whose name starts with `exit`
+    ("exit_code=$(sleep 30)", None),          # an ASSIGNMENT whose name starts with `exit`
+    ("exitcode --flush", "exitcode"),         # no separator at all after the four letters
+])
+def test_only_the_exit_builtin_as_a_whole_word_counts_as_announced(
+    tmp_path: Path, injected: str, stub_name: str | None,
+) -> None:
+    """`exit` alone or `exit <args>` announces; anything that merely STARTS with
+    those letters does not. Killed while such a command is executing, the gate
+    must still read 128 - a prefix match would report the stale status."""
+    line = _mutated_gate_killed_while_running(tmp_path, injected, stub_name)
+    assert line == f"FLOW_FINISH_GATE_EXIT={UNANNOUNCED_EXIT}"
+
+
+def test_the_gate_never_replaces_its_shell_with_exec() -> None:
+    """The other way out of a bash script that is not the exit builtin: `exec
+    <program>` replaces the shell and the EXIT trap never runs at all. `exec`
+    may appear here only as a descriptor redirection."""
+    execs = [
+        line.strip() for line in SCRIPT.read_text().splitlines()
+        if re.match(r"\s*exec\b", line)
+    ]
+    assert execs, "precondition: the script still has its fd-9 redirections to look at"
+    for line in execs:
+        assert re.fullmatch(r"exec \d+>(&-|\S+)", line), f"exec that is not a redirection: {line}"
+
+
 def test_the_gate_never_ends_by_running_off_its_last_line() -> None:
     """Announcement is "the shell was executing `exit`". A script that ended by
     falling off its last line would be an unannounced exit and print 128 for a
