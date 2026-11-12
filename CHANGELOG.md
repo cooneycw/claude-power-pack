@@ -4,6 +4,19 @@
 
 ### Behaviour changes you may notice
 
+- **The secret scan CPP generates is documented for what it is.** It catches
+  accidents; it is not a control against a change that wants to hide a leak.
+  The change under scan can excuse its own finding three ways (an in-tree
+  config, a `.gitleaksignore`, an inline `gitleaks:allow`), and on a
+  same-repository pull request the pipeline file is the change's own too.
+  `docs/skills/woodpecker-ci.md` says so, names the control that does the job
+  (review of four paths, enforced by the provider where it can be), and gives
+  the baseline procedure for adopting the scan in a repository with findings
+  already in its history. Taking the scanner's config from the base branch
+  was designed, measured and not built;
+  `docs/measurements/gitleaks-self-allowlist-2026-11.md` records why.
+  Nothing generated changes. The same document's example step no longer
+  shows `--verbose`, which prints matched values (#1712).
 - **`/flow:deploy <target>` now runs the target you name.** With a CPP
   checkout on the host, `/flow:deploy deploy-staging` validated
   `deploy-staging`, then ran the deterministic runner's deploy plan, whose
