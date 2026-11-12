@@ -742,9 +742,9 @@ instead.
 
    - `COUNTER_MODEL_REVIEW: findings` - triage each as accepted (fix it now,
      under the Step-4 rules), rejected (one-line reason), or deferred (route it
-     to the nit store). One re-review after the first accepted fix. Fix
-     further, then stop: ask the approver before each further pass; never receipt
-     unreviewed heads or false counts.
+     to the nit store). One re-review after the first accepted fix. Later
+     accepted fixes: STOP, ask the approver before each further pass; never
+     receipt unreviewed commits or false counts.
    - `COUNTER_MODEL_REVIEW: clean` - record `ran` with zero counts.
    - `COUNTER_MODEL_REVIEW: unparseable` (non-zero) - **This is not a clean
      review.** Record `skipped` with reason `reviewer-unavailable`; never a
