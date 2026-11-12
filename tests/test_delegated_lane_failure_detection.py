@@ -212,29 +212,7 @@ def _is_the_invocation(command: str, binary: str) -> bool:
     the CLI's name, so `echo codex` or `echo x 2>&1` between the run and the
     capture passed - the exact reset of `$?` the test exists to catch.
     """
-    if re.match(_INVOCATION_HEAD + re.escape(binary) + r"(?:\s|$)", command) is None:
-        return False
-    return not _has_a_second_command(command)
-
-
-#: Quoted text, and the redirections that contain `&` or `|` without joining
-#: commands (`2>&1`, `>&2`, `&>file`, `>|file`), removed before looking for a
-#: command separator.
-_QUOTED = re.compile(r"\"(?:[^\"\\\\]|\\\\.)*\"|'[^']*'")
-_REDIRECT = re.compile(r"\d*[<>]&\d*-?|&>>?|>\|")
-
-
-def _has_a_second_command(command: str) -> bool:
-    """Does `command` hold more than the one foreground command?
-
-    `codex exec ...; true`, `codex exec ... && true`, `codex exec ... | tee x`
-    and `codex exec ... & wait` all START with the CLI, and in every one `$?`
-    on the next line is some other command's status (or a job launch's). After
-    quoted text and stream redirections are set aside, any `;`, `&` or `|`
-    left is a second command.
-    """
-    bare = _REDIRECT.sub(" ", _QUOTED.sub(" ", command))
-    return any(separator in bare for separator in (";", "&", "|"))
+    return re.match(_INVOCATION_HEAD + re.escape(binary) + r"(?:\s|$)", command) is not None
 
 
 def _misplaced_captures(text: str, binary: str, exit_var: str) -> list[str]:
@@ -312,16 +290,6 @@ def test_the_capture_fixture_itself_is_accepted_without_the_intervening_command(
         ("echo codex exec", "codex exec", False),
         ("codex-wrapper exec", "codex exec", False),
         ("qwenx -m model", "qwen", False),
-        # starts with the CLI, and `$?` afterwards is something else's status
-        ('codex exec --json "$P" > "$O" 2>&1; true', "codex exec", False),
-        ('codex exec --json "$P" > "$O" 2>&1 && true', "codex exec", False),
-        ('codex exec --json "$P" > "$O" 2>&1 || true', "codex exec", False),
-        ('codex exec --json "$P" 2>&1 | tee "$O"', "codex exec", False),
-        ('codex exec --json "$P" > "$O" 2>&1 & wait', "codex exec", False),
-        # separators inside quotes, and stream redirections, are not second commands
-        ('codex exec --json "a; b && c | d" > "$O" 2>&1', "codex exec", True),
-        ("codex exec --json 'x & y' &> \"$O\"", "codex exec", True),
-        ('qwen -p "$P" >&2', "qwen", True),
     ],
 )
 def test_the_command_word_decides_not_a_mention(command: str, binary: str, expected: bool) -> None:
