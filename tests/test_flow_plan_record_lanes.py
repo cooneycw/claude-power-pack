@@ -476,3 +476,140 @@ def test_a_record_approved_before_the_check_draws_no_note(tmp_path: Path) -> Non
 def test_a_waived_plan_draws_no_note(repo: Path) -> None:
     approved(repo, PLAN + "\nLanes: none - documentation only\n")
     assert "Lanes demonstrated" not in compliance(repo).stderr
+
+
+# --- found by the counter-model review ---------------------------------------
+# Each of these was approved, or hidden from the digest, by the first cut.
+
+FENCED_TABLE = "\n```markdown\n" + FULL_TABLE.strip("\n") + "\n```\n"
+
+
+@pytest.mark.parametrize("quoted", [
+    FENCED_TABLE,
+    FENCED_TABLE.replace("```", "~~~"),
+    "\n````\n```\n" + FULL_TABLE.strip("\n") + "\n```\n````\n",
+    "\n```\nLanes: none - example only\n```\n",
+], ids=["backtick-fence", "tilde-fence", "nested-fence", "fenced-waiver"])
+def test_an_example_inside_a_code_fence_does_not_answer_for_the_plan(repo: Path, quoted: str) -> None:
+    begin(repo, PLAN + quoted)
+    done = run(repo, "approve", "42")
+    assert done.returncode == 1 and "has no lanes table" in done.stdout, done.stdout + done.stderr
+    assert "WAIVED" not in done.stderr
+
+
+def test_a_fenced_demonstrated_heading_does_not_open_the_digest(repo: Path) -> None:
+    """A quoted `### Lanes demonstrated` is example text that was approved.
+    Editing what follows it must read as a changed plan."""
+    example = "\n```markdown\n### Lanes demonstrated\n\nthe approved example text\n```\n"
+    record = approved(repo, PLAN + FULL_TABLE + example)
+    assert "unchanged" in stability(repo), "precondition"
+    record.write_text(record.read_text().replace("the approved example text", "something else"))
+    assert "CHANGED" in stability(repo)
+
+
+def test_a_delimiter_row_with_no_header_is_not_a_table(repo: Path) -> None:
+    rows = ("\n### Lanes for this change\n\n|---|---|---|\n| Checkout | will test | x |\n"
+            "| Harness | will test | x |\n| Project state | will test | x |\n")
+    begin(repo, PLAN + rows)
+    done = run(repo, "approve", "42")
+    assert done.returncode == 1 and "unanswered: Checkout, Harness, Project state" in done.stdout
+
+
+def test_a_table_without_outer_pipes_is_a_table(tmp_path: Path) -> None:
+    """Markdown allows it, in the lane file and in the plan alike."""
+    lanes = ("# Lanes\n\nReviewed: 2026-11-11\n\nLane | Values\n--- | ---\n"
+             "Checkout | main / linked\nHarness | Claude / Codex\n")
+    table = ("\n### Lanes for this change\n\nLane | Answer | How\n---|---|---\n"
+             "Checkout | will test | a test\nHarness | not covered | no bundle run\n")
+    r = make_repo(tmp_path / "wt", lanes=lanes)
+    begin(r, PLAN + table)
+    done = run(r, "approve", "42")
+    assert done.returncode == 0, done.stdout + done.stderr
+    r2 = make_repo(tmp_path / "wt2", lanes=lanes)
+    begin(r2, PLAN + table.replace("Harness | not covered | no bundle run\n", ""))
+    assert "unanswered: Harness." in run(r2, "approve", "42").stdout
+
+
+def test_an_escaped_pipe_stays_inside_its_cell(repo: Path) -> None:
+    table = FULL_TABLE.replace("| Checkout | will test | a test in a linked worktree |",
+                               "| Checkout | will test | run `a \\| b` in a linked worktree |")
+    begin(repo, PLAN + table)
+    assert run(repo, "approve", "42").returncode == 0
+
+
+LANES_AB = LANES.replace("| Harness |", "| A_B |").replace("| Project state |", "| AB |")
+
+
+def test_one_row_cannot_answer_two_lanes_whose_names_differ_inside(tmp_path: Path) -> None:
+    r = make_repo(tmp_path / "wt", lanes=LANES_AB)
+    table = ("\n### Lanes for this change\n\n| Lane | Answer |\n|---|---|\n"
+             "| Checkout | will test |\n| AB | will test |\n")
+    begin(r, PLAN + table)
+    done = run(r, "approve", "42")
+    assert done.returncode == 1 and "unanswered: A_B." in done.stdout, done.stdout
+
+
+def test_a_lane_file_listing_one_name_twice_is_unknown(tmp_path: Path) -> None:
+    lanes = LANES.replace("| Harness |", "| **Checkout** |")
+    r = make_repo(tmp_path / "wt", lanes=lanes)
+    begin(r, PLAN + FULL_TABLE)
+    done = run(r, "approve", "42")
+    assert done.returncode == 1 and "unknown: " in done.stdout and "same name" in done.stdout
+
+
+# The digest changes ONLY for a baseline whose approval ran the lanes check.
+
+WITH_BLOCK = PLAN + FULL_TABLE + DEMONSTRATED
+
+
+def test_with_no_lane_file_the_digest_is_the_old_digest_unmasked(tmp_path: Path) -> None:
+    """One repository, one run, one record that already carries a
+    `Lanes demonstrated` heading: the old helper and the new must stamp the
+    SAME 64 characters. The first cut left the block out for everyone."""
+    r = make_repo(tmp_path / "wt", lanes=None)
+    begin(r, WITH_BLOCK, helper=BEFORE)
+    old = run(r, "approve", "42", helper=BEFORE)
+    new = run(r, "approve", "42")
+    assert old.returncode == 0 and new.returncode == 0
+    assert "baseline stamped" in old.stdout
+    assert old.stdout == new.stdout and old.stderr == new.stderr
+
+
+def test_a_baseline_stamped_by_the_old_helper_is_still_unchanged_for_the_new(tmp_path: Path) -> None:
+    for lanes in (None, LANES):
+        r = make_repo(tmp_path / f"wt-{bool(lanes)}", lanes=lanes)
+        begin(r, WITH_BLOCK, helper=BEFORE)
+        assert run(r, "approve", "42", helper=BEFORE).returncode == 0
+        git(r, "add", "-A")
+        git(r, "commit", "-qm", "plan")
+        assert "unchanged" in stability(r)
+
+
+def test_without_the_lanes_check_the_block_is_digested_like_any_text(tmp_path: Path) -> None:
+    """No lane file, or a waived plan: nothing was promised about that block,
+    so adding one after approval reads as the change it is."""
+    r = make_repo(tmp_path / "wt", lanes=None)
+    record = approved(r, PLAN)
+    with record.open("a") as fh:
+        fh.write(DEMONSTRATED)
+    assert "CHANGED" in stability(r)
+
+
+def test_a_legacy_record_approved_under_the_check_may_gain_the_block(repo: Path) -> None:
+    """A record with no run markers is hashed whole. Approved under the lanes
+    check, it gets the same one-block allowance as a marked run."""
+    record = repo / "docs" / "flow-runs" / "issue-42.md"
+    record.parent.mkdir(parents=True)
+    record.write_text("# Flow run record - issue #42\n" + PLAN + FULL_TABLE)
+    assert not (Path(git(repo, "rev-parse", "--absolute-git-dir").strip()) / "flow-run-42").exists()
+    done = run(repo, "approve", "42")
+    assert "baseline stamped" in done.stdout, done.stdout + done.stderr
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "plan")
+    assert "unchanged" in stability(repo), "precondition"
+    with record.open("a") as fh:
+        fh.write(DEMONSTRATED)
+    assert "unchanged" in stability(repo)
+    with record.open("a") as fh:
+        fh.write("\n### Later\n  2. `src/other.py` - slipped in\n")
+    assert "CHANGED" in stability(repo)

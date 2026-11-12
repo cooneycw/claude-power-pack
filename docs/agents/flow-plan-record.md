@@ -404,10 +404,15 @@ The check reads the lane file itself and does not load `lane-file.py`, because
 the Codex `flow-auto` bundle ships this helper without that file. The two
 readers are held together by a test that runs both over every state.
 
-**One block is outside the stability digest.** `### Lanes demonstrated` is
-written at Step 6, after approval. The digest stamped at approval leaves out
-that block, from its heading to the next heading of the same or a higher
-level, and nothing else. A line added below the block, above it, or to the
+**One block is outside the stability digest, for a record approved under the
+check.** `### Lanes demonstrated` is written at Step 6, after approval. When
+approval ran the lanes check it marks the baseline (a third word, `lanes`),
+and the digest for that baseline leaves out that block, from its heading to
+the next heading of the same or a higher level, and nothing else. A baseline
+without the mark - every project with no lane file, a waived plan, every
+record stamped before the check existed - is hashed exactly as before,
+whatever headings the record contains. Headings, tables and the waiver line
+are read outside code fences only: a quoted example is not the thing itself. A line added below the block, above it, or to the
 approval table still reads as a changed plan. The block is left out so that
 recording results does not look like moving the goalposts; only the block,
 so that it cannot be used to move them.

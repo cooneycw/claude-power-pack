@@ -253,16 +253,47 @@ LANES_WAIVED_RE = re.compile(r"^Lanes:[ \t]*none[ \t]*-[ \t]*(\S.*?)[ \t]*$", re
 LANES_WAIVED_BARE_RE = re.compile(r"^Lanes:[ \t]*none[ \t]*-?[ \t]*$", re.M)
 
 
+FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
+
+def outside_fences(text: str) -> str:
+    """`text` with every line inside a fenced code block blanked, same length.
+
+    A plan record quotes examples. A lanes table, a waiver line or a
+    `Lanes demonstrated` heading inside a code fence is an EXAMPLE of one: it
+    must not answer for the plan, and it must not open a hole in the stability
+    digest. Offsets are preserved, so a span found here indexes the original."""
+    out: list[str] = []
+    fence: str | None = None
+    for line in text.splitlines(keepends=True):
+        mark = FENCE_RE.match(line)
+        if fence is None:
+            if mark:
+                fence = mark.group(1)
+                out.append(" " * (len(line) - 1) + "\n" if line.endswith("\n") else " " * len(line))
+            else:
+                out.append(line)
+            continue
+        closes = (mark is not None and mark.group(1)[0] == fence[0]
+                  and len(mark.group(1)) >= len(fence) and not line[mark.end():].strip())
+        out.append(" " * (len(line) - 1) + "\n" if line.endswith("\n") else " " * len(line))
+        if closes:
+            fence = None
+    return "".join(out)
+
+
 def heading_block(text: str, heading: re.Pattern[str]) -> tuple[int, int] | None:
     """`(start, end)` of the block a heading opens: from the heading LINE to the
     next heading of the same or a higher level, or the end of `text`.
 
-    Anchored to a heading line. The same words in a sentence open nothing."""
-    found = heading.search(text)
+    Anchored to a heading line outside any code fence. The same words in a
+    sentence, or in a quoted example, open nothing."""
+    visible = outside_fences(text)
+    found = heading.search(visible)
     if not found:
         return None
     level = len(found.group(1))
-    for nxt in HEADING_RE.finditer(text, found.end()):
+    for nxt in HEADING_RE.finditer(visible, found.end()):
         if len(nxt.group(1)) <= level:
             return found.start(), nxt.start()
     return found.start(), len(text)
@@ -272,38 +303,58 @@ def without_demonstrated(section: str) -> str:
     """`section` minus its `Lanes demonstrated` block, and nothing else.
 
     That block is written at Step 6, after approval, so it is the one part of a
-    run's section the stability digest does not cover (#1731). ONLY the block:
-    text placed after it - another heading, a new Section C line - is still
-    digested, or the block would be a place to hide a plan edit. A section
-    with no such heading is returned unchanged, so every digest stamped before
-    this existed still compares equal."""
+    run's section the stability digest of a lanes-checked record does not cover
+    (#1731). ONLY the block: text placed after it - another heading, a new
+    Section C line - is still digested, or the block would be a place to hide
+    a plan edit. A heading inside a code fence is not the block."""
     span = heading_block(section, DEMONSTRATED_HEADING_RE)
     if span is None:
         return section
     return section[:span[0]] + section[span[1]:]
 
 
+TABLE_RULE_RE = re.compile(r"^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$")
+
+
+def split_row(line: str) -> list[str]:
+    """Cells of one table line: split on unescaped pipes, outer pipes optional."""
+    text = line.strip()
+    cells = re.split(r"(?<!\\)\|", text)
+    if text.startswith("|"):
+        cells = cells[1:]
+    if text.endswith("|") and not text.endswith("\\|") and cells:
+        cells = cells[:-1]
+    return [c.replace("\\|", "|").strip() for c in cells]
+
+
 def table_rows(block: str) -> list[list[str]]:
-    """Cells of each body row of the first markdown table in `block`."""
-    rows: list[list[str]] = []
-    seen_rule = False
-    for line in block.splitlines():
-        text = line.strip()
-        if not text.startswith("|"):
-            if seen_rule:
+    """Cells of each body row of the first markdown table in `block`.
+
+    A table is a header line, then a delimiter line, then rows. A delimiter
+    with no header above it is not a table, and neither is anything inside a
+    code fence. Outer pipes are optional, as markdown allows."""
+    lines = outside_fences(block).splitlines()
+    for i in range(1, len(lines)):
+        rule, header = lines[i], lines[i - 1]
+        if not ("|" in rule and TABLE_RULE_RE.match(rule)):
+            continue
+        if "|" not in header or not header.strip() or TABLE_RULE_RE.match(header):
+            continue
+        if len(split_row(header)) != len(split_row(rule)):
+            continue
+        rows: list[list[str]] = []
+        for line in lines[i + 1:]:
+            if not line.strip() or "|" not in line:
                 break
-            continue
-        cells = [c.strip() for c in text.strip("|").split("|")]
-        if all(re.fullmatch(r":?-{2,}:?", c) for c in cells if c) and any(cells):
-            seen_rule = True
-            continue
-        if seen_rule:
-            rows.append(cells)
-    return rows
+            rows.append(split_row(line))
+        return rows
+    return []
 
 
 def lane_key(name: str) -> str:
-    return re.sub(r"[`*_]", "", name).strip().casefold()
+    """A lane name as compared: emphasis AROUND it dropped, case folded.
+    Characters inside the name are the name - `A_B` and `AB` are two lanes."""
+    return name.strip().strip("`*_").strip().casefold()
 
 
 class LanesUnusable(Exception):
@@ -355,6 +406,11 @@ def project_lanes(root: pathlib.Path) -> list[str] | None:
     names = [row[0] for row in table_rows(text) if row and lane_key(row[0])]
     if not names:
         raise LanesUnusable(f"{LANE_FILE_REL} lists no lanes (no table rows)")
+    keys = [lane_key(name) for name in names]
+    twice = sorted({name for name in names if keys.count(lane_key(name)) > 1})
+    if twice:
+        raise LanesUnusable(f"{LANE_FILE_REL} lists lanes that read as the same name "
+                            f"({', '.join(twice)}), so one answer could stand for two")
     return names
 
 
@@ -380,10 +436,11 @@ def lanes_refusal(section: str, lanes: list[str]) -> tuple[str | None, str | Non
     listed = ", ".join(lanes)
     choices = " / ".join(LANE_ANSWERS)
     if table is None:
-        waived = LANES_WAIVED_RE.search(section)
+        visible = outside_fences(section)
+        waived = LANES_WAIVED_RE.search(visible)
         if waived:
             return None, waived.group(1)
-        if LANES_WAIVED_BARE_RE.search(section):
+        if LANES_WAIVED_BARE_RE.search(visible):
             return ("the plan record says `Lanes: none` and gives no reason. Write "
                     "`Lanes: none - <reason>`, or add the lanes table"), None
         return (f"the plan record has no lanes table. This project lists lanes in "
@@ -396,16 +453,38 @@ def lanes_refusal(section: str, lanes: list[str]) -> tuple[str | None, str | Non
     return None, None
 
 
-def section_digest(section: str) -> str:
+def section_digest(section: str, lanes_checked: bool = False) -> str:
     """sha256 of a run's section, blind to trailing blank lines ONLY.
 
     A section ends where the next run's marker begins, and appending that run adds
     a separating blank line to the END of this one. Without this, run 2 appending
     tripped run 1's stability check - the exact defect #1320 fixes, reintroduced by
     whitespace. Any other edit inside the section still changes the digest.
-    """
-    return hashlib.sha256(
-        without_demonstrated(section).rstrip("\n").encode("utf-8")).hexdigest()
+
+    `lanes_checked` selects the digest a lanes-checked approval stamps (#1731):
+    the same, minus the `Lanes demonstrated` block. It is chosen by the
+    baseline's own third word and never by the record's content, so a record
+    approved without the check - every project with no lane file, and every
+    record stamped before the check existed - is hashed exactly as it always
+    was, whatever headings it happens to contain."""
+    if lanes_checked:
+        section = without_demonstrated(section)
+    return hashlib.sha256(section.rstrip("\n").encode("utf-8")).hexdigest()
+
+
+def record_digest(plan: pathlib.Path, run_id: str | None, section: str | None,
+                  lanes_checked: bool) -> str:
+    """The digest approval stamps and the stability check recomputes."""
+    if run_id is None:
+        # A legacy record (no run markers) is hashed whole, raw, as it always was -
+        # unless its approval ran the lanes check, when the one block is left out.
+        if lanes_checked:
+            # Blind to trailing blank lines, like a run's section: the block is
+            # appended after one, and removing the block leaves it behind.
+            return hashlib.sha256(without_demonstrated(plan.read_text()).rstrip("\n")
+                                  .encode("utf-8")).hexdigest()
+        return hashlib.sha256(plan.read_bytes()).hexdigest()
+    return section_digest(section or "", lanes_checked)
 
 
 def run_identity() -> tuple[str, str]:
@@ -800,10 +879,7 @@ def cmd_approve(issue: str) -> int:
     # The baseline is THIS RUN'S SECTION, not the whole file: a later run appending
     # its own section must not trip this run's stability check (w1, #1320). A legacy
     # record keeps the whole-file digest it always had.
-    if run_id is None:
-        stamp = hashlib.sha256(plan.read_bytes()).hexdigest()
-    else:
-        stamp = section_digest(section)
+    stamp = record_digest(plan, run_id, section, lanes_checked)
     # A third word marks a baseline whose lanes table was checked at approval, so
     # the close-time report speaks only to records approved under the check and
     # never re-judges an earlier one. Readers take the first two words.
@@ -1428,13 +1504,13 @@ def stability_check(issue: str, plan: pathlib.Path) -> int:
     if stamped_run != run_id:
         return stability_unknown(f"the stability digest belongs to a different run "
                                  f"({stamped_run or 'legacy'}), not this one ({run_id or 'legacy'})")
-    if run_id is None:
-        current = hashlib.sha256(plan.read_bytes()).hexdigest()
-    else:
+    lanes_checked = len(words) > 2 and words[2] == "lanes"
+    section = None
+    if run_id is not None:
         section, why = select_run(plan.read_text(), run_id)
         if section is None:
             return stability_unknown(why)
-        current = section_digest(section)
+    current = record_digest(plan, run_id, section, lanes_checked)
     if current == was:
         print("PLAN_RECORD_STABILITY: unchanged since it was approved at Step 4")
         return OK
