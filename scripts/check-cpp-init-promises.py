@@ -281,6 +281,17 @@ def main(argv: list[str] | None = None) -> int:
             print(f"CLASSIFIED {claim.kind} {DOCUMENT}:{claim.line}: {claim.target}")
     for finding in report.findings:
         print(f"PROMISE_FINDING: {finding}")
+    if any(finding.startswith("missing promised path") for finding in report.findings):
+        # The supported boundary, stated where it bites (issue #1716, seq 674).
+        # Classification is per LINE: "creates project `x`" on one line is a
+        # generated file; the same sentence wrapped before the path leaves the
+        # path alone on its line, where it reads as a CPP source that is
+        # missing. Joining lines to fix that would let a verb on one line
+        # excuse a path on the next, and a wrong join is a silent miss.
+        print(
+            "cpp-init-promises: note - classification is per line. If a missing path above is a file "
+            "the wizard GENERATES, keep its declaration and its path on one line."
+        )
     if report.findings:
         print(
             f"cpp-init-promises: {len(report.findings)} invalid promises; "

@@ -49,6 +49,13 @@
   only `secrets-scanned=` rises. A Makefile's `PASSWORD=$(VAR)` lines are
   reported like any other assignment: declare them with a path suppression in
   `.claude/security.yml`, which can be added before upgrading (#1737).
+- **Two `/cpp:init` deny rules now match the commands they name.** In the
+  Trusted and YOLO permission profiles, `Bash(dd if=:*)` matched only `dd if=`
+  followed by a space, so `dd if=/dev/zero ...` was not denied, and
+  `Bash(mkfs:*)` did not match `mkfs.ext4`. They are now `Bash(dd if=*)` and
+  `Bash(mkfs*)`. If you installed either profile, re-run `/cpp:init` or edit
+  the two rules in your settings. The wizard also now says a deny rule is not
+  a boundary: the same program run another way is not matched (#1716).
 - **A defect now says where it came from.** A defect report carries an
   `Origin:` line - the issue or pull request that delivered the behaviour that
   broke, `never worked`, or `not traced - <what was tried>` - and the pull
