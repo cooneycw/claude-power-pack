@@ -183,39 +183,117 @@ def test_invocation_and_status_check_share_one_shell(family: str, kind: str) -> 
         )
 
 
-def _capture_tail(previous: str, binary: str) -> bool:
-    # A continued prompt argument may redirect stdout and stderr separately.
-    # Do not bless ANY line ending in a stderr redirect: an intervening echo
-    # can redirect too and still reset the exit status we meant to preserve.
-    split_stream_tail = re.fullmatch(
-        r'"\$[A-Z_]+"\s+<\s*/dev/null\s+>\s*"\$[A-Z_]+"\s+2>\s*"\$\{[A-Z_]+\}\.stderr"', previous,
-    )
-    return previous.endswith("2>&1") or binary.split()[0] in previous or split_stream_tail is not None
+#: What may stand between the start of a command and the delegated CLI's name:
+#: environment assignments and a `timeout N` wrapper, the same head
+#: `invocation_blocks` accepts.
+_INVOCATION_HEAD = r"(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:timeout\s+\d+\s+)?"
+
+
+def _command_before(lines: list[str], position: int) -> str:
+    """The LOGICAL command that ends on the line before `lines[position]`.
+
+    A delegated invocation is written over several lines joined by a trailing
+    backslash, so the line before the capture is only the command's TAIL (the
+    prompt argument and the redirects). Walk back over the continuation and
+    join it, so the question can be asked of the command and not of its tail.
+    """
+    end = position - 1
+    start = end
+    while start > 0 and lines[start - 1].endswith("\\"):
+        start -= 1
+    return " ".join(line.removesuffix("\\").strip() for line in lines[start:end + 1])
+
+
+def _is_the_invocation(command: str, binary: str) -> bool:
+    """Is `command`'s COMMAND WORD the delegated CLI?
+
+    The predicate this replaces (`_capture_tail`, issue #1718 row 16) looked at
+    the previous LINE and accepted it if it ended in `2>&1` or merely contained
+    the CLI's name, so `echo codex` or `echo x 2>&1` between the run and the
+    capture passed - the exact reset of `$?` the test exists to catch.
+    """
+    return re.match(_INVOCATION_HEAD + re.escape(binary) + r"(?:\s|$)", command) is not None
+
+
+def _misplaced_captures(text: str, binary: str, exit_var: str) -> list[str]:
+    """The command before each `<exit_var>=$?` capture that is NOT the CLI run."""
+    capture = f"{exit_var}=$?"
+    wrong = []
+    for block in invocation_blocks(text, binary):
+        if capture not in block:
+            continue
+        # Trailing comments are load-bearing documentation here (the
+        # `</dev/null` note), so `_code_lines` strips them rather than
+        # requiring the redirect to be the last thing on the line.
+        lines = _code_lines(block)
+        command = _command_before(lines, lines.index(capture))
+        if not _is_the_invocation(command, binary):
+            wrong.append(command)
+    return wrong
 
 
 @pytest.mark.parametrize(("family", "kind"), SURFACES, ids=IDS)
 def test_the_capture_immediately_follows_the_invocation(family: str, kind: str) -> None:
     """Same block is necessary, not sufficient: an `echo` between them resets `$?`."""
     binary, exit_var = LANES[family]
-    capture = f"{exit_var}=$?"
+    wrong = _misplaced_captures(read(family, kind), binary, exit_var)
+    assert not wrong, (
+        f"{family}/{kind}.md puts {wrong[0]!r} between the {binary} run and "
+        f"{exit_var}=$?; `$?` would be that command's status instead."
+    )
 
-    for block in invocation_blocks(read(family, kind), binary):
-        if capture not in block:
-            continue
-        lines = []
-        for raw in block.splitlines():
-            # Trailing comments are load-bearing documentation here (the
-            # `</dev/null` note), so strip them rather than requiring the
-            # redirect to be the last thing on the line.
-            code = re.sub(r"\s+#.*$", "", raw).strip()
-            if code and not code.startswith("#"):
-                lines.append(code)
-        position = lines.index(capture)
-        previous = lines[position - 1]
-        assert _capture_tail(previous, binary), (
-            f"{family}/{kind}.md puts {previous!r} between the {binary} run and "
-            f"{capture}; `$?` would be that command's status instead."
-        )
+
+def _capture_document(between: str) -> str:
+    """A command document in the shipped shape, with `between` before the capture."""
+    return (
+        "### Step 4\n\n```bash\n"
+        "codex exec \\\n"
+        "    --json \\\n"
+        '    "$CODEX_PROMPT" < /dev/null > "$CODEX_OUTPUT" 2>&1   # </dev/null: non-TTY EOF\n'
+        "\n" + between + "CODEX_EXIT=$?\n```\n"
+    )
+
+
+#: Committed red cases (issue #1718, row 16). Each puts ONE command between the
+#: run and the capture; both passed the old line-based predicate, the first by
+#: containing the CLI's name and the second by ending in `2>&1`.
+_INTERVENING = {
+    "echo-naming-the-binary": "echo codex\n",
+    "echo-ending-in-a-stream-merge": "echo x 2>&1\n",
+    "continued-echo-naming-the-binary": 'echo \\\n    "codex exec finished" 2>&1\n',
+}
+
+
+@pytest.mark.parametrize("between", list(_INTERVENING.values()), ids=list(_INTERVENING))
+def test_a_command_between_the_run_and_the_capture_is_refused(between: str) -> None:
+    binary, exit_var = LANES["codex"]
+    document = _capture_document(between)
+    assert between in document, "precondition: the intervening command is in the block"
+    wrong = _misplaced_captures(document, binary, exit_var)
+    assert len(wrong) == 1 and wrong[0].startswith("echo"), wrong
+
+
+def test_the_capture_fixture_itself_is_accepted_without_the_intervening_command() -> None:
+    """The other verdict, on the same fixture: nothing between, nothing refused."""
+    binary, exit_var = LANES["codex"]
+    document = _capture_document("")
+    assert invocation_blocks(document, binary), "precondition: the fixture is an invocation block"
+    assert _misplaced_captures(document, binary, exit_var) == []
+
+
+@pytest.mark.parametrize(
+    ("command", "binary", "expected"),
+    [
+        ('codex exec --json "$P" < /dev/null > "$O" 2>&1', "codex exec", True),
+        ('GEMMA_OLLAMA_URL="$E" timeout 1800 opencode run --auto "$P" > "$O" 2>&1', "opencode run", True),
+        ("qwen", "qwen", True),
+        ("echo codex exec", "codex exec", False),
+        ("codex-wrapper exec", "codex exec", False),
+        ("qwenx -m model", "qwen", False),
+    ],
+)
+def test_the_command_word_decides_not_a_mention(command: str, binary: str, expected: bool) -> None:
+    assert _is_the_invocation(command, binary) is expected
 
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="capture control executes bash")
@@ -223,10 +301,11 @@ def test_the_capture_immediately_follows_the_invocation(family: str, kind: str) 
 def test_separate_stderr_capture_control_distinguishes_a_masked_status(tmp_path: Path, intervening: bool) -> None:
     tail = '"$PROMPT" < /dev/null > "$OUTPUT_FILE" 2> "${OUTPUT_FILE}.stderr"'
     masking = 'echo reset > "$OUTPUT_FILE" 2> "${OUTPUT_FILE}.stderr"'
-    previous = masking if intervening else tail
-    assert _capture_tail(previous, "codex exec") is not intervening
     script = ('codex() { return 37; }\nPROMPT=fixture\nOUTPUT_FILE=stdout\ncodex exec \\\n' + tail + '\n'
               + (masking + '\n' if intervening else '') + 'CODEX_EXIT=$?\nprintf "%s\\n" "$CODEX_EXIT"\n')
+    lines = _code_lines(script)
+    command = _command_before(lines, lines.index("CODEX_EXIT=$?"))
+    assert _is_the_invocation(command, "codex exec") is not intervening
     result = subprocess.run(["bash", "-c", script], cwd=tmp_path, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == ("0" if intervening else "37")
