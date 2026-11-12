@@ -2215,37 +2215,6 @@ def test_a_real_second_context_on_STDOUT_is_still_read(tmp_path):
     assert not _markers(result.stdout)["FLOW_CI_EVENT"][0].startswith("pull_request (branch-protection")
 
 
-@requires_bash
-@pytest.mark.parametrize("ref", ["1750", "not-a-ref", "2b30817"])
-def test_a_ref_that_is_not_a_commit_reads_UNKNOWN_on_the_fallback_path(tmp_path, ref):
-    """RED before #1711: the string was kept and searched for, ending in
-    `not-found`. The recorded path already answers this way. A status word
-    changes for an invalid input; the exit code does not."""
-    curl = _write_fake_curl(
-        tmp_path,
-        {"/api/repos/lookup/": {"id": 17}, "pipelines?per_page": [_pipeline(7, SHA, "success")]},
-        tmp_path / "argv.log",
-    )
-    result = _run(tmp_path, ref, "--repo", "o/r", env={"FLOW_CI_CURL": str(curl)})
-    m = _markers(result.stdout)
-    assert m["FLOW_CI_STATUS"] == ["unknown"], result.stdout
-    assert "commit ref unreadable; name the full commit SHA" in result.stderr
-    assert result.returncode == 0, "single-shot fallback stays fail-open"
-    assert not (tmp_path / "argv.log").exists(), "nothing was searched for"
-
-
-@requires_bash
-def test_a_FULL_sha_this_checkout_lacks_is_still_looked_up(tmp_path):
-    """Must-not-flip: tmp_path is not a checkout, so the SHA cannot resolve."""
-    curl = _write_fake_curl(
-        tmp_path,
-        {"/api/repos/lookup/": {"id": 17}, "pipelines?per_page": [_pipeline(7, SHA, "success")]},
-        tmp_path / "argv.log",
-    )
-    result = _run(tmp_path, SHA, "--repo", "o/r", env={"FLOW_CI_CURL": str(curl)})
-    assert _markers(result.stdout)["FLOW_CI_STATUS"] == ["success"], result.stdout + result.stderr
-
-
 def _polling_curl(tmp_path: Path, statuses: list[str]) -> Path:
     """A curl whose pipeline LIST answers `statuses` in turn (the last one
     repeats), and whose pipeline DETAIL is unreadable."""

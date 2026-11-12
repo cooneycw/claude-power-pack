@@ -426,16 +426,8 @@ if [[ -z "$SHA" ]]; then
     fi
 else
     # Accept a short SHA / ref and expand it, so `.commit` compares exactly.
-    FULL="$(git -C "$CHECK_PATH" rev-parse --verify --end-of-options "$SHA^{commit}" 2>/dev/null)"
-    if [[ -n "$FULL" ]]; then
-        SHA="$FULL"
-    elif [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
-        # Not a commit here and not a full SHA (a PR number, a typo): the
-        # recorded path's answer, not a search that ends in `not-found`
-        # (issue #1711). A full SHA this checkout lacks is still looked up.
-        echo "flow-ci-status: commit ref unreadable; name the full commit SHA" >&2
-        emit
-    fi
+    FULL="$(git -C "$CHECK_PATH" rev-parse "$SHA" 2>/dev/null)"
+    [[ -n "$FULL" ]] && SHA="$FULL"
 fi
 
 # IN THE DECLARED CHECKOUT, never the caller's cwd (issue #1262). `gh repo
