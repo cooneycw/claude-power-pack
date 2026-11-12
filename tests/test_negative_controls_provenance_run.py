@@ -257,13 +257,13 @@ def test_with_no_git_a_historical_anchor_is_uncompared(tmp_path: Path) -> None:
 # --- the real tree, and who passes the flag ----------------------------------
 
 def _registered_historical_anchors() -> list[tuple[Path, dict]]:
-    """Derived from the registrations, never typed: every `kind: historical`
-    anchor of a top-level control that names a real commit."""
+    """Derived from the registrations, never typed: every anchor of a
+    top-level control that DECLARES itself historical. No further filter - a
+    filter here is how a registration leaves the population unnoticed."""
     found = []
     for manifest in sorted((ROOT / "controls").glob("*/control.json")):
         for anchor in json.loads(manifest.read_text()).get("anchors", []):
-            if (anchor.get("kind") == "historical" and anchor.get("origin")
-                    and anchor.get("sha") not in (None, "", "0000000", "n/a")):
+            if anchor.get("kind") == "historical":
                 found.append((manifest.parent, anchor))
     return found
 
@@ -493,3 +493,50 @@ def test_the_same_sum_holds_for_each_way_an_anchor_can_be_wrong(tmp_path: Path, 
         "shallow": (1, 0, 1, 0, "UNCOMPARED"),
     }[damage]
     assert got == expected
+
+
+# --- third review pass: the population is the declaration --------------------
+
+def _mutate(root: Path, change) -> None:
+    manifest = root / "controls" / "toy" / "control.json"
+    spec = json.loads(manifest.read_text())
+    change(spec)
+    manifest.write_text(json.dumps(spec))
+
+
+MALFORMED = {
+    "placeholder-sha": lambda spec: spec["anchors"][0].update(sha="0000000"),
+    "sha-not-hex": lambda spec: spec["anchors"][0].update(sha="not-a-commit"),
+    "no-sha": lambda spec: spec["anchors"][0].pop("sha"),
+    "no-origin": lambda spec: spec["anchors"][0].pop("origin"),
+    "no-path": lambda spec: spec["anchors"][0].pop("path"),
+    "anchors-is-an-object": lambda spec: spec.update(anchors={"0": spec["anchors"][0]}),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(MALFORMED))
+def test_a_declared_historical_anchor_cannot_leave_the_population(tmp_path: Path, shape: str) -> None:
+    """Each of these was a way out: a registration that says `historical`,
+    that an earlier cut of the pass decided did not count, on a control excused
+    because its tool is absent. Exit 0, 'no historical anchor is registered'.
+    Whatever a historical declaration lacks, it is counted and it fails strict."""
+    root = _fixture(tmp_path, "good-anchor-matches-its-commit", shallow=False)
+    _make_unavailable(root)
+    _mutate(root, MALFORMED[shape])
+    _commit(root)
+    done = harness(root, "--strict", "--allow-unavailable", "--verify-provenance")
+    assert done.returncode == 1, f"{shape}: {done.stdout[-600:]}"
+    assert "no historical anchor is registered" not in done.stdout or shape == "anchors-is-an-object"
+    assert "PROVENANCE:UNCOMPARED" in done.stdout or "UNRESOLVED" in done.stdout, done.stdout[-600:]
+    if shape != "anchors-is-an-object":
+        assert counts(done.stdout) == (0, 1), done.stdout[-400:]
+
+
+def test_without_the_flag_those_shapes_behave_as_they_did(tmp_path: Path) -> None:
+    """The change is confined to --verify-provenance: an excused control with
+    a placeholder sha is as green as before when the flag is not passed."""
+    root = _fixture(tmp_path, "good-anchor-matches-its-commit", shallow=False)
+    _make_unavailable(root)
+    _mutate(root, MALFORMED["placeholder-sha"])
+    _commit(root)
+    assert harness(root, "--strict", "--allow-unavailable").returncode == 0

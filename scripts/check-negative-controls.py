@@ -1475,60 +1475,89 @@ def evaluate(directive_file: Path, control_rel: str, root: Path, verify_provenan
     return res
 
 
-def _is_historical(anchor: object) -> bool:
-    """A `kind: historical` anchor that names a real commit and an origin."""
-    return (isinstance(anchor, dict) and anchor.get("kind") == "historical"
-            and bool(anchor.get("origin")) and bool(anchor.get("path"))
-            and anchor.get("sha") not in (None, "", "0000000", "n/a"))
+def _historical_defect(anchor: dict[str, object]) -> str | None:
+    """Why a `kind: historical` anchor cannot be compared at all, or None.
+
+    A declaration that says "this is the code at a commit" and then names no
+    usable commit, no origin file or no anchor file is still a registered
+    historical anchor. It is counted, and it is could-not-compare."""
+    sha = anchor.get("sha")
+    if not isinstance(sha, str) or not _HEX_SHA_RE.fullmatch(sha) or set(sha) == {"0"}:
+        return f"its sha {sha!r} names no commit"
+    if not isinstance(anchor.get("origin"), str) or not anchor.get("origin"):
+        return "it names no origin file"
+    if not isinstance(anchor.get("path"), str) or not anchor.get("path"):
+        return "it names no anchor file"
+    return None
 
 
 def _verify_historical_anchors(res: Result, control_dir: Path, root: Path) -> None:
     """Compare every registered historical anchor of one control with its commit.
 
-    The POPULATION is the registrations, read here from the manifest, never the
-    comparisons that happened to run: `historical_registered` counts them all,
-    and each lands in exactly one of compared, uncompared (could not look: no
-    git, no such commit here, or no anchor file) or unexamined (never reached
-    git because its bytes already disagree with the recorded digest, which is
-    MISMATCH and fails on its own). Provenance is only ever STRENGTHENED
-    towards a failure here - a MISMATCH or UNCOMPARED found by this pass
-    replaces a weaker word from scoring, never the reverse."""
+    THE POPULATION IS A DECLARATION, NOT A JUDGEMENT: every entry of the
+    manifest's `anchors` whose `kind` is `historical`, however badly formed.
+    Three review passes each found a registration this pass had quietly decided
+    was not historical "enough" to count - a placeholder sha, a missing origin, a
+    missing path - and which then left the run uncounted and green. So nothing
+    is filtered: `historical_registered` counts them all, and each lands in
+    exactly one of compared, uncompared (could not look: the declaration is
+    unusable, no git, no such commit here, no anchor file) or unexamined (its
+    bytes already disagree with the recorded digest, which is MISMATCH and
+    fails by itself). A manifest whose `anchors` cannot be read as a list is
+    could-not-look for the whole control.
+
+    Provenance is only ever STRENGTHENED towards a failure here - a MISMATCH or
+    UNCOMPARED found by this pass replaces a weaker word from scoring, never
+    the reverse."""
     try:
         spec = json.loads((control_dir / "control.json").read_text(encoding="utf-8"))
-        anchors = spec.get("anchors", []) if isinstance(spec, dict) else []
     except (OSError, ValueError):
+        # No readable manifest: scoring has already refused this control
+        # (UNRESOLVED, which nothing excuses), and there is no population to read.
+        return
+    anchors = spec.get("anchors", []) if isinstance(spec, dict) else None
+    if not isinstance(anchors, list):
+        res.details.append(
+            "control.json's `anchors` is not a list, so its historical anchors cannot be "
+            "enumerated, let alone compared with the commits they name"
+        )
+        if res.provenance != "MISMATCH":
+            res.provenance = UNCOMPARED
         return
     words: list[str] = []
-    for anchor in anchors if isinstance(anchors, list) else []:
-        if not _is_historical(anchor):
+    for anchor in anchors:
+        if not isinstance(anchor, dict) or anchor.get("kind") != "historical":
             continue
         res.historical_registered += 1
-        anchor_path = control_dir / str(anchor["path"])
-        if not anchor_path.is_file():
-            # Asked to compare it and there is nothing to compare: could not
-            # look, by name. Scoring also refuses a missing anchor, but scoring
-            # may never reach it (a control whose tool is absent returns first
-            # and is then excused), so the failure has to be raised here too.
+        label = f"anchor {anchor.get('path', '?')} (historical {anchor.get('sha', '?')})"
+        defect = _historical_defect(anchor)
+        anchor_path = control_dir / str(anchor.get("path", ""))
+        if defect is None and not anchor_path.is_file():
+            # Scoring also refuses a missing anchor, but scoring may never reach
+            # it (a control whose tool is absent returns first and is excused).
+            defect = "the anchor file is missing"
+        if defect is not None:
             res.historical_uncompared += 1
             words.append(UNCOMPARED)
-            res.details.append(
-                f"anchor {anchor['path']} (historical {anchor.get('sha', '?')}) could not be "
-                f"compared with the commit it names: the anchor file is missing"
-            )
+            res.details.append(f"{label} could not be compared with the commit it names: {defect}")
             continue
         _HISTORICAL_COMPARED.pop(id(anchor), None)
         word = _provenance(anchor, anchor_path, root, True)
         words.append(word)
         if _HISTORICAL_COMPARED.pop(id(anchor), False):
             res.historical_compared += 1
-        elif word == UNCOMPARED:
-            res.historical_uncompared += 1
-            res.details.append(
-                f"anchor {anchor['path']} (historical {anchor.get('sha', '?')}) could not be "
-                f"compared with the commit it names: {_uncompared_reason(anchor, root)}"
-            )
-        else:
+        elif word == "MISMATCH":
             res.historical_unexamined += 1
+        else:
+            # Anything else from a well-formed historical anchor is could-not-look,
+            # whatever word came back: it was asked to be compared and was not.
+            res.historical_uncompared += 1
+            if word != UNCOMPARED:
+                words[-1] = UNCOMPARED
+            res.details.append(
+                f"{label} could not be compared with the commit it names: "
+                f"{_uncompared_reason(anchor, root)}"
+            )
     if "MISMATCH" in words:
         res.provenance = "MISMATCH"
     elif UNCOMPARED in words and res.provenance != "MISMATCH":
