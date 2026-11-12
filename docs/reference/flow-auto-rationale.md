@@ -1211,11 +1211,11 @@ collapse" note above).
    - `PLAN_COMPLIANCE: unknown` (exit 4) - the comparison could not be made. Never
      report it as agreement.
    - A clause directly after any of those three verdict words (issue #1767):
-     `, LANES NOT DEMONSTRATED (<lanes>)` means the plan answered `will test` for
-     those lanes and `docs/flow-runs/issue-<N>.lanes-demonstrated.md` has no row
-     for them; `, LANES NOT CHECKED (<why>)` means the lane file or that file
+     `, LANES NOT DEMONSTRATED (<count>)` means the plan answered `will test` for
+     that many lanes for which `docs/flow-runs/issue-<N>.lanes-demonstrated.md`
+     has no row; `, LANES NOT CHECKED` means the lane file or that file
      exists and could not be read. Neither changes the exit code. The stderr note
-     beside it says what to do: for the first, add a `| <lane> | <what was
+     beside it names each lane, one per line, and says what to do: for the first, add a `| <lane> | <what was
      demonstrated> |` row per named lane (in a table with a header row) and
      re-run; for the second, fix what it names, or report the lanes as not
      checked - never as demonstrated. Commit the file: it is part of the change. It was first a note on

@@ -416,9 +416,12 @@ indented heading, a numbered plan line that contained a pipe), and the design
 was dropped for one with nothing left out.
 
 `compliance` then names each lane answered `will test` with no row in that
-file ON ITS VERDICT LINE, directly after the verdict word (`, LANES NOT
-DEMONSTRATED (...)`), and says `, LANES NOT CHECKED (<why>)` when the lane file
-or that file cannot be read (issue #1767). It first said so on stderr only; in
+file ON ITS VERDICT LINE, directly after the verdict word, as a state and a
+count (`, LANES NOT DEMONSTRATED (2)`), and says `, LANES NOT CHECKED` when the
+lane file or that file cannot be read (issue #1767). The line carries no lane
+name and no reason: a lane may be named anything, and a first cut that printed
+the names inside parentheses could be cut short by a name containing one. The
+names, one per line, the reason and the remedy are in the stderr note. It first said so on stderr only; in
 three hours five changes merged without the file, because the line is what gets
 read. The stderr note remains and is generated from the same state as the
 clause. It does not refuse and its exit code is unchanged. Where nothing is

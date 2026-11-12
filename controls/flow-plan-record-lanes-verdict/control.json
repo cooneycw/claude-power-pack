@@ -20,7 +20,7 @@
     "{gate}"
   ],
   "good_exit": 0,
-  "detect_signal": "^PLAN_COMPLIANCE: (agreement|divergence|unknown), LANES NOT (DEMONSTRATED|CHECKED) \\(",
+  "detect_signal": "^PLAN_COMPLIANCE: (agreement|divergence|unknown), LANES NOT (DEMONSTRATED \\([1-9][0-9]*\\)|CHECKED)( |$)",
   "good_signal": "^PLAN_COMPLIANCE: (agreement|divergence) - ",
   "unavailable_signal": "^FLOW_PLAN_RECORD_LANES_VERDICT_CONTROL: unavailable",
   "limits": "Covers the clause for a missing demonstrated file, a will-test lane with no row, and a demonstrated file that exists and cannot be read, against a run with every lane shown and a project with no lane file. It does not cover the `unknown` verdict word, an unusable lane file at close, a waived plan, or the full combination table - those are pinned by tests/test_flow_plan_record_lanes.py. The exit code scored here is the runner's reading of the verdict line, not the gate's: the gate's own exit code never changes for a lane. It says nothing about whether a demonstrated row is TRUE.",

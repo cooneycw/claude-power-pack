@@ -559,7 +559,9 @@ SIBLING = Path("docs") / "flow-runs" / "issue-42.lanes-demonstrated.md"
 def test_no_demonstrated_file_is_reported_with_the_lanes_owed(repo: Path) -> None:
     approved(repo)
     done = compliance(repo)
-    assert f"no {SIBLING} - this plan answered `will test` for Checkout, Harness" in done.stderr
+    assert f"no {SIBLING} - this plan answered `will test` for 2 lane(s), named below" in done.stderr
+    assert [ln.rsplit(" - ", 1)[1] for ln in done.stderr.splitlines() if "has no row in" in ln] == [
+        "Checkout", "Harness"]
     assert "Project state" not in done.stderr, "not applicable owes no row"
     assert "lanes-demonstrated" not in done.stdout, "the file is named on stderr; the line names the lanes"
 
@@ -595,7 +597,8 @@ def test_an_unreadable_demonstrated_file_is_unreadable_not_missing(repo: Path, k
     done = compliance(repo)
     assert f"no {SIBLING}" not in done.stderr, "an unreadable file was reported as missing"
     assert "cannot be checked against what was demonstrated" in done.stderr
-    assert "Checkout, Harness" in done.stderr
+    assert [ln.rsplit(" - ", 1)[1] for ln in done.stderr.splitlines() if "was not checked - " in ln] == [
+        "Checkout", "Harness"]
 
 
 def test_rows_quoted_in_a_code_fence_are_not_rows(repo: Path) -> None:
@@ -660,7 +663,7 @@ WORDS = ("agreement", "divergence", "unknown")
 def test_a_will_test_lane_with_nothing_shown_is_on_the_verdict_line(repo: Path, word: str) -> None:
     approved(repo)
     line = verdict(compliance_as(repo, word))
-    assert line.startswith(f"PLAN_COMPLIANCE: {word}, LANES NOT DEMONSTRATED (Checkout, Harness)"), line
+    assert line.startswith(f"PLAN_COMPLIANCE: {word}, LANES NOT DEMONSTRATED (2)"), line
     assert "Project state" not in line, "not applicable owes no row"
 
 
@@ -669,9 +672,9 @@ def test_only_the_lanes_still_missing_are_named_and_a_full_file_clears_the_line(
     approved(repo)
     (repo / SIBLING).write_text(DEMONSTRATED.replace("| Harness | tested through a symlink |\n", ""))
     assert verdict(compliance_as(repo, word)).startswith(
-        f"PLAN_COMPLIANCE: {word}, LANES NOT DEMONSTRATED (Harness)")
+        f"PLAN_COMPLIANCE: {word}, LANES NOT DEMONSTRATED (1)")
     (repo / SIBLING).write_text(DEMONSTRATED.replace("tested through a symlink", " "))
-    assert ", LANES NOT DEMONSTRATED (Harness)" in verdict(compliance_as(repo, word)), "an empty cell is no row"
+    assert ", LANES NOT DEMONSTRATED (1)" in verdict(compliance_as(repo, word)), "an empty cell is no row"
     (repo / SIBLING).write_text(DEMONSTRATED)
     assert "LANES" not in verdict(compliance_as(repo, word))
 
@@ -687,7 +690,7 @@ def test_an_unreadable_demonstrated_file_reads_not_checked_never_clean(repo: Pat
     else:
         path.write_bytes(b"\xff\xfe\x00\x80")
     line = verdict(compliance_as(repo, "divergence"))
-    assert line.startswith("PLAN_COMPLIANCE: divergence, LANES NOT CHECKED ("), line
+    assert line.startswith("PLAN_COMPLIANCE: divergence, LANES NOT CHECKED - "), line
     assert "NOT DEMONSTRATED" not in line, "unreadable was reported as missing"
 
 
@@ -717,8 +720,8 @@ def test_a_lane_file_that_cannot_be_read_at_close_is_not_checked_on_the_line(rep
     assert "LANES" not in verdict(compliance_as(repo, "divergence")), "precondition: clean before the damage"
     _damage_lane_file(repo, "unusable")
     done = compliance_as(repo, "divergence")
-    assert verdict(done).startswith(
-        "PLAN_COMPLIANCE: divergence, LANES NOT CHECKED (.claude/lanes.md is not a regular file)")
+    assert verdict(done).startswith("PLAN_COMPLIANCE: divergence, LANES NOT CHECKED - ")
+    assert ".claude/lanes.md is not a regular file, so whether" in done.stderr
     assert "was not checked" in done.stderr
 
 
@@ -777,7 +780,7 @@ def test_writing_the_demonstrated_file_does_not_itself_make_a_divergence(repo: P
     line for a run with every lane demonstrated differs from the old helper's."""
     approved(repo)
     assert verdict(compliance_as(repo, "agreement")).startswith(
-        "PLAN_COMPLIANCE: agreement, LANES NOT DEMONSTRATED (Checkout, Harness) - "), "precondition"
+        "PLAN_COMPLIANCE: agreement, LANES NOT DEMONSTRATED (2) - "), "precondition"
     (repo / SIBLING).write_text(DEMONSTRATED)
     if committed:
         git(repo, "add", "-A")
@@ -805,45 +808,40 @@ def test_the_clause_is_the_only_change_and_the_exit_code_does_not_move(repo: Pat
     approved(repo)
     new = compliance_as(repo, word)
     old = compliance_as(repo, word, helper=PRE_1767)
-    assert ", LANES NOT DEMONSTRATED (Checkout, Harness)" in new.stdout
+    assert ", LANES NOT DEMONSTRATED (2)" in new.stdout
     strip = lambda s: re.sub(r"FLOW_PLAN_RECORD_SELF: .*\n", "", s)   # noqa: E731
-    assert strip(new.stdout).replace(", LANES NOT DEMONSTRATED (Checkout, Harness)", "") == strip(old.stdout)
+    assert strip(new.stdout).replace(", LANES NOT DEMONSTRATED (2)", "") == strip(old.stdout)
     assert new.returncode == old.returncode
-    assert old.stderr.strip().splitlines()[0] in new.stderr, "the note still opens as it did"
     assert "a header row, a `|---|---|` row, then `| <lane> | <what was demonstrated> |`" in new.stderr
 
 
 HOSTILE_LANE = "Checkout) - linked worktree, 100% (really)"
 
 
-def test_a_lane_name_cannot_end_or_split_the_clause(tmp_path: Path) -> None:
-    """A lane file may name a lane anything. One carrying the clause's own
-    delimiters is approved like any other; in the clause it is encoded, so the
-    parenthesised list still ends where it ends and splits where it splits."""
-    from urllib.parse import unquote
-
+def test_a_lane_named_with_delimiters_cannot_change_the_shape_of_the_line(tmp_path: Path) -> None:
+    """A lane file may name a lane anything. The line carries a state and a
+    count, so no name reaches it; the name is on stderr, whole, on its own line."""
     lanes = LANES.replace("| Checkout |", f"| {HOSTILE_LANE} |")
     section = PLAN + FULL_TABLE.replace("| Checkout |", f"| {HOSTILE_LANE} |")
     r = make_repo(tmp_path / "wt", lanes=lanes)
     approved(r, section)
-    line = verdict(compliance_as(r, "divergence"))
-    listed = re.fullmatch(r"PLAN_COMPLIANCE: divergence, LANES NOT DEMONSTRATED \(([^()]*)\) - "
-                          r"the change and its approved plan disagree\.", line)
-    assert listed, line
-    assert [unquote(name) for name in listed.group(1).split(", ")] == [HOSTILE_LANE, "Harness"]
+    done = compliance_as(r, "divergence")
+    assert verdict(done) == ("PLAN_COMPLIANCE: divergence, LANES NOT DEMONSTRATED (2) - "
+                             "the change and its approved plan disagree.")
+    marker = f"has no row in {SIBLING} - "
+    assert [ln.split(marker, 1)[1] for ln in done.stderr.splitlines() if marker in ln] == [
+        HOSTILE_LANE, "Harness"]
     (r / SIBLING).write_text(DEMONSTRATED.replace("| Checkout |", f"| {HOSTILE_LANE} |"))
     assert "LANES" not in verdict(compliance_as(r, "divergence")), "the name still matches its own row"
 
 
-def test_an_ordinary_lane_name_is_printed_as_written() -> None:
-    helper = _load_helper()
-    for name in ("Checkout", "CI provider", "Project state", "A_B", "Lane-2 / other"):
-        assert helper.clause_lane(name) == name
+CLAUSE_SHAPE = re.compile(r", LANES NOT (DEMONSTRATED \([1-9][0-9]*\)|CHECKED)")
 
 
 @pytest.mark.parametrize("kind", ["directory", "dangling symlink", "not text"])
-def test_a_reason_cannot_end_the_clause_either(repo: Path, kind: str) -> None:
-    """The could-not-check reasons carry parentheses of their own."""
+def test_no_reason_reaches_the_line(repo: Path, kind: str) -> None:
+    """The could-not-check reasons carry parentheses and file names of their
+    own. They are on stderr; the line says NOT CHECKED and nothing more."""
     approved(repo)
     path = repo / SIBLING
     if kind == "directory":
@@ -852,9 +850,10 @@ def test_a_reason_cannot_end_the_clause_either(repo: Path, kind: str) -> None:
         path.symlink_to(repo / "nowhere.md")
     else:
         path.write_bytes(b"\xff\xfe\x00\x80")
-    line = verdict(compliance_as(repo, "divergence"))
-    assert re.fullmatch(r"PLAN_COMPLIANCE: divergence, LANES NOT CHECKED \([^()\n]+\) - "
-                        r"the change and its approved plan disagree\.", line), line
+    done = compliance_as(repo, "divergence")
+    assert verdict(done) == ("PLAN_COMPLIANCE: divergence, LANES NOT CHECKED - "
+                             "the change and its approved plan disagree.")
+    assert str(SIBLING) in done.stderr
 
 
 def _load_helper():
@@ -908,6 +907,13 @@ def test_every_combination_lands_in_exactly_one_of_the_four_states(
     clause, note = helper.lanes_clause(at_close), helper.lanes_note(at_close)
     quiet = at_close.state in ("nothing-owed", "all-shown")
     assert (clause == "") is quiet and (note == []) is quiet, "the line and the note disagree"
+    assert quiet or CLAUSE_SHAPE.fullmatch(clause), clause
+    named = [ln.rsplit(" - ", 1)[1] for ln in note if "has no row in" in ln]
+    if at_close.state == "missing":
+        assert clause == f", LANES NOT DEMONSTRATED ({len(named)})" and named == list(at_close.lanes)
+        assert len(named) >= 1
+    else:
+        assert named == []
     done = compliance_as(r, "divergence")
     assert verdict(done) == f"PLAN_COMPLIANCE: divergence{clause} - the change and its approved plan disagree."
     assert [ln for ln in done.stderr.splitlines() if ln.startswith("flow-plan-record: ")] == note
@@ -923,6 +929,7 @@ def test_a_run_with_no_section_in_the_record_is_not_checked(repo: Path) -> None:
     about what it owes, and that is said."""
     done = run(repo, "compliance", "42", "--base", git(repo, "rev-parse", "main").strip())
     assert verdict(done).startswith("PLAN_COMPLIANCE: unknown, LANES NOT CHECKED ("), done.stdout
+    assert ", LANES NOT CHECKED (" in verdict(done), "the unknown line's own reason follows in parentheses"
 
 
 def test_a_lane_name_with_something_appended_is_unanswered_and_the_refusal_says_why(repo: Path) -> None:

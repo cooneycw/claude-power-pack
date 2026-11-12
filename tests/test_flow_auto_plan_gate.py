@@ -84,7 +84,7 @@ def test_the_real_line_is_read_by_the_passage_as_written(tmp_path: Path, word: s
     prefixes = [prefix for prefix in documented_verdicts(passage) if line.startswith(prefix)]
     assert prefixes == [f"PLAN_COMPLIANCE: {word}"], line
     after_word = line[len(prefixes[0]):]
-    kinds = {"no clause": None, "not demonstrated": "DEMONSTRATED (", "not checked": "CHECKED ("}
+    kinds = {"no clause": None, "not demonstrated": "DEMONSTRATED (", "not checked": "CHECKED"}
     opening = documented_clause(passage)
     if kinds[state] is None:
         assert "LANES" not in line
@@ -110,12 +110,14 @@ def test_following_the_stderr_note_clears_the_clause(tmp_path: Path, start: str)
     elif start == "prose and no table":
         (repo / SIBLING).write_text("# Lanes demonstrated\n\nTo be written.\n")
     first = compliance_as(repo, "agreement")
-    assert ", LANES NOT DEMONSTRATED (" in verdict(first)
+    counted = re.search(r", LANES NOT DEMONSTRATED \((\d+)\)", verdict(first))
+    assert counted, verdict(first)
     note = "\n".join(stderr_note(first))
     path = re.search(r"(docs/flow-runs/issue-42\.lanes-demonstrated\.md)", note)
     assert path and "`| <lane> | <what was demonstrated> |`" in note, note
-    lanes = re.search(r", LANES NOT DEMONSTRATED \((.*?)\)", verdict(first))
-    assert lanes
+    marker = f"has no row in {path.group(1)} - "
+    lanes = [ln.split(marker, 1)[1] for ln in stderr_note(first) if marker in ln]
+    assert len(lanes) == int(counted.group(1)) >= 1, "the count on the line is the names in the note"
     target = repo / path.group(1)
     if "a header row, a `|---|---|` row" in note:
         target.write_text("| Lane | What was demonstrated |\n|---|---|\n")
@@ -126,7 +128,7 @@ def test_following_the_stderr_note_clears_the_clause(tmp_path: Path, start: str)
             with target.open("a") as handle:
                 handle.write("\n| Lane | What was demonstrated |\n|---|---|\n")
     with target.open("a") as handle:
-        for lane in lanes.group(1).split(", "):
+        for lane in lanes:
             handle.write(f"| {lane} | shown |\n")
     again = compliance_as(repo, "agreement")
     assert verdict(again).startswith("PLAN_COMPLIANCE: agreement - "), verdict(again)
@@ -144,9 +146,9 @@ def test_a_not_checked_note_says_to_fix_it_or_report_unchecked(tmp_path: Path, w
         (repo / ".claude" / "lanes.md").unlink()
         (repo / ".claude" / "lanes.md").mkdir()
     done = compliance_as(repo, "divergence")
-    assert ", LANES NOT CHECKED (" in verdict(done)
+    assert ", LANES NOT CHECKED - " in verdict(done)
     note = stderr_note(done)
-    assert len(note) == 1 and "Add `|" not in note[0]
+    assert note and all("Add `|" not in ln for ln in note)
     assert "Fix that and re-run, or report the lanes as NOT CHECKED - never as demonstrated" in note[0]
 
 

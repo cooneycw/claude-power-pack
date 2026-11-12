@@ -1171,52 +1171,46 @@ def lanes_at_close(issue: str) -> LanesAtClose:
 def lanes_clause(at_close: LanesAtClose) -> str:
     """What the PLAN_COMPLIANCE line carries directly after its verdict word.
     Empty for `nothing-owed` and `all-shown`, so that line is byte-identical to
-    what it was before #1767 wherever no lane result is owed."""
+    what it was before #1767 wherever no lane result is owed.
+
+    A STATE AND A COUNT, NOTHING ELSE. A first cut printed the lane names and
+    the could-not-check reason inside parentheses; a lane may be named
+    anything, a name carrying `)` ended the list early, and the fix for that
+    was an encoding. The line needs to say THAT a lane result is owed and how
+    many; the names, the reason and the remedy are in the stderr note, one
+    lane per line, where nothing has to be delimited."""
     if at_close.state == "missing":
-        return f", LANES NOT DEMONSTRATED ({', '.join(map(clause_lane, at_close.lanes))})"
+        return f", LANES NOT DEMONSTRATED ({len(at_close.lanes)})"
     if at_close.state == "not-checked":
-        return f", LANES NOT CHECKED ({clause_reason(at_close.why)})"
+        return ", LANES NOT CHECKED"
     return ""
-
-
-def clause_lane(name: str) -> str:
-    """A lane name as it appears inside the clause's parentheses.
-
-    The list is read by its delimiters - `(`, `, ` and `)` - and a lane name
-    is whatever the project's lane file says, so a name carrying one of them
-    would end the list early or split in two. Those characters, `%` itself and
-    anything that is not printable are percent-encoded; every ordinary name is
-    printed as written. `urllib.parse.unquote` gives the name back."""
-    return "".join(ch if ch.isprintable() and ch not in "%(),"
-                   else "".join(f"%{b:02X}" for b in ch.encode("utf-8")) for ch in name)
-
-
-def clause_reason(why: str) -> str:
-    """A could-not-check reason inside the clause's parentheses: one line, and
-    no parenthesis of its own to end the clause early. It is prose for a
-    person, never matched against anything, so brackets stand in."""
-    return " ".join(why.translate(str.maketrans("()", "[]")).split())
 
 
 def lanes_note(at_close: LanesAtClose) -> list[str]:
     """The stderr lines that say what to do about the clause. Generated from
-    the same state as the clause, so the two cannot disagree. `/flow:auto`
-    Step 6 sends a run here for the remedy, so each note is one a run can act
-    on without another document."""
-    owed = ", ".join(at_close.lanes)
+    the same state as the clause, so the two cannot disagree: for `missing`,
+    exactly one line per lane counted on the verdict line, each ending in the
+    lane's name as the plan wrote it. `/flow:auto` Step 6 sends a run here for
+    the remedy, so each note is one a run can act on without another document."""
     row = "`| <lane> | <what was demonstrated> |`"
-    if at_close.state == "missing" and at_close.file_absent:
-        return [f"flow-plan-record: no {at_close.rel} - this plan answered `will test` for "
-                f"{owed}. Write that file with a table, one row per lane, saying "
-                f"what was demonstrated: a header row, a `|---|---|` row, then {row} for each"]
+    table = "a header row, a `|---|---|` row, then " + row + " for each"
     if at_close.state == "missing":
-        return [f"flow-plan-record: lane answered `will test` at approval has no row in "
-                f"{at_close.rel} - {lane}. Add {row} to its table (which needs a header row "
-                "and a `|---|---|` row above it, if the file has none)" for lane in at_close.lanes]
+        opening = (f"flow-plan-record: no {at_close.rel} - this plan answered `will test` for "
+                   f"{len(at_close.lanes)} lane(s), named below. Write that file with a table, "
+                   f"one row per lane, saying what was demonstrated: {table}"
+                   if at_close.file_absent else
+                   f"flow-plan-record: {len(at_close.lanes)} lane(s) answered `will test` at "
+                   f"approval have no row in {at_close.rel}, named below. Add {row} for each to "
+                   "its table (which needs a header row and a `|---|---|` row above it, if the "
+                   "file has none)")
+        return [opening] + [f"flow-plan-record: lane answered `will test` at approval has no row "
+                            f"in {at_close.rel} - {lane}" for lane in at_close.lanes]
     unchecked = "Fix that and re-run, or report the lanes as NOT CHECKED - never as demonstrated"
     if at_close.state == "not-checked" and at_close.lanes:
-        return [f"flow-plan-record: {at_close.why}, so the lanes this plan said it would test "
-                f"({owed}) cannot be checked against what was demonstrated. {unchecked}"]
+        return ([f"flow-plan-record: {at_close.why}, so the lanes this plan said it would test "
+                 f"cannot be checked against what was demonstrated. {unchecked}"]
+                + [f"flow-plan-record: lane answered `will test` at approval was not checked - "
+                   f"{lane}" for lane in at_close.lanes])
     if at_close.state == "not-checked":
         return [f"flow-plan-record: {at_close.why}, so whether this plan's will-test lanes "
                 f"were demonstrated was not checked. {unchecked}"]
