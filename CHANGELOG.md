@@ -40,6 +40,20 @@
 - **Generated infrastructure workflows pin `actions/checkout` to the same
   commit as every other generated workflow**, not the moving `@v4`.
   Regenerate to get it (#1712).
+- **`/codex:code_review` blocks a patch that is too large for Codex, where it
+  used to record "reviewer unavailable".** Codex refuses input over 1,048,576
+  characters; the run used to exit 1 with no findings and be recorded as a
+  skipped review, which the finish gate accepts. The patch is now measured
+  first, in bytes, against that limit less a margin for the prompt. Over it,
+  at every scope, the run stops with `CODEX_REVIEW: blocked (patch too large
+  ...)`, exit 1, before any model call. **A change of about 1 MB or more that
+  used to pass with a skipped review now stops, and a person decides:** split
+  the change, or commit separately the bulk that needs no review. Having the
+  reviewer read such a change from the repository is not built (#1769). Also:
+  the scope probe no longer reads `unverified` under `pipefail` in a large
+  checkout, the temporary-file templates end in their `X` run, and a dangling
+  or unsearchable `.claude/lanes.md` is reported as unreadable, not treated
+  as absent (#1714).
 - **The flow documents say what to do when a project's gate needs the pushed
   head.** `/flow:auto` Step 6 and `/flow:finish` still run the gate before the
   push. When a project's own gate clones the ref under test from the remote,
