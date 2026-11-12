@@ -707,17 +707,17 @@ class TestNoShellSubstitutionExemption:
         assert finding.title == "Hardcoded password in source code"
         assert finding.fix == "Move to environment variable or secrets manager."
 
-    def test_a_shell_script_with_no_extension_is_not_scanned_at_all(self, tmp_path: Path) -> None:
-        """A limit that predates #1717 and is filed as #1737, pinned so it is visible.
+    def test_a_shell_script_with_no_extension_is_read_and_reported(self, tmp_path: Path) -> None:
+        """Replaces the #1717 test that pinned the opposite (issue #1737).
 
-        The scanner selects files by extension, so `bin/deploy` with a shebang
-        is outside its population whatever it holds. The count says so.
+        That test recorded a limit - `deploy` with a shebang was outside the
+        scanner's population, `units_scanned == 0` - so the limit was visible.
+        #1737 removes the limit, so the same input now has the other verdict.
         """
         (tmp_path / "deploy").write_text(f"#!/bin/sh\n{LITERALS[0]}\n")
         result = secrets.scan(str(tmp_path))
-        assert result.units_scanned == 0
-        assert result.findings == []
-        assert result.skipped == ["No source files found to scan"]
+        assert result.units_scanned == 1
+        assert [(f.id, f.file_path, f.line_number) for f in result.findings] == [("HARDCODED_PASSWORD", "deploy", 2)]
 
 
 class TestTheConsumerDeclaresWhatIsHarmless:
@@ -774,3 +774,276 @@ class TestTheConsumerDeclaresWhatIsHarmless:
             '    reason: "fetched at run time; no secret is written in the file"\n'
         )
         assert self._found(tmp_path) == [("docker/install.sh", 2), ("tests/test_login.py", 1)]
+
+_REAL_FSTAT = os.fstat
+
+
+class TestExtensionlessFilesAreRead:
+    """Scripts and build files with no extension join the scan (issue #1737).
+
+    Two rules add files: a shebang on a file with no suffix, and a short list
+    of exact basenames. Everything else with no extension stays unread and is
+    COUNTED, so a zero no longer reads as "looked everywhere". Nothing here may
+    change which files the extension rule selects.
+    """
+
+    BODY = f"{LITERALS[0]}\n"
+
+    @staticmethod
+    def _paths(result: ScanResult) -> list[str]:
+        return sorted(f.file_path or "" for f in result.findings)
+
+    @classmethod
+    def _hits(cls, root: Path) -> list[str]:
+        return cls._paths(secrets.scan(str(root)))
+
+    @pytest.mark.parametrize("shebang", ["#!/bin/sh", "#!/usr/bin/env python3", "#!/usr/bin/env bash"])
+    def test_a_shebang_file_is_read_whatever_its_interpreter(self, tmp_path: Path, shebang: str) -> None:
+        (tmp_path / "release").write_text(f"{shebang}\n{self.BODY}")
+        assert self._hits(tmp_path) == ["release"]
+
+    def test_the_shebang_decides_not_the_execute_bit(self, tmp_path: Path) -> None:
+        """Both stated answers: shebang without the bit is read; the bit without a shebang is not."""
+        with_shebang = tmp_path / "hook"
+        with_shebang.write_text(f"#!/bin/sh\n{self.BODY}")
+        with_shebang.chmod(0o644)
+        only_executable = tmp_path / "tool"
+        only_executable.write_text(self.BODY)
+        only_executable.chmod(0o755)
+        assert not os.access(with_shebang, os.X_OK) and os.access(only_executable, os.X_OK)  # the preconditions
+        result = secrets.scan(str(tmp_path))
+        assert self._paths(result) == ["hook"]
+        assert result.unexamined == [
+            "1 file(s) with no recognised extension were NOT read (1 no shebang or known name)"
+        ]
+
+    @pytest.mark.parametrize(
+        "name", ["Makefile", "GNUmakefile", "makefile", "Dockerfile", "Containerfile", "Dockerfile.dev"]
+    )
+    def test_a_well_known_build_file_is_read_without_a_shebang(self, tmp_path: Path, name: str) -> None:
+        (tmp_path / name).write_text(self.BODY)
+        assert self._hits(tmp_path) == [name]
+
+    @pytest.mark.parametrize(
+        "name", ["Makefile.bak", "my-Dockerfile", "MAKEFILE", "dockerfile", "Makefile-old", "Dockerfile."]
+    )
+    def test_a_near_miss_of_a_known_name_is_not_read(self, tmp_path: Path, name: str) -> None:
+        """The list is exact basenames plus `Dockerfile.<x>`; nothing looser."""
+        (tmp_path / name).write_text(self.BODY)
+        (tmp_path / "Makefile").write_text("all:\n\ttrue\n")  # the list itself still works in this tree
+        result = secrets.scan(str(tmp_path))
+        assert result.findings == []
+        assert result.units_scanned == 1, "only the real Makefile was read"
+
+    def test_a_binary_file_is_not_read(self, tmp_path: Path) -> None:
+        (tmp_path / "blob").write_bytes(b"#!/bin/sh\n\x00\x01\x02" + self.BODY.encode())
+        result = secrets.scan(str(tmp_path))
+        assert result.findings == [] and result.units_scanned == 0
+        assert result.unexamined == ["1 file(s) with no recognised extension were NOT read (1 binary)"]
+
+    def test_a_very_large_file_is_not_read(self, tmp_path: Path) -> None:
+        big = tmp_path / "dump"
+        big.write_text(f"#!/bin/sh\n{self.BODY}" + "x" * secrets.EXTENSIONLESS_MAX_BYTES)
+        assert big.stat().st_size > secrets.EXTENSIONLESS_MAX_BYTES  # the precondition
+        result = secrets.scan(str(tmp_path))
+        assert result.findings == [] and result.units_scanned == 0
+        assert result.unexamined == ["1 file(s) with no recognised extension were NOT read (1 over 1 MB)"]
+
+    def test_a_file_exactly_at_the_cap_is_read(self, tmp_path: Path) -> None:
+        head = f"#!/bin/sh\n{self.BODY}"
+        (tmp_path / "edge").write_text(head + "x" * (secrets.EXTENSIONLESS_MAX_BYTES - len(head)))
+        assert (tmp_path / "edge").stat().st_size == secrets.EXTENSIONLESS_MAX_BYTES  # the precondition
+        assert self._hits(tmp_path) == ["edge"]
+
+    @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs a platform with FIFOs")
+    def test_a_fifo_is_counted_and_the_scan_returns(self, tmp_path: Path) -> None:
+        """A FIFO with no writer blocks a plain open forever; the scan must not wait on it."""
+        os.mkfifo(tmp_path / "pipe")
+        assert stat.S_ISFIFO((tmp_path / "pipe").lstat().st_mode)  # the precondition
+        (tmp_path / "deploy").write_text(f"#!/bin/sh\n{self.BODY}")
+        result = secrets.scan(str(tmp_path))
+        assert self._paths(result) == ["deploy"]
+        assert result.unexamined == [
+            "1 file(s) with no recognised extension were NOT read (1 a symlink or not a regular file)"
+        ]
+
+    def test_a_symlink_is_never_followed(self, tmp_path: Path) -> None:
+        """Not out of the root, and not inside it either: the target is read under its own name if it qualifies."""
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "secret-script").write_text(f"#!/bin/sh\n{self.BODY}")
+        root = tmp_path / "root"
+        root.mkdir()
+        (root / "link").symlink_to(outside / "secret-script")
+        assert (root / "link").is_symlink() and (root / "link").read_text().startswith("#!")  # the preconditions
+        result = secrets.scan(str(root))
+        assert result.findings == [] and result.units_scanned == 0
+        assert result.unexamined == [
+            "1 file(s) with no recognised extension were NOT read (1 a symlink or not a regular file)"
+        ]
+
+    @staticmethod
+    def _count_reads(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+        """Record how many bytes each `os.read` in the scanner returned."""
+        real_read = os.read
+        real_fstat = _REAL_FSTAT  # the scanner's own `os.fstat` may be patched by the caller
+        sizes: list[int] = []
+
+        def counting_read(fd: int, n: int) -> bytes:
+            data = real_read(fd, n)
+            if stat.S_ISREG(real_fstat(fd).st_mode):  # not the pipes of the git child process
+                sizes.append(len(data))
+            return data
+
+        monkeypatch.setattr(secrets.os, "read", counting_read)
+        return sizes
+
+    def test_the_read_is_bounded_even_when_the_size_check_is_passed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The read itself is capped: at most the cap plus one byte is ever read.
+
+        The size check alone does not bound the read, so the file is made to
+        outgrow it after that check (the only way to hand the reader more than
+        it was promised). The verdict would not show the bound: an unlimited
+        read followed by a length check gives the same "over 1 MB". So the
+        bytes actually read are counted, on a file three times the cap.
+        """
+        target = tmp_path / "deploy"
+        target.write_text("#!/bin/sh\ntrue\n")
+        real_fstat = os.fstat
+        grown = []
+
+        def fstat_then_grow(fd: int) -> os.stat_result:
+            result = real_fstat(fd)
+            if not grown and stat.S_ISREG(result.st_mode) and result.st_size < 100:
+                grown.append(True)
+                with target.open("a") as handle:
+                    handle.write(self.BODY + "x" * (3 * secrets.EXTENSIONLESS_MAX_BYTES))
+            return result
+
+        monkeypatch.setattr(secrets.os, "fstat", fstat_then_grow)
+        sizes = self._count_reads(monkeypatch)
+        result = secrets.scan(str(tmp_path))
+        assert grown, "precondition: the file grew between the size check and the read"
+        assert target.stat().st_size > 3 * secrets.EXTENSIONLESS_MAX_BYTES, "precondition: far more than the cap"
+        assert sum(sizes) == secrets.EXTENSIONLESS_MAX_BYTES + 1, "the read did not stop at the cap plus one byte"
+        assert result.findings == [] and result.units_scanned == 0
+        assert result.unexamined == ["1 file(s) with no recognised extension were NOT read (1 over 1 MB)"]
+
+    def test_a_file_that_does_not_qualify_costs_only_its_head(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No shebang, no known name: judged on the first 8 KB and never read further."""
+        (tmp_path / "notes").write_text(self.BODY + "x" * 900_000)
+        (tmp_path / "blob").write_bytes(b"#!/bin/sh\n\x00" + b"x" * 900_000)
+        sizes = self._count_reads(monkeypatch)
+        result = secrets.scan(str(tmp_path))
+        assert sum(sizes) == 2 * secrets.EXTENSIONLESS_HEAD_BYTES, f"read {sum(sizes)} bytes of two rejected files"
+        assert result.findings == [] and result.units_scanned == 0
+        assert result.unexamined == [
+            "2 file(s) with no recognised extension were NOT read (1 no shebang or known name, 1 binary)"
+        ]
+
+    def test_a_file_under_a_symlinked_directory_is_not_read(self, tmp_path: Path) -> None:
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "deploy").write_text(f"#!/bin/sh\n{self.BODY}")
+        root = tmp_path / "root"
+        root.mkdir()
+        (root / "vendor").symlink_to(outside, target_is_directory=True)
+        assert (root / "vendor" / "deploy").is_file()  # the precondition: reachable by name
+        assert secrets.scan(str(root)).findings == []
+
+    def test_the_reasons_are_counted_separately_in_one_line(self, tmp_path: Path) -> None:
+        (tmp_path / "LICENSE").write_text("text\n")
+        (tmp_path / "NOTICE").write_text("text\n")
+        (tmp_path / "blob").write_bytes(b"\x00\x00")
+        (tmp_path / "app.py").write_text("x = 1\n")
+        result = secrets.scan(str(tmp_path))
+        assert result.unexamined == [
+            "3 file(s) with no recognised extension were NOT read (2 no shebang or known name, 1 binary)"
+        ]
+        assert result.passed == ["No secrets found in 1 source files"], "the existing line keeps its shape"
+        assert result.skipped == [], "the not-read line must not land in `skipped`: its length is on the gate line"
+
+    def test_nothing_is_said_when_every_extensionless_file_was_read(self, tmp_path: Path) -> None:
+        (tmp_path / "Makefile").write_text("all:\n\ttrue\n")
+        result = secrets.scan(str(tmp_path))
+        assert result.unexamined == []
+        assert result.passed == ["No secrets found in 1 source files"]
+
+    def test_the_extension_population_is_exactly_what_it_was(self, tmp_path: Path) -> None:
+        """Adding extensionless neighbours must not change what the extension rule selects or finds."""
+        (tmp_path / "deploy.sh").write_text(self.BODY)
+        (tmp_path / "app.py").write_text("x = 1\n")
+        (tmp_path / ".env.production").write_text("A=1\n")
+        before_files = sorted(p.name for p in secrets._find_source_files(tmp_path))
+        before = secrets.scan(str(tmp_path))
+        (tmp_path / "LICENSE").write_text("text\n")
+        (tmp_path / "blob").write_bytes(b"\x00")
+        (tmp_path / "Makefile").write_text("all:\n\ttrue\n")
+        after = secrets.scan(str(tmp_path))
+        assert sorted(p.name for p in secrets._find_source_files(tmp_path)) == before_files
+        assert [(f.id, f.file_path, f.line_number) for f in after.findings] == [
+            (f.id, f.file_path, f.line_number) for f in before.findings
+        ]
+        assert after.units_scanned == (before.units_scanned or 0) + 1, "one file joined: the Makefile"
+
+    def test_a_file_the_extension_rule_takes_is_not_counted_twice(self, tmp_path: Path) -> None:
+        """`.env` has no suffix and is already selected by name; it must be read once."""
+        (tmp_path / ".env").write_text("A=1\n")
+        result = secrets.scan(str(tmp_path))
+        assert result.units_scanned == 1 and result.unexamined == []
+
+    def test_skip_directories_still_apply(self, tmp_path: Path) -> None:
+        (tmp_path / "node_modules" / ".bin").mkdir(parents=True)
+        (tmp_path / "node_modules" / ".bin" / "tool").write_text(f"#!/bin/sh\n{self.BODY}")
+        result = secrets.scan(str(tmp_path))
+        assert result.findings == [] and result.unexamined == [] and result.units_scanned == 0
+
+    def test_a_path_suppression_clears_an_extensionless_file(self, tmp_path: Path) -> None:
+        """Project state: with a `.claude/security.yml` suppression and without one."""
+        (tmp_path / "Makefile").write_text(self.BODY)
+        assert not (tmp_path / ".claude" / "security.yml").exists()  # the negative precondition
+        found = [f.file_path for f in scan_quick(str(tmp_path)).findings if f.id == "HARDCODED_PASSWORD"]
+        assert found == ["Makefile"]
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "security.yml").write_text(
+            "suppressions:\n"
+            "  - id: HARDCODED_PASSWORD\n"
+            "    path: 'Makefile'\n"
+            '    reason: "make variable references, not credentials"\n'
+        )
+        found = [f.file_path for f in scan_quick(str(tmp_path)).findings if f.id == "HARDCODED_PASSWORD"]
+        assert found == []
+
+    def test_the_gate_line_keeps_its_shape_and_only_the_count_rises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The real cli over a real tree: `skipped-checks=` does not move for an unread file."""
+        (tmp_path / ".gitignore").write_text(".env\n")
+        (tmp_path / "app.py").write_text("x = 1\n")
+        monkeypatch.chdir(tmp_path)
+        cli.cmd_gate(argparse.Namespace(gate_name="flow_finish", path=str(tmp_path)))
+        before = capsys.readouterr().out.strip().splitlines()[-1]
+        (tmp_path / "LICENSE").write_text("text\n")
+        (tmp_path / "Makefile").write_text("all:\n\ttrue\n")
+        cli.cmd_gate(argparse.Namespace(gate_name="flow_finish", path=str(tmp_path)))
+        after = capsys.readouterr().out.strip().splitlines()[-1]
+        assert before.startswith("SECURITY_GATE: flow_finish PASS (blocked=0 warned=")
+        scanned_before = int(before.split("secrets-scanned=")[1].split()[0])
+        assert after == before.replace(f"secrets-scanned={scanned_before}", f"secrets-scanned={scanned_before + 1}")
+
+    def test_both_output_formats_carry_the_not_read_line(self, tmp_path: Path) -> None:
+        import json
+
+        from lib.security.output.json_output import format_results as as_json
+        from lib.security.output.novice import format_results as as_text
+
+        (tmp_path / "LICENSE").write_text("text\n")
+        result = secrets.scan(str(tmp_path))
+        line = "1 file(s) with no recognised extension were NOT read (1 no shebang or known name)"
+        assert json.loads(as_json(result))["unexamined"] == [line]
+        assert f"NOT READ: {line}" in as_text(result)
+        assert "SKIP: " + line not in as_text(result)
