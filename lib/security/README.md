@@ -129,13 +129,53 @@ suppressions:
 - **Prefer `secret`.** An `id` + `path` suppression covers EVERY finding of that
   id in the file, so a real key committed beside the canary passes silently.
   With `secret`, a different value in the same file still blocks. A finding that
-  carries no value (the assignment-pattern findings) is never suppressed by a
-  `secret` rule.
+  carries no value is never suppressed by a `secret` rule. The
+  assignment-pattern findings (`HARDCODED_PASSWORD`, `HARDCODED_SECRET`) DO
+  carry their value since #1405, so they can be pinned with `secret` too.
 - The value you declare in `secret:` is not itself reported when it appears in
   `.claude/security.yml`. Any OTHER value in that file still is.
 - Allowed keys are exactly `id`, `path`, `secret` and `reason`. Anything else is
   refused, not ignored: a misspelt `secrets:` would otherwise leave a wider
   suppression than the one written.
+
+### Test passwords and sentinels (issue #1717)
+
+`HARDCODED_PASSWORD` and `HARDCODED_SECRET` fire on a password-like name
+followed by a quoted literal. In a test, `password="privtest"` is exactly that,
+and a pattern cannot know it is not a credential. **The scanner does not go
+easier on test paths.** A repository that accepts its own test values says so:
+
+```yaml
+suppressions:
+  - id: HARDCODED_PASSWORD
+    path: 'tests/.*'
+    reason: "test fixtures and sentinels, not credentials"
+```
+
+The risk, in one sentence: an `id` + `path` suppression over a whole test tree
+also silences a REAL password pasted into a test, so prefer a narrower path or
+a `secret:` rule per value where the list is short.
+
+### Shell substitutions are not reported (issue #1717)
+
+`pg_password="$(generate_secret)"` holds no secret; the value is fetched at run
+time. `HARDCODED_PASSWORD` does not report a value that is a shell
+substitution, and the exemption is narrow on purpose:
+
+- only in a shell file (`.sh`, `.bash`, `.zsh`), and only in DOUBLE quotes;
+- only when the value begins `$(`, or is a bare `${NAME}`, or is exactly `$NAME`.
+
+Still reported: `${NAME:-fallback}` and every other default or alternative form
+(the fallback is a literal in the file), a literal prefix before a substitution,
+the same text in single quotes, and the same text in a Python, YAML, Terraform
+or JSON file.
+
+**Known miss.** `password="$(echo a-literal)"` is not reported although it
+contains a literal: the pattern cannot see inside a command substitution. This
+is unseen, not safe.
+
+**Not scanned at all.** A script with no file extension is outside this
+module's population whatever it holds; the scan's file count says so.
 
 **`.gitleaks.toml` is not read by this gate.** The quick scan is CPP's native
 pattern matcher, not gitleaks. Gitleaks allowlists carry regexes, paths, commits,

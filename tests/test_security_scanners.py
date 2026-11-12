@@ -605,3 +605,152 @@ class TestUnreadableFilesAreNotCountedAsExamined:
         (tmp_path / "ok.py").write_text("x = 1\n")
         result = secrets.scan(str(tmp_path))
         assert result.units_scanned == 1
+
+
+# --- shell substitutions are not hardcoded passwords (issue #1717) ------------
+#
+# A detector's exemption is the dangerous kind of change: loosening it to stop
+# a false positive can stop a true one. So every shape is committed twice over,
+# as a line that must STOP being reported and as a line that must STILL be.
+# Every value is synthetic and shaped like nothing a provider issues.
+
+from lib.security.orchestrator import scan_quick  # noqa: E402
+
+SHELL_STOP = [
+    'pg_password="$(generate_secret)"',
+    'PGPASSWORD="$pg_password"',
+    'db_password="${DB_PASSWORD}"',
+    # The reported shape: the value the pattern captures ends at the inner quote.
+    'pg_password="$(set -a; . "$OUT/infra.env"; echo "$PGPASS")"',
+]
+
+SHELL_STILL = [
+    'db_password="correct-horse-battery-9"',               # a plain literal
+    "db_password='$(not-run-in-single-quotes)'",           # single quotes: no substitution
+    'db_password="hunter2-$(date +%Y)"',                   # a literal prefix
+    'password="$ecretPassw0rd!"',                          # not exactly $NAME
+    # A default or alternative carries a literal in the file. One per operator.
+    'db_password="${DB_PASSWORD:-fallback-literal-9x}"',
+    'db_password="${DB_PASSWORD-fallback-literal-9x}"',
+    'db_password="${DB_PASSWORD:=fallback-literal-9x}"',
+    'db_password="${DB_PASSWORD=fallback-literal-9x}"',
+    'db_password="${DB_PASSWORD:+fallback-literal-9x}"',
+    'db_password="${DB_PASSWORD+fallback-literal-9x}"',
+    'db_password="${DB_PASSWORD:?fallback-literal-9x}"',
+    'db_password="${DB_PASSWORD%fallback-literal-9x}"',
+]
+
+
+def _password_lines(root: Path) -> list[tuple[str, int]]:
+    """Where HARDCODED_PASSWORD fired. Positions only: a finding's value is never shown."""
+    return sorted(
+        (f.file_path or "", f.line_number or 0)
+        for f in secrets.scan(str(root)).findings
+        if f.id == "HARDCODED_PASSWORD"
+    )
+
+
+class TestShellSubstitutionIsNotAHardcodedPassword:
+    @pytest.mark.parametrize("line", SHELL_STOP)
+    def test_a_substitution_in_a_shell_file_is_not_reported(self, tmp_path: Path, line: str) -> None:
+        (tmp_path / "deploy.sh").write_text(f"#!/bin/sh\n{line}\n")
+        assert _password_lines(tmp_path) == []
+
+    @pytest.mark.parametrize("line", SHELL_STILL)
+    def test_a_literal_in_a_shell_file_is_still_reported(self, tmp_path: Path, line: str) -> None:
+        (tmp_path / "deploy.sh").write_text(f"#!/bin/sh\n{line}\n")
+        assert _password_lines(tmp_path) == [("deploy.sh", 2)]
+
+    @pytest.mark.parametrize("suffix", [".bash", ".zsh"])
+    def test_the_other_shell_extensions_are_covered(self, tmp_path: Path, suffix: str) -> None:
+        (tmp_path / f"deploy{suffix}").write_text(f"{SHELL_STOP[0]}\n{SHELL_STILL[0]}\n")
+        assert _password_lines(tmp_path) == [(f"deploy{suffix}", 2)]
+
+    @pytest.mark.parametrize("name", ["settings.py", "compose.yml", "main.tf", "config.json"])
+    def test_the_same_text_outside_a_shell_file_is_a_literal(self, tmp_path: Path, name: str) -> None:
+        """Only the shell substitutes. In Python, YAML or JSON this text is the value itself."""
+        (tmp_path / name).write_text('password = "$(generate_secret)"\n')
+        assert _password_lines(tmp_path) == [(name, 1)]
+
+    def test_a_literal_after_an_exempt_assignment_on_the_same_line_is_reported(self, tmp_path: Path) -> None:
+        (tmp_path / "deploy.sh").write_text(f"{SHELL_STOP[0]}; {SHELL_STILL[0]}\n")
+        assert _password_lines(tmp_path) == [("deploy.sh", 1)]
+        (tmp_path / "deploy.sh").write_text(f"{SHELL_STOP[0]}; {SHELL_STOP[1]}\n")
+        assert _password_lines(tmp_path) == []
+
+    def test_a_literal_inside_a_command_substitution_is_a_known_miss(self, tmp_path: Path) -> None:
+        """NOT safe, only unseen: the pattern cannot look inside `$(...)`.
+
+        Pinned so the limit is a recorded decision. If this ever starts being
+        reported, the exemption was narrowed and the README's "known miss"
+        paragraph must change with it.
+        """
+        (tmp_path / "deploy.sh").write_text('db_password="$(echo some-literal-here)"\n')
+        assert _password_lines(tmp_path) == []
+
+    def test_a_shell_script_with_no_extension_is_not_scanned_at_all(self, tmp_path: Path) -> None:
+        """So it is not exempt, and not examined either: a limit that predates #1717.
+
+        The scanner selects files by extension, so `bin/deploy` with a shebang
+        is outside its population whatever it holds. Reported, not hidden: the
+        count says zero files were scanned.
+        """
+        script = tmp_path / "deploy"
+        script.write_text(f"#!/bin/sh\n{SHELL_STILL[0]}\n{SHELL_STOP[0]}\n")
+        result = secrets.scan(str(tmp_path))
+        assert result.units_scanned == 0
+        assert result.findings == []
+        assert result.skipped == ["No source files found to scan"]
+
+    def test_the_secret_pattern_never_matched_a_substitution(self, tmp_path: Path) -> None:
+        """Its value class has no `$`, `(` or `{`, so it needed no exemption - pinned, not assumed."""
+        (tmp_path / "deploy.sh").write_text(
+            'api_key="$(fetch_the_api_key_now)"\nauth_token="${AUTH_TOKEN_FROM_ENV}"\n'
+            'api_key="abcdefghijklmnop0123"\n'
+        )
+        found = sorted(
+            (f.id, f.line_number) for f in secrets.scan(str(tmp_path)).findings
+        )
+        assert found == [("HARDCODED_SECRET", 3)]
+
+    def test_a_reported_finding_is_unchanged_in_id_severity_and_text(self, tmp_path: Path) -> None:
+        (tmp_path / "deploy.sh").write_text(f"{SHELL_STILL[0]}\n")
+        (finding,) = secrets.scan(str(tmp_path)).findings
+        assert finding.id == "HARDCODED_PASSWORD"
+        assert finding.severity == Severity.HIGH
+        assert finding.title == "Hardcoded password in source code"
+        assert finding.fix == "Move to environment variable or secrets manager."
+
+
+class TestTestLiteralsAreTheConsumersToDeclare:
+    """Project state: with and without a declared suppression (issue #1717).
+
+    A literal after a password-like name in a test is still a literal. The
+    scanner does not go easier on test paths; a repository that accepts its
+    own test values says so in `.claude/security.yml`.
+    """
+
+    def _project(self, root: Path) -> None:
+        (root / "tests").mkdir()
+        (root / "tests" / "test_login.py").write_text('client.login(password="privtest-fixture")\n')
+        (root / "deploy.sh").write_text(f"{SHELL_STOP[0]}\n{SHELL_STILL[0]}\n")
+
+    def test_without_a_suppression_a_test_literal_is_still_reported(self, tmp_path: Path) -> None:
+        self._project(tmp_path)
+        assert not (tmp_path / ".claude" / "security.yml").exists()  # the negative precondition
+        found = sorted((f.file_path, f.line_number) for f in scan_quick(str(tmp_path)).findings
+                       if f.id == "HARDCODED_PASSWORD")
+        assert found == [("deploy.sh", 2), ("tests/test_login.py", 1)]
+
+    def test_a_declared_path_suppression_clears_the_test_tree_and_nothing_else(self, tmp_path: Path) -> None:
+        self._project(tmp_path)
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "security.yml").write_text(
+            "suppressions:\n"
+            "  - id: HARDCODED_PASSWORD\n"
+            "    path: 'tests/.*'\n"
+            '    reason: "test fixtures, not credentials"\n'
+        )
+        found = sorted((f.file_path, f.line_number) for f in scan_quick(str(tmp_path)).findings
+                       if f.id == "HARDCODED_PASSWORD")
+        assert found == [("deploy.sh", 2)], "the suppression reached outside the test tree, or the literal was lost"

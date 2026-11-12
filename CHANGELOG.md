@@ -4,6 +4,15 @@
 
 ### Behaviour changes you may notice
 
+- **The secret scanner no longer reports a shell substitution as a hardcoded
+  password.** In a shell file, a double-quoted value that begins `$(`, or is a
+  bare `${NAME}`, or is exactly `$NAME`, is fetched at run time and is not a
+  finding. `${NAME:-fallback}` and every other default form still are, as are
+  literals, single-quoted text and the same text outside a shell file. Ids,
+  severity and output lines are unchanged for everything still reported; a
+  consumer's count of `HARDCODED_PASSWORD` findings in shell files goes down.
+  Test passwords and sentinels are still reported: declare them in
+  `.claude/security.yml` (see `lib/security/README.md`) (#1717).
 - **A project can list its lanes, and plans then say which ones they tested.**
   A lane is a route one behaviour travels: main checkout or linked worktree,
   dev or prod, small fixture or real-size data. With a `.claude/lanes.md`, the

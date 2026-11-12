@@ -97,6 +97,46 @@ ASSIGNMENT_PATTERNS = [
     ),
 ]
 
+# Shell substitutions are not hardcoded passwords (issue #1717).
+#
+# `pg_password="$(generate_secret)"` holds no secret: the value is fetched at
+# run time. The password pattern above takes ANY quoted value of 8 or more
+# characters, so each such line was a HIGH finding - 11 in one consumer, beside
+# 49 literals in its tests, enough to block a deploy on noise.
+#
+# THE EXEMPTION IS DRAWN TO THE EVIDENCE AND NO WIDER, because this is a
+# detector and its silence is read as "no secret here":
+#
+#   - only in a file the SHELL reads (the extensions below). `password =
+#     "$(x)"` in a .py file is a literal string, and stays a finding;
+#   - only in DOUBLE quotes. The shell does not substitute inside single
+#     quotes, so `'$(x)'` is a literal there too;
+#   - only when the value IS a substitution: it begins `$(`, or is a bare
+#     `${NAME}`, or is exactly `$NAME`.
+#
+# `${NAME:-fallback}` IS NOT EXEMPT. A default or alternative carries a literal
+# in the file, and a hardcoded fallback password is one of the commonest real
+# findings in shell. Neither is a literal prefix (`"hunter2-$(date)"`), nor a
+# `$NAME` followed by anything else.
+#
+# KNOWN MISS, named so it is not read as safe: `password="$(echo a-literal)"`
+# is dropped although it contains a literal. This pattern cannot see inside a
+# command substitution.
+#
+# HARDCODED_SECRET needs no exemption: its value class cannot contain `$`, `(`
+# or `{`, so it never matched a substitution.
+#: NEGATIVE-CONTROL: controls/secret-assignment-shell
+SHELL_EXTENSIONS = {".sh", ".bash", ".zsh"}
+_SHELL_BARE_REFERENCE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _is_shell_substitution(suffix: str, quote: str, value: str) -> bool:
+    """True when `value` is fetched by the shell at run time, not written in the file."""
+    if suffix not in SHELL_EXTENSIONS or quote != '"':
+        return False
+    return value.startswith("$(") or _SHELL_BARE_REFERENCE.fullmatch(value) is not None
+
+
 # File extensions to scan
 SCAN_EXTENSIONS = {
     ".py", ".js", ".ts", ".jsx", ".tsx", ".rb", ".go", ".java",
@@ -192,6 +232,10 @@ def scan(project_root: str) -> ScanResult:
             for match in re.finditer(pattern, content, re.IGNORECASE):
                 line_num = content[: match.start()].count("\n") + 1
                 value = match.group(1)
+                if finding_id == "HARDCODED_PASSWORD" and _is_shell_substitution(
+                    file_path.suffix, content[match.start(1) - 1], value
+                ):
+                    continue
                 masked = value[:4] + "*" * min(16, len(value) - 4) if len(value) > 4 else "****"
                 result.findings.append(
                     Finding(

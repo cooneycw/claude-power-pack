@@ -1,0 +1,59 @@
+{
+  "_comment": [
+    "Registration for the HARDCODED_PASSWORD heuristic of lib/security/modules/secrets.py,",
+    "and specifically for the shell-substitution exemption added by issue #1717.",
+    "",
+    "WHY IT NEEDS A COMMITTED CASE (ADR 0008): this module is a detector whose silence is",
+    "read as 'no hardcoded password here' by /flow:finish, /flow:deploy and /security:* in",
+    "every consumer, and nothing downstream re-derives it. An exemption is the change most",
+    "able to make that silence wrong.",
+    "",
+    "WHY A SEPARATE CONTROL. controls/secret-scan guards scripts/secret-scan-check.sh, which",
+    "runs gitleaks and never loads this module. controls/lib-security-gate runs the",
+    "flow_finish policy, which blocks CRITICAL only, so a HIGH heuristic finding cannot move",
+    "its verdict. Neither could notice this exemption widening.",
+    "",
+    "THE INVOCATION imports the module by its dotted name from the tree {gate} sits in, so",
+    "the anchor's own small tree substitutes for the real package, and prints POSITIONS",
+    "only: a finding's value is never shown.",
+    "",
+    "THE BAD CASE IS THE ONE THE EXEMPTION MUST NOT REACH: a hardcoded fallback inside",
+    "${NAME:-...}. The GOOD case holds the three shapes it exists for."
+  ],
+  "gate": "lib/security/modules/secrets.py",
+  "invocation": [
+    "python3",
+    "-c",
+    "import sys, os, importlib; root = sys.argv[1]\nfor _ in range(4): root = os.path.dirname(root)\nsys.path.insert(0, root); mod = importlib.import_module('lib.security.modules.secrets'); result = mod.scan(sys.argv[2])\nhits = sorted((f.file_path, f.line_number) for f in result.findings if f.id == 'HARDCODED_PASSWORD')\nif not result.units_scanned: print('secret-assignment-shell: UNKNOWN - zero files scanned; unchecked, not clean'); sys.exit(2)\n[print(f'HARDCODED_PASSWORD: {path}:{line}') for path, line in hits]\nprint(f'secret-assignment-shell: {result.units_scanned} file(s) scanned, {len(hits)} hardcoded-password finding(s)'); sys.exit(1 if hits else 0)",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^HARDCODED_PASSWORD: ",
+  "unknown_signal": "^secret-assignment-shell: UNKNOWN - zero files scanned; unchecked, not clean$",
+  "limits": "Covers ONE boundary of the shell-substitution exemption: a default inside ${NAME:-...} is still reported, and the three exempt shapes ($(...) at the start, a bare ${NAME}, exactly $NAME) are not. It does not cover the other operator forms, single quotes, non-shell files, a literal prefix, a second assignment on one line, or the HARDCODED_SECRET pattern - tests/test_security_scanners.py pins each of those before and after. It does not cover the KNOWN MISS: a literal inside a command substitution, password=\"$(echo a-literal)\", is not reported, because the pattern cannot see inside $(...). It says nothing about files with no extension, which this module does not scan at all.",
+  "cases": [
+    {
+      "name": "bad-fallback-literal",
+      "input": "cases/bad-fallback-literal",
+      "expect": "BAD",
+      "why": "db_password=\"${DB_PASSWORD:-fallback-literal-9x}\" in a shell file. The fallback is a literal in the file. If it scores GOOD the exemption has widened from 'is a substitution' to 'starts with one'."
+    },
+    {
+      "name": "good-substitutions",
+      "input": "cases/good-substitutions",
+      "expect": "GOOD",
+      "why": "$(generate_secret), $pg_password and ${DB_PASSWORD}, each in double quotes in a shell file. No secret is written in the file. Separates a working exemption from one that was removed or never applied."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "lib/security/modules/secrets.py",
+      "path": "anchors/constructed-any-brace/lib/security/modules/secrets.py",
+      "sha256": "b5cb7fdc4387f18aba2ba5c8c0fb4b5a80be768b165af8613132efbbace0b4fe",
+      "why": "CONSTRUCTED: the plausible wider exemption - any double-quoted value beginning $ in a shell file is treated as a reference. 'Starts with a substitution' mistaken for 'is a substitution'. It reports nothing on cases/bad-fallback-literal."
+    }
+  ]
+}
