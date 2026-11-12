@@ -605,3 +605,172 @@ class TestUnreadableFilesAreNotCountedAsExamined:
         (tmp_path / "ok.py").write_text("x = 1\n")
         result = secrets.scan(str(tmp_path))
         assert result.units_scanned == 1
+
+
+
+# --- no shell-substitution exemption: built, reviewed twice, withdrawn (#1717) --
+#
+# IF YOU ARE ABOUT TO TEACH THE SCANNER THAT `password="$(generate_secret)"` IS
+# NOT A SECRET, READ THIS FIRST. That exemption was built for issue #1717 and
+# withdrawn after two counter-model review passes found five ways to hide a
+# hardcoded password behind it (the BYPASSES list below). Whether the shell
+# substitutes a value is a fact about its lexical state - quoting, escaping,
+# nesting, here-documents across lines - and a pattern over one match cannot
+# establish it. In a detector a miss is silent, so the scanner reports every
+# one of these and the repository that knows a line is harmless declares it in
+# `.claude/security.yml` (lib/security/README.md, "Test passwords, sentinels
+# and shell substitutions").
+#
+# Every value is synthetic and shaped like nothing a provider issues.
+
+from lib.security.orchestrator import scan_quick  # noqa: E402
+
+#: Lines that hold no secret: the value is fetched at run time. STILL REPORTED.
+SHELL_SUBSTITUTIONS = [
+    'pg_password="$(generate_secret)"',
+    'PGPASSWORD="$pg_password"',
+    'db_password="${DB_PASSWORD}"',
+    'pg_password="$(set -a; . "$OUT/infra.env"; echo "$PGPASS")"',
+]
+
+#: Lines that DO hold a literal, each of which the withdrawn exemption let
+#: through in one of its two reviewed forms. This is why it was withdrawn.
+BYPASSES = [
+    # pass 1: the pattern stops capturing at the first quote of either kind
+    'db_password="${DB_PASSWORD}\'fixture-tail-9x"',
+    'db_password="${DB_PASSWORD}"\'fixture-tail-9x\'',
+    'export \'db_password="${DB_PASSWORD}"\'',
+    # pass 2: a counter of parentheses and apostrophes is not a shell lexer
+    'db_password="$(printf \'(\')fixture-tail-9x)"',
+    'printf \\\' >/dev/null; export \'db_password="$syntheticPassword" \'',
+]
+
+#: Lines the exemption's own plan said must never be exempt.
+LITERALS = [
+    'db_password="correct-horse-battery-9"',
+    "db_password='$(not-run-in-single-quotes)'",
+    'db_password="hunter2-$(date +%Y)"',
+    'db_password="$(date +%Y)-fixture-tail-9x"',
+    'password="$ecretPassw0rd!"',
+    'db_password="${DB_PASSWORD:-fallback-literal-9x}"',
+    'db_password="${DB_PASSWORD:=fallback-literal-9x}"',
+    'db_password="${DB_PASSWORD-fallback-literal-9x}"',
+    'db_password="${DB_PASSWORD:+fallback-literal-9x}"',
+]
+
+
+def _password_lines(root: Path) -> list[tuple[str, int]]:
+    """Where HARDCODED_PASSWORD fired. Positions only: a finding's value is never shown."""
+    return sorted(
+        (f.file_path or "", f.line_number or 0)
+        for f in secrets.scan(str(root)).findings
+        if f.id == "HARDCODED_PASSWORD"
+    )
+
+
+class TestNoShellSubstitutionExemption:
+    """The scanner's behaviour on shell lines, pinned as a decision."""
+
+    @pytest.mark.parametrize("line", SHELL_SUBSTITUTIONS + BYPASSES + LITERALS)
+    @pytest.mark.parametrize("name", ["deploy.sh", "deploy.bash", "deploy.zsh"])
+    def test_every_password_assignment_in_a_shell_file_is_reported(
+        self, tmp_path: Path, name: str, line: str
+    ) -> None:
+        (tmp_path / name).write_text(f"#!/bin/sh\n{line}\n")
+        assert _password_lines(tmp_path) == [(name, 2)]
+
+    def test_a_multi_line_single_quoted_assignment_is_reported(self, tmp_path: Path) -> None:
+        """The pass-2 case no line-local check could see."""
+        (tmp_path / "deploy.sh").write_text(
+            "#!/bin/sh\nexport CONFIG='\ndb_password=\"$syntheticPassword\"\n'\n"
+        )
+        assert _password_lines(tmp_path) == [("deploy.sh", 3)]
+
+    def test_a_quoted_heredoc_body_is_reported(self, tmp_path: Path) -> None:
+        """The shell substitutes nothing inside `<<'EOF'`, so the text is the value."""
+        (tmp_path / "deploy.sh").write_text(
+            "#!/bin/sh\ncat > app.conf <<'EOF'\ndb_password=\"$syntheticPassword\"\nEOF\n"
+        )
+        assert _password_lines(tmp_path) == [("deploy.sh", 3)]
+
+    def test_the_module_carries_no_exemption_machinery(self) -> None:
+        """A name scan, so it says only this: nothing called an exemption came back."""
+        source = Path(secrets.__file__).read_text(encoding="utf-8")
+        for name in ("_is_shell_substitution", "SHELL_EXTENSIONS", "_SHELL_BARE_REFERENCE"):
+            assert name not in source, f"{name} is back in the scanner: read the note above this class"
+
+    def test_a_reported_finding_is_unchanged_in_id_severity_and_text(self, tmp_path: Path) -> None:
+        (tmp_path / "deploy.sh").write_text(f"{LITERALS[0]}\n")
+        (finding,) = secrets.scan(str(tmp_path)).findings
+        assert finding.id == "HARDCODED_PASSWORD"
+        assert finding.severity == Severity.HIGH
+        assert finding.title == "Hardcoded password in source code"
+        assert finding.fix == "Move to environment variable or secrets manager."
+
+    def test_a_shell_script_with_no_extension_is_not_scanned_at_all(self, tmp_path: Path) -> None:
+        """A limit that predates #1717 and is filed as #1737, pinned so it is visible.
+
+        The scanner selects files by extension, so `bin/deploy` with a shebang
+        is outside its population whatever it holds. The count says so.
+        """
+        (tmp_path / "deploy").write_text(f"#!/bin/sh\n{LITERALS[0]}\n")
+        result = secrets.scan(str(tmp_path))
+        assert result.units_scanned == 0
+        assert result.findings == []
+        assert result.skipped == ["No source files found to scan"]
+
+
+class TestTheConsumerDeclaresWhatIsHarmless:
+    """Project state: with and without `.claude/security.yml` (issue #1717).
+
+    The two declarations the README documents, each shown to clear exactly
+    what it names and nothing beside it.
+    """
+
+    def _project(self, root: Path) -> None:
+        (root / "tests").mkdir()
+        (root / "tests" / "test_login.py").write_text('client.login(password="privtest-fixture")\n')
+        (root / "docker").mkdir()
+        (root / "docker" / "install.sh").write_text(
+            f"{SHELL_SUBSTITUTIONS[0]}\n{LITERALS[0]}\n"
+        )
+
+    def _found(self, root: Path) -> list[tuple[str | None, int | None]]:
+        return sorted(
+            (f.file_path, f.line_number)
+            for f in scan_quick(str(root)).findings
+            if f.id == "HARDCODED_PASSWORD"
+        )
+
+    def test_with_no_config_everything_is_reported(self, tmp_path: Path) -> None:
+        self._project(tmp_path)
+        assert not (tmp_path / ".claude" / "security.yml").exists()  # the negative precondition
+        assert self._found(tmp_path) == [
+            ("docker/install.sh", 1), ("docker/install.sh", 2), ("tests/test_login.py", 1),
+        ]
+
+    def test_a_path_suppression_clears_the_test_tree_only(self, tmp_path: Path) -> None:
+        self._project(tmp_path)
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "security.yml").write_text(
+            "suppressions:\n"
+            "  - id: HARDCODED_PASSWORD\n"
+            "    path: 'tests/.*'\n"
+            '    reason: "test fixtures and sentinels, not credentials"\n'
+        )
+        assert self._found(tmp_path) == [("docker/install.sh", 1), ("docker/install.sh", 2)]
+
+    def test_an_exact_value_pin_clears_one_substitution_and_not_the_literal_beside_it(
+        self, tmp_path: Path
+    ) -> None:
+        """The narrow declaration: the literal on the next line of the SAME file still reports."""
+        self._project(tmp_path)
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "security.yml").write_text(
+            "suppressions:\n"
+            "  - id: HARDCODED_PASSWORD\n"
+            "    path: '^docker/install\\.sh$'\n"
+            "    secret: '\\$\\(generate_secret\\)'\n"
+            '    reason: "fetched at run time; no secret is written in the file"\n'
+        )
+        assert self._found(tmp_path) == [("docker/install.sh", 2), ("tests/test_login.py", 1)]
