@@ -8,7 +8,7 @@
 # Copy this file to your project root as "Makefile" and customize.
 # All commands use `uv run` for dependency isolation.
 
-.PHONY: test lint format deploy deploy-staging update_docs clean
+.PHONY: test lint format update_docs clean
 
 ## Quality gates (used by /flow:finish)
 
@@ -23,15 +23,21 @@ test:
 
 ## Deployment (used by /flow:deploy)
 
-deploy:
-	@echo "Define your deploy steps here"
-	@echo "Examples:"
-	@echo "  ansible-playbook deploy.yaml"
-	@echo "  ssh prod 'cd /app && git pull && systemctl restart app'"
-	@echo "  docker compose up -d --build"
+# No deploy target is defined yet, on purpose (issue #1712): a target that
+# only printed a TODO would report a successful deployment that deployed
+# nothing. Uncomment the block below, replace its recipe with real steps, and
+# add `deploy` to .PHONY (a .PHONY target with no rule makes `make deploy`
+# exit 0 with "Nothing to be done").
+#
+# deploy:
+# 	<your deploy command>
+# Examples:
+#    ansible-playbook deploy.yaml
+#    ssh prod 'cd /app && git pull && systemctl restart app'
+#    docker compose up -d --build
 
-deploy-staging:
-	@echo "Define your staging deploy steps here"
+# deploy-staging:
+# 	<your deploy command>
 
 ## Documentation (used by /flow:auto and /flow:finish)
 

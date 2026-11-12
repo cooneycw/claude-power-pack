@@ -7,8 +7,14 @@ It does not install or run the consumer's dependencies.
 
 Infrastructure generators retain their path filters and are excluded from this
 change. Infrastructure-only repositories are not enrolled by these jobs.
-The excluded gap is recorded in the
-[Nit Store](https://github.com/cooneycw/claude-power-pack/issues/864#issuecomment-6728623706).
+
+This is a standing exclusion, not an open gap (declined in #1712): an infra
+workflow runs only when its paths change, and a path-filtered check cannot be
+a required check - a pull request that does not touch those paths would wait
+on it forever. Enrolling infrastructure-only repositories would need a
+separate, unfiltered workflow; nothing generates one. First recorded as
+[Nit Store #864 seq 686](https://github.com/cooneycw/claude-power-pack/issues/864#issuecomment-6728623706),
+a store that has since been closed.
 
 ## Actions deploy migration
 

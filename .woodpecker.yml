@@ -62,6 +62,20 @@ steps:
       # populations; the control covers the second and says so.
       - mkdir -p .ci-bin && cp "$(command -v gitleaks)" .ci-bin/gitleaks
 
+  # `make`, CONTENT-PINNED, staged into `.ci-bin` for the steps below (#1165).
+  # Subsumption asks MAKE which prerequisites an aggregate actually runs, because
+  # a textual reader cannot evaluate `ifeq` and so names prerequisites make will
+  # never run - which let a broken lint pass as a `subsumed` gate. This image has
+  # no make, measured, so without this step the derivation answers "cannot ask",
+  # `controls/flow-finish-gate-derivation` measures make's ABSENCE instead of its
+  # subject, and TestSubsumedGates SKIPS in validate - the issue's own red case
+  # untested where a reviewer can re-derive it. Same shape and same reason as
+  # jq-stage below (#1017).
+  make-stage:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    commands:
+      - python3 scripts/ci-stage-make.py
+
   # `jq`, CONTENT-PINNED, staged into `.ci-bin` for the steps below (issue #1017).
   # `controls/flow-driver-retirement-check` is the first registered control whose
   # gate needs jq, and this image has none - so the gate reported `unknown` on
@@ -79,20 +93,6 @@ steps:
   # comment about an expression that DELETES the key it was told to update on one
   # version and not the other. Python does the fetch because this image is
   # guaranteed to have python3 and is not guaranteed to have curl or wget.
-  # `make`, CONTENT-PINNED, staged into `.ci-bin` for the steps below (#1165).
-  # Subsumption asks MAKE which prerequisites an aggregate actually runs, because
-  # a textual reader cannot evaluate `ifeq` and so names prerequisites make will
-  # never run - which let a broken lint pass as a `subsumed` gate. This image has
-  # no make, measured, so without this step the derivation answers "cannot ask",
-  # `controls/flow-finish-gate-derivation` measures make's ABSENCE instead of its
-  # subject, and TestSubsumedGates SKIPS in validate - the issue's own red case
-  # untested where a reviewer can re-derive it. Same shape and same reason as
-  # jq-stage above (#1017).
-  make-stage:
-    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
-    commands:
-      - python3 scripts/ci-stage-make.py
-
   jq-stage:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
     depends_on: [secret-scan]
@@ -428,17 +428,6 @@ steps:
     commands:
       - python3 scripts/check-claude-md-budget.py --commands
 
-  # Is every host write in /cpp:init and /cpp:update still through the seam? (#1132)
-  #
-  # IN CI ON ARRIVAL, not filed for later: #1146 recorded ten `make verify`
-  # gates with no CI invocation, and #1144 merged green over one of them. A
-  # gate a developer runs and the pipeline does not is a gate that fails after
-  # the merge rather than at PR time.
-  #
-  # Stdlib-only, offline and git-free - argparse, re, sys, pathlib - reading
-  # two files in the checkout, so it gives the same verdict here as on a dev
-  # box. Shown red under this digest on the pre-fix tree, not merely shown to
-  # run: a step that cannot FAIL in the image is green by absence (#1036).
   # #1587: resolve checkout-supplied installation promises; stdlib-only,
   # offline and git-free. Committed controls exercise missing, unknown and
   # empty populations against a deliberately blind substitute.
@@ -455,6 +444,17 @@ steps:
     commands:
       - python3 scripts/check-cpp-init-cicd-args.py
 
+  # Is every host write in /cpp:init and /cpp:update still through the seam? (#1132)
+  #
+  # IN CI ON ARRIVAL, not filed for later: #1146 recorded ten `make verify`
+  # gates with no CI invocation, and #1144 merged green over one of them. A
+  # gate a developer runs and the pipeline does not is a gate that fails after
+  # the merge rather than at PR time.
+  #
+  # Stdlib-only, offline and git-free - argparse, re, sys, pathlib - reading
+  # two files in the checkout, so it gives the same verdict here as on a dev
+  # box. Shown red under this digest on the pre-fix tree, not merely shown to
+  # run: a step that cannot FAIL in the image is green by absence (#1036).
   cpp-host-writes-check:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
     depends_on: [secret-scan]
