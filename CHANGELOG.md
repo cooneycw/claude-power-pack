@@ -84,8 +84,9 @@ profile, re-run `/cpp:init` (Breaking 12).
 - `/flow:deploy`, Breaking 3: kyle #2369; kyle has about twenty `deploy-*`
   targets
 - `lib.cicd resume`, Breaking 2: kyle #2371
-- `flow-ci-status.sh --wait`, Breaking 5: a lock-hold script there read the
-  exit code
+- `flow-ci-status.sh --wait`, Breaking 5: nothing in kyle's tree calls it with
+  `--wait`; a session's own lock-hold script did, and released a lock on exit
+  0 (#1684)
 - with coordination admission on, the finish gate now waits a bounded time for
   the lock (`CPP_KYLE_LOCK_WAIT_SECONDS`, default 3600) and fails by name when
   no grant arrives; it used to wait without limit (#1680)
