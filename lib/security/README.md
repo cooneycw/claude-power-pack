@@ -229,7 +229,8 @@ Stated answers:
   8 KB (binary), a file over 1 MB, a symlink, and anything that is not a
   regular file. A symlink is never followed, inside the scan root or out of
   it; its target is read under its own name if it qualifies. A FIFO or device
-  is refused without being opened for reading, so the scan cannot wait on one.
+  is opened without blocking, recognised on the open descriptor and refused
+  before any content is read, so the scan cannot wait on one.
 - **A file that does not qualify costs at most its first 8 KB**, and a
   qualifying one is read to at most 1 MB.
 
