@@ -135,6 +135,9 @@ the inline shape prompts on every run. Invoke it BARE (#581 discipline):
 #590), else the CPP-checkout copy; either may prompt once - tell the user to
 run **`/flow:repair`** to restore the prompt-free lane.)
 
+If the project's gate needs the pushed head (it refuses unpushed commits),
+commit and `git push -u origin "$BRANCH"` first, then gate (#1706).
+
 **A run with no `FLOW_FINISH_GATE:` verdict line did not run the gate: **STOP**
 (issue #1547).** The trigger is the verdict LINE, never the exit code: 127
 (not installed), 126 (`Not a directory` - in a generated Codex skill, an unset
@@ -145,9 +148,7 @@ that the gate did not run. It is NOT `skipped` - that is a verdict the gate
 PRINTED - and the run never creates the PR on it.
 
 The helper ends with a machine-readable marker. Each verdict now has its OWN
-exit code (issue #1027) - `ok`, `warn` and `skipped` used to share exit 0, so a
-caller reading only `$?` could not tell "passed cleanly" from "passed but
-proved nothing" from "did not run at all". Read the exit code, not just the
+exit code (issue #1027). Read the exit code, not just the
 word, if you are scripting around this helper:
 
 **Every finish-mode run carries a counter-model line (issue #1171).** Before the

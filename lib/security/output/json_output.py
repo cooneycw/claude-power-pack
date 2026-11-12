@@ -27,6 +27,7 @@ def format_results(result: ScanResult) -> str:
         "passed": result.passed,
         "skipped": result.skipped,
         "errors": result.errors,
+        "unexamined": result.unexamined,
         "summary": {
             "critical": result.critical_count,
             "high": result.high_count,
