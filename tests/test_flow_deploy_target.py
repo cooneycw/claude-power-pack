@@ -98,6 +98,12 @@ def _script() -> str:
 
 #: Where a CPP checkout can live; the documents look in exactly these.
 CPP_HOME_LOCATIONS = ("Projects/claude-power-pack", ".claude-power-pack")
+#: The document's list of places, and the same list with `/opt` pointed at a
+#: directory the fixture owns, so a real `/opt/claude-power-pack` on the host
+#: cannot answer for the fixture (counter-model review, #1760).
+LOOP = "for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do"
+FIXTURE_LOOP = 'for dir in ~/Projects/claude-power-pack "$FIXTURE_OPT" ~/.claude-power-pack; do'
+OPT = "opt"  # `cpp_at=OPT` puts the checkout at the fixture-owned /opt stand-in
 
 
 def _run(
@@ -120,8 +126,12 @@ def _run(
         directory.mkdir()
     subprocess.run(["git", "init", "-q", str(project)], check=True)
     (project / "Makefile").write_text(MAKEFILE, encoding="utf-8")
+    fixture_opt = tmp_path / "fixture-opt" / "claude-power-pack"
+    if not runner_found:
+        for place in (home / CPP_HOME_LOCATIONS[0], fixture_opt, home / CPP_HOME_LOCATIONS[1]):
+            assert not place.exists(), "negative-fixture precondition: no checkout at any place the blocks look"
     if runner_found:
-        cpp = home / cpp_at
+        cpp = fixture_opt if cpp_at == OPT else home / cpp_at
         (cpp / "lib" / "security").mkdir(parents=True)
         (cpp / "CLAUDE.md").write_text("stub checkout\n", encoding="utf-8")
         (cpp / "lib" / "security" / "__init__.py").write_text("", encoding="utf-8")
@@ -135,6 +145,7 @@ def _run(
     env = {
         **os.environ,
         "HOME": str(home),
+        "FIXTURE_OPT": str(fixture_opt),
         "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
         "STUB_LOG": str(tmp_path / "uv.log"),
         "STUB_CALLS": str(calls),
@@ -142,7 +153,7 @@ def _run(
         "STUB_GATE_VERDICT": gate_verdict or "",
         "STUB_RUNNER_FAILS": "1" if runner_fails else "",
     }
-    args = ["bash", "-c", _script(), "flow-deploy"] + ([target] if target else [])
+    args = ["bash", "-c", _script().replace(LOOP, FIXTURE_LOOP), "flow-deploy"] + ([target] if target else [])
     ran = subprocess.run(args, cwd=project, env=env, capture_output=True, text=True, check=False)
     log = project / ".claude" / "deploy.log"
     markers = sorted(path.name for path in project.glob("marker-*"))
@@ -200,14 +211,15 @@ def test_row_3_another_target_with_the_runner_found_runs_that_target_and_not_dep
     assert result["logged"] == ["deploy-other", "0"]
 
 
-def test_the_scan_runs_from_wherever_the_checkout_is(tmp_path: Path) -> None:
+@pytest.mark.parametrize("elsewhere", [CPP_HOME_LOCATIONS[1], OPT])
+def test_the_scan_runs_from_wherever_the_checkout_is(tmp_path: Path, elsewhere: str) -> None:
     """Issue #1760: a checkout at another known location. The scan command
     named `${HOME}/Projects/claude-power-pack` whatever was found."""
-    elsewhere = CPP_HOME_LOCATIONS[1]
     result = _run(tmp_path, runner_found=True, target="deploy-other", cpp_at=elsewhere)
     assert result["calls"] == ["gate"]
     gate_call = next(line for line in result["uv"] if "lib.security gate flow_deploy" in line)
-    assert f"/{elsewhere} " in gate_call + " ", gate_call
+    where = "fixture-opt/claude-power-pack" if elsewhere == OPT else elsewhere
+    assert f"/{where} " in gate_call + " ", gate_call
     assert "Projects/claude-power-pack" not in gate_call
     assert result["markers"] == ["marker-deploy-other"]
 
@@ -231,6 +243,14 @@ def test_only_exit_0_WITH_the_pass_line_lets_a_deploy_through(
     assert result["markers"] == [], "a target ran without a passing scan"
     assert result["logged"] == []
     assert "STOP: scan did not pass" in result["stderr"][0]
+
+
+def test_both_blocks_look_in_the_three_known_places_and_the_harness_owns_opt() -> None:
+    """The `/opt` isolation in `_run` only works while both blocks spell their
+    search this way; a changed loop shows here, not as a real
+    `/opt/claude-power-pack` on the host answering for the fixture."""
+    assert _script().count(LOOP) == 2, "the runner block and the scan block each look in the three places"
+    assert LOOP not in _script().replace(LOOP, FIXTURE_LOOP)
 
 
 def test_the_document_no_longer_tells_the_reader_to_skip_the_scan() -> None:
