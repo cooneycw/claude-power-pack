@@ -137,3 +137,90 @@ def test_terminal_stat_with_spaces_and_parentheses_in_comm(tmp_path, owner, help
                            live="", starttimes="", extra_env=env)
         assert _detail(checked, "FLOW_WAVE_LIVENESS") == ("live" if state == "S" else "stale"), checked.stdout
         assert _detail(checked, "FLOW_WAVE_LIVENESS_BASIS") == ("pid-present" if state == "S" else "owner-zombie")
+
+
+# --- issue #1709 --------------------------------------------------------------
+# Two real processes, because a fabricated /proc line only proves the reader
+# agrees with the author about what the kernel prints.
+
+REMOVE = Path(__file__).resolve().parents[1] / "scripts/worktree-remove.sh"
+CLAIM = Path(__file__).resolve().parents[1] / "scripts/flow-worktree-claim.sh"
+
+
+@requires_linux_tools
+@pytest.mark.parametrize("zombie", [False, True], ids=["live", "unreaped"])
+def test_worktree_remove_real_owner_lifetime(tmp_path, owner, zombie):
+    """The 2026-11-11 report: `worktree-remove.sh` refused a worktree whose
+    claim holder was a zombie, and only --steal got past. It has no liveness
+    logic of its own - it asks the claim helper beside it - so a real unreaped
+    owner must let removal proceed WITHOUT --steal, and a real live one must
+    still stop it."""
+    pid, exit_without_reaping = owner
+    wt = claim_owner(tmp_path, pid)
+    if zombie:
+        exit_without_reaping()
+    removed = claim_run(REMOVE, str(wt), "--force", "--delete-branch",
+                        pid=str(os.getpid()), session="observer")
+    assert "--steal" not in " ".join(removed.args)
+    if zombie:
+        assert removed.returncode == 0, removed.stderr
+        assert not wt.exists()
+    else:
+        assert removed.returncode == 4, removed.stdout + removed.stderr
+        assert wt.exists(), "a live owner's worktree was removed"
+
+
+MAIN_THREAD_EXITS = """
+import ctypes, os, sys, threading, time
+threading.Thread(target=time.sleep, args=(120,), daemon=False).start()
+sys.stdout.write("ready\\n"); sys.stdout.flush()
+ctypes.CDLL(None).pthread_exit(None)
+"""
+
+
+@pytest.fixture
+def leaderless_process():
+    """A LIVE process whose main thread has exited: /proc/<pid>/stat reads
+    state Z although a worker thread is still running."""
+    import ctypes
+    import signal
+    import subprocess
+    import sys
+    import time
+
+    if not hasattr(ctypes.CDLL(None), "pthread_exit"):
+        pytest.skip("this libc exposes no pthread_exit")
+    proc = subprocess.Popen([sys.executable, "-c", MAIN_THREAD_EXITS], stdout=subprocess.PIPE)
+    try:
+        assert proc.stdout is not None and proc.stdout.readline().strip() == b"ready"
+        deadline = time.time() + 10
+        while time.time() < deadline and process_state(proc.pid) != "Z":
+            time.sleep(0.02)
+        yield proc.pid
+    finally:
+        os.kill(proc.pid, signal.SIGKILL)
+        proc.wait()
+
+
+@requires_linux_tools
+def test_a_live_process_whose_main_thread_exited_is_still_the_owner(tmp_path, leaderless_process, monkeypatch):
+    """The dangerous direction. Before #1709 this claim read `stale`
+    (owner-zombie), which lets a second session take the worktree while the
+    first is still writing to it."""
+    for key in ("FLOW_CLAIM_PROC_ROOT", "FLOW_CLAIM_LIVE_PIDS"):
+        monkeypatch.delenv(key, raising=False)
+    pid = leaderless_process
+    fields = Path(f"/proc/{pid}/stat").read_text().rsplit(") ", 1)[1].split()
+    assert fields[0] == "Z", "negative-fixture precondition: the leader reads as a zombie"
+    assert int(fields[17]) > 1, "negative-fixture precondition: other threads are still running"
+    os.kill(pid, 0)
+    wt = claim_owner(tmp_path, pid)
+
+    checked = claim_run(CLAIM, "check", str(wt), pid=str(os.getpid()), session="observer")
+    assert _verdict(checked) == "held", checked.stdout
+    assert _field(checked, "STALE_REASON") == "-"
+
+    removed = claim_run(REMOVE, str(wt), "--force", "--delete-branch",
+                        pid=str(os.getpid()), session="observer")
+    assert removed.returncode == 4, removed.stdout + removed.stderr
+    assert wt.exists()

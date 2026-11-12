@@ -223,9 +223,7 @@ however terse the surrounding style. Reports below this density fail the gate.
 
 ## CPP integration: the same floor governs the CLOSING report (issue #965)
 
-This section is CPP-owned and sits OUTSIDE the vendored core above, like its
-sibling below. It adds no rule to the gate and changes nothing inside the
-markers.
+This section is CPP-owned and sits OUTSIDE the vendored core above.
 
 Section A's depth floor - motivation before mechanics, every technical term
 glossed on first use, and the bar that someone who has never seen the codebase
@@ -256,12 +254,14 @@ choices - those never return here - but it does NOT remove the existing route fo
 consequential change: altering promised behaviour or crossing a deliberate boundary
 still needs agreement from the authority that already holds it.
 
-## CPP integration: answer the lane file (issue #1695)
+## CPP integration: lanes and readers (#1695, #1697)
 
 CPP-owned, OUTSIDE the vendored core. When the project has `.claude/lanes.md`,
 Section C answers EVERY listed lane - will test, will refuse, not applicable or
 not covered - per [the lanes reference](../../../docs/agents/lanes.md). No lane
-file asks nothing.
+file, no lane rows. Lane file or not, Section C names each reader of a changed
+output in a `Reader:` row
+([readers](../../../docs/agents/changed-output-readers.md)).
 
 First run `~/.claude/scripts/lane-file.py age` and relay a stale or unknown
 `LANE_FILE_AGE:` line. It is a notice, never a stop: continue on every exit

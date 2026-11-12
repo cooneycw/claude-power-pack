@@ -1,0 +1,70 @@
+{
+  "branch": "issue-1709-worktree-claims-misjudge-their-owner-codex-tool-ex",
+  "counts": {
+    "accepted": 3,
+    "deferred": 1,
+    "rejected": 0
+  },
+  "extra_passes_reason": "Requested by the wave orchestrator (cpp-improvement, outbox rev 35): three HIGH findings across two passes in the claim and release path, and the pass-2 fix (the mutex no longer fails open) was unreviewed, in code where a wrong answer lets a second session take a live worktree",
+  "head": "416d076264dfcf17d3dfb109668a5c213397dd51",
+  "implementer": "claude/claude-fable-5-2",
+  "implementer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-fable-5-2"
+    ],
+    "runtime": "claude",
+    "session_id": "890b3b05-7b6e-481a-bb70-992a65b5e9a0",
+    "sources": [
+      {
+        "bytes": 13220211,
+        "path": "-home-user-Projects/890b3b05-7b6e-481a-bb70-992a65b5e9a0.jsonl",
+        "sha256": "6cfa27a016eb9a79413da5a86c602139f866d50e183bdf0156c3df27dca5a648"
+      }
+    ],
+    "transcript": "-home-user-Projects/890b3b05-7b6e-481a-bb70-992a65b5e9a0.jsonl"
+  },
+  "issue": "1709",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 3,
+  "recorded_at": "2026-11-12T02:59:42Z",
+  "red_cases": {
+    "already_covered": 17,
+    "proposed": 24
+  },
+  "reviewed_artifact": {
+    "base_sha": "46ee0dcfa544a134bf6917d58b4a6e1ab4425c76",
+    "merge_base": "a88aafddcd0676cf5c454141ba2aadac88754687",
+    "method": "runtime-head",
+    "patch_sha256": "9127ebeff82bb2e76b01232b0a03360a0124ca75ea6bd07aa9c581c03e7e469e",
+    "report_record": 58,
+    "target_head": "416d076264dfcf17d3dfb109668a5c213397dd51"
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "exec_log": "codex-review.Uw4KsR.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/11/rollout-2026-11-11T21-54-12-01a1cdad-5921-7be0-9ef0-fb808e126715.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 100522,
+        "path": "codex-review.Uw4KsR.jsonl",
+        "sha256": "435b019491e311303b7114b2c2c277378514e2644ac048a641d39497e8e20bc9"
+      },
+      {
+        "bytes": 641338,
+        "path": "2026/11/11/rollout-2026-11-11T21-54-12-01a1cdad-5921-7be0-9ef0-fb808e126715.jsonl",
+        "sha256": "aef68e362fe773eacb9004702d69de0ee024504e70ae553e93127dcd43c0c09a"
+      }
+    ],
+    "thread_id": "01a1cdad-5921-7be0-9ef0-fb808e126715"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}

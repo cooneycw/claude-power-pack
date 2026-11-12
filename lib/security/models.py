@@ -117,6 +117,11 @@ class ScanResult:
     # is UNKNOWN, deliberately not 0, so "said nothing" stays distinguishable
     # from "said none".
     units_scanned: Optional[int] = None
+    # Files a module chose NOT to read, stated in words (issue #1737). Separate
+    # from ``skipped`` on purpose: ``len(skipped)`` is printed as
+    # ``skipped-checks=`` on the SECURITY_GATE line and means "checks that could
+    # not run". A scan that ran and left some files unopened is not that.
+    unexamined: list[str] = field(default_factory=list)
 
     @property
     def critical_count(self) -> int:
@@ -161,6 +166,7 @@ class ScanResult:
         self.passed.extend(other.passed)
         self.skipped.extend(other.skipped)
         self.errors.extend(other.errors)
+        self.unexamined.extend(other.unexamined)
         # Summed, and None-preserving on BOTH sides (issue #1027): a module that
         # stated no count must not erase one that did, and two modules that both
         # stated none must not add up to a confident 0. Only an actual number
