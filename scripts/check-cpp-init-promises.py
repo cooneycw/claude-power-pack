@@ -10,6 +10,12 @@ and a population below the measured floor FAIL; they never mean clean.
 
 This checks supplied paths, not registration, execution or generated content.
 No list of promised assets is maintained separately from the document.
+
+A promised path must also be TRACKED when ``--root`` is the root of a git
+checkout (issue #1716): a file that exists only in this working tree, such as a
+local ``.venv``, does not ship, and ``Path.exists()`` alone passed it. Where the
+root is not a git checkout root the tracked check does not run and the summary
+line says so; it never reads as checked.
 """
 
 from __future__ import annotations
@@ -17,6 +23,7 @@ from __future__ import annotations
 import argparse
 import re
 import shlex
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -53,6 +60,10 @@ class Claim:
 class Report:
     claims: list[Claim]
     findings: list[str]
+    #: Whether promised paths were also checked against git's index. False
+    #: means NOT CHECKED (no git, or the root is not a checkout root), never
+    #: "all tracked".
+    tracked_checked: bool = False
 
     @property
     def supplied(self) -> set[str]:
@@ -66,8 +77,44 @@ def clean(token: str) -> str:
     return token.rstrip(".")
 
 
+def _relative(candidate: Path, root: Path) -> str:
+    return candidate.resolve().relative_to(root.resolve()).as_posix()
+
+
+def tracked_paths(root: Path) -> frozenset[str] | None:
+    """Every tracked path and every directory holding one, or None when unknown.
+
+    None covers: git is not installed, the call fails, or ``root`` is not the
+    ROOT of a checkout. The last matters: a scratch directory nested inside
+    some other repository would otherwise read as a tree of untracked files.
+    """
+    try:
+        top = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+        if top.returncode != 0 or Path(top.stdout.strip()).resolve() != root.resolve():
+            return None
+        listed = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z"], capture_output=True, text=True, timeout=60, check=False
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if listed.returncode != 0:
+        return None
+    known: set[str] = set()
+    for name in listed.stdout.split("\0"):
+        if not name:
+            continue
+        known.add(name)
+        known.update(parent.as_posix() for parent in Path(name).parents if parent.as_posix() != ".")
+    return frozenset(known)
+
+
 def scan(text: str, root: Path, minimum: int) -> Report:
     report = Report([], [])
+    tracked = tracked_paths(root)
+    report.tracked_checked = tracked is not None
     generated: dict[str, str] = {}
     disclosure = False
     scripts = False
@@ -93,14 +140,31 @@ def scan(text: str, root: Path, minimum: int) -> Report:
                 return
             relative = ".claude/commands/*"
         add(line, "cpp", target, relative)
-        candidates = list(root.glob(relative)) if any(c in relative for c in "*?[") else [root / relative]
+        is_glob = any(c in relative for c in "*?[")
+        candidates = list(root.glob(relative)) if is_glob else [root / relative]
         if not candidates:
             report.findings.append(f"missing promised path at {DOCUMENT}:{line}: {target} -> {relative}")
+        if is_glob and tracked is not None and candidates:
+            # A glob promises what SHIPS under it. Local debris it also happens
+            # to match (`scripts/__pycache__`) is not a promise, so the glob is
+            # judged on its tracked matches - and one with none is a finding.
+            shipped = [c for c in candidates if _relative(c, root) in tracked]
+            if not shipped:
+                report.findings.append(
+                    f"untracked promised path at {DOCUMENT}:{line}: {target} -> {relative} "
+                    "(nothing it matches is tracked, so nothing ships)"
+                )
+            candidates = shipped
         for candidate in candidates:
             if not candidate.resolve().is_relative_to(root.resolve()):
                 report.findings.append(f"escaping promised path at {DOCUMENT}:{line}: {target}")
             elif not candidate.exists():
                 report.findings.append(f"missing promised path at {DOCUMENT}:{line}: {target} -> {relative}")
+            elif tracked is not None and _relative(candidate, root) not in tracked:
+                report.findings.append(
+                    f"untracked promised path at {DOCUMENT}:{line}: {target} -> {relative} "
+                    "(present in this checkout but not tracked, so it does not ship)"
+                )
 
     for number, original in enumerate(text.splitlines(), 1):
         if original.startswith("```"):
@@ -281,14 +345,30 @@ def main(argv: list[str] | None = None) -> int:
             print(f"CLASSIFIED {claim.kind} {DOCUMENT}:{claim.line}: {claim.target}")
     for finding in report.findings:
         print(f"PROMISE_FINDING: {finding}")
+    if any(finding.startswith("missing promised path") for finding in report.findings):
+        # The supported boundary, stated where it bites (issue #1716, seq 674).
+        # Classification is per LINE: "creates project `x`" on one line is a
+        # generated file; the same sentence wrapped before the path leaves the
+        # path alone on its line, where it reads as a CPP source that is
+        # missing. Joining lines to fix that would let a verb on one line
+        # excuse a path on the next, and a wrong join is a silent miss.
+        print(
+            "cpp-init-promises: note - classification is per line. If a missing path above is a file "
+            "the wizard GENERATES, keep its declaration and its path on one line."
+        )
     if report.findings:
         print(
             f"cpp-init-promises: {len(report.findings)} invalid promises; "
             f"{len(report.supplied)} CPP-supplied paths examined"
         )
         return 1
+    shipped = (
+        "each is tracked"
+        if report.tracked_checked
+        else "tracked check NOT RUN (the root is not a git checkout root), so whether they ship is unverified"
+    )
     print(
-        f"cpp-init-promises: ok - {len(report.supplied)} CPP-supplied paths resolve; "
+        f"cpp-init-promises: ok - {len(report.supplied)} CPP-supplied paths resolve; {shipped}; "
         "generated/consumer/external targets unverified"
     )
     return 0
