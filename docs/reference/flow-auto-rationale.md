@@ -1062,6 +1062,23 @@ collapse" note above).
    plugin, #590), else the CPP-checkout copy; either may prompt once - tell the
    user to run **`/flow:repair`** to restore the prompt-free lane.)
 
+   **Why the gate runs before the push, and the one exception (issue #1706).**
+   The default order is gate, then push: pushing first for every project would
+   publish commits nothing has verified yet. Some projects' own gates need the
+   pushed head, though. Kyle's `ci_shape_check.py` clones the ref under test
+   fresh from GitHub and exits 4 when the ref is not there, by design, so the
+   first gate run on an unpushed commit was red (reported five times: Nit Store
+   seq 631, 652, 654, 655, 671). For such a project the branch is pushed first
+   and then gated. The gate step comes before the commit step, so "push first"
+   means commit, then push, then gate: a push of the old head would have the
+   gate examine a tree without the change. A branch push opens no pull request
+   and merges nothing; the pull request is still created only after a gate
+   verdict, and a red or absent verdict stops the run exactly as before, with
+   the branch on origin and nothing opened from it. Step 7's re-gate has the
+   same shape: the merge commit is local until pushed. Which projects need this
+   is the project's knowledge, not something the helper detects; the symptom is
+   a gate that refuses the commit because the remote does not have it.
+
    **A run with no `FLOW_FINISH_GATE:` verdict line did not run the gate: **STOP**
    (issue #1547).** The trigger is the verdict LINE, never the exit code: 127
    (not installed), 126 (`Not a directory` - in a generated Codex skill, an unset

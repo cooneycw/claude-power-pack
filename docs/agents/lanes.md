@@ -73,6 +73,16 @@ The approver reads "not covered" as a decision to make, while it is cheap to
 change. In `/flow:auto` the table goes in the plan record under a
 `### Lanes for this change` heading, after Section C's `Risks:` line.
 
+**Readers share the table.** A change that alters an output another part reads
+adds one row per reader, named `Reader: <who reads it>`, with the answers from
+[the readers reference](changed-output-readers.md). Those rows are owed whether
+or not the project has a lane file.
+
+**A lane test is judged, not only counted.** `will test` means a test that
+reaches the lane with the real thing where the real thing can be used, and that
+could fail if the lane were broken. The reviewer reports one that does neither;
+the judgement is the one the readers reference states.
+
 ## At close
 
 In `/flow:auto`, what happened goes in a file of its own at Step 6,
