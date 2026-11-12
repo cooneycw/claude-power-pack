@@ -244,6 +244,7 @@ def select_run(text: str, run_id: str | None) -> tuple[str | None, str]:
 
 #: The lane-table check (issue #1731), with its committed known-bad cases.
 #: NEGATIVE-CONTROL: controls/flow-plan-record-lanes
+#: NEGATIVE-CONTROL: controls/flow-plan-record-lanes-verdict
 LANE_FILE_REL = pathlib.Path(".claude") / "lanes.md"
 LANE_ANSWERS = ("will test", "will refuse", "not applicable", "not covered")
 LANES_HEADING_RE = re.compile(r"^ {0,3}(#{2,6})[ \t]+Lanes for this change[ \t]*$", re.M)
