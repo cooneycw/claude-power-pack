@@ -2,7 +2,164 @@
 
 ## [Unreleased]
 
+## [11.0.0] - 2026-11-12
+
+The simplification and lanes series (#1673): 56 merged pull requests since
+10.2.0 (#1675 through #1785). It is a major version because several outputs
+that other repositories read, and several things a caller could run, changed.
+Each is listed under Breaking with the pull request that made it; Upgrading
+says what to do per consumer.
+
+### Breaking
+
+Each of these changes something a caller reads or runs.
+
+1. **Generated Codex skills are no longer in the repository** (#1679, ADR
+   0013). `codex/skills/` holds only its README; the rest is build output.
+   Anything that read the tracked tree must build it (`make codex-skills`) or
+   install it (`make codex-install`, which runs
+   `scripts/codex-skill-sync.py --install` and is now the fidelity
+   gate). `codex-skill-sync.py --check` on a tree with nothing generated exits
+   3, `NOT GENERATED`.
+2. **`python -m lib.cicd resume <run_id>` is removed** (#1773), with
+   `resume_run` and `DeterministicRunner.resume`. The command exits 2
+   (`invalid choice`), the imports raise. `run --plan`, with its automatic
+   resume, and `status` are unchanged.
+3. **`/flow:deploy <target>` runs the target named** (#1763). It used to run
+   `make deploy` whatever target was asked for, and log the one asked for. A
+   caller that passed a target and relied on `make deploy` running now gets
+   the target it named.
+4. **`FLOW_FINISH_GATE_EXIT` reads 128 for an exit nobody announced** (#1740):
+   a gate killed by a signal, or a shell abort. It used to print the status of
+   the last completed command, usually 0. Announced exits (0 to 5) and the
+   process's own exit status are unchanged.
+5. **`flow-ci-status.sh --wait` never exits 0 without a verdict** (#1687). An
+   expired wait exits 5 and `unknown` exits 2, where both could exit 0.
+   Without `--wait` nothing changes. A script that read exit 0 as "the wait
+   ended" must read the verdict line or the new codes.
+6. **A worktree claim made from a Codex session names the `codex` process and
+   the thread id** (#1745): `CLAIM_PID` and `CLAIM_SESSION` were the tool
+   shell's pid and `-`. A process in state `Z` with more than one thread is no
+   longer read as dead, and `flow-worktree-sweep.sh` now looks past a claim
+   that is stale for a proven reason, where it skipped every locked worktree.
+7. **A counter-model receipt can record more than three passes** (#1771), only
+   with `--escalated-by`, `--escalation-ref`, `--raised-cap` and
+   `--extra-pass-reason`; the receipt then carries an `escalation` object. The
+   outer bound is 10. A reader that validates receipts must accept that
+   object. The finish gate's handling is not in this release (#1765).
+8. **The secret scan reads files with no extension** (#1751): scripts with a
+   shebang, and build files such as `Makefile` and `Dockerfile`. Finding
+   counts can rise on the first scan after upgrading, and the result says what
+   was not examined.
+9. **`/codex:code_review` blocks a patch over Codex's input limit** (#1774)
+   with a named reason and exit 1. It used to run and be recorded as a review
+   that was unavailable.
+10. **In a project with `.claude/lanes.md`, plan approval refuses a record
+    that does not answer the lanes** (#1744): a `### Lanes for this change`
+    table, or one line `Lanes: none - <reason>`. A project with no lane file
+    is unchanged.
+11. **Recorded paths no longer carry the host account** (#1702). Counter-model
+    receipts record a home path with a neutral placeholder, and execution
+    evidence records `~/...`. A reader that opened such a path as written
+    must expand it. `make host-account-paths-check` fails on a new one.
+12. **A Trusted or YOLO permission profile installed before this release is
+    reported as `Custom/existing`, unverified** (#1770), because two of its
+    deny rules changed. Re-run `/cpp:init`, or edit the two rules (see the
+    entry below).
+13. **`/flow:deploy` and `/flow:finish` stop when the fallback security scan
+    cannot run** (#1760). The scan is looked for in
+    `~/Projects/claude-power-pack`, `/opt/claude-power-pack` and
+    `~/.claude-power-pack`; with none found, or with a scan that does not
+    exit 0 and print `SECURITY_GATE: <gate> PASS`, the flow stops. It used to
+    say "skip this step". A host with CPP elsewhere can no longer deploy or
+    finish through the fallback without a scan.
+
+Known at release: a gate killed by a signal sent to its whole process group
+printed the `FLOW_FINISH_GATE_EXIT=128` line twice, once, in CI; not
+reproduced (#1783). A reader of that line should take the last one.
+
+### Upgrading
+
+**Every host, once.** Run `/cpp:update`, then `make codex-install` from the CPP
+checkout (it runs `scripts/codex-skill-sync.py --install`; the helper is not on
+PATH).
+The first links the two new helpers (`lane-file.py`, `monthly-review.py`) and
+brings the `/flow:deploy` correction; the second rebuilds the Codex skills,
+which no longer come from the checkout. If you use the Trusted or YOLO
+profile, re-run `/cpp:init` (Breaking 12).
+
+**kyle** (adoption is tracked in kyle #2348):
+
+- finish gate exit line, Breaking 4: kyle #2359
+- worktree claims, Breaking 6: kyle #2361
+- receipts above three passes, Breaking 7: kyle #2363
+- secret scan, Breaking 8: kyle #2365; three new findings were measured there
+- oversized review patch, Breaking 9: kyle #2367
+- `/flow:deploy`, Breaking 3: kyle #2369; kyle has about twenty `deploy-*`
+  targets
+- `lib.cicd resume`, Breaking 2: kyle #2371
+- `flow-ci-status.sh --wait`, Breaking 5: nothing in kyle's tree calls it with
+  `--wait`; a session's own lock-hold script did, and released a lock on exit
+  0 (#1684)
+- with coordination admission on, the finish gate now waits a bounded time for
+  the lock (`CPP_KYLE_LOCK_WAIT_SECONDS`, default 3600) and fails by name when
+  no grant arrives; it used to wait without limit (#1680)
+- fallback security scan, Breaking 13: kyle #2381
+- `flow-ci-status.sh` now reports a step whose image could not be pulled as
+  `precode` (below). Kyle's `core/ci_status.py` is a port pinned to an older
+  copy and will keep calling it `code` until it is re-ported
+- a lane file is optional; Breaking 10 applies from the day one is committed
+  (kyle #2343)
+
+**skillc:**
+
+- generated Codex skills, Breaking 1: skillc #704
+- the same eight as kyle: skillc #705 (gate exit line), #706 (claims), #707
+  (receipts), #708 (secret scan), #709 (oversized patch), #711
+  (`/flow:deploy`), #712 (`resume`), and #713 (fallback security scan)
+- `python -m lib.cicd check` now reports `.PHONY` coverage from continued
+  declarations too; skillc reads 16 declared and 0 missing where it read 9 and
+  8 (#1750). Field names and the exit code are unchanged.
+
+**kyle-candidate:** kyle-candidate #8 (gate exit line), #9 (claims), #10
+(receipts), #11 (secret scan), #12 (oversized patch), #13 (`/flow:deploy`),
+#14 (`resume`), #15 (fallback security scan).
+
 ### Behaviour changes you may notice
+
+- **The `PLAN_COMPLIANCE` line says when a lane the plan promised to test has
+  nothing demonstrated** (#1767): `PLAN_COMPLIANCE: agreement, LANES NOT
+  DEMONSTRATED (2) - ...`, or `, LANES NOT CHECKED`, on all three verdict
+  words. Exit codes are unchanged, and so is every byte of output in a
+  project with no lane file, a waived plan, or no `will test` answer. A reader
+  that matched the whole line must allow the clause; none was found in kyle,
+  skillc or kyle-candidate.
+- **A wave role whose owner process has an exited main thread but live worker
+  threads is no longer reported stale** (#1691), in the registry and the
+  mailbox. Two registry usage lines no longer say a lane is preserved on
+  re-register: a re-register with a different issue or repository resets it.
+- **A CI step whose image could not be pulled is `precode`, not `code`**
+  (#1508): `FLOW_CI_FAILURE_ORIGIN: precode` and a `FLOW_CI_PRECODE_FAILURE`
+  line, for exit code 0 with one of two measured Docker daemon messages. No
+  exit code, status word or line name changes.
+- **`/flow:cleanup` deletes a gone-upstream branch only on proof its tip
+  landed** (#1729): the merge helper's own record, or a merged pull request
+  whose head is that tip. Everything else is kept and named. The command no
+  longer carries `Bash(gh api:*)`, so the preserved-work handoff prompts in a
+  session that is not in bypass mode.
+- **The finish gate judges the counter-model receipt nearest to HEAD** (#1742),
+  where the first in filename order decided.
+- **A context-window tag is not part of a model's name** (#1761):
+  `model[1m]` and `model` are one model when a receipt asks whether the
+  reviewer differs from the implementer. A Codex review run as ephemeral is
+  named when no rollout is found.
+- **`/project:next` reports a worktree git calls prunable as unexamined**
+  (#1676), where it exited 2 with no report. Contract 1.8 to 1.9.
+- **`/lane:update` does not record a review over a listing it could not
+  read** (#1730).
+- **`flow-start-resolve.sh` refuses a pull request number given as an issue**
+  (#1735); `flow-plan-record.py compliance` leaves the index as it found it,
+  and `approve` names the plan lines it cannot parse.
 
 - **The secret scan CPP generates is documented for what it is.** It catches
   accidents; it is not a control against a change that wants to hide a leak.
@@ -62,7 +219,8 @@
   ...)`, exit 1, before any model call. **A change of about 1 MB or more that
   used to pass with a skipped review now stops, and a person decides:** split
   the change, or commit separately the bulk that needs no review. Having the
-  reviewer read such a change from the repository is not built (#1769). Also:
+  reviewer read such a change from the repository is not built (recorded in
+  the Nit Store, #1725). Also:
   the scope probe no longer reads `unverified` under `pipefail` in a large
   checkout, the temporary-file templates end in their `X` run, and a dangling
   or unsearchable `.claude/lanes.md` is reported as unreadable, not treated
@@ -173,6 +331,57 @@
   `/cpp:update` now name a project with no record before a merge is attempted
   (`ci-provider-advisory.sh`; suppress the hook line with
   `CPP_HOOK_SKIP_CI_PROVIDER=1`) (#1677).
+
+### Added
+
+- A word budget for every command document, checked by
+  `make command-docs-budget-check`; `flow/auto.md` went from 20,867 to 10,402
+  words, with the removed text in `docs/reference/flow-auto-rationale.md`
+  (#1681).
+- `check-negative-controls.py --verify-provenance` runs in `make verify` and
+  on pull requests, counts what it compared, and has its own word for "could
+  not look" (#1757, #1736).
+
+### Fixed
+
+- The finish gate's fallback lane reads a failed test id up to its reason
+  separator, so a parametrised name with a space is one failure (#1753).
+- `flow-ci-status.sh` fallback path: a multi-line step error is one step, a
+  stall answer from an earlier poll is not printed beside a later success, and
+  stderr from a successful protection read is not a check name (#1766).
+- `worktree-remove.sh` no longer honours an inherited `CDPATH`, and its
+  `--help` prints its own header (#1734).
+
+### Changed, with no change to output
+
+- The gate path lost unreferenced code and repeated shell paths; no verdict
+  line, exit code, marker or runner field changed (#1722, #1733).
+- The instrument census moved from ADR 0008 to `controls/census.md`. A
+  repository that keeps its census in its decision record resolves as before
+  (#1683).
+- `docs/scripts.md` is a one-line-per-script index; each script's history is
+  in its own file under `docs/scripts/` (#1688).
+- The wave helpers' comments, help text and documents say what the code does;
+  two wrong statements in `flow/wave.md` and `flow/register.md` are corrected
+  (#1776).
+
+### Documentation and records
+
+- Kyle's role-receipt adapter as a worked example of the completion contract
+  (#1675).
+- The disposition of all 736 comments on the previous Nit Store (#1721).
+
+### Tests
+
+- The two tests that run the real gate use an owned copy of the checkout, so
+  a suite run no longer rebuilds the environment it runs from (#1764).
+- A stand-in for curl reads the header it is piped (#1777); a pid marker is
+  waited for by content, not by existence (#1686).
+- Every refusal in the merge and cleanup helpers has a test that the script
+  stopped there (#1775), and the claim helper and the guard's leak verdict
+  have registered controls (#1781).
+- Gate tests build the gate's environment by allowlist, so a knob set where
+  the suite runs no longer reaches the gate under test (#1782).
 
 ## [10.2.0] - 2026-11-09
 

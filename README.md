@@ -1,10 +1,11 @@
 # Claude Power Pack
 
-**v10.2.0** - Independent host-install capabilities, explicit project CI providers, guarded consumer workflows, and recoverable wave completion for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and Codex.
+**v11.0.0** - Lanes named at plan approval and at close, a word budget on every command document, generated Codex skills built on install, and corrected outputs across the gate, merge and wave helpers for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and Codex.
 
 ## What It Does
 
 - **Workflow commands** (`/flow:auto`, `/flow:start`, `/flow:eli5`, `/flow:finish`) - Issue-driven development with worktrees, a pre-implementation ELI5 plan/necessity approval gate that cannot be bypassed (#775), quality gates, automated PR lifecycle, and CI verification. The necessity gate also ships standalone as [eli5-gate](https://github.com/cooneycw/eli5-gate) - installable without CPP via `/plugin marketplace add cooneycw/eli5-gate` or `npx skills add cooneycw/eli5-gate`; CPP vendors its canonical core (file gate improvements there)
+- **Lanes and monthly review** (`/lane:create`, `/lane:update`, `/monthly:create`, `/monthly:review`) - a project lists the ways its work runs (checkout, harness, driver, coordination, CI provider, project state); a plan says which it will test and the closing record says which were demonstrated. `/project:next` carries a monthly review line.
 - **Wave orchestration** (`/flow:wave`, `/flow:register`, `/flow:sync`) - dependency-ordered issue waves with per-driver capability declarations and durable mailbox delivery. Assignment-bound receipts and finite deadlines make completion recoverable when a message is lost, including rework and merge. The coordinator must arrange deadline checks and establish a shared receipt store; the helper does not install a scheduler. See the [receipt-store and deadline contract](docs/agents/flow-wave-completion.md).
 - **MCP servers** extending Claude Code's capabilities:
   - **Second Opinion** - Multi-model code review via external LLMs (Gemini, OpenAI, Anthropic), served by the external `cooneycw/mcp-second-opinion` repo and registered at user scope by `/cpp:init` (streamable-http)
@@ -141,6 +142,9 @@ claude-power-pack/
 | Workflow | `/flow:eli5 42` | Plain-language intent + necessity verdict + plan approval gate |
 | Workflow | `/flow:finish` | Lint, test, typecheck, commit, push, create PR |
 | Workflow | `/flow:wave` | Orchestrate issue waves with assignment receipts, deadlines and explicit recovery |
+| Lanes | `/lane:create` | Write the project's lane file, `.claude/lanes.md` |
+| Lanes | `/lane:update` | Re-check the lane file against recently closed fixes |
+| Review | `/monthly:review` | The monthly review `/project:next` prompts for |
 | Improve | `/self-improvement:retro` | Post-run friction retro: capture -> codify durable fixes (the grill-me cycle) |
 | Project | `/project:init myapp` | Scaffold a new project with explicit CI provider selection and local PR protection |
 | Security | `/security:scan` | Full vulnerability scan |
@@ -217,6 +221,32 @@ real annotated tag at [`626a96d9`](https://github.com/cooneycw/claude-power-pack
 It can be fetched with `git fetch origin tag v10.1.0`. No GitHub Release has
 been published. Further release/tag decisions remain the operator checkpoint
 tracked at [#1278](https://github.com/cooneycw/claude-power-pack/issues/1278).
+
+### v11.0.0 (2026-11-12)
+
+The simplification and lanes series (#1673): 56 merged PRs since v10.2.0. A
+major version because outputs other repositories read, and things a caller
+could run, changed. See [CHANGELOG.md](CHANGELOG.md) for the numbered Breaking
+list and the Upgrading section per consumer.
+
+- **Upgrade step:** run `/cpp:update`, then `make codex-install` from the CPP
+  checkout (it runs `scripts/codex-skill-sync.py --install`).
+  Generated Codex skills are no longer tracked; the install builds and checks
+  them. Re-run `/cpp:init` if you use the Trusted or YOLO profile.
+- **Lanes:** `.claude/lanes.md` lists a project's lanes; in a project that has
+  one, plan approval refuses a record that does not answer them, and the close
+  names what was demonstrated. A plan that changes an output names its readers.
+- **Changed for callers:** `/flow:deploy <target>` runs the target named;
+  `lib.cicd resume` is removed; `FLOW_FINISH_GATE_EXIT` reads 128 for an
+  unannounced exit; `flow-ci-status.sh --wait` never exits 0 without a
+  verdict; Codex worktree claims name the `codex` process; receipts can record
+  more than three passes under a recorded ruling; `/flow:deploy` and
+  `/flow:finish` stop when the fallback security scan cannot run.
+- **Security:** the secret scan reads extensionless scripts and build files
+  and says what it did not examine; two `/cpp:init` deny rules match the
+  commands they name; recorded paths no longer carry the host account.
+- **Smaller documents:** a word budget for every command document,
+  `docs/scripts.md` as an index, the instrument census in `controls/census.md`.
 
 ### v10.2.0 (2026-11-09)
 
