@@ -43,8 +43,11 @@ UV_STUB = """#!/usr/bin/env bash
 # Stand-in for `uv run ...` (issue #1759 tests). Records every call.
 printf '%s\\n' "$*" >> "$STUB_LOG"
 case "$*" in
-  *"lib.cicd run --plan deploy"*) echo runner >> "$STUB_CALLS"; exec make deploy ;;
-  *"lib.security gate flow_deploy"*) echo gate >> "$STUB_CALLS"; exit 0 ;;
+  *"lib.cicd run --plan deploy"*)
+    echo runner >> "$STUB_CALLS"
+    [ -n "${STUB_RUNNER_FAILS:-}" ] && exit 5   # a plan step failed before `make deploy`
+    exec make deploy ;;
+  *"lib.security gate flow_deploy"*) echo gate >> "$STUB_CALLS"; exit "${STUB_GATE_EXIT:-0}" ;;
   *) echo "unexpected uv call: $*" >&2; exit 97 ;;
 esac
 """
@@ -76,16 +79,22 @@ def _script() -> str:
         validate
         + runner
         + 'if [ -n "${RUNNER_EXIT+set}" ]; then\n'
-        + "    :  # the runner ran: skip Step 5, go to Step 6\n"
+        # "If runner fails (exit non-zero): ... report the failed step, and stop."
+        + '    [ "$RUNNER_EXIT" -eq 0 ] || exit 1\n'
+        # "If runner succeeds (exit 0): ... skip to Step 6."
         + "else\n"
         + gate
+        # "If the gate fails (critical or high findings): stop and report."
+        + "    [ $? -eq 0 ] || exit 1\n"
         + fallback
         + "fi\n"
         + log
     )
 
 
-def _run(tmp_path: Path, *, runner_found: bool, target: str | None) -> dict[str, list[str]]:
+def _run(
+    tmp_path: Path, *, runner_found: bool, target: str | None, gate_exit: int = 0, runner_fails: bool = False
+) -> dict[str, list[str]]:
     project = tmp_path / "project"
     home = tmp_path / "home"
     bin_dir = tmp_path / "bin"
@@ -108,14 +117,19 @@ def _run(tmp_path: Path, *, runner_found: bool, target: str | None) -> dict[str,
         "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
         "STUB_LOG": str(tmp_path / "uv.log"),
         "STUB_CALLS": str(calls),
+        "STUB_GATE_EXIT": str(gate_exit),
+        "STUB_RUNNER_FAILS": "1" if runner_fails else "",
     }
     args = ["bash", "-c", _script(), "flow-deploy"] + ([target] if target else [])
     ran = subprocess.run(args, cwd=project, env=env, capture_output=True, text=True, check=False)
     log = project / ".claude" / "deploy.log"
-    assert log.is_file(), ran.stdout + ran.stderr
+    markers = sorted(path.name for path in project.glob("marker-*"))
+    if not log.is_file():
+        return {"markers": markers, "calls": calls.read_text(encoding="utf-8").split(), "logged": []}
+    assert ran.returncode == 0, ran.stdout + ran.stderr
     fields = [field.strip() for field in log.read_text(encoding="utf-8").strip().splitlines()[-1].split("|")]
     return {
-        "markers": sorted(path.name for path in project.glob("marker-*")),
+        "markers": markers,
         "calls": calls.read_text(encoding="utf-8").split(),
         "logged": [fields[1], fields[4]],  # the target named in the log line, and its status
     }
@@ -167,3 +181,25 @@ def test_the_real_deploy_plan_still_ends_in_make_deploy() -> None:
 
     last = BUILTIN_PLANS["deploy"][-1]
     assert (last.id, last.command) == ("deploy", "make deploy")
+
+
+# --- the two places the prose says STOP (counter-model review, pass 1) -------
+#
+# The first version of `_script()` sent every outcome on to Step 6, so nothing
+# here showed that a refused gate or a failed runner deploys nothing.
+
+@pytest.mark.parametrize(("runner_found", "target"), [(True, "deploy-other"), (False, "deploy-other"), (False, None)])
+def test_a_failed_security_gate_deploys_nothing_and_logs_nothing(
+    tmp_path: Path, runner_found: bool, target: str | None
+) -> None:
+    result = _run(tmp_path, runner_found=runner_found, target=target, gate_exit=1)
+    assert result["calls"] == ["gate"]
+    assert result["markers"] == [], "a target ran after the security gate refused"
+    assert result["logged"] == [], "a deployment was logged after the security gate refused"
+
+
+def test_a_failed_runner_stops_before_the_log_and_does_not_fall_back(tmp_path: Path) -> None:
+    result = _run(tmp_path, runner_found=True, target=None, runner_fails=True)
+    assert result["calls"] == ["runner"], "a failed runner must not be followed by the fallback path"
+    assert result["markers"] == []
+    assert result["logged"] == []
