@@ -1886,83 +1886,98 @@ def test_an_unparseable_adr_reports_UNKNOWN_rather_than_a_bare_numerator(tmp_pat
 # --------------------------------------------------------------------------- #
 
 
+def _owned_control_root(tmp_path: Path) -> Path:
+    """A throwaway repository holding `REAL_CONTROL`, its gate, and nothing else.
+
+    A COPY of the real control and the real gate, committed in a repository the
+    test owns, so a test can make that tree not-clean without touching the
+    checkout the rest of the suite is reading. The gate imports
+    `lib.sourcelines` and nothing else from this repo, so that one module comes
+    along; the harness itself is run from the real checkout with `--root` here.
+    """
+    root = tmp_path / "owned-root"
+    control = root / _REAL_CONTROL_REL
+    shutil.copytree(REAL_CONTROL, control, ignore=shutil.ignore_patterns("__pycache__"))
+    (root / "scripts").mkdir()
+    shutil.copy(REAL_GATE, root / "scripts" / REAL_GATE.name)
+    (root / "lib").mkdir()
+    shutil.copy(ROOT / "lib" / "sourcelines.py", root / "lib" / "sourcelines.py")
+    # The gate's import leaves bytecode under lib/; ignored, as in the real repo.
+    (root / ".gitignore").write_text("__pycache__/\n*.py[cod]\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(root)], check=True, timeout=60)
+    subprocess.run(["git", "-C", str(root), "config", "user.email", "c@c"], check=True, timeout=60)
+    subprocess.run(["git", "-C", str(root), "config", "user.name", "c"], check=True, timeout=60)
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True, timeout=60)
+    subprocess.run(["git", "-C", str(root), "commit", "-q", "-m", "base"], check=True, timeout=60)
+    return root
+
+
 @requires_git
-@pytest.mark.timeout(_TEST_BUDGET)
-def test_an_untracked_control_file_refuses_the_green() -> None:
-    """The red case for #978, run against the REAL tree.
+def test_an_untracked_control_file_refuses_the_green(tmp_path: Path) -> None:
+    """The red case for #978, run on a throwaway root this test owns.
 
-    SCOPED TO THE CONTROL IT DIRTIES (#1444). Every run passes `--control`
-    for `REAL_CONTROL`, the control the probe is planted in. This test used to
-    run the WHOLE register three times inside the live-tree lock, on the
-    reasoning that it needed a green battery to prove an untracked file refuses
-    one. That made its locked window grow with every registered control: ~20s
-    when written, ~165s by #1444, past the 150s its lock partner waits, so the
-    partner timed out whenever xdist overlapped them. The `--control` selector
-    (added for #970's mutation probe) postdates that reasoning. The refusal is
-    decided per control (a result's TRACKING axis), so the scoped run goes
-    through the same refusal path and needs only THIS control green, not 76.
+    IT NO LONGER TOUCHES THE REAL CHECKOUT (issue #1718, row 12). This test
+    used to plant its untracked probe in the real `controls/` tree. Dirtying a
+    tree every other test reads meant holding a host-wide lock, and holding a
+    lock meant a hold bound (`_HOLD_BUDGET`, 30s shared by three harness runs
+    and a git call). The bound is what failed in CI: under load one harness
+    run was killed and the test went red with nothing wrong in the harness.
+    The probe is now planted in `_owned_control_root`, a committed copy of the
+    one control and its gate, so there is no shared state, no lock and no bound
+    here; the suite's own per-test timeout is the only hang guard.
 
-    What the narrowing gives up, stated rather than implied: this no longer
-    proves a WHOLE-register run refuses. Nothing in the harness branches on the
-    selector after filtering the registrations, but if it ever did, this test
-    would not see it. `make negative-controls` runs the whole register on a
-    clean tree, so it does not exercise the refusal.
+    Red case for the OLD shape, reproduced before this change: with a stand-in
+    harness that waits 12s before running the real one, the old test failed
+    on its hold bound and the real checkout held `untracked-probe.sh` during
+    the middle run. The same stand-in passes here and the real checkout never
+    holds the probe (asserted below).
 
-    The scoped precondition also removes the old `gitleaks` skip: only the
-    secret-scan control needed gitleaks, and it is no longer in the run. Git is
-    still required, because the precondition asks git whether the probe is
-    tracked, so the CI validate image (no git) still skips it.
-
-    And it now BOUNDS ITS OWN WINDOW: its harness runs share one deadline,
-    `_HOLD_BUDGET` after it takes the lock (`_run_holding_lock`). A run that would
-    overrun is killed and the failure names this test, so growth or a stall reds
-    this test rather than the innocent waiter. The elapsed-time assertion after
-    release stays as a second statement of the same bound.
+    SCOPED TO THE CONTROL IT DIRTIES (#1444): every run passes `--control`.
+    The refusal is decided per control (a result's TRACKING axis), so the
+    scoped run goes through the same refusal path. What that gives up, stated
+    rather than implied: this does not prove a WHOLE-register run refuses.
+    Nothing in the harness branches on the selector after filtering the
+    registrations, but if it ever did, this test would not see it. And what the
+    owned root gives up: the control is exercised from a copy, so this says
+    nothing about the real tree being tracked -
+    `test_every_discovered_controls_files_are_tracked` owns that.
 
     A control is exercised from the working tree, so an untracked case file
     discriminates correctly and reports PASS while the same commit in a clean
     clone has no cases at all. Observed twice on 2026-09-15 (#964, #953).
 
-    The file is created and removed inside the test rather than committed,
-    because a committed untracked file is a contradiction: committing it would
-    make it tracked and the case would stop reproducing.
+    The file is created inside the test rather than committed, because a
+    committed untracked file is a contradiction: committing it would make it
+    tracked and the case would stop reproducing.
     """
-    sneaky = REAL_CONTROL / "cases" / "untracked-probe.sh"
-    # THE DIRTY WINDOW IS HELD EXCLUSIVELY. This test deliberately makes the
-    # shared live tree not-clean (for at most _HOLD_BUDGET), and anything else scanning it
-    # meanwhile reads a true fact about a state this test created - reported
-    # against ITS OWN subject, which is wrong (#1061). The restore is inside the
-    # lock too: releasing before `restored` is re-measured would hand over a
-    # tree this test has not finished putting back.
-    harness = [sys.executable, str(HARNESS), "--root", str(ROOT),
-               "--strict", "--control", _REAL_CONTROL_REL]
-    with live_controls_tree_exclusive():
-        held_since = time.monotonic()
-        deadline = held_since + _HOLD_BUDGET
-        assert not sneaky.exists(), "fixture would clobber a real file"
-        before = _run_holding_lock(deadline, harness)
-        assert before.returncode == 0, f"precondition: the tree is clean\n{before.stdout}"
-        sneaky.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-        try:
-            tracked = _run_holding_lock(
-                deadline, ["git", "-C", str(ROOT), "ls-files", "--error-unmatch", str(sneaky)],
-            )
-            assert tracked.returncode != 0, "precondition: the probe must be UNTRACKED"
-            after = _run_holding_lock(deadline, harness)
-            assert after.returncode == 1, f"an untracked control file must refuse the green\n{after.stdout}"
-            assert "NEGATIVE_CONTROL_TRACKING: UNTRACKED" in after.stdout, after.stdout
-            assert "untracked-probe.sh" in after.stdout, "the offending path must be NAMED"
-        finally:
-            sneaky.unlink(missing_ok=True)
-        restored = _run_holding_lock(deadline, harness)
-        assert restored.returncode == 0, f"the tree must be clean again\n{restored.stdout}"
-        held = time.monotonic() - held_since
-    assert held <= _HOLD_BUDGET, (
-        f"test_an_untracked_control_file_refuses_the_green held the live controls "
-        f"tree lock for {held:.1f}s, past its own {_HOLD_BUDGET:.0f}s bound "
-        f"(_HOLD_BUDGET). Its lock partner waits {_LOCK_BUDGET:.0f}s, so this is the "
-        "test to fix, not the one that timed out (#1444)"
+    root = _owned_control_root(tmp_path)
+    scoped = ("--strict", "--control", _REAL_CONTROL_REL)
+    sneaky = root / _REAL_CONTROL_REL / "cases" / "untracked-probe.sh"
+    real_probe = REAL_CONTROL / "cases" / "untracked-probe.sh"
+    assert not sneaky.exists(), "fixture would clobber a real file"
+
+    before = run_harness(root, *scoped)
+    assert before.returncode == 0, f"precondition: the owned tree is clean\n{before.stdout}"
+    assert "NEGATIVE_CONTROL_TRACKING: tracked" in before.stdout, before.stdout
+
+    sneaky.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    tracked = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "--error-unmatch", str(sneaky)],
+        capture_output=True, text=True, check=False, timeout=60,
     )
+    assert tracked.returncode != 0, "precondition: the probe must be UNTRACKED"
+    assert not real_probe.exists(), "the probe must never appear in the real checkout"
+
+    after = run_harness(root, *scoped)
+    assert after.returncode == 1, f"an untracked control file must refuse the green\n{after.stdout}"
+    assert "NEGATIVE_CONTROL_TRACKING: UNTRACKED" in after.stdout, after.stdout
+    assert "untracked-probe.sh" in after.stdout, "the offending path must be NAMED"
+
+    # The refusal follows the file, not the run count: remove it and the same
+    # tree is green again.
+    sneaky.unlink()
+    restored = run_harness(root, *scoped)
+    assert restored.returncode == 0, f"the tree must be clean again\n{restored.stdout}"
 
 
 # --------------------------------------------------------------------------- #
