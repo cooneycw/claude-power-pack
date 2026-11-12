@@ -101,9 +101,11 @@ NETWORKS = ("blocked", "open", "unverified")
 # /codex:code_review's CODEX_REVIEW_LOCAL_CREDENTIALS verdict (issue #1459).
 LOCAL_CREDENTIALS = ("present", "absent", "unknown")
 
-#: WHICH WAY ROUND THE TWO MODELS SAT (issue #1383). The default direction -
-#: Claude implements, Codex reviews - is what every receipt before #1383
-#: records, and a receipt with no `direction` field still means exactly that.
+#: WHICH WAY ROUND THE TWO MODELS SAT (issue #1383). In the default direction
+#: the reviewer is Codex. The implementer is whoever the evidence flags
+#: attribute: a Claude session (`--implementer-session-id`) or a Codex thread
+#: (`--implementer-thread-id`, issue #1453). A receipt with no `direction`
+#: field is in the default direction.
 #: `delegated` is the /codex:auto lane: Codex implements, and the supervising
 #: Claude session reviews the diff in that lane's Step 5. Before this, the
 #: writer could only model the first direction, so a delegated run had two
@@ -1442,7 +1444,7 @@ def _derive_implementer_from_session(
         # declarations without an identity - they are eligible records, so
         # their presence is reported, but they never overwrite a real value.
         if value and not value.startswith("<"):
-            model = value
+            model = _bare_model(value)
     if model is None:
         return None, (
             f"matching transcript {transcript} contains no real-shaped model entry "
@@ -1597,7 +1599,7 @@ def _adapter(args: argparse.Namespace, role: str) -> tuple[list[str], dict, list
                     f"unresolved assistant turn declared model {model!r}, and an unresolved "
                     "turn is refused rather than dropped)"
                 )
-            models.add(model.strip())
+            models.add(_bare_model(model.strip()))
         if not models or (role == "reviewer" and len(models) != 1):
             raise EvidenceUnknown(
                 "contains no real-shaped model entry or has ambiguous reviewer models "
@@ -1707,9 +1709,23 @@ def _redact_home_account(recorded: str, home: Path | None = None) -> str:
     return "/".join(parts)
 
 
+#: A trailing context-window tag: `claude-opus-5-5[1m]` is `claude-opus-5-5`
+#: with a larger window, not a second model (issue #1710). Exactly one tag of
+#: digits then `k` or `m`, at the very end, directly after the name.
+_CONTEXT_WINDOW_TAG = re.compile(r"(?<=[^\]\s/])\[[0-9]+[km]\]\Z")
+
+
+def _bare_model(name: str) -> str:
+    """A model name without its context-window tag. Nothing else is removed."""
+    return _CONTEXT_WINDOW_TAG.sub("", name)
+
+
 def _model_key(identity: str) -> str:
-    """Harness is not model identity. Do not invent model-name aliases."""
-    return identity.split("/", 2)[-1] if identity.startswith("opencode/") else identity.split("/", 1)[-1]
+    """What two identities are compared by: the model name, without the harness
+    prefix and without a context-window tag. No aliases between different
+    model names: `opus-5` and `claude-opus-5` stay two names (issue #1747)."""
+    name = identity.split("/", 2)[-1] if identity.startswith("opencode/") else identity.split("/", 1)[-1]
+    return _bare_model(name)
 
 
 def _review_inputs(records: list[dict], runtime: str) -> list[tuple[int, str]]:
@@ -2346,7 +2362,7 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
         # a counter-model review at all - it is the author agreeing with
         # themselves, recorded as independent evidence. Worse than no receipt,
         # because it is counted.
-        if reviewer.strip() in implementers:
+        if _bare_model(reviewer.strip()) in {_bare_model(i) for i in implementers}:
             if has_implementer_set:
                 bad.append(
                     f"{source}: reviewer overlaps the implementer set "

@@ -14,6 +14,13 @@ one unambiguous model. Model strings describe the runtime's recorded requested
 model; this does not attest which model an external endpoint actually served,
 or resolve aliases between different recorded names.
 
+One thing is not an alias: a trailing context-window tag. `claude-opus-5-5[1m]`
+is `claude-opus-5-5` with a larger window, so the tag (exactly `[`, digits, `k`
+or `m`, `]` at the end of the name) is removed before a name is recorded or
+compared. Without that, one model could review its own work under two
+spellings (issue #1710). Two different names, such as `opus-5` and
+`claude-opus-5`, are still two names (issue #1747).
+
 ## Bind the reviewed artifact
 
 Commit an implementation checkpoint before requesting a receipt-bound review.
