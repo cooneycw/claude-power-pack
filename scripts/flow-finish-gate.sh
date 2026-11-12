@@ -539,7 +539,7 @@ cpp_environment_check() {
     cfg_minor=""
     python_minor=""
     # virtualenv appends release metadata (for example 3.11.14.final.0).
-    if [[ "$cfg_version" =~ ^([0-9]+\.[0-9]+)(\.|$) ]]; then
+    if [[ "$cfg_version" =~ ^([0-9]+\.[0-9]+)\.[0-9]+(\.(alpha|beta|candidate|final)\.[0-9]+)?$ ]]; then
         cfg_minor="${BASH_REMATCH[1]}"
     fi
     if [[ "$python_version" =~ ^([0-9]+\.[0-9]+)\.[0-9]+$ ]]; then

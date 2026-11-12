@@ -12,6 +12,9 @@ minor fails with `cpp-runtime-environment-mismatch`, naming the found and
 wanted versions. Both stdlib's `version = 3.11.14` and virtualenv's
 `version_info = 3.11.14.final.0` spellings are supported by comparing the first
 two numeric components with the executable interpreter's major and minor.
+The optional virtualenv suffix contains a release level (`alpha`, `beta`,
+`candidate` or `final`) and numeric serial; arbitrary text such as
+`3.11.garbage` remains unverified, even with the rebuild opt-in.
 Missing, unreadable, malformed or disagreeing interpreter
 evidence in an existing environment fails with
 `cpp-runtime-environment-unverified`. Neither refusal falls back to Makefile

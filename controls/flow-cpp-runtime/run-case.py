@@ -61,14 +61,17 @@ with tempfile.TemporaryDirectory() as directory:
     if mode in (
         "existing-runtime", "virtualenv-runtime", "mismatched-environment", "broken-environment",
         "invalid-config-version", "disagreeing-version",
+        "malformed-matching-version", "malformed-mismatch-optin",
     ):
         (venv / "bin").mkdir(parents=True)
-        version = "3.12.3" if mode == "mismatched-environment" else "3.11.9"
+        version = "3.12.3" if mode in ("mismatched-environment", "malformed-mismatch-optin") else "3.11.9"
         cfg_version = version + ".final.0" if mode == "virtualenv-runtime" else version
         if mode == "invalid-config-version":
             cfg_version = "unknown"
         elif mode == "disagreeing-version":
             cfg_version = "3.12.3.final.0"
+        elif mode in ("malformed-matching-version", "malformed-mismatch-optin"):
+            cfg_version = ".".join(version.split(".")[:2]) + ".garbage"
         (venv / "pyvenv.cfg").write_text(f"version_info = {cfg_version}\n")
         interpreter = venv / "bin/python"
         interpreter.write_text("#!/bin/bash\n" + ("exit 7\n" if mode == "broken-environment" else f"echo {version}\n"))
@@ -80,6 +83,8 @@ with tempfile.TemporaryDirectory() as directory:
             assert cfg_version == "unknown"
         elif mode == "disagreeing-version":
             assert cfg_version.startswith("3.12.") and probe.stdout.startswith("3.11.")
+        elif mode in ("malformed-matching-version", "malformed-mismatch-optin"):
+            assert cfg_version.endswith(".garbage") and probe.stdout.strip() == version
         before = {str(p.relative_to(venv)): p.read_bytes() for p in venv.rglob("*") if p.is_file()}
     trace = owned / "uv.argv"
     download = owned / "would-download"
@@ -126,10 +131,13 @@ fi
     env = dict(
         os.environ, PATH=str(binaries), HOME=str(owned / "home"), FLOW_GATE_CPP_DIR=str(cpp), FLOW_GATE_RERUN="0"
     )
+    if mode == "malformed-mismatch-optin":
+        env["FLOW_GATE_REBUILD_CPP_VENV"] = "1"
     result = subprocess.run(["bash", str(helper)], cwd=target, env=env, capture_output=True, text=True, timeout=30)
     text = result.stdout + result.stderr
     if mode in (
         "mismatched-environment", "broken-environment", "invalid-config-version", "disagreeing-version",
+        "malformed-matching-version", "malformed-mismatch-optin",
     ) and result.returncode == 1:
         reason = "mismatch" if mode == "mismatched-environment" else "unverified"
         assert f"cpp-runtime-environment-{reason}" in text, text

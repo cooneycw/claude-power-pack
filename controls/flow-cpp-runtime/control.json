@@ -56,6 +56,16 @@
       "name": "bad-disagreeing-version",
       "input": "cases/bad-disagreeing-version",
       "expect": "BAD"
+    },
+    {
+      "name": "bad-malformed-matching-version",
+      "input": "cases/bad-malformed-matching-version",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-malformed-mismatch-optin",
+      "input": "cases/bad-malformed-mismatch-optin",
+      "expect": "BAD"
     }
   ],
   "anchors": [
