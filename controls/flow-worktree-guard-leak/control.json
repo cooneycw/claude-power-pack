@@ -1,0 +1,55 @@
+{
+  "_comment": [
+    "Registration for the LEAK verdict of scripts/flow-worktree-guard.sh (issue #1726).",
+    "",
+    "WHY A SECOND REGISTRATION ON THE SAME GATE: controls/flow-worktree-guard covers",
+    "the could-not-look and nothing-to-look-at verdicts, and its historical anchor",
+    "(pre-#1014) already caught a real leak. The harness scores every known-bad case",
+    "against a control's anchor, and an anchor that catches one scores the control",
+    "INERT. So the verdict the guard exists for - exit 3, an edit landed in the main",
+    "checkout - had no committed case at all. It has its own here.",
+    "",
+    "/flow:auto Steps 4 and 6 read this guard's exit and nothing re-derives it."
+  ],
+  "gate": "scripts/flow-worktree-guard.sh",
+  "invocation": [
+    "sh",
+    "controls/flow-worktree-guard-leak/run-case.sh",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^FLOW_WORKTREE_GUARD_LEAK_CONTROL: finding - FLOW_WORKTREE_GUARD: leak",
+  "good_signal": "^FLOW_WORKTREE_GUARD_LEAK_CONTROL: no-finding - FLOW_WORKTREE_GUARD: no-leak",
+  "unavailable_signal": "^FLOW_WORKTREE_GUARD_LEAK_CONTROL: unavailable - ",
+  "limits": "Covers the leak verdict for ONE shape: a tracked file this run edited, also freshly changed in the main checkout. Its anchor is CONSTRUCTED, not a past version of the guard: it was written to miss exactly this, by establishing that the checkout is a linked worktree and never reading the main tree's status. It does not cover an idle worktree with fresh main changes, submodules, the freshness window's boundary, or any could-not-look verdict - those are pinned by tests/test_flow_worktree_guard_verdicts.py, tests/test_flow_worktree_native.py, tests/test_merge_tail_refusals.py and controls/flow-worktree-guard.",
+  "cases": [
+    {
+      "name": "bad-fresh-leak",
+      "input": "cases/bad-fresh-leak",
+      "expect": "BAD",
+      "why": "This run edited a.txt and a.txt was also just changed in the main checkout: the #486 failure, an edit landing in main. If it scores GOOD the guard cannot see the thing it was written for."
+    },
+    {
+      "name": "good-clean-main",
+      "input": "cases/good-clean-main",
+      "expect": "GOOD",
+      "why": "Main is clean. Separates a working guard from one wedged at leak."
+    },
+    {
+      "name": "good-stale-overlap",
+      "input": "cases/good-stale-overlap",
+      "expect": "GOOD",
+      "why": "The same overlap, but main's change is years old: dirt that predates this run (#576). Calling it a leak would block every run in a checkout with old uncommitted work."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "origin": "scripts/flow-worktree-guard.sh",
+      "path": "anchors/constructed-linked-worktree-means-no-leak-flow-worktree-guard.sh",
+      "sha256": "90c921520b491ffcb9c6f152638477210a020a56ecb56599c2bfeb48b0f91693",
+      "why": "CONSTRUCTED: the plausible weaker guard - 'the run is in a linked worktree' mistaken for 'the run's edits stayed in it'. It never reads the main tree's status. It reports no-leak on cases/bad-fresh-leak."
+    }
+  ]
+}

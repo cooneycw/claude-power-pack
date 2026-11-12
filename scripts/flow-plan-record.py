@@ -45,7 +45,7 @@ import subprocess
 import sys
 import traceback
 import uuid
-from typing import Any, NoReturn
+from typing import Any, NamedTuple, NoReturn
 
 CAP = 16384
 OK, ERROR, USAGE, FINDING, UNKNOWN = 0, 1, 2, 3, 4
@@ -244,6 +244,7 @@ def select_run(text: str, run_id: str | None) -> tuple[str | None, str]:
 
 #: The lane-table check (issue #1731), with its committed known-bad cases.
 #: NEGATIVE-CONTROL: controls/flow-plan-record-lanes
+#: NEGATIVE-CONTROL: controls/flow-plan-record-lanes-verdict
 LANE_FILE_REL = pathlib.Path(".claude") / "lanes.md"
 LANE_ANSWERS = ("will test", "will refuse", "not applicable", "not covered")
 LANES_HEADING_RE = re.compile(r"^ {0,3}(#{2,6})[ \t]+Lanes for this change[ \t]*$", re.M)
@@ -976,7 +977,7 @@ def mirror_source(root: pathlib.Path, path: str, touched: frozenset[str] = froze
 
 
 def compliance_unknown(why: str) -> NoReturn:
-    print(f"PLAN_COMPLIANCE: unknown ({why})")
+    print(f"PLAN_COMPLIANCE: unknown{_LANES_CLAUSE} ({why})")
     print("An unknowable answer is never rendered as agreement (#1014, #800).")
     raise Verdict(UNKNOWN)
 
@@ -1057,11 +1058,16 @@ def unparseable_section_c(section: str) -> list[str]:
 def cmd_compliance(issue: str, base: str | None) -> int:
     """Compare the diff's FILE SET against Section C. Reports; never blocks."""
     state: dict[str, Any] = {"root": None, "marked": []}
+    global _LANES_CLAUSE, _LANES_OWED
+    at_close = lanes_at_close(issue)
+    _LANES_CLAUSE = lanes_clause(at_close)
+    _LANES_OWED = at_close.state == "all-shown" or bool(at_close.lanes)
     try:
         return _compliance(issue, base, state)
     finally:
         restore_index(state["root"], state["marked"])
-        report_undemonstrated_lanes(issue)
+        for line in lanes_note(at_close):
+            print(line, file=sys.stderr)
 
 
 def demonstrated_rel(issue: str) -> str:
@@ -1078,8 +1084,27 @@ def will_test_lanes(section: str) -> list[str]:
             and re.sub(r"^[`*_ ]+", "", row[1]).casefold().startswith("will test")]
 
 
-def report_undemonstrated_lanes(issue: str) -> None:
-    """Close-time half of #1731: REPORT, on stderr, never a verdict.
+class LanesAtClose(NamedTuple):
+    """What compliance knows about the lanes a plan said it would test.
+
+    `state` is exactly one of the four in `LANES_AT_CLOSE_STATES`. `lanes` are
+    the will-test lanes with nothing shown (state `missing`), `why` is the
+    reason nothing could be said (state `not-checked`), and `file_absent`
+    separates "no demonstrated file" from "a file with rows missing"."""
+    state: str
+    lanes: tuple[str, ...] = ()
+    why: str = ""
+    rel: str = ""
+    file_absent: bool = False
+
+
+#: The only four answers. `nothing-owed` and `all-shown` leave the verdict line
+#: exactly as it was before #1767; the other two put a clause on it.
+LANES_AT_CLOSE_STATES = ("nothing-owed", "all-shown", "missing", "not-checked")
+
+
+def lanes_at_close(issue: str) -> LanesAtClose:
+    """Close-time half of #1731, decided ONCE, before any verdict is printed.
 
     What happened in each lane the plan said it would test is written to
     `docs/flow-runs/issue-<N>.lanes-demonstrated.md`, a file of its own. It is
@@ -1089,44 +1114,126 @@ def report_undemonstrated_lanes(issue: str) -> None:
     digest; three review passes each found another way to hide a plan edit in
     the part left out.)
 
-    Speaks only where the project lists lanes and this run's section carries a
-    lanes table. Compliance's stdout and exit code are what callers read and
-    they do not change; any failure to look is silence, because a note that can
-    break the step it annotates is worse than no note."""
+    The four states, in the order they are decided:
+
+    - `nothing-owed`: the project has no lane file (it has not adopted lanes,
+      and must behave exactly as before); or this run's plan waived the table,
+      has no table, or answered `will test` for no lane - WHATEVER state the
+      lane file is in, because what is owed is decided by the plan's own
+      answers. Also when there is no repository to ask: compliance's own
+      verdict is already `unknown` there.
+    - `not-checked`: the plan answered `will test` and the lane file exists
+      and cannot be read; this run has no section in the plan record; the
+      demonstrated file exists and cannot be read; or looking failed in a way
+      nobody anticipated. Never rendered as "all shown" - an unreadable answer
+      is not a clean one.
+    - `missing`: one or more will-test lanes have no row (or an empty one).
+    - `all-shown`: every will-test lane has a row that says something.
+
+    It never raises and never changes compliance's exit code (the owner chose
+    the verdict line, not a refusal - #1767)."""
     try:
         root = toplevel()
+    except (Exception, SystemExit):     # noqa: BLE001 - `die` raises SystemExit
+        return LanesAtClose("nothing-owed")
+    try:
+        lane_file_unusable = ""
         try:
             if project_lanes(root) is None:
-                return
-        except LanesUnusable:
-            return
-        section, _why = select_run((root / record_rel(issue)).read_text(), current_run_id(issue))
+                return LanesAtClose("nothing-owed")
+        except LanesUnusable as exc:
+            # Not an answer yet: the PLAN is read first. A plan that owes no
+            # lane result owes none whether or not the lane file can be read,
+            # and its line must stay what it always was.
+            lane_file_unusable = str(exc)
+        record = root / record_rel(issue)
+        try:
+            text = record.read_text()
+        except OSError:
+            return LanesAtClose("not-checked", why=f"{record_rel(issue)} could not be read")
+        section, _why = select_run(text, current_run_id(issue))
         if section is None:
-            return
+            return LanesAtClose("not-checked",
+                                why=f"this run has no section in {record_rel(issue)}")
         owed = will_test_lanes(section)
         if not owed:
-            return
+            return LanesAtClose("nothing-owed")
         rel = demonstrated_rel(issue)
+        if lane_file_unusable:
+            return LanesAtClose("not-checked", lanes=tuple(owed), why=lane_file_unusable, rel=rel)
         try:
-            text = read_text_file(root / rel, rel)
+            shown_text = read_text_file(root / rel, rel)
         except LanesUnusable as exc:
-            print(f"flow-plan-record: {exc}, so the lanes this plan said it would test "
-                  f"({', '.join(owed)}) cannot be checked against what was demonstrated",
-                  file=sys.stderr)
-            return
-        if text is None:
-            print(f"flow-plan-record: no {rel} - this plan answered `will test` for "
-                  f"{', '.join(owed)}. Write that file with a table, one row per lane, saying "
-                  "what was demonstrated", file=sys.stderr)
-            return
-        shown = {lane_key(row[0]) for row in table_rows(text)
+            return LanesAtClose("not-checked", lanes=tuple(owed), why=str(exc), rel=rel)
+        if shown_text is None:
+            return LanesAtClose("missing", lanes=tuple(owed), rel=rel, file_absent=True)
+        shown = {lane_key(row[0]) for row in table_rows(shown_text)
                  if len(row) > 1 and lane_key(row[0]) and row[1].strip()}
-        for lane in owed:
-            if lane_key(lane) not in shown:
-                print(f"flow-plan-record: lane answered `will test` at approval has no row in "
-                      f"{rel} - {lane}", file=sys.stderr)
-    except Exception:           # noqa: BLE001 - see the docstring
-        return
+        missing = tuple(lane for lane in owed if lane_key(lane) not in shown)
+        if missing:
+            return LanesAtClose("missing", lanes=missing, rel=rel)
+        return LanesAtClose("all-shown", rel=rel)
+    except Exception as exc:    # noqa: BLE001 - see the docstring
+        return LanesAtClose("not-checked", why=f"the lane check failed ({type(exc).__name__})")
+
+
+def lanes_clause(at_close: LanesAtClose) -> str:
+    """What the PLAN_COMPLIANCE line carries directly after its verdict word.
+    Empty for `nothing-owed` and `all-shown`, so that line is byte-identical to
+    what it was before #1767 wherever no lane result is owed.
+
+    A STATE AND A COUNT, NOTHING ELSE. A first cut printed the lane names and
+    the could-not-check reason inside parentheses; a lane may be named
+    anything, a name carrying `)` ended the list early, and the fix for that
+    was an encoding. The line needs to say THAT a lane result is owed and how
+    many; the names, the reason and the remedy are in the stderr note, one
+    lane per line, where nothing has to be delimited."""
+    if at_close.state == "missing":
+        return f", LANES NOT DEMONSTRATED ({len(at_close.lanes)})"
+    if at_close.state == "not-checked":
+        return ", LANES NOT CHECKED"
+    return ""
+
+
+def lanes_note(at_close: LanesAtClose) -> list[str]:
+    """The stderr lines that say what to do about the clause. Generated from
+    the same state as the clause, so the two cannot disagree: for `missing`,
+    exactly one line per lane counted on the verdict line, each ending in the
+    lane's name as the plan wrote it. `/flow:auto` Step 6 sends a run here for
+    the remedy, so each note is one a run can act on without another document."""
+    row = "`| <lane> | <what was demonstrated> |`"
+    table = "a header row, a `|---|---|` row, then " + row + " for each"
+    if at_close.state == "missing":
+        opening = (f"flow-plan-record: no {at_close.rel} - this plan answered `will test` for "
+                   f"{len(at_close.lanes)} lane(s), named below. Write that file with a table, "
+                   f"one row per lane, saying what was demonstrated: {table}"
+                   if at_close.file_absent else
+                   f"flow-plan-record: {len(at_close.lanes)} lane(s) answered `will test` at "
+                   f"approval have no row in {at_close.rel}, named below. Add {row} for each to "
+                   "its table (which needs a header row and a `|---|---|` row above it, if the "
+                   "file has none)") + ". A `|` inside a lane name is written `\\|` in its row"
+        return [opening] + [f"flow-plan-record: lane answered `will test` at approval has no row "
+                            f"in {at_close.rel} - {lane}" for lane in at_close.lanes]
+    unchecked = "Fix that and re-run, or report the lanes as NOT CHECKED - never as demonstrated"
+    if at_close.state == "not-checked" and at_close.lanes:
+        return ([f"flow-plan-record: {at_close.why}, so the lanes this plan said it would test "
+                 f"cannot be checked against what was demonstrated. {unchecked}"]
+                + [f"flow-plan-record: lane answered `will test` at approval was not checked - "
+                   f"{lane}" for lane in at_close.lanes])
+    if at_close.state == "not-checked":
+        return [f"flow-plan-record: {at_close.why}, so whether this plan's will-test lanes "
+                f"were demonstrated was not checked. {unchecked}"]
+    return []
+
+
+#: Set once per `compliance` call, before any verdict line is printed, and read
+#: by every site that prints one.
+_LANES_CLAUSE = ""
+#: Whether this run owes a lane result at all (a lane file, and a plan that
+#: answered `will test`). Only then is the demonstrated file the run's own
+#: record; anywhere else a file at that path is an ordinary touched file, as
+#: it was before #1767.
+_LANES_OWED = False
 
 
 def _compliance(issue: str, base: str | None, state: dict[str, Any]) -> int:
@@ -1371,7 +1478,16 @@ def _compliance(issue: str, base: str | None, state: dict[str, Any]) -> int:
               "work committed before run-start")
 
     # EXACT paths, not prefixes: a neighbour of either input is not excluded.
+    # The demonstrated file is this run's own record of its lanes, like the
+    # plan record and the snapshot beside it. Counted as a touched file it made
+    # every run that wrote it a `divergence` (#1767): the file the verdict line
+    # asks for could not be written without changing the verdict. ONLY where a
+    # lane result is owed: with no lane file, a waived plan, or no `will test`
+    # answer, a file at that path is a touched file like any other, exactly as
+    # before.
     excluded_exact = {record_rel(issue), snapshot_rel(issue)}
+    if _LANES_OWED:
+        excluded_exact.add(demonstrated_rel(issue))
     receipt_re = re.compile(rf"^docs/measurements/counter-model/[^/]*-issue-{issue}\.json$")
 
     # A planned entry ending in `/` is a DIRECTORY, matched as a path prefix on
@@ -1427,11 +1543,11 @@ def _compliance(issue: str, base: str | None, state: dict[str, Any]) -> int:
 
     code = OK
     if not unplanned and not untouched and not unresolved_mirrors:
-        print(f"PLAN_COMPLIANCE: agreement - the FILE SET matches the approved plan "
+        print(f"PLAN_COMPLIANCE: agreement{_LANES_CLAUSE} - the FILE SET matches the approved plan "
               f"({len(planned)} planned, {len(touched)} touched).")
     else:
         code = FINDING
-        print("PLAN_COMPLIANCE: divergence - the change and its approved plan disagree.")
+        print(f"PLAN_COMPLIANCE: divergence{_LANES_CLAUSE} - the change and its approved plan disagree.")
         for f in unplanned:
             print(f"  TOUCHED BUT NOT PLANNED: {f}")
         # Report-only (issue #1504): never changes `code`/the exit, only adds
