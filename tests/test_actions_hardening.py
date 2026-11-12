@@ -343,3 +343,13 @@ def test_a_generated_infra_workflow_references_actions_only_through_the_shared_p
     for reference in references:
         assert re.fullmatch(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}", reference), f"{reference} is not pinned to a commit"
         assert reference == registry.get(reference.split("@", 1)[0]), f"{reference} is not the shared pin"
+
+
+def test_the_woodpecker_infra_pipelines_reference_no_github_action() -> None:
+    """CI provider, the other value: nothing to pin there, and that is checked, not assumed."""
+    from lib.cicd.infrastructure import generate_infra_pipeline
+
+    generated = generate_infra_pipeline(provider="woodpecker")
+    assert generated, "the Woodpecker infra generator produced nothing - this test examined no file"
+    for name, text in generated.items():
+        assert "uses:" not in text and "actions/" not in text, f"{name} references a GitHub action"

@@ -370,6 +370,43 @@ def test_a_fresh_scaffold_has_no_deploy_target_and_cannot_report_one(tmp_path: P
     assert "deploy" in missing, f"{name}: the checker does not say deploy is missing"
 
 
+def _deploy_md_step3() -> str:
+    """`/flow:deploy` Step 3, the document's own "does the target exist" block."""
+    import re
+
+    text = (REPO / ".claude" / "commands" / "flow" / "deploy.md").read_text(encoding="utf-8")
+    section = text[text.index("### Step 3: Verify Target Exists") :]
+    block = re.search(r"```bash\n(.*?)```", section, re.DOTALL)
+    assert block and 'grep -q "^${TARGET}:" Makefile' in block.group(1), "Step 3 no longer tests for the rule"
+    return block.group(1)
+
+
+@requires_make
+@pytest.mark.parametrize("kind", ["directory", "file"])
+def test_a_project_that_has_something_named_deploy_is_still_not_deployed_by_the_flows(
+    tmp_path: Path, kind: str
+) -> None:
+    """Counter-model review: with a `deploy` file or directory, bare `make deploy` exits 0.
+
+    That is make's own answer ("'deploy' is up to date"), and removing the rule
+    cannot change it. What must hold is that neither flow reaches `make deploy`:
+    both test for a deploy RULE first, and a scaffold has none.
+    """
+    text = (REPO / "templates" / "makefiles" / "python-uv.mk").read_text(encoding="utf-8")
+    (tmp_path / "Makefile").write_text(text, encoding="utf-8")
+    if kind == "directory":
+        (tmp_path / "deploy").mkdir()
+    else:
+        (tmp_path / "deploy").write_text("notes\n", encoding="utf-8")
+    bare = subprocess.run(["make", "deploy"], cwd=tmp_path, capture_output=True, text=True, check=False)
+    assert bare.returncode == 0, "precondition: this is the state where bare make reports success"
+    assert subprocess.run(["sh", "-c", STEP9_TEST], cwd=tmp_path, check=False).returncode != 0
+    step3 = subprocess.run(
+        ["bash", "-c", _deploy_md_step3()], cwd=tmp_path, capture_output=True, text=True, check=False
+    )
+    assert step3.returncode == 1 and "No 'deploy' target in Makefile" in step3.stdout
+
+
 @requires_make
 def test_a_project_with_a_real_deploy_target_is_found_and_run(tmp_path: Path) -> None:
     """Project state, the other value: the owner has written real deploy steps."""

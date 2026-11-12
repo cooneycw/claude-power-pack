@@ -9,8 +9,11 @@
   inline generator shipped a `deploy` whose recipe only printed a TODO; it
   exited 0, and `/flow:deploy` and `/flow:auto` recorded a deployment. The
   block is now commented out with its instructions, and `deploy` is out of
-  `.PHONY`, so `make deploy` fails with "No rule to make target" and
-  `/flow:auto` skips its deploy step until you write one. **A Makefile you
+  `.PHONY`, so `/flow:deploy` stops with "No 'deploy' target in Makefile" and
+  `/flow:auto` skips its deploy step until you write one. Run by hand,
+  `make deploy` fails with "No rule to make target", unless the project has a
+  file or directory named `deploy`, where make itself answers "up to date";
+  neither flow gets that far. **A Makefile you
   already generated is not rewritten: if it still has the TODO target, it
   still reports a successful deployment of nothing until you edit it.**
   Nothing tells an existing project to regenerate (#1712).
