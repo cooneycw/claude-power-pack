@@ -1,0 +1,1 @@
+Error response from daemon: pull access denied for cpp-1508-no-such-image, repository does not exist or may require 'docker login'

@@ -296,6 +296,29 @@ is_fetch_failure() {
     [[ "$2" == "$EX_FETCH_FAILED" && "$1" == *-stage ]]
 }
 
+# A step whose IMAGE could not be pulled never ran the change's code (issue
+# #1508). MEASURED, not guessed: CPP repo 1 pipeline 3674 (2026-11-11,
+# Woodpecker 3.19.0, a deliberate bad-image run) reported each such step as
+# `type=commands state=failure exit_code=0` with the Docker daemon's own
+# message in `error`. Both halves are required:
+#   - exit code 0: the container never started, so no command exited. This is
+#     what keeps the Docker-SOCKET error (exit 126, measured on kyle 3568) and
+#     any command that really failed out of this class.
+#   - one of the two measured daemon prefixes. A missing tag and an unreachable
+#     registry both read `failed to resolve reference`; a missing or private
+#     repository reads `pull access denied for`. Any other daemon error on a
+#     never-started step (`network with name ... already exists` was measured
+#     at workflow level) is NOT a pull failure and stays `code`.
+# Wording is the daemon's: a Docker release that rewords it falls back to
+# `code` - noisy, never an excused code failure. The origin says WHERE the
+# failure happened, not whose fault it is: a change that itself points a step
+# at a bad image reads precode too, exactly as a change that breaks `clone` does.
+is_image_pull_failure() {
+    [[ "$1" == "0" ]] || return 1
+    [[ "$2" == "Error response from daemon: failed to resolve reference "* \
+        || "$2" == "Error response from daemon: pull access denied for "* ]]
+}
+
 # WHERE a failure happened, not only which step (issue #1342). A red `clone`
 # step - the checkout that runs before any of the change's code - read exactly
 # like a red test suite, so a worker debugged its own diff for a network blip.
@@ -327,7 +350,8 @@ failure_origin() {
         ec="${FAILED_STEP_EXIT_CODES[$i]:-}"
         if [[ "${FAILED_STEP_ERRORS[$i]:-}" == "Canceled" ]]; then
             canceled=$(( canceled + 1 ))
-        elif [[ "$t" == "clone" ]] || is_fetch_failure "${FAILED_STEPS[$i]}" "$ec"; then
+        elif [[ "$t" == "clone" ]] || is_fetch_failure "${FAILED_STEPS[$i]}" "$ec" \
+            || is_image_pull_failure "$ec" "${FAILED_STEP_ERRORS[$i]:-}"; then
             precode=$(( precode + 1 ))
         elif [[ -n "$t" ]]; then
             code=$(( code + 1 ))
@@ -357,7 +381,9 @@ failure_origin() {
 #: and nothing re-derives it (issue #1411). The control answers this script's
 #: curl from files through a stub on PATH, varying only a failed step's
 #: exit_code, and checks that exit 75 (EX_FETCH_FAILED) reports precode while
-#: exit 1 still reports code. See its `limits`.
+#: exit 1 still reports code. Since #1508 it also varies the
+#: step's error text: a measured image-pull failure reports precode while a
+#: Docker-socket error and a bare exit 126 still report code. See its `limits`.
 
 emit() {
     echo "FLOW_CI_PROVIDER: $PROVIDER"
@@ -376,7 +402,8 @@ emit() {
         for (( i = 0; i < ${#FAILED_STEPS[@]}; i++ )); do
             [[ "${FAILED_STEP_ERRORS[$i]:-}" == "Canceled" ]] && continue
             if [[ "${FAILED_STEP_TYPES[$i]:-}" == "clone" ]] \
-                || is_fetch_failure "${FAILED_STEPS[$i]}" "${FAILED_STEP_EXIT_CODES[$i]:-}"; then
+                || is_fetch_failure "${FAILED_STEPS[$i]}" "${FAILED_STEP_EXIT_CODES[$i]:-}" \
+                || is_image_pull_failure "${FAILED_STEP_EXIT_CODES[$i]:-}" "${FAILED_STEP_ERRORS[$i]:-}"; then
                 echo "FLOW_CI_PRECODE_FAILURE: ${FAILED_STEPS[$i]}"
             fi
         done
