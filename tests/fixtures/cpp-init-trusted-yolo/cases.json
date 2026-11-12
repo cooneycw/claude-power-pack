@@ -35,8 +35,8 @@
       "Bash(git push --force origin main:*)",
       "Bash(git push --force origin master:*)",
       "Bash(sudo rm:*)",
-      "Bash(mkfs:*)",
-      "Bash(dd if=:*)"
+      "Bash(mkfs*)",
+      "Bash(dd if=*)"
     ]
   },
   "commands": [
