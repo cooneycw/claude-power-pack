@@ -561,7 +561,9 @@ cm_receipt_matches_head() {
 
 cm_enrolment_evaluate() {
     local root receipts branch f rbranch rhead rstatus rreason reasons
-    local cm_undecidable=0 cm_best="" cm_best_distance=0 cm_distance="" cm_uncounted=0
+    local cm_undecidable=0 cm_best_distance=0 cm_distance="" cm_uncounted=0
+    local cm_sha cm_i cm_same_head
+    local -a cm_best_files=() cm_best_heads=()
     # PARTICIPATION IS ESTABLISHED BEFORE GIT IS REQUIRED. Asking git first
     # reports `unknown` - and so RED - for any directory that is not a checkout,
     # which is most of what this gate is pointed at outside a flow run. A
@@ -640,8 +642,13 @@ cm_enrolment_evaluate() {
         # whose own receipt was unusable, and the line named the wrong evidence.
         # Every receipt that passes the filters is now a candidate, and the one
         # whose reviewed head has the FEWEST commits between it and HEAD wins.
-        # The count decides; the filename only breaks a tie at one head, where
-        # the later file is the later review (`<=` on an ascending glob).
+        # The count decides; the filename only breaks a tie AT ONE HEAD, where
+        # the later file is the later review and replaces the earlier one.
+        # TWO DIFFERENT HEADS AT THE SAME DISTANCE (a merge whose two sides were
+        # each reviewed: `B..M` and `C..M` count the same) are BOTH kept and both
+        # judged below, and every one of them must be usable. Letting the
+        # filename choose between them would make renaming a receipt switch the
+        # gate between pass and fail (counter-model review).
         # A distance that cannot be computed never wins: such a receipt is set
         # aside, and if that leaves no candidate the answer is undecidable below
         # - never a fall back to the first match, which would restore the defect.
@@ -650,14 +657,27 @@ cm_enrolment_evaluate() {
             cm_uncounted=$(( ${cm_uncounted:-0} + 1 ))
             continue
         fi
-        if [[ -z "${cm_best:-}" ]] || (( cm_distance <= cm_best_distance )); then
-            cm_best="$f"
+        cm_sha=$(git rev-parse --verify -q "$rhead^{commit}" 2>/dev/null) || cm_sha="$rhead"
+        if (( ${#cm_best_files[@]} == 0 )) || (( cm_distance < cm_best_distance )); then
+            cm_best_files=("$f")
+            cm_best_heads=("$cm_sha")
             cm_best_distance="$cm_distance"
+        elif (( cm_distance == cm_best_distance )); then
+            cm_same_head=0
+            for cm_i in "${!cm_best_heads[@]}"; do
+                if [[ "${cm_best_heads[$cm_i]}" == "$cm_sha" ]]; then
+                    cm_best_files[cm_i]="$f"
+                    cm_same_head=1
+                fi
+            done
+            if (( ! cm_same_head )); then
+                cm_best_files+=("$f")
+                cm_best_heads+=("$cm_sha")
+            fi
         fi
     done
 
-    if [[ -n "${cm_best:-}" ]]; then
-        f="$cm_best"
+    for f in ${cm_best_files[@]+"${cm_best_files[@]}"}; do
         rstatus=$(cm_field "$f" status)
         if [[ "$rstatus" == "skipped" ]]; then
             rreason=$(cm_field "$f" skip_reason)
@@ -684,7 +704,7 @@ cm_enrolment_evaluate() {
             fi
             CM_ENROLMENT_STATE=skipped
             CM_ENROLMENT_LINE="skipped: $rreason ($(basename "$f"))$_cm_where"
-            return
+            continue
         fi
         # STATUS IS CHECKED POSITIVELY, never by not-being-skipped (counter-model
         # review, HIGH). Treating "anything that is not `skipped`" as a completed
@@ -701,6 +721,8 @@ cm_enrolment_evaluate() {
         CM_ENROLMENT_STATE=receipt
         CM_ENROLMENT_RECEIPT_FILE="$f"
         CM_ENROLMENT_LINE="receipt: $(basename "$f")$_cm_where"
+    done
+    if (( ${#cm_best_files[@]} > 0 )); then
         return
     fi
     if [[ "${cm_uncounted:-0}" -gt 0 ]]; then

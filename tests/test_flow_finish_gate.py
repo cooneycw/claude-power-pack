@@ -3812,3 +3812,53 @@ def test_when_no_distance_can_be_computed_the_answer_is_undecidable(tmp_path: Pa
     line = _counter_model_line(result)
     assert line.startswith("FLOW_FINISH_GATE_COUNTER_MODEL: undecidable: 2 receipt(s) match"), line
     assert "receipt: " not in line.split("undecidable:")[0]
+
+
+def _diamond_repo(tmp_path: Path) -> tuple[Path, str, str]:
+    """base -> B on one side, C on the other, merged at HEAD: B and C are two
+    DIFFERENT heads at the same distance from HEAD."""
+    repo = _enrolled_repo(tmp_path)
+    _git(repo, "checkout", "-q", "-b", "side")
+    (repo / "side.txt").write_text("c\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "side commit")
+    side = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "checkout", "-q", "master")
+    (repo / "main.txt").write_text("b\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "main commit")
+    main = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "merge", "-q", "--no-ff", "-m", "merge side", "side")
+    assert _git(repo, "rev-list", "--count", f"{main}..HEAD") == _git(
+        repo, "rev-list", "--count", f"{side}..HEAD"
+    ), "precondition: the two reviewed heads are equally far from HEAD"
+    return repo, main, side
+
+
+@requires_bash
+@requires_git
+@pytest.mark.parametrize("valid_first", [True, False])
+def test_two_heads_at_one_distance_are_both_judged_whatever_the_filenames(
+    tmp_path: Path, valid_first: bool,
+) -> None:
+    """Counter-model review: at equal distance the filename chose between two
+    DIFFERENT heads, so renaming a receipt switched the gate between pass and
+    fail. Both are judged now; one unusable receipt reds the gate either way."""
+    repo, main, side = _diamond_repo(tmp_path)
+    first, second = ("ran", "garbage") if valid_first else ("garbage", "ran")
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", main, status=first)
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", side, status=second)
+    result = _gate(repo)
+    assert "unknown: receipt " in _counter_model_line(result), result.stdout
+    assert _verdict(result) == "FLOW_FINISH_GATE: fail (counter-model line unknown)"
+
+
+@requires_bash
+@requires_git
+def test_two_reviewed_sides_of_a_merge_both_usable_pass(tmp_path: Path) -> None:
+    repo, main, side = _diamond_repo(tmp_path)
+    _named_receipt(repo, "2026-01-01T000000Z-issue-1707.json", main)
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1707.json", side)
+    result = _gate(repo)
+    assert "receipt: " in _counter_model_line(result)
+    assert "fail" not in _verdict(result)
