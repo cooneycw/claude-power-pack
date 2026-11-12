@@ -486,7 +486,7 @@ permission prompt, a gate failure/retry, red output you worked around, or a manu
 correction, record it immediately via the fail-open helper (it never blocks):
 
 ```bash
-scripts/friction-log.sh --class <permission-prompt|gate-failure|red-output|manual-intervention> \
+~/.claude/scripts/friction-log.sh --class <permission-prompt|gate-failure|red-output|manual-intervention> \
   --signal "<what happened>" --run "flow:merge" --step "<N/9 Name>" --outcome "<...>"
 ```
 

@@ -206,4 +206,4 @@ safe option.
   commit-first pattern (#635), pinned by `tests/test_flow_docs_no_shared_stash.py`
 - `.claude/commands/cpp/update.md` - runs in the main checkout, so the guard does
   not refuse it; it tags its entry and restores by SHA instead (#1056)
-- `docs/decisions/0008-instrument-negative-control-bound.md` - row 74
+- `controls/census.md` - row 74 (the census moved out of ADR 0008 in #1671)

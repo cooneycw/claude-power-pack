@@ -36,15 +36,17 @@ Run each command to register the corresponding MCP server:
 
 ```bash
 codex mcp add second-opinion --url http://127.0.0.1:8080/mcp
-codex mcp add playwright-persistent --url http://127.0.0.1:8081/mcp
 ```
+
+The `playwright-persistent` server (port 8081) was retired with CPP's container
+runtime and is no longer registered here. Browser sessions come from the upstream
+Playwright MCP that `/cpp:init` registers.
 
 ## Verify Registration
 
 ```bash
 codex mcp list
 codex mcp get second-opinion
-codex mcp get playwright-persistent
 ```
 
 Restart Codex after registration for tools to become available.
@@ -53,7 +55,6 @@ Restart Codex after registration for tools to become available.
 
 ```bash
 codex mcp remove second-opinion
-codex mcp remove playwright-persistent
 ```
 
 ## Transport Reference
@@ -61,7 +62,6 @@ codex mcp remove playwright-persistent
 | Server               | Port | Claude Code (SSE)                          | Codex (streamable HTTP)                |
 |----------------------|------|--------------------------------------------|----------------------------------------|
 | second-opinion       | 8080 | `http://127.0.0.1:8080/sse`               | `http://127.0.0.1:8080/mcp`          |
-| playwright-persistent| 8081 | `http://127.0.0.1:8081/sse`               | `http://127.0.0.1:8081/mcp`          |
 
 ## Notes
 
