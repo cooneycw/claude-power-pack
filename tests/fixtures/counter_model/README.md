@@ -139,3 +139,12 @@ host refusal is therefore INFERRED from the custom-only blind spot, not
 reproduced from that original rollout. Per the owner ruling, #1624 reopens if a
 host review is refused again. The schema proves format support, not what that
 host persisted or a version-specific omission of native events.
+
+`claude_independence.json` is a constructed identity-pair matrix (#1747), not
+captured runtime evidence or an alias table. Its six refused pairs and six
+accepted pairs exercise write-time, schema-5 and legacy comparisons separately.
+A single leading `claude-` difference is insufficient evidence of independence;
+these cases do not assert that the two spellings are the same model. Tests build
+owned runtime-shaped transcripts from the pair, and separately mutate valid
+schema-5 and historical schema-1 receipts. The accepted cases preserve distinct
+models, a Codex reviewer, context-tag behavior and the narrow prefix boundary.

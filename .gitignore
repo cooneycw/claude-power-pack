@@ -376,3 +376,6 @@ woodpecker/wp-cli-env.sh
 
 # Representative historical generic-Makefile receipt (#1587 R3).
 !tests/fixtures/cpp-install-receipt/legacy-generic-makefile.json
+
+# Constructed fail-closed model-independence cases (#1747).
+!tests/fixtures/counter_model/claude_independence.json
