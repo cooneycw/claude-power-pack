@@ -12,7 +12,7 @@
 # List sub-projects (directories containing their own Makefile)
 PROJECTS := backend frontend
 
-.PHONY: lint test build deploy clean verify troubleshoot ci-local $(PROJECTS)
+.PHONY: lint test build clean verify troubleshoot ci-local $(PROJECTS)
 
 ## Quality gates (used by /flow:finish)
 ## Runs target in each sub-project that defines it
@@ -49,11 +49,17 @@ verify: lint test
 
 ## Deployment (used by /flow:deploy)
 
-deploy: verify build
-	@echo "TODO: Define your deploy steps here"
-	@echo "Examples:"
-	@echo "  docker compose up -d --build"
-	@echo "  $(MAKE) -C backend deploy && $(MAKE) -C frontend deploy"
+# No deploy target is defined yet, on purpose (issue #1712): a target that
+# only printed a TODO would report a successful deployment that deployed
+# nothing. Uncomment the block below, replace its recipe with real steps, and
+# add `deploy` to .PHONY (a .PHONY target with no rule makes `make deploy`
+# exit 0 with "Nothing to be done").
+#
+# deploy: verify build
+# 	<your deploy command>
+# Examples:
+#    docker compose up -d --build
+#    $(MAKE) -C backend deploy && $(MAKE) -C frontend deploy
 
 ## Troubleshooting (single-command diagnostic pass)
 
