@@ -75,6 +75,7 @@ def _run(tmp_path: Path, patch: bytes | None, **extra: str) -> dict[str, str]:
     home = tmp_path / "home"
     work.mkdir()
     home.mkdir()
+    # negative-fixture: allow PATH is isolation plus the stub, not an absence
     base = {"HOME": str(home), "PATH": f"{stub_dir}:{ISOLATED_PATH}"}
     genv = {**os.environ, **base}
     subprocess.run(["git", "init", "-q", "-b", "main"], cwd=work, env=genv, check=True, capture_output=True)
