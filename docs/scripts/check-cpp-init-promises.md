@@ -21,21 +21,6 @@ plus generated-source roles, individual unknown operands and shell-variable form
 with good fixed/retirement cases. Its constructed always-green anchor makes the
 battery fail when the path check is absent; provenance is explicitly unverified.
 
-**A promised path must be tracked (#1716).** When `--root` is the root of a git
-checkout, a supplied path that exists but is not tracked is a finding
-(`untracked promised path ... does not ship`): `Path.exists()` alone passed a
-file present only in one working tree, such as a local `.venv`. A glob is
-judged on its tracked matches, so local debris it also matches
-(`scripts/__pycache__`) is not a finding, and a glob with no tracked match is.
-A path is judged by its own name: an untracked symlink to a tracked file is
-untracked. A path inside a submodule is neither: this index records only the
-submodule's commit, so the summary counts it as `inside a submodule: NOT
-checked`. A checkout whose index cannot be read is `UNKNOWN` (exit 2), never a
-pass. Where the root is not a git checkout root - the control's scratch cases, an
-unpacked archive - the tracked check does not run, and the summary line says
-`tracked check NOT RUN ... whether they ship is unverified` in place of `each is
-tracked`. Tests: `tests/test_cpp_init_promises.py`.
-
 **Classification is per line (#1716).** `creates project` followed by the path
 on the same line is a generated file. The same sentence wrapped before its path
 leaves the path alone on a line in the disclosure step, where it reads as a

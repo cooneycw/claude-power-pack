@@ -11,10 +11,6 @@
   `Bash(mkfs*)`. If you installed either profile, re-run `/cpp:init` or edit
   the two rules in your settings. The wizard also now says a deny rule is not
   a boundary: the same program run another way is not matched (#1716).
-- **The `/cpp:init` promise check requires a promised file to be tracked.** A
-  file that exists only in one working tree no longer passes
-  `make cpp-init-promises-check`; outside a git checkout the check says the
-  tracked half did not run (#1716).
 - **A defect now says where it came from.** A defect report carries an
   `Origin:` line - the issue or pull request that delivered the behaviour that
   broke, `never worked`, or `not traced - <what was tried>` - and the pull
