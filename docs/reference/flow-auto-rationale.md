@@ -895,6 +895,21 @@ collapse" note above).
      receipt for an unreviewed head, and never a false pass count: before #1700
      this sentence read "re-review once more, never a third time", which left a
      finding accepted on pass 2 with no legal outcome.
+
+     WHO THE APPROVER IS, for this purpose: whoever approved the plan at Step 3
+     - the user, or in a wave the orchestrator. The ask is made before EACH
+     further pass, and the run waits for the answer.
+
+     IF THE APPROVER DECLINES a further pass, the receipt is written for the
+     LAST REVIEWED head with its true count, and the approver says which of two
+     things happens to the fix made after it: (i) it is backed out and the
+     finding goes to its own issue; or (ii) it stays as a commit after the
+     receipt, and the PR names it, in words, as not reviewed by the second
+     model. A finding of medium severity or higher takes route (i) unless the
+     approver reads the fix themselves and says so in the PR. Never a receipt
+     for the unreviewed head, never a false count, never silence (wave
+     cpp-improvement orchestrator ruling, 2026-11-11, under the owner's
+     delegation).
    - `COUNTER_MODEL_REVIEW: clean` - the reviewer said so in the prescribed
      words. Record `ran` with zero counts.
    - `COUNTER_MODEL_REVIEW: unparseable` (non-zero) - the reviewer produced

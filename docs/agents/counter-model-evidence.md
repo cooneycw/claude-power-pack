@@ -138,3 +138,30 @@ and a named authority may raise it mid-run for that run.
   measured against the gate at 786f149c). The older VALIDATOR does reject it
   (`passes is 5, beyond the hard ceiling of 3`), so a consumer that runs the
   corpus check must move its pin before committing an escalated receipt.
+
+### Asking for a further pass, and what happens on a refusal
+
+The first accepted fix earns one re-review. From then on, every further pass is
+asked for before it is run. The approver is whoever approved the plan at Step
+3: the user, or in a wave the orchestrator.
+
+If the approver declines, the receipt is written for the LAST REVIEWED head
+with its true count, and the approver chooses what happens to the fix made
+after it:
+
+1. It is backed out, and the finding goes to its own issue.
+2. It stays as a commit after the receipt, and the PR names it, in words, as
+   not reviewed by the second model.
+
+A finding of medium severity or higher takes the first route unless the
+approver reads the fix themselves and says so in the PR. There is never a
+receipt for the unreviewed head, never a false count, and never silence.
+
+### How the gate reads a receipt
+
+`flow-finish-gate.sh` does not parse receipt JSON. It calls
+`counter-model-receipt.py judge <files...>` once and reads one line per receipt
+by position (`JUDGE_COLUMNS`). Every field comes from the top level of the
+parsed JSON; a field nested in another object is not believed. If the script
+cannot be found or fails, the enrolment line reads `unknown` and an enrolled
+repository's gate fails.

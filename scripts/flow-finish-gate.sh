@@ -551,16 +551,6 @@ fi
 # move this evaluation above that block. Pinned by the control case
 # `good-check-summary-mode-not-enforced`.
 
-cm_field() {
-    # One flat JSON string field out of a receipt. Receipts are written by
-    # json.dump(indent=2) with string values only at this level, so a line-scoped
-    # read is exact here - this is deliberately NOT a general JSON parser, and it
-    # must not grow into one. `jq` is not assumed: this helper runs in repos that
-    # are not CPP and on the fallback lane, which exists precisely when the
-    # richer toolchain is missing.
-    sed -n "s/^[[:space:]]*\"$2\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$1" 2>/dev/null | head -1
-}
-
 cm_receipt_matches_head() {
     # THE MATCH PREDICATE, in one place on purpose. $1 is a receipt's recorded
     # head. It satisfies this run when it is the current HEAD or an ANCESTOR of
@@ -589,14 +579,15 @@ cm_receipt_matches_head() {
 }
 
 cm_enrolment_evaluate() {
-    local root receipts branch f rbranch rhead rstatus rreason reasons
+    local root receipts branch f rstate rstatus rbranch rhead rreason rskip_ok
+    local rcount rpasses rruler rscope rdirection cm_records cm_record
     local cm_undecidable=0 cm_best_distance=0 cm_distance="" cm_uncounted=0
-    local cm_sha cm_i cm_same_head cm_ruling
-    local -a cm_best_files=() cm_best_heads=()
-    # EVERY `ran` receipt the judgement accepted, not only the last one named on
-    # the line: when two reviewed heads tie on distance both are accepted, and
-    # the enrolment-only scope check below must see both (counter-model review).
-    CM_ENROLMENT_RAN_FILES=()
+    local cm_sha cm_i cm_same_head
+    local -a cm_best_records=() cm_best_heads=()
+    # EVERY accepted `ran` receipt that carries no scope, not only the last one
+    # named on the line: when two reviewed heads tie on distance both are
+    # accepted, and the enrolment-only scope check must see both (#1707).
+    CM_ENROLMENT_SCOPELESS=()
     # PARTICIPATION IS ESTABLISHED BEFORE GIT IS REQUIRED. Asking git first
     # reports `unknown` - and so RED - for any directory that is not a checkout,
     # which is most of what this gate is pointed at outside a flow run. A
@@ -653,15 +644,33 @@ cm_enrolment_evaluate() {
         _cm_where="  (detached HEAD: matched by ancestry, branch not comparable)"
     fi
 
-    for f in "$receipts"/*.json; do
-        [[ -e "$f" ]] || continue
-        rbranch=$(cm_field "$f" branch)
+    # THE GATE DOES NOT READ RECEIPT JSON. It asks counter-model-receipt.py,
+    # once, about every receipt here (issue #1700). It used to pull each field
+    # out with a sed pattern that matched a name at any depth, and three review
+    # findings in two passes were that one weakness. Each answer line holds the
+    # top-level fields in a fixed order (JUDGE_COLUMNS in that script; a test
+    # pins the two lists equal), separated by the ASCII unit separator, which is
+    # not shell whitespace, so an empty field survives the read.
+    # WHERE THE SCRIPT CANNOT BE FOUND OR FAILS, the answer is `unknown` and an
+    # enrolled repository's gate reds. That was already so for a `skipped`
+    # receipt; it is now so for every receipt, because every judgement is here.
+    cm_records=""
+    if compgen -G "$receipts/*.json" >/dev/null 2>&1; then
+        if ! cm_records=$(python3 "$CM_RECEIPT_HELPER" judge "$receipts"/*.json 2>/dev/null) \
+                || [[ -z "$cm_records" ]]; then
+            CM_ENROLMENT_STATE=unknown
+            CM_ENROLMENT_LINE="unknown: the receipts in docs/measurements/counter-model could not be judged - counter-model-receipt.py is missing or failed, so no review can be established"
+            return
+        fi
+    fi
+    while IFS= read -r cm_record; do
+        IFS=$'\x1f' read -r f rstate rstatus rbranch rhead rreason rskip_ok rcount rpasses rruler rscope rdirection <<< "$cm_record"
+        [[ -n "$f" ]] || continue
         # With no branch to compare, ancestry alone decides - see the detached-HEAD
         # note above.
         if [[ -n "$branch" && "$rbranch" != "$branch" ]]; then
             continue
         fi
-        rhead=$(cm_field "$f" head)
         cm_receipt_matches_head "$rhead"
         case $? in
             0) ;;
@@ -691,57 +700,35 @@ cm_enrolment_evaluate() {
             continue
         fi
         cm_sha=$(git rev-parse --verify -q "$rhead^{commit}" 2>/dev/null) || cm_sha="$rhead"
-        if (( ${#cm_best_files[@]} == 0 )) || (( cm_distance < cm_best_distance )); then
-            cm_best_files=("$f")
+        if (( ${#cm_best_records[@]} == 0 )) || (( cm_distance < cm_best_distance )); then
+            cm_best_records=("$cm_record")
             cm_best_heads=("$cm_sha")
             cm_best_distance="$cm_distance"
         elif (( cm_distance == cm_best_distance )); then
             cm_same_head=0
             for cm_i in "${!cm_best_heads[@]}"; do
                 if [[ "${cm_best_heads[$cm_i]}" == "$cm_sha" ]]; then
-                    cm_best_files[cm_i]="$f"
+                    cm_best_records[cm_i]="$cm_record"
                     cm_same_head=1
                 fi
             done
             if (( ! cm_same_head )); then
-                cm_best_files+=("$f")
+                cm_best_records+=("$cm_record")
                 cm_best_heads+=("$cm_sha")
             fi
         fi
-    done
+    done <<< "$cm_records"
 
-    for f in ${cm_best_files[@]+"${cm_best_files[@]}"}; do
-        rstatus=$(cm_field "$f" status)
-        if [[ "$rstatus" == "skipped" ]]; then
-            # A SKIP MUST BE A SKIP AT THE TOP LEVEL (issue #1700, counter-model
-            # review). `cm_field` matches a field by name wherever it sits, so a
-            # receipt with a NESTED `"status": "skipped"` placed before its real
-            # top-level `"status": "ran", "passes": 5` read as an allowed skip
-            # and never reached the pass-count judgement below. The receipt
-            # script parses the JSON and says what the top level holds.
-            if [[ "$(python3 "$CM_RECEIPT_HELPER" escalation "$f" 2>/dev/null)" != "skipped" ]]; then
-                CM_ENROLMENT_STATE=unknown
-                CM_ENROLMENT_LINE="unknown: receipt $(basename "$f") reads as skipped only through a nested field; its top-level status is not 'skipped'"
-                return
-            fi
-            rreason=$(cm_field "$f" skip_reason)
-            # The committed set is read from its ONE declaration rather than
-            # copied into shell (issue #1171). A second list here is the
-            # cross-language drift #890/#1147 kept removing, and it fails in the
-            # dangerous direction: a shell copy still naming a retired reason
-            # would accept a skip the committed set refuses.
-            reasons=$(python3 "$CM_RECEIPT_HELPER" skip-reasons 2>/dev/null)
-            if [[ -z "$reasons" ]]; then
-                CM_ENROLMENT_STATE=unknown
-                CM_ENROLMENT_LINE="unknown: cannot read the committed skip reasons, so '$rreason' cannot be checked against them"
-                return
-            fi
-            # `--` IS LOAD-BEARING (counter-model review pass 2, MEDIUM). Without
-            # it a reason of `-ecodex-absent` is read by grep as the OPTION
-            # `-e codex-absent`, which matches - so a reason absent from the
-            # committed set passed the allowlist. An allowlist that can be
-            # addressed with its own matcher's flags is not an allowlist.
-            if ! printf '%s\n' "$reasons" | grep -qxF -- "$rreason"; then
+    for cm_record in ${cm_best_records[@]+"${cm_best_records[@]}"}; do
+        IFS=$'\x1f' read -r f rstate rstatus rbranch rhead rreason rskip_ok rcount rpasses rruler rscope rdirection <<< "$cm_record"
+        if [[ "$rstate" == "skipped" ]]; then
+            # The committed set of skip reasons has ONE declaration, in
+            # counter-model-receipt.py (issue #1171); the script says whether
+            # this reason is in it. A second list here is the cross-language
+            # drift #890/#1147 kept removing, and it fails in the dangerous
+            # direction: a copy still naming a retired reason would accept a
+            # skip the committed set refuses.
+            if [[ "$rskip_ok" != "yes" ]]; then
                 CM_ENROLMENT_STATE=unknown
                 CM_ENROLMENT_LINE="unknown: skip reason '$rreason' is not in the committed set"
                 return
@@ -750,14 +737,10 @@ cm_enrolment_evaluate() {
             CM_ENROLMENT_LINE="skipped: $rreason ($(basename "$f"))$_cm_where"
             continue
         fi
-        # STATUS IS CHECKED POSITIVELY, never by not-being-skipped (counter-model
-        # review, HIGH). Treating "anything that is not `skipped`" as a completed
-        # review accepted a receipt with NO status field and one reading
-        # `"status": "garbage"` - so incomplete evidence satisfied the gate without
-        # recording either a review or an allowed skip. That is this issue's own
-        # defect one level in: a receipt that cannot say what happened is not
-        # evidence that anything did.
-        if [[ "$rstatus" != "ran" ]]; then
+        # A receipt that cannot say what happened is not evidence that anything
+        # did (counter-model review, HIGH): a status that is neither `ran` nor
+        # `skipped`, or none at all, satisfies nothing.
+        if [[ "$rstate" != "ran" ]]; then
             CM_ENROLMENT_STATE=unknown
             CM_ENROLMENT_LINE="unknown: receipt $(basename "$f") has status '${rstatus:-<absent>}', which is neither 'ran' nor 'skipped'"
             return
@@ -766,41 +749,30 @@ cm_enrolment_evaluate() {
         # receipt claiming more passes than the ceiling is a passing state of
         # its own ONLY with a recorded ruling: who raised the cap for that run,
         # where the ruling can be read, and the cap it was raised to. The rule
-        # lives in counter-model-receipt.py and is asked for, never restated
-        # here. Before this the gate did not read `passes` at all, so a
-        # hand-made receipt claiming five passed as an ordinary one. `ruled by`
-        # is RECORDED, NOT AUTHENTICATED: this line repeats what the receipt
-        # says and vouches for nothing.
-        #
-        # THE COUNT IS NEVER READ IN SHELL, and every `ran` receipt is asked
-        # about (counter-model review). A first cut pulled `passes` out with sed
-        # and compared it in bash, asking the script only above the ceiling:
-        # `"passes":  5,` (two spaces) is valid JSON the pattern missed, and
-        # `"passes": 18446744073709551617` wraps to 1 in bash arithmetic, so
-        # both read as "within the ceiling" and passed with no ruling. Python
-        # parses the JSON; an answer that cannot be had, or that is neither
-        # `ordinary` nor a count and a ruler, fails closed.
-        if ! cm_ruling=$(python3 "$CM_RECEIPT_HELPER" escalation "$f" 2>/dev/null); then
-            CM_ENROLMENT_STATE=unknown
-            CM_ENROLMENT_LINE="unknown: receipt $(basename "$f") records a pass count that needs a recorded ruling and has no usable one"
-            return
+        # is the script's; before this the gate did not look at `passes` at
+        # all, so a hand-made receipt claiming five passed as an ordinary one.
+        # `ruled by` is RECORDED, NOT AUTHENTICATED: the line repeats what the
+        # receipt says and vouches for nothing.
+        case "$rcount" in
+            escalated)
+                CM_ENROLMENT_STATE=escalated
+                CM_ENROLMENT_LINE="escalated: $rpasses passes, ruled by $rruler ($(basename "$f"))$_cm_where"
+                ;;
+            ordinary)
+                CM_ENROLMENT_STATE=receipt
+                CM_ENROLMENT_LINE="receipt: $(basename "$f")$_cm_where"
+                ;;
+            *)
+                CM_ENROLMENT_STATE=unknown
+                CM_ENROLMENT_LINE="unknown: receipt $(basename "$f") records a pass count that needs a recorded ruling and has no usable one"
+                return
+                ;;
+        esac
+        if [[ "$rdirection" != "delegated" && -z "$rscope" ]]; then
+            CM_ENROLMENT_SCOPELESS+=("$(basename "$f")")
         fi
-        if [[ "$cm_ruling" =~ ^([0-9]+)$'\t'(.+)$ ]]; then
-            CM_ENROLMENT_STATE=escalated
-            CM_ENROLMENT_RAN_FILES+=("$f")
-            CM_ENROLMENT_LINE="escalated: ${BASH_REMATCH[1]} passes, ruled by ${BASH_REMATCH[2]} ($(basename "$f"))$_cm_where"
-            continue
-        fi
-        if [[ "$cm_ruling" != "ordinary" ]]; then
-            CM_ENROLMENT_STATE=unknown
-            CM_ENROLMENT_LINE="unknown: receipt $(basename "$f") could not be judged for its pass count"
-            return
-        fi
-        CM_ENROLMENT_STATE=receipt
-        CM_ENROLMENT_RAN_FILES+=("$f")
-        CM_ENROLMENT_LINE="receipt: $(basename "$f")$_cm_where"
     done
-    if (( ${#cm_best_files[@]} > 0 )); then
+    if (( ${#cm_best_records[@]} > 0 )); then
         return
     fi
     if [[ "${cm_uncounted:-0}" -gt 0 ]]; then
@@ -912,13 +884,10 @@ if [[ "$MODE" == "enrolment" ]]; then
     # the OTHER receipt carried a scope or was an allowed skip (issue #1707).
     if [[ "$CM_ENROLMENT_STATE" == "receipt" || "$CM_ENROLMENT_STATE" == "skipped" \
             || "$CM_ENROLMENT_STATE" == "escalated" ]]; then
-        for _cm_ran in ${CM_ENROLMENT_RAN_FILES[@]+"${CM_ENROLMENT_RAN_FILES[@]}"}; do
-            if [[ "$(cm_field "$_cm_ran" direction)" != "delegated" ]] \
-                    && [[ -z "$(cm_field "$_cm_ran" scope)" ]]; then
-                echo "flow-finish-gate: receipt $(basename "$_cm_ran") records a review that ran but carries no 'scope' (issue #1461); write it with --scope \"\$CODEX_REVIEW_SCOPE\"." >&2
-                echo "FLOW_FINISH_GATE: fail (counter-model line receipt-without-scope)"
-                gate_exit fail
-            fi
+        for _cm_scopeless in ${CM_ENROLMENT_SCOPELESS[@]+"${CM_ENROLMENT_SCOPELESS[@]}"}; do
+            echo "flow-finish-gate: receipt $_cm_scopeless records a review that ran but carries no 'scope' (issue #1461); write it with --scope \"\$CODEX_REVIEW_SCOPE\"." >&2
+            echo "FLOW_FINISH_GATE: fail (counter-model line receipt-without-scope)"
+            gate_exit fail
         done
     fi
     case "$CM_ENROLMENT_STATE" in

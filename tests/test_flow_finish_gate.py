@@ -4352,3 +4352,135 @@ def test_a_real_top_level_skip_is_still_an_allowed_skip(tmp_path: Path) -> None:
         repo, "2026-01-01T000000Z-issue-1700.json", head, status="skipped", skip_reason="codex-absent",
     )
     assert "skipped: codex-absent" in _counter_model_line(_gate(repo))
+
+
+# ── The gate asks the receipt script; it does not read receipt JSON (#1700) ──
+#
+# Three review findings in two passes were one weakness: the enrolment check
+# pulled fields out of a receipt with a sed pattern. One Python verb now judges
+# whole receipts from their top-level fields and the shell only prints.
+
+PRE_1700_GATE = ROOT / "tests" / "fixtures" / "flow-finish-gate-pre-1700.sh"
+CORPUS = ROOT / "docs" / "measurements" / "counter-model"
+
+
+def test_the_gate_reads_the_judge_columns_in_the_script_s_order() -> None:
+    """The answer is positional. A column added to one side and not the other
+    would shift every field after it, silently."""
+    text = (ROOT / "scripts" / "counter-model-receipt.py").read_text()
+    block = re.search(r"^JUDGE_COLUMNS = \((.*?)^\)", text, re.S | re.M)
+    assert block, "precondition: JUDGE_COLUMNS is declared in the expected form"
+    columns = re.findall(r'"([a-z_]+)"', block.group(1))
+    shell_names = {
+        "file": "f", "state": "rstate", "status": "rstatus", "branch": "rbranch", "head": "rhead",
+        "skip_reason": "rreason", "skip_reason_committed": "rskip_ok", "count": "rcount",
+        "passes": "rpasses", "ruled_by": "rruler", "scope": "rscope", "direction": "rdirection",
+    }
+    assert set(columns) == set(shell_names), "precondition: every column has a shell name here"
+    expected = "read -r " + " ".join(shell_names[c] for c in columns) + ' <<< "$cm_record"'
+    reads = [line.strip() for line in SCRIPT.read_text().splitlines() if 'read -r f rstate' in line]
+    assert len(reads) == 2, "precondition: the selection loop and the judgement loop each read once"
+    for line in reads:
+        assert line.endswith(expected), line
+    assert "cm_field" not in SCRIPT.read_text(), "the pattern reader must be gone, not merely unused"
+
+
+@requires_bash
+@requires_git
+def test_a_receipt_script_that_cannot_be_found_is_a_stated_unknown(tmp_path: Path) -> None:
+    """Every receipt judgement now depends on the script, so "not found" has to
+    be a verdict of its own - and red, never a silent pass."""
+    repo, head = _one_reviewed_commit(tmp_path)
+    _receipt_fields(repo, "2026-01-01T000000Z-issue-1700.json", head, passes=1, scope="full")
+    env = dict(os.environ)
+    env["FLOW_GATE_CPP_DIR"] = ""
+    env["CM_RECEIPT_HELPER"] = str(tmp_path / "no-such-receipt-script.py")
+    result = subprocess.run(["bash", str(SCRIPT)], cwd=repo, env=env, capture_output=True, text=True)
+    line = _counter_model_line(result)
+    assert "unknown: the receipts in docs/measurements/counter-model could not be judged" in line
+    assert "counter-model-receipt.py is missing or failed" in line
+    assert _verdict(result) == "FLOW_FINISH_GATE: fail (counter-model line unknown)"
+
+
+@requires_bash
+@requires_git
+@pytest.mark.parametrize("field,nested,top", [
+    ("head", "0" * 40, None),            # a nested head ahead of the real one
+    ("branch", "some-other-branch", None),
+    ("scope", "full", ""),               # a nested scope must not satisfy a scopeless review
+])
+def test_only_top_level_fields_are_believed(tmp_path: Path, field: str, nested: str, top: str | None) -> None:
+    """The class, not one instance: a field nested in another object, placed
+    ahead of the real one, is what a by-name pattern reader would have taken."""
+    import json
+
+    repo, head = _one_reviewed_commit(tmp_path)
+    receipt = {
+        "schema": 2, "metadata": {field: nested},
+        "recorded_at": "2026-09-21T12:00:00Z", "issue": "1700",
+        "branch": _git(repo, "rev-parse", "--abbrev-ref", "HEAD"), "head": head,
+        "status": "ran", "passes": 1, "scope": "full",
+        "reviewer": "codex/gpt-6-astra", "implementer": "claude/claude-opus-5",
+    }
+    if top is not None:
+        receipt[field] = top
+        if not top:
+            del receipt[field]
+    path = repo / "docs/measurements/counter-model/2026-01-01T000000Z-issue-1700.json"
+    path.write_text(json.dumps(receipt, indent=2))
+    result = _enrolment_only(repo)
+    if field == "scope":
+        assert _verdict(result) == "FLOW_FINISH_GATE: fail (counter-model line receipt-without-scope)"
+    else:
+        assert "receipt: 2026-01-01T000000Z-issue-1700.json" in _counter_model_line(result), result.stdout
+        assert _verdict(result) == "FLOW_FINISH_GATE: ok"
+
+
+def _corpus_chunks(n: int) -> list[list[Path]]:
+    files = sorted(CORPUS.glob("*.json"))
+    return [files[i::n] for i in range(n)]
+
+
+@requires_bash
+@requires_git
+@pytest.mark.parametrize("chunk", range(8))
+def test_every_committed_receipt_reads_the_same_on_the_old_gate_and_the_new(
+    tmp_path: Path, chunk: int,
+) -> None:
+    """The proof the restructure changed nothing it was not meant to: every
+    receipt in this repository's corpus, placed alone at HEAD of a scratch
+    repository, gives the SAME counter-model line, verdict and exit status on
+    the pre-#1700 gate and on this one, in --enrolment-only mode. Only `head`
+    and `branch` are rewritten, so the receipt can match the scratch commit."""
+    import json
+
+    files = _corpus_chunks(8)[chunk]
+    assert files, "precondition: the corpus is not empty - there is something to compare"
+    staged = tmp_path / "old" / "scripts"
+    staged.mkdir(parents=True)
+    shutil.copy(PRE_1700_GATE, staged / "flow-finish-gate.sh")
+    for lib in ("gate-lib.sh", "coordination-admission.sh"):
+        shutil.copy(SCRIPT.parent / lib, staged / lib)
+    repo, head = _one_reviewed_commit(tmp_path)
+    branch = _git(repo, "rev-parse", "--abbrev-ref", "HEAD")
+    target = repo / "docs/measurements/counter-model/receipt.json"
+    env = dict(os.environ)
+    env["FLOW_GATE_CPP_DIR"] = ""
+    env["CM_RECEIPT_HELPER"] = str(ROOT / "scripts" / "counter-model-receipt.py")
+    env["CPP_COORDINATION_ADMISSION_FILE"] = str(tmp_path / "no-coordination-admission")
+
+    def run(gate: Path) -> tuple[str, str, int]:
+        result = subprocess.run(
+            ["bash", str(gate), "--enrolment-only"], cwd=repo, env=env, capture_output=True, text=True,
+        )
+        return _counter_model_line(result), _verdict(result), result.returncode
+
+    compared = 0
+    for source in files:
+        receipt = json.loads(source.read_text(encoding="utf-8"))
+        receipt["head"], receipt["branch"] = head, branch
+        target.write_text(json.dumps(receipt, indent=2))
+        old, new = run(staged / "flow-finish-gate.sh"), run(SCRIPT)
+        assert old == new, f"{source.name}: old gate {old} != new gate {new}"
+        compared += 1
+    assert compared == len(files)

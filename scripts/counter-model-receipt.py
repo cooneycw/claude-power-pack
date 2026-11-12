@@ -3316,56 +3316,87 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return EXIT_INVALID if problems else EXIT_OK
 
 
-def cmd_escalation(args: argparse.Namespace) -> int:
-    """Judge ONE receipt's pass count for `flow-finish-gate.sh` (issue #1700).
+#: Field separator of `judge`'s output: ASCII unit separator. It is not shell
+#: whitespace, so an EMPTY field survives a `read` (a tab would collapse it).
+JUDGE_FS = "\x1f"
+#: The columns of one `judge` line, in order. The finish gate reads exactly
+#: these, by position; tests pin the two lists equal.
+JUDGE_COLUMNS = (
+    "file", "state", "status", "branch", "head", "skip_reason", "skip_reason_committed",
+    "count", "passes", "ruled_by", "scope", "direction",
+)
 
-    The gate asks this for EVERY `ran` receipt it would accept, and reads the
-    answer from HERE rather than parsing the count in shell - the same reason
-    `skip-reasons` exists, and a shell read of `passes` was bypassed two ways
-    in review. Prints `ordinary` for a count within the ceiling (or a receipt
-    with no `passes` field at all), or `<passes><TAB><ruled_by>` for a valid
-    escalated review. Anything else exits 1 with the reasons on stderr, and the
-    gate fails closed on it. `ruled_by` is RECORDED, NOT AUTHENTICATED.
+
+def _judge_text(value: object) -> str:
+    """A top-level STRING field as one clean cell: anything else is empty."""
+    if not isinstance(value, str):
+        return ""
+    return " ".join(value.replace(JUDGE_FS, " ").split())
+
+
+def judge_receipt(path: Path) -> dict[str, str]:
+    """Everything the finish gate needs to know about ONE receipt (issue #1700).
+
+    Read from the TOP-LEVEL fields of the parsed JSON only. The gate used to
+    pull each field out with a sed pattern that matched a name at any depth
+    and any spelling it happened to cover, and three review findings in two
+    passes were all that one weakness: a nested `status`, a `passes` with two
+    spaces, an integer that overflowed shell arithmetic. So the gate no longer
+    reads receipt JSON at all; it asks here.
+
+    `state` is `skipped`, `ran`, `other` (any other status, or none) or
+    `unreadable` (not a JSON object). `count` is the pass-count rule's answer
+    for a `ran` receipt: `ordinary`, `escalated` (a valid recorded ruling:
+    `passes` and `ruled_by` are then set) or `refused`. `ruled_by` is RECORDED,
+    NOT AUTHENTICATED.
     """
+    row = dict.fromkeys(JUDGE_COLUMNS, "")
+    row["file"] = str(path)
     try:
-        receipt = json.loads(args.receipt.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as error:
-        print(f"counter-model-receipt: cannot read {args.receipt}: {error}", file=sys.stderr)
-        return 1
+        receipt = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        row["state"] = "unreadable"
+        return row
     if not isinstance(receipt, dict):
-        print(f"counter-model-receipt: {args.receipt} is not a JSON object", file=sys.stderr)
-        return 1
-    # The TOP-LEVEL status, parsed: the gate's own field reader matches a name
-    # at any depth, so it asks here before it believes a `skipped`.
+        row["state"] = "unreadable"
+        return row
     status = receipt.get("status")
-    if status == "skipped":
-        print("skipped")
-        return 0
-    if status != "ran":
-        print("other")
-        return 0
+    row["status"] = _judge_text(status)
+    row["state"] = status if status in ("skipped", "ran") else "other"
+    for key in ("branch", "head", "skip_reason", "scope", "direction"):
+        row[key] = _judge_text(receipt.get(key))
+    row["skip_reason_committed"] = "yes" if receipt.get("skip_reason") in SKIP_REASONS else "no"
+    if row["state"] != "ran":
+        return row
     if "passes" not in receipt:
         # The gate never required the field of an ordinary receipt (older ones
         # omit it), and absence claims no count beyond the ceiling.
-        print("ordinary")
-        return 0
+        row["count"] = "ordinary"
+        return row
     passes = receipt["passes"]
     if not isinstance(passes, int) or isinstance(passes, bool) or passes < 1:
-        print(f"counter-model-receipt: passes is {passes!r}, expected a positive integer", file=sys.stderr)
-        return 1
+        row["count"] = "refused"
+        return row
     if passes <= PASSES_HARD_CEILING:
-        print("ordinary")
-        return 0
-    problems = escalation_problems(passes, receipt.get("escalation"))
+        row["count"] = "ordinary"
+        return row
     reason = receipt.get("extra_passes_reason")
-    if not (isinstance(reason, str) and reason.strip()):
-        problems.append("no 'extra_passes_reason' says why the extra passes were requested")
-    if problems:
-        for problem in problems:
-            print(f"counter-model-receipt: {problem}", file=sys.stderr)
-        return 1
-    ruled_by = " ".join(receipt["escalation"]["ruled_by"].split())
-    print(f"{passes}\t{ruled_by}")
+    if escalation_problems(passes, receipt.get("escalation")) or not (
+        isinstance(reason, str) and reason.strip()
+    ):
+        row["count"] = "refused"
+        return row
+    row["count"] = "escalated"
+    row["passes"] = str(passes)
+    row["ruled_by"] = _judge_text(receipt["escalation"]["ruled_by"])
+    return row
+
+
+def cmd_judge(args: argparse.Namespace) -> int:
+    """Print one `judge_receipt` line per receipt, in argument order."""
+    for path in args.receipts:
+        row = judge_receipt(path)
+        print(JUDGE_FS.join(row[column] for column in JUDGE_COLUMNS))
     return 0
 
 
@@ -3557,13 +3588,14 @@ def main() -> int:
                         help="print the committed skip reasons, one per line")
     sr.set_defaults(func=cmd_skip_reasons)
 
-    esc = sub.add_parser(
-        "escalation",
-        help="judge one receipt's pass count: prints 'ordinary', or '<passes><TAB><ruled_by>' "
-             "for a valid escalated review; exits 1 naming why it is not valid (issue #1700)",
+    judge = sub.add_parser(
+        "judge",
+        help="print what the finish gate needs to know about each receipt, one line per "
+             "file, fields separated by the ASCII unit separator (issue #1700); read from "
+             "top-level JSON fields only",
     )
-    esc.add_argument("receipt", type=Path)
-    esc.set_defaults(func=cmd_escalation)
+    judge.add_argument("receipts", type=Path, nargs="+")
+    judge.set_defaults(func=cmd_judge)
 
     rm = sub.add_parser(
         "rollout-model",
