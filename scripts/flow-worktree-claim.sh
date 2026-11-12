@@ -163,11 +163,15 @@ codex_owner_pid() {
   return 0
 }
 
+# SELF_PID_SHARED=1 when the pid above was found by the walk. One `codex
+# app-server` hosts several threads, so that pid can name MANY sessions and a
+# pid match alone is then no evidence of ownership (see classify).
+SELF_PID_SHARED=0
 if [ -n "${CLAUDE_PID:-}" ]; then
   SELF_PID="$CLAUDE_PID"
 elif [ -n "${CODEX_THREAD_ID:-}" ]; then
   SELF_PID="$(codex_owner_pid)"
-  SELF_PID="${SELF_PID:-$PPID}"
+  if [ -n "$SELF_PID" ]; then SELF_PID_SHARED=1; else SELF_PID="$PPID"; fi
 else
   SELF_PID="$PPID"
 fi
@@ -311,7 +315,7 @@ aged_out() {
 # Parse a claim reason string into the O_* globals. Returns 1 when the reason
 # is not one of ours (a foreign lock).
 O_PATH=""; O_PID=""; O_SESSION=""; O_HOST=""; O_TS=""; O_AGE_MIN=""; O_ISSUE=""
-O_START=""; O_WITNESS=""; O_STALE_REASON=""
+O_START=""; O_WITNESS=""; O_STALE_REASON=""; O_REASON=""
 parse_reason() {
   local reason="$1" field
   case "$reason" in
@@ -373,6 +377,7 @@ classify() {
   if [ ! -f "$path/.git" ]; then STATE=unsupported; return 0; fi
 
   reason="$(lock_reason_for "$path")"
+  O_REASON="$reason"
   if [ -z "$reason" ]; then STATE=free; return 0; fi
   if ! parse_reason "$reason"; then STATE=foreign; return 0; fi
 
@@ -389,7 +394,10 @@ classify() {
   # pid match may claim ownership. Left unguarded this was worse, because
   # `self` ALSO makes worktree-remove.sh skip its independent occupancy check -
   # so a false `self` removes a guard rather than merely misreporting a state.
-  if { [ -z "$O_SESSION" ] || [ "$O_SESSION" = - ]; } &&
+  # Nor may a pid that can name several sessions (issue #1709): two threads on
+  # one Codex server resolve to the same pid, and a session-less claim naming
+  # that server would otherwise read `self` to both of them.
+  if { [ -z "$O_SESSION" ] || [ "$O_SESSION" = - ]; } && [ "$SELF_PID_SHARED" -eq 0 ] &&
      [ "$O_HOST" = "$SELF_HOST" ] && [ "$O_PID" = "$SELF_PID" ]; then
     if [ "$(witness_state "$O_PID" "$O_START")" != mismatched ]; then
       STATE=self; return 0
@@ -506,6 +514,40 @@ fi
 [ -n "$WT" ] || usage_fail "$VERB requires a worktree path"
 WT="$(abspath "$WT")"
 
+# ---- one writer at a time (issue #1709) --------------------------------------
+# `claim` and `release` each READ the lock, decide, then unlock. Between the
+# read and the unlock another session could take a stale claim over, and the
+# unlock would then remove the NEW owner's lock - a live claim deleted by a
+# release that had judged its predecessor. The window was always there; the
+# sweep looking past stale claims is what makes it matter, because it walks
+# every finished worktree on the host.
+#
+# So the read-decide-write of both verbs runs under one mutex per repository,
+# held until this process exits. `check` only reads and takes nothing.
+#
+# Fail-open like the rest of this helper: no flock, an unwritable git dir or a
+# 10 second wait that runs out all leave the verb to proceed unserialized. That
+# is why `release` ALSO re-reads the lock immediately before unlocking and
+# stands down if it is no longer the lock it judged (unlock_if_unchanged).
+if [ "$VERB" != check ] && command -v flock >/dev/null 2>&1; then
+  MUTEX_DIR="$("$GIT" -C "$WT" rev-parse --git-common-dir 2>/dev/null || true)"
+  case "$MUTEX_DIR" in "" | /*) : ;; *) MUTEX_DIR="$WT/$MUTEX_DIR" ;; esac
+  if [ -n "$MUTEX_DIR" ] && [ -d "$MUTEX_DIR" ]; then
+    # shellcheck disable=SC2015
+    { exec 9>"$MUTEX_DIR/flow-claim.mutex"; } 2>/dev/null && flock -w 10 9 2>/dev/null || true
+  fi
+fi
+
+# unlock_if_unchanged WT - unlock only when the lock is still the one classify
+# judged. Returns 1, having changed nothing, when it is not.
+unlock_if_unchanged() {
+  local now_reason
+  now_reason="$(lock_reason_for "$1")"
+  [ "$now_reason" = "$O_REASON" ] || return 1
+  "$GIT" -C "$1" worktree unlock "$1" >/dev/null 2>&1
+  return 0
+}
+
 STATE=unknown
 classify "$WT"
 
@@ -519,9 +561,15 @@ case "$VERB" in
   release)
     case "$STATE" in
       self | stale)
-        if "$GIT" -C "$WT" worktree unlock "$WT" >/dev/null 2>&1; then
-          echo "flow-worktree-claim: released claim on '$WT'." >&2
+        if ! unlock_if_unchanged "$WT"; then
+          # Someone replaced the claim after it was judged. Whatever is there
+          # now was never examined by this release: report it, touch nothing.
+          classify "$WT"
+          echo "flow-worktree-claim: the claim on '$WT' changed while it was being released - leaving the new one ($STATE) alone." >&2
+          emit "$STATE"
+          exit 0
         fi
+        echo "flow-worktree-claim: released claim on '$WT'." >&2
         O_PID=""; O_SESSION=""; O_HOST=""; O_TS=""; O_AGE_MIN=""; O_ISSUE=""
         O_START=""; O_WITNESS=""; O_STALE_REASON=""
         emit free

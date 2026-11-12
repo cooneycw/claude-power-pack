@@ -13,7 +13,8 @@ from `stale` to `held` and none of which moves one the other way:
 
 THE PROPERTY, pinned by `test_no_scenario_moves_towards_stale`: over a matrix
 of every input the classifier reads, a claim the helper called held, foreign
-or unknown BEFORE this change is never called stale after it. A live owner
+or unknown BEFORE this change is never called stale after it, and is
+called `self` only by the session whose id the claim carries. A live owner
 read as stale is the direction that loses work (a second session takes the
 worktree), so that is the direction the test forbids. The "before" side is the
 helper as it stood at a88aafdd, kept as a fixture.
@@ -212,6 +213,109 @@ def test_without_a_codex_thread_id_no_walk_happens(tmp_path, repo) -> None:
     assert f"pid={os.getpid()} " in reason and "session=- " in reason, reason
 
 
+def test_a_sessionless_claim_on_a_shared_codex_process_is_not_adopted(tmp_path, repo) -> None:
+    """Found by the counter-model review. Once the caller's pid resolves to the
+    Codex process, the older "same pid and the claim names no session" rule
+    would call that claim `self` for EVERY thread the process hosts - and
+    `self` makes worktree-remove.sh release the claim and skip its in-use
+    check. A pid that can name several sessions proves nothing alone."""
+    main, wt = repo
+    proc = _codex_tree(tmp_path / "proc")
+    _lock(main, wt, f"flow-claim issue=42 pid={CODEX_PID} session=- host=testhost "
+                    f"ts={int(time.time())} start={CODEX_START}")
+    env = {"CODEX_THREAD_ID": "thread-b", "FLOW_CLAIM_PROC_ROOT": str(proc),
+           "FLOW_CLAIM_LIVE_PIDS": CODEX_PID}
+    seen = _helper(CLAIM, "check", str(wt), env=env)
+    assert _verdict(seen) == "held", seen.stdout
+    released = _helper(CLAIM, "release", str(wt), env=env)
+    assert _verdict(released) == "held", "a thread released another thread's claim"
+    assert f"pid={CODEX_PID} " in _reason(main, wt), "the claim was dropped"
+
+
+def test_a_claude_session_still_adopts_its_own_sessionless_claim(tmp_path, repo) -> None:
+    """The rule the fix above narrows, unchanged where the pid names one session."""
+    main, wt = repo
+    proc = tmp_path / "proc"
+    _stat(proc, "4242", "claude", "1", start="55")
+    _lock(main, wt, f"flow-claim issue=42 pid=4242 session=- host=testhost "
+                    f"ts={int(time.time())} start=55")
+    env = {"CLAUDE_PID": "4242", "CLAUDE_CODE_SESSION_ID": "claude-session",
+           "FLOW_CLAIM_PROC_ROOT": str(proc), "FLOW_CLAIM_LIVE_PIDS": "4242"}
+    assert _verdict(_helper(CLAIM, "check", str(wt), env=env)) == "self"
+
+
+# --- a release must not unlock a claim it never judged -----------------------
+
+def _racing_git(bindir: Path, wt: Path, proc: Path) -> Path:
+    """A `git` that, the first time it is asked to list worktrees, lets the
+    read finish and then has ANOTHER live session claim the worktree before
+    returning - the interleaving between a release's read and its unlock."""
+    bindir.mkdir(parents=True, exist_ok=True)
+    real = shutil.which("git")
+    wrapper = bindir / "git"
+    wrapper.write_text(f"""#!/bin/bash
+out="$({real} "$@")"; rc=$?
+if [ -z "${{RACE_DONE:-}}" ] && [[ " $* " == *" worktree list "* ]] && [ ! -e "{bindir}/raced" ]; then
+  : > "{bindir}/raced"
+  ( RACE_DONE=1 FLOW_CLAIM_GIT={real} CLAUDE_PID=7777 CLAUDE_CODE_SESSION_ID=newcomer \
+    FLOW_CLAIM_HOST=testhost FLOW_CLAIM_LIVE_PIDS=7777 FLOW_CLAIM_PROC_ROOT={proc} \
+    bash {CLAIM} claim {wt} --issue 42 > "{bindir}/newcomer.out" 2>&1 & )
+  {real} -C {wt} worktree list --porcelain >/dev/null   # give the newcomer a moment
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    grep -q FLOW_CLAIM: "{bindir}/newcomer.out" 2>/dev/null && break
+    sleep 0.2
+  done
+fi
+printf '%s' "$out"; [ -n "$out" ] && echo
+exit $rc
+""")
+    wrapper.chmod(0o755)
+    return wrapper
+
+
+@pytest.mark.parametrize("serialized", [True, False], ids=["with-flock", "without-flock"])
+def test_a_release_does_not_unlock_a_claim_taken_over_meanwhile(tmp_path, repo, serialized) -> None:
+    """A stale claim; a release judges it; a live session takes it over before
+    the release unlocks. The newcomer's lock must survive, with the mutex
+    (the newcomer waits its turn) and without it (the release re-reads the
+    lock and stands down)."""
+    if serialized and shutil.which("flock") is None:
+        pytest.skip("needs flock")
+    main, wt = repo
+    proc = tmp_path / "proc"
+    proc.mkdir()
+    _stat(proc, "7777", "claude", "1", start="77")
+    _lock(main, wt, f"flow-claim issue=42 pid=9999 session=gone host=testhost "
+                    f"ts={int(time.time())} start=111")
+    bindir = tmp_path / "bin"
+    wrapper = _racing_git(bindir, wt, proc)
+    env = {"CLAUDE_PID": "4242", "CLAUDE_CODE_SESSION_ID": "the-sweeper",
+           "FLOW_CLAIM_PROC_ROOT": str(proc), "FLOW_CLAIM_LIVE_PIDS": "4242:7777",
+           "FLOW_CLAIM_GIT": str(wrapper)}
+    if not serialized:
+        nobin = tmp_path / "noflock"
+        nobin.mkdir()
+        for tool in ("bash", "cat", "date", "hostname", "grep", "sed", "sleep", "env", "tail"):
+            found = shutil.which(tool)
+            if found:
+                (nobin / tool).symlink_to(found)
+        env["PATH"] = str(nobin)
+        assert shutil.which("flock", path=str(nobin)) is None, "precondition: no flock on this PATH"
+    assert _verdict(_helper(CLAIM, "check", str(wt), env=dict(env, FLOW_CLAIM_GIT="git")
+                            if serialized else {k: v for k, v in env.items() if k != "PATH" and k != "FLOW_CLAIM_GIT"})) == "stale"
+
+    released = _helper(CLAIM, "release", str(wt), env=env)
+    assert released.returncode == 0, released.stderr
+    deadline = time.time() + 10
+    while time.time() < deadline and "FLOW_CLAIM:" not in (bindir / "newcomer.out").read_text():
+        time.sleep(0.1)
+    assert (bindir / "raced").exists(), "the interleaving never happened"
+    assert "FLOW_CLAIM: self" in (bindir / "newcomer.out").read_text(), (bindir / "newcomer.out").read_text()
+    reason = _reason(main, wt)
+    assert "pid=7777 " in reason and "session=newcomer " in reason, (
+        f"the newcomer's live claim was unlocked by the release:\n{reason}\n{released.stderr}")
+
+
 # --- state Z is a dead owner only when one thread is left --------------------
 
 def _lock(main: Path, wt: Path, reason: str) -> None:
@@ -290,11 +394,15 @@ def _scenarios():
                                    OWNER_SESSIONS, CALLERS):
         caller = combo[-1]
         yield ("4242" if caller.startswith("claude") else str(os.getpid()), *combo)
+    # A claim naming the Codex process itself, which several threads can share.
+    for combo in itertools.product(["S", "Z1", "Zmany"], WITNESSES, [60], ["testhost"],
+                                   OWNER_SESSIONS, CALLERS):
+        yield (CODEX_PID, *combo)
 
 
 def test_no_scenario_moves_towards_stale(tmp_path, repo) -> None:
     """Every combination of what the classifier reads, judged by the helper
-    before and after: 1,215 claims plus the states that are not claims."""
+    before and after: 1,350 claims plus the states that are not claims."""
     main, wt = repo
     moved: list[str] = []
     seen_before: set[str] = set()
@@ -312,8 +420,12 @@ def test_no_scenario_moves_towards_stale(tmp_path, repo) -> None:
         if owner_state not in ("nostat", "dead"):
             # Written after the tree, so an owner that IS the caller's parent
             # keeps its place in the chain (same parent) with the posed state.
-            _stat(proc, owner_pid, "bash" if owner_pid == str(os.getpid()) else "owner",
-                  "5000" if owner_pid == str(os.getpid()) else "1", state=owner_state[0],
+            comm, parent = "owner", "1"
+            if owner_pid == str(os.getpid()):
+                comm, parent = "bash", "5000"
+            elif owner_pid == CODEX_PID:
+                comm, parent = ("codex" if caller == "codex" else "node"), "7000"
+            _stat(proc, owner_pid, comm, parent, state=owner_state[0],
                   start="999" if witness == "mismatch" else "111",
                   threads="5" if owner_state == "Zmany" else "1")
         live = ":".join(p for p in ("4242", CODEX_PID, str(os.getpid()),
@@ -329,10 +441,17 @@ def test_no_scenario_moves_towards_stale(tmp_path, repo) -> None:
             flips.add((before, after))
         if before == "self" and after == "stale":
             self_to_stale.append((owner_state, caller, owner_session))
+        # `self` is as dangerous as `stale` when it is false: it makes
+        # worktree-remove.sh drop the claim AND skip its in-use check. The only
+        # true one is a caller whose own session id the claim carries.
+        own = caller.startswith("codex") and owner_session == "thread-a"
+        if before in PROTECTED and after == "self" and not own:
+            moved.append(f"pid={owner_pid}/{owner_state}/{witness}/owner={owner_session}/"
+                         f"caller={caller}: {before} -> a FALSE self")
         if before in PROTECTED and after == "stale":
             moved.append(f"pid={owner_pid}/{owner_state}/{witness}/{age}s/{host}/"
                          f"owner={owner_session}/caller={caller}: {before} -> {after}")
-    assert n == 1215
+    assert n == 1350
 
     # The states that are not claims at all.
     env = _scenario_env(tmp_path / "proc-1", "claude", "4242")
