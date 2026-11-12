@@ -1325,6 +1325,38 @@ def test_must_not_flip_neighbours_of_a_pull_failure_stay_code(tmp_path, exit_cod
 
 
 @requires_bash
+def test_a_pull_failure_whose_error_spans_lines_is_one_step_and_pre_code(tmp_path):
+    """#1508 with #1711: the provider's error may span lines. The newline is
+    folded before parsing (#1711), and the daemon prefix is still at the start,
+    so this is ONE failed step and precode. RED on the script before either
+    change: two failed steps, origin not precode."""
+    result = _api_failure(tmp_path, [
+        {"name": "clone", "type": "clone", "state": "success", "exit_code": 0},
+        {"name": "lint", "type": "commands", "state": "failure", "exit_code": 0,
+         "error": PULL_NOT_FOUND + "\nsecond line from the provider"},
+    ])
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_FAILED_STEP"] == ["lint"], result.stdout
+    assert m["FLOW_CI_PRECODE_FAILURE"] == ["lint"]
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["precode"]
+
+
+@requires_bash
+def test_a_pull_prefix_on_a_LATER_line_is_not_a_pull_failure(tmp_path):
+    """Must-not-flip: the prefix must START the error. Another error whose
+    second line happens to quote the daemon's pull message stays `code`."""
+    result = _api_failure(tmp_path, [
+        {"name": "clone", "type": "clone", "state": "success", "exit_code": 0},
+        {"name": "lint", "type": "commands", "state": "failure", "exit_code": 0,
+         "error": "some other failure\n" + PULL_NOT_FOUND},
+    ])
+    m = _markers(result.stdout)
+    assert m["FLOW_CI_FAILED_STEP"] == ["lint"], result.stdout
+    assert "FLOW_CI_PRECODE_FAILURE" not in m
+    assert m["FLOW_CI_FAILURE_ORIGIN"] == ["code"]
+
+
+@requires_bash
 def test_a_pull_failure_beside_a_real_code_failure_is_MIXED(tmp_path):
     result = _api_failure(tmp_path, [
         {"name": "lint", "type": "commands", "state": "failure", "exit_code": 0,
