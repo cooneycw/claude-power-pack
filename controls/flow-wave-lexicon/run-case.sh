@@ -36,14 +36,15 @@ status=$?
 verdict=$(printf '%s\n' "$out" | sed -n 's/^FLOW_LEXICON: //p' | tail -1)
 
 # Only the gate's own verdict line decides. `ok` with exit 0 is a message it
-# accepted; `invalid` with exit 1 is a refusal. Anything else - no verdict line,
+# accepted; `none` with exit 0 is accepted prose (including a missed token).
+# `invalid` with exit 1 is a refusal. Anything else - no verdict line,
 # `error`, or a verdict that disagrees with its exit - is a gate that RAN and did
 # not answer. That scores neither clean nor finding, and NOT unavailable either:
 # it exits non-zero carrying neither declared signal, which the harness scores
 # UNSIGNALLED and fails even under --allow-unavailable. A lexicon that crashes on
 # every input must not be excusable as a missing tool.
 case "$status:$verdict" in
-  0:ok) exit 0 ;;
+  0:ok|0:none) exit 0 ;;
   1:invalid)
      printf '%s\n' "$out"
      echo "FLOW_WAVE_LEXICON_CONTROL: finding - the lexicon refused the message"
