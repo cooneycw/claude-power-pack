@@ -610,7 +610,9 @@ def venv_fingerprint(venv: Path) -> tuple[str, tuple[str, ...]] | None:
                     if ln.replace(" ", "").startswith(("version_info=", "version="))), "?")
     names: set[str] = set()
     for site in venv.glob("lib/python*/site-packages"):
-        names.update(p.name for p in site.iterdir())
+        # `__pycache__` is written there by the interpreter's own first start,
+        # so it is not evidence of anything a test did.
+        names.update(p.name for p in site.iterdir() if p.name != "__pycache__")
     return version, tuple(sorted(names))
 
 

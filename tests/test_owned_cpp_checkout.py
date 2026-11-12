@@ -105,3 +105,12 @@ def test_this_suites_own_environment_has_a_fingerprint_when_it_exists() -> None:
     version, names = found
     assert version[0].isdigit(), version
     assert names, "the surrounding environment is EMPTY - it has been wrecked (issue #1718)"
+
+
+def test_the_interpreters_own_bytecode_cache_is_not_a_change(tmp_path: Path) -> None:
+    """A first run of the interpreter writes `site-packages/__pycache__`.
+    That is not something a test did to the environment."""
+    venv = _fake_venv(tmp_path / "venv")
+    before = venv_fingerprint(venv)
+    (venv / "lib" / "python3.12" / "site-packages" / "__pycache__").mkdir()
+    assert venv_fingerprint(venv) == before
