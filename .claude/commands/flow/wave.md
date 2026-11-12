@@ -153,13 +153,13 @@ file-level while the orchestrator held the paths in prose.
 
 Say `--repo <path>` together with `--files` (#800): overlap detection compares
 same-repo pairs, and a re-register REWRITES `--repo` but PRESERVES `--files`, so
-one passing only `--files` keeps the lane and loses the key that makes it
+one passing only `--files` keeps the lane and loses the key making it
 comparable. The roster reports such a role as UNKNOWN, not clean
 (`FLOW_WAVE_OVERLAP_UNSCOPED`); read that line before treating a quiet roster as
-clear. ONE EXCEPTION (#1222): a re-register naming a different `--issue` or
-`--repo` is a move to other work - the file lane, PR and base reset unless that
-call supplies them (`FLOW_WAVE_FILES_DROPPED`, and on stderr). Omitting
-`--issue` is no move.
+clear. EXCEPTION (#1222): changing `--issue` or `--repo` between two non-empty
+values is a move to other work. Unless that call supplies them, the file lane
+(reported: `FLOW_WAVE_FILES_DROPPED`, stderr) and the `--pr`/`--base`/`--diff`
+observation (not reported) reset. Omitting or first adding either is no move.
 
 ## Setup: the delivery lane (consume #676, do not reimplement)
 

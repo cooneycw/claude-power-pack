@@ -156,12 +156,17 @@
 #             their flag is omitted (an explicit empty value clears one of the
 #             five flags; --clear-pr withdraws the observation); --cwd, --repo,
 #             --issue and --branch are REWRITTEN every time, to empty when
-#             omitted. ONE EXCEPTION (#1222, #1266): a re-register naming a
-#             DIFFERENT --issue, or a different --repo, is a move to other
-#             work, so the file lane and the merge observation reset unless
-#             that same call supplies them. The dropped lane is reported as
-#             FLOW_WAVE_FILES_DROPPED and on stderr; the withdrawn observation
-#             is not reported. Omitting --issue is not a move.
+#             omitted. ONE EXCEPTION (#1222, #1266): a re-register whose
+#             --issue differs from the recorded one, or whose --repo does, is
+#             a move to other work - but only between TWO NON-EMPTY values.
+#             Then the file lane and the merge observation (PR, base, diff and
+#             the overtake count) reset unless that same call supplies them.
+#             The dropped lane is reported as FLOW_WAVE_FILES_DROPPED and on
+#             stderr; the withdrawn observation is not reported. Omitting
+#             --issue is not a move, and neither is naming one where none is
+#             recorded: a role registered or re-briefed without --issue and
+#             then given an issue KEEPS its lane, its PR and its overtake
+#             count. The same holds for --repo.
 #   list      Show the roster: role, address, issue, liveness, verification.
 #             Marks dead entries stale rather than deleting them - a dead
 #             worker mid-issue is information. Warns on lane overlaps between
@@ -418,9 +423,10 @@
 #
 # Toolchain detail lines (#1029), emitted by register and relayed from the
 # sibling toolchain-provenance.sh - advisory, no verdict or exit code moves:
-#   FLOW_WAVE_TOOLCHAIN      the helper's verdict (current, behind, diverged,
-#                            unknown), or `unavailable` when no helper is
-#                            installed - which is NOT a measured zero
+#   FLOW_WAVE_TOOLCHAIN      the helper's verdict (current, behind, ahead,
+#                            diverged, unknown), or `unavailable` when no helper
+#                            is installed or the helper printed nothing this
+#                            could parse - which is NOT a measured zero
 #   FLOW_WAVE_TOOLCHAIN_BEHIND / _UPSTREAM / _AGE / _CHECKOUT  commits behind,
 #                            the upstream ref compared against, seconds since
 #                            that ref was last fetched, and WHICH checkout was
@@ -445,9 +451,12 @@
 #   FLOW_WAVE_LANE_UNDECLARED_WRITES  (list, the text roster only) live roles
 #                            whose own diff touches a path no live role in the
 #                            same repo declared (#1403)
-#   FLOW_WAVE_LANE_CHECK     (lane-check) ok | extra | ungranted | unknown, with
+#   FLOW_WAVE_LANE_CHECK     (lane-check) ok | extra | ungranted | unknown.
 #                            FLOW_WAVE_LANE_BASE and the _TOUCHED / _UNTRACKED /
-#                            _EXTRA / _UNUSED / _CONTESTED counts beside it
+#                            _EXTRA / _UNUSED / _CONTESTED counts are printed
+#                            only when the diff comparison ran (ok, extra);
+#                            `ungranted` prints _UNGRANTED / _UNCLAIMED alone,
+#                            and an `unknown` prints at most _EXTRA=0
 #   FLOW_WAVE_LIVENESS_UNDETERMINED  (list) roles whose liveness is `unknown`
 #   FLOW_WAVE_CLAIM_SCAN_SKIPPED  (list) repos the unregistered-claim scan
 #                            could not read because they are not directories
@@ -3168,9 +3177,10 @@ case "$VERB" in
     # A RELEASED prior entry has already given its lane up (counter-model review
     # pass 2, #1026), so re-using the role is not a drop - `release` was the
     # withdrawal, and reporting it again at the next registration would fire the
-    # loudest warning here on ordinary role re-use. `.files` survives a release
-    # (the entry is marked, not erased), which is exactly why this has to be
-    # asked rather than inferred from the field being present.
+    # loudest warning here on ordinary role re-use. Since #1222 `release`
+    # blanks `.files` (keeping it under `released_lane`), but a row released
+    # before that still carries its lane, which is why this is asked rather
+    # than inferred from the field being present.
     PREV_FILES=""
     if [ "$REPLACED_ENTRY" != "null" ] && [ "$(printf '%s' "$REPLACED_ENTRY" | jq -r '.released // false')" != "true" ]; then
       PREV_FILES="$(printf '%s' "$REPLACED_ENTRY" | jq -r '.files // ""')"

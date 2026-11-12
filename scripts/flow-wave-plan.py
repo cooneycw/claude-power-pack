@@ -101,10 +101,13 @@ wave's adversarial fixture):
                          {"issue": N, "ruling": "hold"|"approved"|
                          "approved-with-conditions", "holds_behind": [N,...]?,
                          "adds_serialized": [marker,...]?, "reason": str,
-                         "ts": str}. An entry may carry "subject": "<slug>"
-                         in place of "issue" for work that has no issue
-                         (#1189): it is read, counted on stderr and never
-                         used for planning. Later entries for the same issue
+                         "ts": str}. An entry may carry "subject" in place
+                         of "issue" (#1189). A subject that spells an issue
+                         number ("12", "#12") is keyed as that issue and
+                         gates planning like one; any other value - a slug,
+                         for work that has no issue - is read, counted on
+                         stderr and never used for planning. Later entries
+                         for the same issue
                          SUPERSEDE earlier ones - an override is a recorded
                          act, never a silent contradiction (the DP2b failure).
                          Two effects: (1) an issue in startable or --in-flight
