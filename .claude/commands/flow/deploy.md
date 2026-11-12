@@ -155,6 +155,7 @@ done
 if [ -n "$CPP_DIR" ]; then
     PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd run --plan deploy
     RUNNER_EXIT=$?
+    DEPLOY_EXIT=$RUNNER_EXIT
 fi
 ```
 
@@ -176,13 +177,14 @@ PYTHONPATH="${HOME}/Projects/claude-power-pack" uv run --project "${HOME}/Projec
 
 ### Step 5: Run Deploy (fallback only - runner includes this)
 
-**Skip this step if the deterministic runner was used above** (it already runs make deploy).
+**Skip this step if the deterministic runner was used** (it already runs make deploy).
 
-Only run manually if the runner was unavailable:
+Only run if the runner was unavailable:
 
 ```bash
 echo "Running: make $TARGET"
 make "$TARGET"
+DEPLOY_EXIT=$?
 ```
 
 ### Step 6: Log Deployment
@@ -191,7 +193,7 @@ Append to `.claude/deploy.log`:
 
 ```bash
 mkdir -p .claude
-echo "$(date -Iseconds) | ${TARGET} | $(git rev-parse --short HEAD) | $(git branch --show-current) | $?" >> .claude/deploy.log
+echo "$(date -Iseconds) | ${TARGET} | $(git rev-parse --short HEAD) | $(git branch --show-current) | ${DEPLOY_EXIT}" >> .claude/deploy.log
 ```
 
 Format: `timestamp | target | commit | branch | exit_code`

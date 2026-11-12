@@ -612,3 +612,24 @@ def test_doctor_unexpected_exception_is_unknown(tmp_path, monkeypatch, capsys):
     value = json.loads(output.out)
     assert all(item['status'] == 'unknown' for item in value['rows'])
     assert 'PRIVATE_DOCTOR_EXCEPTION_CANARY' not in output.out + output.err
+
+
+def test_an_explicit_plan_that_was_not_requested_is_malformed_evidence():
+    """The `requested is not True` clause of `lane_row`, on its own (issue #1712, seq 684).
+
+    The explicit-fallback plan is evidence only if the fallback WAS requested.
+    Every earlier case that reached this clause was already malformed some
+    other way, so deleting the clause left the tests green. Here the committed
+    good case is taken whole - it reads `ok` - and only `requested` is changed
+    to False where it must be True.
+    """
+    import copy
+    import json
+
+    from lib.cicd.doctor import lane_row
+    data = json.loads((ROOT / 'controls/doctor-ci/cases/good-lane-plan/facts.json').read_text())
+    assert lane_row(['github-actions'], data['plan'], data['explicit'])['status'] == 'ok'  # the precondition
+    assert data['explicit']['fallback']['requested'] is True
+    unrequested = copy.deepcopy(data['explicit'])
+    unrequested['fallback']['requested'] = False
+    assert lane_row(['github-actions'], data['plan'], unrequested)['status'] == 'unknown'
