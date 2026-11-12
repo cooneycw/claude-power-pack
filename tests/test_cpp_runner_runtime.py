@@ -41,11 +41,11 @@ def test_actual_finish_preserves_dual_native_runtime_policy(
     # the target Makefile's own `uv run` would follow an inherited UV_PROJECT
     # back here, past the owned copy. The child environment is built from
     # nothing, so none of it arrives.
-    for hostile in ("UV_PROJECT", "UV_WORKING_DIR"):
+    for hostile in ("UV_PROJECT", "UV_WORKING_DIR", "UV_WORKING_DIRECTORY"):
         monkeypatch.setenv(hostile, str(ROOT))
     monkeypatch.setenv("UV_PROJECT_ENVIRONMENT", str(ROOT / ".venv"))
     env = uv_child_env()
-    assert not {"UV_PROJECT", "UV_WORKING_DIR", "UV_PROJECT_ENVIRONMENT"} & set(env)
+    assert not {"UV_PROJECT", "UV_WORKING_DIR", "UV_WORKING_DIRECTORY", "UV_PROJECT_ENVIRONMENT"} & set(env)
     env.update(UV_PYTHON_DOWNLOADS="never", UV_OFFLINE="1", UV_CACHE_DIR=str(tmp_path / "cache"), CPP_OFFLINE="1")
     interpreters = {}
     for minor in ("3.11", "3.12"):
