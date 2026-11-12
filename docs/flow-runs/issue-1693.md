@@ -52,3 +52,16 @@ section; nothing earlier is edited, and every check reads only its own run.
 Scope: 12 files. 5,202 lines before in the five scripts; about 4,590 after; about 265 of the difference is a move into docs/scripts.
 
 Risks: a comment can be load-bearing (tests extract script text, two checkers read gh-pr-merge.sh, anchors derive from these scripts); history versus rationale is a judgement and mixed blocks keep their rationale; the change is mostly a move.
+
+### Lanes for this change
+
+Added after approval, on the approver's instruction (wave orchestrator, 2026-11-11: the plan was approved without this table, which `/flow:eli5` has required since #1695 landed). Answers are for what this change alters: comments, the `--help` text of `worktree-remove.sh`, and one `cd`.
+
+| Lane | Answer | How, or why not |
+|---|---|---|
+| Checkout | will test | The help and CDPATH tests run the script from a checkout; the finish gate runs them inside a linked worktree and CI runs them in a clean clone. Nothing changed depends on the layout |
+| Harness | will test (Claude install); not covered (Codex install) | Claude install: `test_help_works_through_an_installed_symlink` runs `--help` through a symlink, the way `~/.claude/scripts/` installs the helper; added because answering this lane showed the new help reads its own file. Codex install: the bundled copy is the same file and `make codex-skills` rebuilds and checks it in the gate, but no test executes `--help` from a Codex bundle |
+| Driver | not applicable | The helpers behave the same whichever driver calls them; no driver-facing output changed |
+| Coordination | not applicable | No coordination path is touched |
+| CI provider | not applicable | No provider-dependent code is touched; `gh-pr-merge.sh` has comment changes only |
+| Project state | not applicable | Nothing reads an adopted file or record |

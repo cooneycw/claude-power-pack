@@ -82,3 +82,16 @@ def test_a_relative_path_is_resolved_against_the_cwd_not_cdpath(tmp_path):
     )
     combined = proc.stdout + proc.stderr
     assert str(elsewhere) not in combined, f"the argument was resolved through CDPATH:\n{combined}"
+
+
+def test_help_works_through_an_installed_symlink(tmp_path):
+    """Lane: Harness, Claude install. The installed helper is a SYMLINK into the
+    checkout (`~/.claude/scripts/worktree-remove.sh`), so the help code reads
+    its own text through that link. The old echo block did not read a file at
+    all; this is the route the change newly depends on."""
+    link = tmp_path / "installed" / "worktree-remove.sh"
+    link.parent.mkdir()
+    link.symlink_to(SCRIPT)
+    assert link.is_symlink(), "precondition: invoked through a symlink"
+    assert _help(link).stdout == _help().stdout
+    assert "Usage:" in _help(link).stdout
