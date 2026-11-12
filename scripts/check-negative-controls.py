@@ -686,7 +686,7 @@ class Census:
 
 
 def instrument_census(root: Path) -> Census:
-    """ADR 0008's census: how many rows, which subjects, how many external.
+    """The instrument census (`controls/census.md`): how many rows, which subjects, how many external.
 
     WHICH DOCUMENT is the census is asked of the census rule's `resolve_adr`
     (issue #1264), so a repository that files the decision elsewhere - kyle's
@@ -2642,6 +2642,16 @@ def _provenance(anchor: dict[str, str], anchor_path: Path, root: Path, verify: b
     #: a command reporting success while establishing nothing, its emptiness
     #: read as content, inside the file written for that defect.
     if anchor.get("kind") == "synthetic" or anchor.get("sha") in ("0000000", "n/a", ""):
+        return "unverified"
+    #: A MISSING `sha` OR `origin` IS THE SAME ANSWER, NOT A CRASH (issue #1719).
+    #: Only a HISTORICAL anchor must name a commit, and one that does not is
+    #: refused by name in `_anchor_kind_problem`. A constructed anchor may omit
+    #: the key - thirteen registered controls do, where forty-seven write `n/a`
+    #: - and this function then indexed `anchor['sha']` and raised KeyError, so
+    #: `--verify-provenance` could not complete over the real tree at all
+    #: (#1732). There is no commit to compare with; the digest check above is
+    #: the whole of what provenance can establish, which is what `unverified` says.
+    if not anchor.get("sha") or not anchor.get("origin"):
         return "unverified"
     #: EXISTENCE FIRST, WITH A PROBE THAT ACTUALLY REFUSES (#1157 counter-model
     #: re-review, MEDIUM). `git show` is not an existence test: on a reference it
