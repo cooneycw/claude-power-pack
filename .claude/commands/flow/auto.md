@@ -808,9 +808,8 @@ instead.
    ```
 
 2. **Quality gates** - ONE audited helper, `scripts/flow-finish-gate.sh`
-   (issue #613), owns the runner invocation and its Makefile fallback
-   (`make lint`, `make test`, `make typecheck`, `make verify`). Invoke it BARE
-   (#581 discipline):
+   (issue #613), owns the runner invocation and its Makefile fallback. Invoke
+   it BARE:
 
    ```bash
    ~/.claude/scripts/flow-finish-gate.sh
@@ -819,9 +818,12 @@ instead.
    (Exit 127: fall back to `${CLAUDE_PLUGIN_ROOT}/scripts/flow-finish-gate.sh`
    (#590), else the CPP-checkout copy; tell the user to run **`/flow:repair`**.)
 
+   If the project's gate needs the pushed head, `git push` the branch first
+   (it opens no PR), then gate (#1706).
+
    **A run with no `FLOW_FINISH_GATE:` verdict line did not run the gate: **STOP**
    (issue #1547).** The trigger is the verdict LINE, never the exit code: 127,
-   126 (an unset `CPP_SKILL_DIR`), 2, only the `FLOW_FINISH_GATE_EXIT=`
+   126, 2, only the `FLOW_FINISH_GATE_EXIT=`
    trailer, or nothing at all, gave no verdict. Work the fallback chain; if no
    copy prints a verdict line, STOP and report that the gate did not run. It is
    NOT `skipped`, and the run never commits, pushes or merges on it.

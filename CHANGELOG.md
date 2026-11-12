@@ -4,6 +4,12 @@
 
 ### Behaviour changes you may notice
 
+- **The flow documents say what to do when a project's gate needs the pushed
+  head.** `/flow:auto` Step 6 and `/flow:finish` still run the gate before the
+  push. When a project's own gate clones the ref under test from the remote,
+  the first gate run on an unpushed commit was red; both documents now say to
+  push the branch first (that opens no pull request), then gate. No helper
+  changed (#1706).
 - **A defect now says where it came from.** A defect report carries an
   `Origin:` line - the issue or pull request that delivered the behaviour that
   broke, `never worked`, or `not traced - <what was tried>` - and the pull
