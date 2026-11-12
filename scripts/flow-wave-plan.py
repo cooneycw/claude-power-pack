@@ -101,7 +101,10 @@ wave's adversarial fixture):
                          {"issue": N, "ruling": "hold"|"approved"|
                          "approved-with-conditions", "holds_behind": [N,...]?,
                          "adds_serialized": [marker,...]?, "reason": str,
-                         "ts": str}. Later entries for the same issue
+                         "ts": str}. An entry may carry "subject": "<slug>"
+                         in place of "issue" for work that has no issue
+                         (#1189): it is read, counted on stderr and never
+                         used for planning. Later entries for the same issue
                          SUPERSEDE earlier ones - an override is a recorded
                          act, never a silent contradiction (the DP2b failure).
                          Two effects: (1) an issue in startable or --in-flight
@@ -153,16 +156,9 @@ import traceback
 from collections import defaultdict
 from pathlib import Path
 
-# Dependency-position grammar (#607, gate condition 1): line-anchored, optional
-# bullet, one of the four keyword forms, then an IMMEDIATE #N list. Prose
-# references ("see #12", "filed after #600 merged") must never match - the
-# keyword has to open the line's clause and the refs must directly follow it.
-# #648 partial convergence: the keyword tolerates the contract's documented
-# Markdown decorations (*, **, _, __ around it, optional colon before/after
-# the closing emphasis) so `**Blocked by:** #12` declares an edge - the line
-# anchor and the immediate-refs requirement are unchanged, so a decorated
-# keyword deep in prose, or one not followed directly by refs (the real #283
-# shape `- **Requires**: Go 1.24.6+ ...`), still never matches.
+# Dependency-position grammar (#607) with the #648 emphasis tolerance; the
+# module docstring states both. A decorated keyword not followed directly by
+# refs (the real #283 shape `- **Requires**: Go 1.24.6+ ...`) never matches.
 _EM = r"(?:\*{1,2}|_{1,2})?"
 EDGE_LINE_RE = re.compile(
     rf"^\s*(?:[-*]\s*)?{_EM}(?:blocked by|depends on|requires|after){_EM}"
@@ -170,12 +166,8 @@ EDGE_LINE_RE = re.compile(
     r"(#\d+(?:\s*(?:,|and)\s*#\d+)*)",
     re.IGNORECASE | re.MULTILINE,
 )
-# #648 partial convergence: fenced blocks and inline code spans are removed
-# BEFORE edge parsing - a YAML sample or shell comment inside a fence must
-# never fabricate an edge (the #607 negative-space rule finished). Deliberate
-# asymmetry: ONLY edge extraction reads the stripped body; path/serialized/
-# migration detection reads the RAW body because BACKTICK_PATH_RE
-# intentionally reads inline code.
+# #648: fenced blocks and inline code spans are removed BEFORE edge parsing,
+# and ONLY for it (ADOPTED, in the module docstring).
 _FENCE_RE = re.compile(r"^(?:```|~~~).*?^(?:```|~~~)\s*$", re.MULTILINE | re.DOTALL)
 _INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
 
@@ -695,25 +687,11 @@ def main(argv: list[str]) -> int:
         )
         return 3
     if plan.get("verdict_conflicts"):
-        # Exit 4 is UNCHANGED and deliberately so (#1026). What changes is that
-        # the two populations behind it are now named, because they are not the
-        # same event and the exit code alone cannot tell them apart:
-        #
-        #   in-flight  a worker is ALREADY ON a held issue. A live contradiction:
-        #              somebody is working against a standing ruling right now.
-        #   startable  a held issue is merely a candidate. This is the hold
-        #              DOING ITS JOB - it is keeping an otherwise-ready issue out
-        #              of the assignment pool, which is the quiescent state of
-        #              every standing hold.
-        #
-        # A wave carrying standing holds is therefore permanently exit 4, and
-        # that is correct rather than a defect: the ledger entry stays until it
-        # is explicitly superseded, and #645's assertion is that a hold in the
-        # active set must RAISE rather than silently supersede. Narrowing the
-        # exit code to the in-flight half would quiet a correct refusal and lose
-        # exactly the distinction the gate exists to draw. So the remedy is
-        # legibility - a reader can see which conflicts are new, without the
-        # gate becoming one that lets work through.
+        # Exit 4 is UNCHANGED and deliberately so (#1026); the two populations
+        # behind it are named below, and the module docstring's --verdicts entry
+        # says what each means. Narrowing the exit code to the in-flight half
+        # would quiet a correct refusal: #645's assertion is that a hold in the
+        # active set must RAISE rather than silently supersede.
         in_flight_hits = [c for c in plan["verdict_conflicts"] if c["in"] == "in-flight"]
         startable_hits = [c for c in plan["verdict_conflicts"] if c["in"] == "startable"]
         sys.stderr.write(

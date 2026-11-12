@@ -885,11 +885,10 @@ has_section() {
 
 parse_ledger() { # parse_ledger LINENO BLOCK_START
   local ln="$1" start="$2" block missing=""
-  #: `${x,,}` rather than `lower`, for the same reason: `lower` is `tr`, one
+  #: `${x,,[A-Z]}` below rather than a `tr` subprocess, for the same reason: one
   #: more fork, and ITS failure yields an empty block - which reports all three
   #: sections missing. Leaving it would have kept a could-not-run path in the
-  #: very function this fixes, wearing the truncation shape instead. `lower`
-  #: itself and its other callers are untouched; only this site stops forking.
+  #: very function this fixes, wearing the truncation shape instead.
   block="$(block_lines "$start")"
   #: ASCII-restricted for the reason given at the parse_merge site: unrestricted
   #: `,,` is locale-aware and diverges from the `tr` it replaced on non-ASCII
