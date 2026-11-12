@@ -901,30 +901,29 @@ instead.
    ```bash
    ~/.claude/scripts/flow-plan-record.py drift 42
    ```
-   - `ISSUE_DRIFT: clean` (exit 0) - the body digest is unchanged since Step 1.
-   - `ISSUE_DRIFT: drift` (exit 3) - the body changed; the helper prints the
+   - `ISSUE_DRIFT: clean` (exit 0) - body digest unchanged since Step 1.
+   - `ISSUE_DRIFT: drift` (exit 3) - the body changed; it prints the
      diff. Resolve it under the EXISTING authority model - newer bytes do not by
      themselves override a constraint or a plan already accepted on the issue -
      and say in the PR how.
-   - `ISSUE_DRIFT: unresolved` (exit 4) - NOT clean: report the issue as
-     unchecked.
+   - `ISSUE_DRIFT: unresolved` (exit 4) - NOT clean: report it unchecked.
 
 7. **Compare the diff against the approved plan** (issue #1082). It REPORTS; it
    never blocks:
    ```bash
    ~/.claude/scripts/flow-plan-record.py compliance 42
    ```
-   The base defaults to `git merge-base HEAD origin/main` (`--base <ref>`
-   overrides it).
+   Base: `git merge-base HEAD origin/main` unless `--base <ref>`.
    - `PLAN_COMPLIANCE: agreement` (exit 0) - the FILE SET matches Section C
      (file names only).
-   - `PLAN_COMPLIANCE: divergence` (exit 3) - it names each `TOUCHED BUT NOT
+   - `PLAN_COMPLIANCE: divergence` (exit 3) - names each `TOUCHED BUT NOT
      PLANNED`, `PLANNED BUT NOT TOUCHED` and underivable mirror. Write the
-     reason in the PR, and never edit the plan to make it agree.
+     reason in the PR; never edit the plan to make it agree.
    - `PLAN_COMPLIANCE: unknown` (exit 4) - never report it as agreement.
+   - A `, LANES NOT ...` clause: follow its stderr note, commit, re-run.
    - `PLAN_RECORD_STABILITY: THE PLAN RECORD CHANGED` (exit 3) - the approved
-     plan moved after Step 4; read the record's own diff first. `unknown` means
-     no baseline was stamped.
+     plan moved after Step 4; read the record's own diff first. `unknown`: no
+     baseline stamped.
 
 8. **Confirm the plan record reached the PR** (issue #1080). Skip this only when
    the run wrote no record:

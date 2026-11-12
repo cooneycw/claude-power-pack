@@ -1238,6 +1238,17 @@ collapse" note above).
      block: write the reason in the PR, and never edit the plan to make it agree.
    - `PLAN_COMPLIANCE: unknown` (exit 4) - the comparison could not be made. Never
      report it as agreement.
+   - A clause directly after any of those three verdict words (issue #1767):
+     `, LANES NOT DEMONSTRATED (<count>)` means the plan answered `will test` for
+     that many lanes for which `docs/flow-runs/issue-<N>.lanes-demonstrated.md`
+     has no row; `, LANES NOT CHECKED` means the lane file or that file
+     exists and could not be read. Neither changes the exit code. The stderr note
+     beside it names each lane, one per line, and says what to do: for the first, add a `| <lane> | <what was
+     demonstrated> |` row per named lane (in a table with a header row) and
+     re-run; for the second, fix what it names, or report the lanes as not
+     checked - never as demonstrated. Commit the file: it is part of the change. It was first a note on
+     stderr; five changes merged without the file in three hours, so it is on
+     the line a run carries into its PR.
    - `PLAN_RECORD_STABILITY: THE PLAN RECORD CHANGED` (exit 3) - the approved plan
      moved after Step 4; read the record's own diff before the verdict above.
      `unknown` means no baseline was stamped.
