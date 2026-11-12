@@ -11,6 +11,7 @@ Detects well-known secret patterns with low false-positive rates:
 
 from __future__ import annotations
 
+import errno
 import os
 import re
 import stat
@@ -181,11 +182,22 @@ def scan(project_root: str) -> ScanResult:
     files_scanned = 0
     files_unreadable = 0
 
-    extensionless, unread = _find_extensionless_files(root)
+    unread: Counter[str] = Counter()
+    # The extension population is read exactly as before. An extensionless
+    # candidate is read ONCE, through the same descriptor its checks ran on
+    # (issue #1737): reopening it by name after checking would let a file
+    # swapped in between be followed, waited on, or read without bound.
+    sources: list[tuple[Path, bool]] = [(p, False) for p in _find_source_files(root)]
+    sources += [(p, True) for p in _find_extensionless_candidates(root)]
 
-    for file_path in [*_find_source_files(root), *extensionless]:
+    for file_path, extensionless in sources:
+        if extensionless:
+            guarded, reason = _read_extensionless(root, file_path)
+            if guarded is None:
+                unread[reason or UNREAD_UNREADABLE] += 1
+                continue
         try:
-            content = file_path.read_text(errors="ignore")
+            content = guarded if extensionless and guarded is not None else file_path.read_text(errors="ignore")
         except OSError:
             # Counted only AFTER a successful read (issue #1027, cross-model
             # review). This used to increment above the `try`, so a file the
@@ -316,23 +328,18 @@ def _selected_by_extension(path: Path) -> bool:
 
 
 def _has_scan_name(name: str) -> bool:
-    return name in SCAN_NAMES or name.startswith(SCAN_NAME_PREFIXES)
+    """An exact well-known name, or `Dockerfile.<x>` with a NON-EMPTY `<x>`."""
+    return name in SCAN_NAMES or any(name.startswith(p) and len(name) > len(p) for p in SCAN_NAME_PREFIXES)
 
 
-def _find_extensionless_files(root: Path) -> tuple[list[Path], Counter[str]]:
-    """Find the extensionless files to read, and count the ones left unread.
+def _find_extensionless_candidates(root: Path) -> list[Path]:
+    """Extensionless paths that are CANDIDATES for reading (issue #1737).
 
-    Returns ``(files, unread)``: ``unread`` maps each ``UNREAD_*`` reason to how
-    many extensionless, non-gitignored files were NOT read for it. A file the
-    extension rule already selects is never a candidate here, so the two
-    populations cannot overlap and no file is counted twice.
-
-    Nothing here follows a symlink or opens anything that is not a regular
-    file: a candidate is `lstat`ed, opened `O_NOFOLLOW | O_NONBLOCK`, and
-    `fstat`ed again on the descriptor before a byte is read, so a FIFO or a
-    device swapped in under the name is refused rather than waited on.
+    Selection only: nothing is opened here. A path the extension rule already
+    selects is never a candidate, so the two populations cannot overlap and no
+    file is counted twice. Whether a candidate is actually read is decided by
+    `_read_extensionless`, at the moment it is read.
     """
-    unread: Counter[str] = Counter()
     candidates: list[Path] = []
     for path in root.rglob("*"):
         rel = path.relative_to(root)
@@ -353,41 +360,73 @@ def _find_extensionless_files(root: Path) -> tuple[list[Path], Counter[str]]:
         if stat.S_ISDIR(mode):
             continue
         candidates.append(path)
-
-    files: list[Path] = []
-    for path in _filter_gitignored(root, candidates):
-        reason = _extensionless_unread_reason(path)
-        if reason is None:
-            files.append(path)
-        else:
-            unread[reason] += 1
-    return files, unread
+    return _filter_gitignored(root, candidates)
 
 
-def _extensionless_unread_reason(path: Path) -> Optional[str]:
-    """Why this extensionless candidate is not read, or None when it is."""
+def _read_extensionless(root: Path, path: Path) -> tuple[Optional[str], Optional[str]]:
+    """Read one extensionless candidate: ``(content, None)`` or ``(None, reason)``.
+
+    Every check and the read itself happen on ONE descriptor, reached by
+    walking down from the scan root one component at a time:
+
+    - each directory on the way is opened `O_DIRECTORY | O_NOFOLLOW` relative
+      to its parent's descriptor, so a parent swapped for a symlink after
+      enumeration is refused instead of leading out of the root (`O_NOFOLLOW`
+      on a whole path guards only its last component);
+    - the file is opened `O_NOFOLLOW | O_NONBLOCK` and `fstat`ed on the
+      descriptor before a byte is read, so a symlink is never followed and a
+      FIFO or device is refused rather than waited on;
+    - at most `EXTENSIONLESS_MAX_BYTES + 1` bytes are read, so a file that
+      grows after it was listed is refused as too large, never read without
+      bound.
+
+    The content returned is exactly what was checked. Nothing reopens the path.
+    """
+    rel = path.relative_to(root)
+    dir_fd = -1
+    fd = -1
     try:
-        if not stat.S_ISREG(path.lstat().st_mode):
-            return UNREAD_NOT_REGULAR
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    except OSError:
-        return UNREAD_UNREADABLE
-    try:
-        opened = os.fstat(fd)
-        if not stat.S_ISREG(opened.st_mode):
-            return UNREAD_NOT_REGULAR
-        if opened.st_size > EXTENSIONLESS_MAX_BYTES:
-            return UNREAD_TOO_LARGE
-        head = os.read(fd, EXTENSIONLESS_HEAD_BYTES)
-    except OSError:
-        return UNREAD_UNREADABLE
+        try:
+            dir_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+            for part in rel.parts[:-1]:
+                next_fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dir_fd)
+                os.close(dir_fd)
+                dir_fd = next_fd
+        except OSError:
+            # ELOOP / ENOTDIR: a directory on the way is a symlink or is gone.
+            return None, UNREAD_NOT_REGULAR
+        try:
+            fd = os.open(rel.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
+        except OSError as exc:
+            return None, UNREAD_NOT_REGULAR if exc.errno == errno.ELOOP else UNREAD_UNREADABLE
+        try:
+            opened = os.fstat(fd)
+            if not stat.S_ISREG(opened.st_mode):
+                return None, UNREAD_NOT_REGULAR
+            if opened.st_size > EXTENSIONLESS_MAX_BYTES:
+                return None, UNREAD_TOO_LARGE
+            chunks: list[bytes] = []
+            remaining = EXTENSIONLESS_MAX_BYTES + 1
+            while remaining > 0:
+                chunk = os.read(fd, min(remaining, 1 << 16))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+        except OSError:
+            return None, UNREAD_UNREADABLE
     finally:
-        os.close(fd)
-    if b"\0" in head:
-        return UNREAD_BINARY
-    if _has_scan_name(path.name) or head.startswith(b"#!"):
-        return None
-    return UNREAD_NO_SIGNAL
+        for descriptor in (fd, dir_fd):
+            if descriptor >= 0:
+                os.close(descriptor)
+    data = b"".join(chunks)
+    if len(data) > EXTENSIONLESS_MAX_BYTES:
+        return None, UNREAD_TOO_LARGE
+    if b"\0" in data[:EXTENSIONLESS_HEAD_BYTES]:
+        return None, UNREAD_BINARY
+    if not (_has_scan_name(path.name) or data.startswith(b"#!")):
+        return None, UNREAD_NO_SIGNAL
+    return data.decode("utf-8", errors="ignore"), None
 
 
 def _filter_gitignored(root: Path, files: list[Path]) -> list[Path]:

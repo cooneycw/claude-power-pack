@@ -218,7 +218,7 @@ rules now add files; neither changes which files the extension rule selects.
 | Read | Rule |
 |---|---|
 | A file with no suffix whose first two bytes are `#!` | The shebang decides, whatever the interpreter |
-| `Makefile`, `GNUmakefile`, `makefile`, `Dockerfile`, `Containerfile`, `Dockerfile.<x>` | Exact basename; `Makefile.bak` and `my-Dockerfile` are not on the list |
+| `Makefile`, `GNUmakefile`, `makefile`, `Dockerfile`, `Containerfile`, `Dockerfile.<x>` | Exact basename; `Makefile.bak`, `my-Dockerfile` and a bare `Dockerfile.` are not on the list |
 
 Stated answers:
 
@@ -230,6 +230,12 @@ Stated answers:
   regular file. A symlink is never followed, inside the scan root or out of
   it; its target is read under its own name if it qualifies. A FIFO or device
   is refused without being opened for reading, so the scan cannot wait on one.
+- **Checked and read through one descriptor.** Each of these files is reached
+  from the scan root one directory at a time, refusing any directory that is
+  a symlink, and the bytes scanned are the bytes that were checked. A file or
+  a parent directory swapped after the tree was listed is refused, and a file
+  that grows past the cap while being read is refused, never read on. Files
+  selected by extension are read as they always were, without these guards.
 
 Whenever an extensionless file is left unread, the scan says how many and why,
 on its own line:
