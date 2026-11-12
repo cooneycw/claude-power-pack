@@ -25,7 +25,6 @@ Replace prompt-driven CI/CD orchestration with a deterministic Python runner bac
 **Acceptance Criteria:**
 - [ ] Runner executes steps sequentially with typed results (success/fail/skip)
 - [ ] State persisted to `.claude/runs/<run_id>.json` after each step
-- [ ] Resume from last failed step via `python -m lib.cicd resume <run_id>`
 - [ ] Retry policy per step (max attempts, backoff)
 - [ ] Timeout enforcement per step
 - [ ] Structured JSON output for LLM consumption
