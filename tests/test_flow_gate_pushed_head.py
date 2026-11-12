@@ -23,7 +23,9 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 COMMANDS = REPO / ".claude" / "commands" / "flow"
 
-SENTENCE = "If the project's gate needs the pushed head, `git push` the branch first (it opens no PR), then gate (#1706)."
+SENTENCE = (
+    "If the project's gate needs the pushed head, `git push` the branch first (it opens no PR), then gate (#1706)."
+)
 GATE_CALL = "~/.claude/scripts/flow-finish-gate.sh\n"
 NO_VERDICT_STOP = "A run with no `FLOW_FINISH_GATE:` verdict line did not run the gate"
 
@@ -46,7 +48,7 @@ def test_the_sentence_sits_in_the_gate_step_before_the_first_push(name: str) -> 
     gate_at = text.index(GATE_CALL)
     stop_at = text.index(NO_VERDICT_STOP)
     push_at = text.index("git push -u origin")
-    assert gate_at < sentence_at < stop_at, f"flow/{name}: the sentence is not between the gate call and the no-verdict stop"
+    assert gate_at < sentence_at < stop_at, f"flow/{name}: the sentence is outside the gate step"
     assert sentence_at < push_at, f"flow/{name}: the sentence comes after the push it is about"
 
 
