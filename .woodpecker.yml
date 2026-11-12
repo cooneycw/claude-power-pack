@@ -929,7 +929,15 @@ steps:
             ;;
           "") echo "negative-controls: CI_PIPELINE_EVENT is not set, so this step cannot tell whether to verify anchor provenance - refusing to run without knowing"; exit 1 ;;
         esac
-        echo "negative-controls: event ${CI_PIPELINE_EVENT}; provenance flag: ${PROVENANCE:-not passed (main pushes do not verify provenance)}"
+        # No braces round a variable this script sets: Woodpecker substitutes
+        # every braced variable when it compiles the pipeline, before the shell
+        # runs, so the braced default form always printed its default - "not
+        # passed" on the very run that passed it (pipeline 3754).
+        if [ -n "$PROVENANCE" ]; then
+          echo "negative-controls: event ${CI_PIPELINE_EVENT}; provenance flag: $PROVENANCE"
+        else
+          echo "negative-controls: event ${CI_PIPELINE_EVENT}; provenance flag: not passed (main pushes do not verify provenance)"
+        fi
         printf '%s' "$PROVENANCE" > .ci-bin/provenance-flag
       - PATH="$PWD/.ci-bin:$PATH" python3 scripts/check-negative-controls.py --strict $(cat .ci-bin/provenance-flag)
 

@@ -594,3 +594,28 @@ def test_without_the_flag_those_shapes_behave_as_they_did(tmp_path: Path) -> Non
     _mutate(root, MALFORMED["placeholder-sha"])
     _commit(root)
     assert harness(root, "--strict", "--allow-unavailable").returncode == 0
+
+
+def _compile_time_names(text: str) -> set[str]:
+    """Every braced variable in a pipeline file. Woodpecker substitutes that
+    form when it compiles the pipeline, before any shell runs; the unbraced
+    form and the doubled-dollar form are left for the shell."""
+    import re
+
+    return set(re.findall(r"(?<!\$)\$\{([A-Za-z_][A-Za-z0-9_]*)", text))
+
+
+def test_the_pipeline_braces_only_variables_woodpecker_itself_supplies() -> None:
+    """Pipeline 3754 printed "provenance flag: not passed" on the run that
+    passed it: a braced default on the script's own variable was substituted
+    at compile time, where that variable is always unset. Under bash the line
+    was right, so no test that runs the block in a shell could see it."""
+    names = _compile_time_names((ROOT / ".woodpecker.yml").read_text())
+    assert names, "the reader found no braced variable at all - it cannot see the form it exists to catch"
+    own = sorted(name for name in names if not name.startswith("CI_"))
+    assert not own, f"substituted when the pipeline is compiled, not when the step runs: {own}"
+
+
+def test_the_reader_sees_a_braced_shell_variable_and_ignores_the_escaped_form() -> None:
+    line = 'echo "${PROVENANCE:-none} ${CI_PIPELINE_EVENT} $PLAIN $${ESCAPED}"'
+    assert _compile_time_names(line) == {"PROVENANCE", "CI_PIPELINE_EVENT"}
