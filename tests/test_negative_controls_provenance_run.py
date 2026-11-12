@@ -180,7 +180,7 @@ def test_a_digest_mismatch_never_reached_git_and_is_not_counted_as_compared(tmp_
     # ...and that is NOT "none registered": the population is the registrations.
     assert "no historical anchor is registered" not in done.stdout
     assert "of 1 historical anchor(s) registered" in done.stdout
-    assert "1 never reached the comparison" in done.stdout
+    assert "1 never reached the comparison (its bytes already disagree" in done.stdout
 
 
 def _make_unavailable(root: Path) -> None:
@@ -407,3 +407,21 @@ def test_the_enrolment_step_tolerates_the_clone_being_deepened_under_it() -> Non
     loop = step.split("for attempt in 1 2 3; do", 1)[1].split("done", 1)[0]
     assert loop.index("is-shallow-repository") < loop.index("fetch --quiet --unshallow"), (
         "the clone's state must be re-read inside the loop, before each fetch")
+
+
+def test_a_missing_anchor_on_a_control_that_cannot_run_here_fails_strict(tmp_path: Path) -> None:
+    """Second review pass. Scoring refuses a missing anchor file - when it gets
+    that far. A control whose tool is absent returns first and is excused, so
+    a registered historical anchor that is simply GONE was counted as
+    'unexamined' and the run passed without ever comparing it."""
+    root = _fixture(tmp_path, "good-anchor-matches-its-commit", shallow=False)
+    _make_unavailable(root)
+    (root / "controls" / "toy" / "anchors" / "first-commit-toy-gate.sh").unlink()
+    _commit(root)
+    posture = ("--strict", "--allow-unavailable")
+    assert harness(root, *posture).returncode == 0, "precondition: excused and green without the flag"
+    done = harness(root, *posture, "--verify-provenance")
+    assert done.returncode == 1, done.stdout
+    assert "the anchor file is missing" in done.stdout
+    assert counts(done.stdout) == (0, 1)
+    assert "-> PROVENANCE:UNCOMPARED" in done.stdout

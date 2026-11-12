@@ -527,8 +527,8 @@ class Result:
     historical_registered: int = 0
     historical_compared: int = 0
     historical_uncompared: int = 0
-    #: Registered, and never reached the comparison: the anchor file is missing,
-    #: or its bytes already disagree with the recorded digest.
+    #: Registered, and never reached the comparison: its bytes already disagree
+    #: with the recorded digest (MISMATCH, which fails by itself).
     historical_unexamined: int = 0
 
 
@@ -1487,9 +1487,10 @@ def _verify_historical_anchors(res: Result, control_dir: Path, root: Path) -> No
 
     The POPULATION is the registrations, read here from the manifest, never the
     comparisons that happened to run: `historical_registered` counts them all,
-    and each lands in exactly one of compared, uncompared (could not look) or
-    unexamined (never reached git: the file is missing, or its bytes already
-    disagree with the recorded digest). Provenance is only ever STRENGTHENED
+    and each lands in exactly one of compared, uncompared (could not look: no
+    git, no such commit here, or no anchor file) or unexamined (never reached
+    git because its bytes already disagree with the recorded digest, which is
+    MISMATCH and fails on its own). Provenance is only ever STRENGTHENED
     towards a failure here - a MISMATCH or UNCOMPARED found by this pass
     replaces a weaker word from scoring, never the reverse."""
     try:
@@ -1504,7 +1505,16 @@ def _verify_historical_anchors(res: Result, control_dir: Path, root: Path) -> No
         res.historical_registered += 1
         anchor_path = control_dir / str(anchor["path"])
         if not anchor_path.is_file():
-            res.historical_unexamined += 1
+            # Asked to compare it and there is nothing to compare: could not
+            # look, by name. Scoring also refuses a missing anchor, but scoring
+            # may never reach it (a control whose tool is absent returns first
+            # and is then excused), so the failure has to be raised here too.
+            res.historical_uncompared += 1
+            words.append(UNCOMPARED)
+            res.details.append(
+                f"anchor {anchor['path']} (historical {anchor.get('sha', '?')}) could not be "
+                f"compared with the commit it names: the anchor file is missing"
+            )
             continue
         _HISTORICAL_COMPARED.pop(id(anchor), None)
         word = _provenance(anchor, anchor_path, root, True)
@@ -3018,8 +3028,8 @@ def main(argv: list[str] | None = None) -> int:
             print("NEGATIVE_CONTROL_PROVENANCE_HISTORICAL: compared=0 uncompared=0 - no "
                   "historical anchor is registered here, so there was nothing to compare")
         else:
-            never = (f"; {unexamined} never reached the comparison (file missing, or its bytes "
-                     "already disagree with the recorded digest)") if unexamined else ""
+            never = (f"; {unexamined} never reached the comparison (its bytes already disagree "
+                     "with the recorded digest)") if unexamined else ""
             print(f"NEGATIVE_CONTROL_PROVENANCE_HISTORICAL: compared={compared} "
                   f"uncompared={uncompared} - of {registered} historical anchor(s) registered, "
                   f"{compared} byte-compared with the commit they name{never}")
