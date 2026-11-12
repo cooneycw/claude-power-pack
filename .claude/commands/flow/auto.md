@@ -742,9 +742,9 @@ instead.
 
    - `COUNTER_MODEL_REVIEW: findings` - triage each as accepted (fix it now,
      under the Step-4 rules), rejected (one-line reason), or deferred (route it
-     to the nit store). Re-review once after an accepted fix. If pass 2 needs
-     another, make it, stop, ask the approver for pass 3; never receipt an
-     unreviewed head or false count.
+     to the nit store). One re-review after the first accepted fix. Make later
+     fixes, then stop: ask the approver before each further pass; never receipt
+     an unreviewed head or false count.
    - `COUNTER_MODEL_REVIEW: clean` - record `ran` with zero counts.
    - `COUNTER_MODEL_REVIEW: unparseable` (non-zero) - **This is not a clean
      review.** Record `skipped` with reason `reviewer-unavailable`; never a
@@ -783,8 +783,8 @@ instead.
        --red-cases-proposed 4 --red-cases-already-covered 3
    ```
 
-   `--passes` past 2 only as granted: 3 adds `--extra-pass-reason`; above 3
-   also `--escalated-by`, `--escalation-ref`, `--raised-cap`.
+   Past `--passes 2`: `--extra-pass-reason`; past 3 also `--escalated-by`,
+   `--escalation-ref`, `--raised-cap`.
    CI enforces the receipt at the merge boundary (issue #1452).
 
    **Stage the receipt immediately, on every status including a skip (issue

@@ -4277,3 +4277,17 @@ def test_an_escalation_block_on_an_ordinary_receipt_is_refused(tmp_path: Path) -
     receipt = _ran_receipt_with(tmp_path, passes=3)
     problems = CM.validate(receipt, "corpus")
     assert any("'escalation' is only for passes beyond 3" in p for p in problems), problems
+
+
+def test_a_skipped_receipt_must_not_carry_an_escalation() -> None:
+    """Counter-model review, pass 2: the validator returned from its skipped
+    branch before looking, so a skip could carry a ruling for a review that
+    never happened. The writer already refused the combination."""
+    skipped = {k: v for k, v in _RAN_BASE.items() if k not in ("counts", "red_cases", "passes")}
+    skipped.update(status="skipped", skip_reason=CM.SKIP_REASONS[0], reviewer=None)
+    base_problems = CM.validate(dict(skipped), "skip")
+    with_escalation = CM.validate(
+        dict(skipped, escalation={"ruled_by": "x", "reference": "y", "raised_cap": 5}), "skip",
+    )
+    extra = [p for p in with_escalation if p not in base_problems]
+    assert any("must not carry 'escalation'" in p for p in extra), with_escalation

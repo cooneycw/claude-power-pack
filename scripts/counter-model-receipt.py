@@ -2591,7 +2591,7 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
             bad.append(
                 f"{source}: skip_reason {receipt.get('skip_reason')!r} not in {SKIP_REASONS}"
             )
-        for absent in ("counts", "red_cases", "passes", "extra_passes_reason"):
+        for absent in ("counts", "red_cases", "passes", "extra_passes_reason", "escalation"):
             if absent in receipt:
                 bad.append(f"{source}: a skipped run must not carry {absent!r}")
         return bad
@@ -3335,6 +3335,15 @@ def cmd_escalation(args: argparse.Namespace) -> int:
     if not isinstance(receipt, dict):
         print(f"counter-model-receipt: {args.receipt} is not a JSON object", file=sys.stderr)
         return 1
+    # The TOP-LEVEL status, parsed: the gate's own field reader matches a name
+    # at any depth, so it asks here before it believes a `skipped`.
+    status = receipt.get("status")
+    if status == "skipped":
+        print("skipped")
+        return 0
+    if status != "ran":
+        print("other")
+        return 0
     if "passes" not in receipt:
         # The gate never required the field of an ordinary receipt (older ones
         # omit it), and absence claims no count beyond the ceiling.

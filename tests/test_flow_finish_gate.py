@@ -4312,3 +4312,43 @@ def test_a_receipt_with_no_passes_field_is_still_an_ordinary_receipt(tmp_path: P
     repo, head = _one_reviewed_commit(tmp_path)
     _receipt_fields(repo, "2026-01-01T000000Z-issue-1700.json", head)
     assert "receipt: 2026-01-01T000000Z-issue-1700.json" in _counter_model_line(_gate(repo))
+
+
+@requires_bash
+@requires_git
+@pytest.mark.parametrize("mode", ["finish", "enrolment-only"])
+def test_a_nested_skipped_field_cannot_hide_an_unruled_count(tmp_path: Path, mode: str) -> None:
+    """Counter-model review, pass 2: the gate reads a field by NAME at any depth,
+    so a nested `"status": "skipped"` ahead of the real top-level
+    `"status": "ran", "passes": 5` read as an allowed skip and never reached the
+    pass-count judgement."""
+    import json
+
+    repo, head = _one_reviewed_commit(tmp_path)
+    receipt = {
+        "schema": 2,
+        "metadata": {"status": "skipped", "skip_reason": "codex-absent"},
+        "recorded_at": "2026-09-21T12:00:00Z", "issue": "1700",
+        "branch": _git(repo, "rev-parse", "--abbrev-ref", "HEAD"), "head": head,
+        "status": "ran", "passes": 5, "extra_passes_reason": "x", "scope": "full",
+        "reviewer": "codex/gpt-6-astra", "implementer": "claude/claude-opus-5",
+    }
+    path = repo / "docs/measurements/counter-model/2026-01-01T000000Z-issue-1700.json"
+    path.write_text(json.dumps(receipt, indent=2))
+    assert path.read_text().index('"status": "skipped"') < path.read_text().index('"status": "ran"'), (
+        "precondition: the nested skip is what a first-match reader sees"
+    )
+    result = _gate(repo) if mode == "finish" else _enrolment_only(repo)
+    assert "unknown: receipt " in _counter_model_line(result), result.stdout
+    assert _verdict(result).startswith("FLOW_FINISH_GATE: fail")
+
+
+@requires_bash
+@requires_git
+def test_a_real_top_level_skip_is_still_an_allowed_skip(tmp_path: Path) -> None:
+    """The must-not-flip side of the nested-field guard."""
+    repo, head = _one_reviewed_commit(tmp_path)
+    _receipt_fields(
+        repo, "2026-01-01T000000Z-issue-1700.json", head, status="skipped", skip_reason="codex-absent",
+    )
+    assert "skipped: codex-absent" in _counter_model_line(_gate(repo))

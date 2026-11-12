@@ -713,6 +713,17 @@ cm_enrolment_evaluate() {
     for f in ${cm_best_files[@]+"${cm_best_files[@]}"}; do
         rstatus=$(cm_field "$f" status)
         if [[ "$rstatus" == "skipped" ]]; then
+            # A SKIP MUST BE A SKIP AT THE TOP LEVEL (issue #1700, counter-model
+            # review). `cm_field` matches a field by name wherever it sits, so a
+            # receipt with a NESTED `"status": "skipped"` placed before its real
+            # top-level `"status": "ran", "passes": 5` read as an allowed skip
+            # and never reached the pass-count judgement below. The receipt
+            # script parses the JSON and says what the top level holds.
+            if [[ "$(python3 "$CM_RECEIPT_HELPER" escalation "$f" 2>/dev/null)" != "skipped" ]]; then
+                CM_ENROLMENT_STATE=unknown
+                CM_ENROLMENT_LINE="unknown: receipt $(basename "$f") reads as skipped only through a nested field; its top-level status is not 'skipped'"
+                return
+            fi
             rreason=$(cm_field "$f" skip_reason)
             # The committed set is read from its ONE declaration rather than
             # copied into shell (issue #1171). A second list here is the
