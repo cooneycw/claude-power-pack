@@ -2256,3 +2256,78 @@ def test_a_stall_check_from_THIS_poll_is_still_reported(tmp_path):
     m = _markers(result.stdout)
     assert m["FLOW_CI_STATUS"] == ["running"], result.stdout + result.stderr
     assert m["FLOW_CI_STALL_CHECK"] == ["unavailable (pipeline detail unreadable)"]
+
+
+def _gh_classic_answers(tmp_path: Path, answers: list[str], ruleset_contexts: list[str]) -> Path:
+    """A gh whose CLASSIC protection read answers `answers` in turn: "404"
+    (fails, 404 on stderr), "500" (fails, no 404) or "ok" (succeeds, empty).
+    The rulesets read answers `ruleset_contexts`."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    counter = tmp_path / "classic-calls"
+    body = [
+        "#!/usr/bin/env bash",
+        'if [[ "$1" == "api" ]]; then',
+        '  case "$2" in',
+        "    */protection/required_status_checks)",
+        f'      n=$(cat "{counter}" 2>/dev/null || echo 0); echo $((n + 1)) > "{counter}"',
+        '      case "$n" in',
+    ]
+    for index, answer in enumerate(answers):
+        action = {
+            "404": 'echo "gh: Not Found (HTTP 404)" >&2; exit 1',
+            "500": 'echo "gh: Server Error (HTTP 500)" >&2; exit 1',
+            "ok": "exit 0",
+        }[answer]
+        body.append(f"        {index}) {action} ;;")
+    body += [
+        '        *) echo "unexpected extra classic read" >&2; exit 1 ;;',
+        "      esac ;;",
+        "    */rules/branches/*)",
+        "      cat <<'CTX'",
+        *ruleset_contexts,
+        "CTX",
+        "      exit 0 ;;",
+        "    repos/*/*/*) exit 1 ;;",
+        '    repos/*) echo "main"; exit 0 ;;',
+        "  esac",
+        "fi",
+        "exit 1",
+        "",
+    ]
+    path = tmp_path / "gh"
+    path.write_text("\n".join(body), encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+@requires_bash
+@pytest.mark.parametrize("tmpdir", [None, "/dev/null"])
+@pytest.mark.parametrize(
+    "answers,no_rule",
+    [
+        (["404", "404"], True),    # asked twice, 404 both times: no classic rule
+        (["404", "ok"], False),    # the second answer differs: unreadable
+        (["500", "500"], False),   # fails without a 404: unreadable
+        (["404", "500"], False),   # the 404 was not repeated: unreadable
+    ],
+)
+def test_NO_CLASSIC_RULE_is_concluded_only_from_a_404_seen_on_the_second_read(
+    tmp_path, answers, no_rule, tmpdir
+):
+    """#1711 and its counter-model review. stderr is no longer captured with
+    the context names, so a failed read is asked once more for its stderr. With
+    a recorded backend an unreadable protection source is `unknown`; the
+    rulesets decide only when the classic rule is known to be absent. An
+    unusable TMPDIR changes nothing: the first cut used a temp file there."""
+    curl = _both_lanes_curl(tmp_path)
+    gh = _gh_classic_answers(tmp_path / "bin", answers, ["ci/woodpecker/pr/woodpecker"])
+    env = {"FLOW_CI_CURL": str(curl), "FLOW_CI_GH": str(gh), "CPP_FLOW_CI_BACKEND": "woodpecker"}
+    if tmpdir is not None:
+        env["TMPDIR"] = tmpdir
+    result = _run(tmp_path, SHA, "--repo", "o/r", env=env)
+    event = _markers(result.stdout)["FLOW_CI_EVENT"][0]
+    if no_rule:
+        assert event.startswith("pull_request (branch-protection on main"), result.stdout
+    else:
+        assert "required protection source unreadable" in event, result.stdout
+    assert (tmp_path / "bin" / "classic-calls").read_text().strip() == "2", "a failed read is asked twice"

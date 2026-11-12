@@ -473,20 +473,24 @@ derive_event() {
         EVENT_SOURCE="default: default branch unreadable, required contexts unreadable"; return
     fi
     local classic="" rules="" answered=0 unreadable=0 protection_source="classic"
-    # stdout is the list of context names; stderr is read ONLY to recognise a
-    # 404. Captured together, anything gh wrote to stderr on a successful call
-    # became a required context (issue #1711).
-    local gh_err
-    gh_err="$(mktemp "${TMPDIR:-/tmp}/flow-ci-status-gh.XXXXXX" 2>/dev/null)" || gh_err=/dev/null
+    # stdout is the list of context names. Captured together with stderr,
+    # anything gh wrote there on a SUCCESSFUL call became a required context
+    # (issue #1711). stderr matters only when the call fails, to recognise a
+    # 404, so a failed call is asked once more for its stderr alone - no temp
+    # file whose creation could fail and change the answer. That is a second
+    # question and may get a different answer: "no rule" is concluded ONLY
+    # when the second call fails too and says 404. Anything else is unreadable.
+    local classic_err=""
     if classic="$("$GH_BIN" api "repos/$REPO/branches/$default_branch/protection/required_status_checks" \
-            --jq '((.contexts // []) + ((.checks // []) | map(.context))) | unique | .[]' 2>"$gh_err")"; then
+            --jq '((.contexts // []) + ((.checks // []) | map(.context))) | unique | .[]' 2>/dev/null)"; then
         answered=1
-    elif [[ "$classic$(cat "$gh_err" 2>/dev/null)" == *"(HTTP 404)"* ]]; then
+    elif classic_err="$("$GH_BIN" api "repos/$REPO/branches/$default_branch/protection/required_status_checks" 2>&1 >/dev/null)"; then
+        classic=""; unreadable=1
+    elif [[ "$classic_err" == *"(HTTP 404)"* ]]; then
         classic=""; answered=1
     else
         classic=""; unreadable=1
     fi
-    [[ "$gh_err" == /dev/null ]] || rm -f "$gh_err"
     if rules="$("$GH_BIN" api "repos/$REPO/rules/branches/$default_branch" \
             --jq '[.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[]?.context] | unique | .[]' 2>/dev/null)"; then
         answered=1
