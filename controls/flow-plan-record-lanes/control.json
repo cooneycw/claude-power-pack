@@ -1,0 +1,79 @@
+{
+  "_comment": [
+    "Registration for the lanes check in `flow-plan-record.py approve` (issue #1731).",
+    "",
+    "WHY IT NEEDS COMMITTED CASES (ADR 0008): approval lets a plan THROUGH, and",
+    "nothing downstream re-derives whether the plan answered the project's lanes.",
+    "Before this check, three plans in one afternoon were approved without the",
+    "table and one merged that way.",
+    "",
+    "Each case is one run section and, where the project lists lanes, one lane",
+    "file. run-case.py builds a throwaway repository, appends the section to a new",
+    "run's plan record and asks the gate to approve it.",
+    "",
+    "FOUR BAD CASES, because the check has four ways to be owed: no table at",
+    "all, a listed lane with no row, a row whose answer is not one of the four,",
+    "and a lane file that exists but lists nothing (which must not read as a",
+    "project with no lanes)."
+  ],
+  "gate": "scripts/flow-plan-record.py",
+  "invocation": [
+    "python3",
+    "controls/flow-plan-record-lanes/run-case.py",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^FLOW_PLAN_RECORD: error - (the plan record has no lanes table|the lanes table leaves these listed lanes unanswered|unknown: )",
+  "good_signal": "^FLOW_PLAN_RECORD: baseline stamped [0-9a-f]{64}$",
+  "unavailable_signal": "^FLOW_PLAN_RECORD_LANES_CONTROL: unavailable",
+  "limits": "Covers the APPROVAL refusal for a readable lane file and for one that lists nothing. It does not cover the one-line waiver (`Lanes: none - <reason>`), the other unusable-file states, code fences, table edge cases, or the close-time stderr report about docs/flow-runs/issue-<N>.lanes-demonstrated.md - those are pinned by tests/test_flow_plan_record_lanes.py. It says nothing about whether an answer is TRUE: a plan can answer every lane `will test` and test none of them.",
+  "cases": [
+    {
+      "name": "bad-no-table",
+      "input": "cases/bad-no-table",
+      "expect": "BAD",
+      "why": "A project with three listed lanes and a plan with no lanes table: the #1731 case, the state of three approved plans on 2026-11-11. If it scores GOOD the check cannot see a missing table."
+    },
+    {
+      "name": "bad-one-lane-missing",
+      "input": "cases/bad-one-lane-missing",
+      "expect": "BAD",
+      "why": "The table answers two of three listed lanes. If it scores GOOD the check reads 'a table is present' as 'every lane is answered'."
+    },
+    {
+      "name": "bad-answer-is-not-one-of-the-four",
+      "input": "cases/bad-answer-is-not-one-of-the-four",
+      "expect": "BAD",
+      "why": "Every lane has a row, and one answer is `tbd`. If it scores GOOD a row counts as an answer whatever it says."
+    },
+    {
+      "name": "bad-lane-file-lists-nothing",
+      "input": "cases/bad-lane-file-lists-nothing",
+      "expect": "BAD",
+      "why": "The lane file exists and its table is gone. If it scores GOOD an unusable list is being read as a project with no lanes."
+    },
+    {
+      "name": "good-every-lane-answered",
+      "input": "cases/good-every-lane-answered",
+      "expect": "GOOD",
+      "why": "Every listed lane answered, one with a split answer. Separates a working check from one wedged at refuse."
+    },
+    {
+      "name": "good-no-lane-file",
+      "input": "cases/good-no-lane-file",
+      "expect": "GOOD",
+      "why": "A project that has not adopted lanes, and a plan with no table. It must be approved exactly as before: this is every repository but one today."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "6b6cc29e39464cadefc5fea53fafd15a4ce95fb4",
+      "origin": "scripts/flow-plan-record.py",
+      "path": "anchors/pre-1731-flow-plan-record.py",
+      "sha256": "e9e3f45bf69c6f56f954a6804237baadc8f98176f5ef09c8183bdf8e16e29acc",
+      "why": "HISTORICAL: the helper as merged before #1731. Its approve never opens the lane file, so it stamps all four bad cases."
+    }
+  ]
+}
