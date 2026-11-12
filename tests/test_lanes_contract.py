@@ -68,7 +68,8 @@ def test_the_reference_says_no_lane_file_asks_nothing() -> None:
 def test_the_reference_states_what_is_not_enforced() -> None:
     """The honest half: a reader must not infer a gate from the rule's existence."""
     text = normalized(read(CANONICAL))
-    assert "The table itself is not machine-checked." in text
+    assert "its truth is not." in text
+    assert "The table itself is not machine-checked for truth." in text
     assert "an observation, not a repeatable check" in text
     assert "Not covered." in text
 

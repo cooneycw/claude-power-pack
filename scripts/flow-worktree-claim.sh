@@ -93,9 +93,14 @@
 # user about to lose work.
 #
 # Env:
-#   CLAUDE_PID              owning process id (Claude Code sets it); falls back
-#                           to $PPID
-#   CLAUDE_CODE_SESSION_ID  owning session id; falls back to '-'
+#   CLAUDE_PID              owning process id (Claude Code sets it). Unset in a
+#                           Codex session (CODEX_THREAD_ID set): the nearest
+#                           ancestor process named `codex`, because $PPID there
+#                           is a tool shell that lives for one command (issue
+#                           #1709). Otherwise, and when no such ancestor is
+#                           found, $PPID
+#   CLAUDE_CODE_SESSION_ID  owning session id; falls back to CODEX_THREAD_ID,
+#                           then to '-'
 #   FLOW_CLAIM_MAX_AGE_HOURS  a claim whose process identity could NOT be
 #                           established - another host, or no readable witness -
 #                           is treated as stale once older than this (default
@@ -108,6 +113,7 @@
 #   FLOW_CLAIM_HOST         override this host's name
 #   FLOW_CLAIM_LIVE_PIDS    ':'-separated pids to treat as alive (bypasses
 #                           kill -0, so a test can simulate a live sibling)
+#   FLOW_CLAIM_MUTEX_WAIT   seconds to wait for the writer mutex (default 10)
 #   FLOW_CLAIM_PROC_ROOT    override /proc for process state and start time. A test
 #                           seam, not a knob: it exists so BOTH witness lanes -
 #                           readable and unreadable - are reachable on a host
@@ -120,9 +126,68 @@ set -uo pipefail
 trap 'printf "FLOW_CLAIM_EXIT=%d\n" "$?" >&2' EXIT
 
 GIT="${FLOW_CLAIM_GIT:-git}"
+
+# Every git call goes through here, with descriptor 9 CLOSED for the child.
+# Descriptor 9 holds the writer mutex (see "one writer at a time"), and a flock
+# belongs to the open file, not to this process: any child that inherits the
+# descriptor and outlives the helper - a background `git gc --auto`, an
+# fsmonitor daemon, a credential helper, a hook that backgrounds something -
+# would keep the mutex held after this helper has exited, and every claim and
+# release in the repository would then wait out its timer and stand down.
+git_c() { "$GIT" "$@" 9>&-; }
 MAX_AGE_HOURS="${FLOW_CLAIM_MAX_AGE_HOURS:-24}"
-SELF_PID="${CLAUDE_PID:-$PPID}"
-SELF_SESSION="${CLAUDE_CODE_SESSION_ID:-}"
+PROC_ROOT="${FLOW_CLAIM_PROC_ROOT:-/proc}"
+
+# codex_owner_pid - print the pid of the nearest ancestor named `codex`, or
+# nothing (issue #1709).
+#
+# A Codex session runs each command in a tool shell that exits when the command
+# does. $PPID is that shell, so a claim recording it read `stale` to every other
+# session a moment after it was written: a LIVE owner reported as gone. The
+# process that lives as long as the session is the `codex` binary above the
+# shell, so walk up to it.
+#
+# Matched by NAME, never "the first ancestor that is not a shell": a walk that
+# stopped at a login shell or a terminal would record a process that outlives
+# the session by days and hold the worktree long after its owner left. A miss
+# here records $PPID exactly as before, so the failure is no improvement rather
+# than a wrong owner.
+#
+# comm is read from between the FIRST '(' and the LAST ')' of the stat line and
+# the parent from after that last ')' - the comm field may itself contain
+# spaces and parentheses (see start_time_of).
+codex_owner_pid() {
+  local pid="$PPID" hops=0 line comm rest
+  while [ -n "$pid" ] && [ "$hops" -lt 20 ]; do
+    case "$pid" in *[!0-9]* | "" | 0 | 1) return 0 ;; esac
+    line="$(cat "$PROC_ROOT/$pid/stat" 2>/dev/null)" || return 0
+    case "$line" in *"("*") "*) : ;; *) return 0 ;; esac
+    comm="${line#*(}"; comm="${comm%)*}"
+    if [ "$comm" = codex ]; then printf '%s' "$pid"; return 0; fi
+    rest="${line##*) }"
+    # shellcheck disable=SC2086
+    set -- $rest
+    pid="${2:-}"
+    hops=$((hops + 1))
+  done
+  return 0
+}
+
+# SELF_PID_SHARED=1 when the pid above was found by the walk. One `codex
+# app-server` hosts several threads, so that pid can name MANY sessions and a
+# pid match alone is then no evidence of ownership (see classify).
+SELF_PID_SHARED=0
+if [ -n "${CLAUDE_PID:-}" ]; then
+  SELF_PID="$CLAUDE_PID"
+elif [ -n "${CODEX_THREAD_ID:-}" ]; then
+  SELF_PID="$(codex_owner_pid)"
+  if [ -n "$SELF_PID" ]; then SELF_PID_SHARED=1; else SELF_PID="$PPID"; fi
+else
+  SELF_PID="$PPID"
+fi
+# Claude's id wins when both are set (a Codex child of a Claude session works
+# for that session), the precedence flow-plan-record.py already uses.
+SELF_SESSION="${CLAUDE_CODE_SESSION_ID:-${CODEX_THREAD_ID:-}}"
 SELF_HOST="${FLOW_CLAIM_HOST:-${HOSTNAME:-$(hostname 2>/dev/null || echo unknown)}}"
 NOW="${FLOW_CLAIM_NOW:-$(date +%s)}"
 
@@ -149,8 +214,6 @@ emit() {
 abspath() {
   if [ -d "$1" ]; then (cd "$1" 2>/dev/null && pwd -P); else echo "$1"; fi
 }
-
-PROC_ROOT="${FLOW_CLAIM_PROC_ROOT:-/proc}"
 
 # start_time_of PID - print the process's start instant, or nothing when it
 # cannot be read (no such process, or no readable /proc on this host).
@@ -224,7 +287,22 @@ is_alive() {
     case "$line" in
       *") "*)
         rest="${line##*) }"
-        case "$rest" in Z\ *|X\ *) O_STALE_REASON=owner-zombie; return 1 ;; esac
+        case "$rest" in
+          X\ *) O_STALE_REASON=owner-zombie; return 1 ;;
+          Z\ *)
+            # State Z on the thread-group leader is NOT proof of death (issue
+            # #1709): a process whose main thread exited while other threads
+            # still run reads Z here too, and it can still write to the
+            # worktree. A reaped-pending zombie has exactly one thread left.
+            # Field 20 of the line (18 after the comm) is the thread count; an
+            # unreadable count is treated as one, the reading #1605 fixed.
+            # shellcheck disable=SC2086
+            set -- $rest
+            case "${18:-1}" in
+              *[!0-9]* | "" | 0 | 1) O_STALE_REASON=owner-zombie; return 1 ;;
+            esac
+            ;;
+        esac
         ;;
     esac
   fi
@@ -247,7 +325,7 @@ aged_out() {
 # Parse a claim reason string into the O_* globals. Returns 1 when the reason
 # is not one of ours (a foreign lock).
 O_PATH=""; O_PID=""; O_SESSION=""; O_HOST=""; O_TS=""; O_AGE_MIN=""; O_ISSUE=""
-O_START=""; O_WITNESS=""; O_STALE_REASON=""
+O_START=""; O_WITNESS=""; O_STALE_REASON=""; O_REASON=""
 parse_reason() {
   local reason="$1" field
   case "$reason" in
@@ -287,7 +365,7 @@ lock_reason_for() {
         [ "$cur" = "$want" ] && { printf '%s' "(no reason)"; return 0; }
         ;;
     esac
-  done < <("$GIT" -C "$want" worktree list --porcelain 2>/dev/null)
+  done < <(git_c -C "$want" worktree list --porcelain 2>/dev/null)
   return 0
 }
 
@@ -301,7 +379,7 @@ classify() {
   O_START=""; O_WITNESS=""; O_STALE_REASON=""
 
   if [ ! -d "$path" ]; then STATE=unknown; return 0; fi
-  if ! "$GIT" -C "$path" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if ! git_c -C "$path" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     STATE=unknown; return 0
   fi
   # The primary checkout cannot be locked by git at all; a run on the
@@ -309,6 +387,7 @@ classify() {
   if [ ! -f "$path/.git" ]; then STATE=unsupported; return 0; fi
 
   reason="$(lock_reason_for "$path")"
+  O_REASON="$reason"
   if [ -z "$reason" ]; then STATE=free; return 0; fi
   if ! parse_reason "$reason"; then STATE=foreign; return 0; fi
 
@@ -325,7 +404,10 @@ classify() {
   # pid match may claim ownership. Left unguarded this was worse, because
   # `self` ALSO makes worktree-remove.sh skip its independent occupancy check -
   # so a false `self` removes a guard rather than merely misreporting a state.
-  if { [ -z "$O_SESSION" ] || [ "$O_SESSION" = - ]; } &&
+  # Nor may a pid that can name several sessions (issue #1709): two threads on
+  # one Codex server resolve to the same pid, and a session-less claim naming
+  # that server would otherwise read `self` to both of them.
+  if { [ -z "$O_SESSION" ] || [ "$O_SESSION" = - ]; } && [ "$SELF_PID_SHARED" -eq 0 ] &&
      [ "$O_HOST" = "$SELF_HOST" ] && [ "$O_PID" = "$SELF_PID" ]; then
     if [ "$(witness_state "$O_PID" "$O_START")" != mismatched ]; then
       STATE=self; return 0
@@ -431,7 +513,7 @@ if [ -z "$WT" ] && [ -n "$ISSUE_NUM" ] && [ "$VERB" = check ]; then
       "worktree "*) cur="${line#worktree }" ;;
       "branch refs/heads/issue-${ISSUE_NUM}-"*) WT="$cur" ;;
     esac
-  done < <("$GIT" -C "$REPO" worktree list --porcelain 2>/dev/null)
+  done < <(git_c -C "$REPO" worktree list --porcelain 2>/dev/null)
   if [ -z "$WT" ]; then
     O_PATH="-"
     emit free
@@ -442,8 +524,75 @@ fi
 [ -n "$WT" ] || usage_fail "$VERB requires a worktree path"
 WT="$(abspath "$WT")"
 
+# ---- one writer at a time (issue #1709) --------------------------------------
+# `claim` and `release` each READ the lock, decide, then unlock. Between the
+# read and the unlock another session could take a stale claim over, and the
+# unlock would then remove the NEW owner's lock - a live claim deleted by a
+# release that had judged its predecessor. The window was always there; the
+# sweep looking past stale claims is what makes it matter, because it walks
+# every finished worktree on the host.
+#
+# So the read-decide-write of both verbs runs under one mutex per repository,
+# held until this process exits. `check` only reads and takes nothing.
+#
+# Three outcomes, kept apart in MUTEX:
+#   held         serialized. The whole read-decide-write is ours.
+#   contended    flock exists and the wait ran out: SOMEONE ELSE IS WRITING.
+#                The verb stands down - it reports what it sees and changes
+#                nothing. Proceeding here would be the race with a witness.
+#   unavailable  no flock on this host, or the git dir cannot hold the file.
+#                The verb proceeds as it always did, and every unlock re-reads
+#                the lock first and stands down if it is no longer the lock
+#                that was judged (unlock_if_unchanged). That narrows the window
+#                to the instant between that read and the unlock; it does not
+#                close it. Standing down here instead would leave a host
+#                without flock unable to release even its own claim.
+MUTEX=unavailable
+MUTEX_WAIT="${FLOW_CLAIM_MUTEX_WAIT:-10}"
+# flock fails on a wait it cannot parse, and a failed flock reads as contended:
+# a typo here would make every verb stand down and blame another session.
+case "$MUTEX_WAIT" in *[!0-9]* | "") MUTEX_WAIT=10 ;; esac
+if [ "$VERB" != check ] && command -v flock >/dev/null 2>&1; then
+  MUTEX_DIR="$(git_c -C "$WT" rev-parse --git-common-dir 2>/dev/null || true)"
+  case "$MUTEX_DIR" in "" | /*) : ;; *) MUTEX_DIR="$WT/$MUTEX_DIR" ;; esac
+  if [ -n "$MUTEX_DIR" ] && [ -d "$MUTEX_DIR" ] &&
+     { exec 9>"$MUTEX_DIR/flow-claim.mutex"; } 2>/dev/null; then
+    if flock -w "$MUTEX_WAIT" 9 2>/dev/null; then MUTEX=held; else MUTEX=contended; fi
+  fi
+fi
+
+# unlock_if_unchanged WT - unlock only when the lock is still the one classify
+# judged. Returns 0 unlocked; 1 the lock CHANGED, nothing touched; 2 it was
+# unchanged and `git worktree unlock` itself failed.
+unlock_if_unchanged() {
+  local now_reason
+  now_reason="$(lock_reason_for "$1")"
+  [ "$now_reason" = "$O_REASON" ] || return 1
+  git_c -C "$1" worktree unlock "$1" >/dev/null 2>&1 || return 2
+  return 0
+}
+
 STATE=unknown
 classify "$WT"
+
+# Another writer holds the mutex and did not let go in time. Report, touch
+# nothing. A live foreign claim still refuses a `claim` the usual way below.
+if [ "$MUTEX" = contended ] && [ "$VERB" != check ] &&
+   ! { [ "$VERB" = claim ] && [ "$STATE" = held ] && [ "$STEAL" -eq 0 ]; }; then
+  echo "flow-worktree-claim: another session is changing claims in this repository and did not finish within ${MUTEX_WAIT}s - '$WT' left as it is ($STATE). Re-run in a moment." >&2
+  emit "$STATE"
+  exit 0
+fi
+
+# claim_changed_under_us - the lock was replaced between the read and the
+# unlock, on a host with no mutex. Report what is there now; write nothing.
+claim_changed_under_us() {
+  classify "$WT"
+  echo "flow-worktree-claim: the claim on '$WT' changed while it was being $1 - leaving the new one ($STATE) alone." >&2
+  emit "$STATE"
+  if [ "$VERB" = claim ] && [ "$STATE" = held ]; then exit 1; fi
+  exit 0
+}
 
 case "$VERB" in
   check)
@@ -455,16 +604,21 @@ case "$VERB" in
   release)
     case "$STATE" in
       self | stale)
-        if "$GIT" -C "$WT" worktree unlock "$WT" >/dev/null 2>&1; then
-          echo "flow-worktree-claim: released claim on '$WT'." >&2
-        fi
+        # Someone may have replaced the claim after it was judged. Whatever is
+        # there then was never examined by this release.
+        unlock_if_unchanged "$WT"
+        case "$?" in
+          0) echo "flow-worktree-claim: released claim on '$WT'." >&2 ;;
+          1) claim_changed_under_us released ;;
+          *) echo "flow-worktree-claim: could not release the claim on '$WT' - git worktree unlock failed." >&2 ;;
+        esac
         O_PID=""; O_SESSION=""; O_HOST=""; O_TS=""; O_AGE_MIN=""; O_ISSUE=""
         O_START=""; O_WITNESS=""; O_STALE_REASON=""
         emit free
         ;;
       held | foreign)
         if [ "$FORCE" -eq 1 ]; then
-          "$GIT" -C "$WT" worktree unlock "$WT" >/dev/null 2>&1
+          git_c -C "$WT" worktree unlock "$WT" >/dev/null 2>&1
           echo "flow-worktree-claim: FORCE-released a $STATE claim on '$WT' (owner pid ${O_PID:--})." >&2
           emit free
         else
@@ -494,7 +648,7 @@ case "$VERB" in
           exit 1
         fi
         echo "flow-worktree-claim: stealing a live claim on '$WT' (--steal; previous owner pid ${O_PID:--})." >&2
-        "$GIT" -C "$WT" worktree unlock "$WT" >/dev/null 2>&1
+        unlock_if_unchanged "$WT"; [ "$?" -ne 1 ] || claim_changed_under_us stolen
         ;;
       foreign)
         # Someone locked this worktree for their own reasons. Never steal it,
@@ -523,11 +677,11 @@ case "$VERB" in
             echo "flow-worktree-claim: taking over a stale claim on '$WT' (owner pid ${O_PID:--} is gone)." >&2
             ;;
         esac
-        "$GIT" -C "$WT" worktree unlock "$WT" >/dev/null 2>&1
+        unlock_if_unchanged "$WT"; [ "$?" -ne 1 ] || claim_changed_under_us "taken over"
         ;;
       self)
         # Idempotent refresh: drop our own lock so the new timestamp lands.
-        "$GIT" -C "$WT" worktree unlock "$WT" >/dev/null 2>&1
+        unlock_if_unchanged "$WT"; [ "$?" -ne 1 ] || claim_changed_under_us refreshed
         ;;
       unsupported | unknown)
         echo "flow-worktree-claim: '$WT' cannot hold a claim ($STATE) - continuing unclaimed (advisory)." >&2
@@ -542,7 +696,7 @@ case "$VERB" in
     # the field count of the reason line never varies.
     SELF_START="$(start_time_of "$SELF_PID")"
     REASON="$CLAIM_PREFIX issue=$ISSUE_NUM pid=$SELF_PID session=${SELF_SESSION:--} host=$SELF_HOST ts=$NOW start=${SELF_START:--}"
-    if ! "$GIT" -C "$WT" worktree lock --reason "$REASON" "$WT" >/dev/null 2>&1; then
+    if ! git_c -C "$WT" worktree lock --reason "$REASON" "$WT" >/dev/null 2>&1; then
       echo "flow-worktree-claim: could not lock '$WT' (git too old, or lock unsupported) - continuing unclaimed (advisory)." >&2
       O_PID=""; O_SESSION=""; O_HOST=""; O_TS=""; O_AGE_MIN=""; O_ISSUE=""
       O_START=""; O_WITNESS=""; O_STALE_REASON=""

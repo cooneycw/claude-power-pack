@@ -4,6 +4,12 @@
 
 ### Behaviour changes you may notice
 
+- **The flow documents say what to do when a project's gate needs the pushed
+  head.** `/flow:auto` Step 6 and `/flow:finish` still run the gate before the
+  push. When a project's own gate clones the ref under test from the remote,
+  the first gate run on an unpushed commit was red; both documents now say to
+  commit and push the branch first (that opens no pull request), then gate. No helper
+  changed (#1706).
 - **A plan that changes an output names who reads it, and the review judges
   the tests, not only their presence.** When a change alters a response shape,
   file format, status line, exit code or record field, the plan adds a

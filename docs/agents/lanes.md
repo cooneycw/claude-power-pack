@@ -85,6 +85,11 @@ the judgement is the one the readers reference states.
 
 ## At close
 
+In `/flow:auto`, what happened goes in a file of its own at Step 6,
+`docs/flow-runs/issue-<N>.lanes-demonstrated.md`: a table with one row per
+lane answered `will test`. It is deliberately not part of the plan record,
+which must not change after approval.
+
 The closing report's Evidence carries the same rows with what happened. A row
 whose result differs from the approved answer is explained. In
 [the issue contract](issue-contract.md)'s terms, a Demonstrated item names the
@@ -133,8 +138,20 @@ Its blind anchor - "the project has a lane file" - misses both bad cases.
 `tests/test_lane_file.py` pins the rest: absence, every way a file can exist
 and be undatable, the stamp, and root resolution.
 
-**The table itself is not machine-checked.** There is no gate (issue #1695
-forbids one). Two readers check it:
+**The table's presence and completeness are machine-checked; its truth is
+not.** In `/flow:auto`, `flow-plan-record.py approve` refuses a plan record
+that has no `### Lanes for this change` table, or that leaves a listed lane
+without one of the four answers, and names the missing lanes (issue #1731;
+committed cases in `controls/flow-plan-record-lanes`). A lane file that exists
+and cannot be read refuses too, as unknown. The one-line form above
+(`Lanes: none - <reason>`) is accepted with a reason and announced on stderr;
+nothing judges the reason. At close, `compliance` names on stderr each lane
+answered `will test` that has no row in
+`docs/flow-runs/issue-<N>.lanes-demonstrated.md`; that is a note and changes no
+verdict.
+
+The table itself is not machine-checked for truth. A plan can answer every
+lane `will test` and test none of them. Two readers check that:
 
 1. The approver, at plan approval. A plan that should carry the table and does
    not is not approvable.
