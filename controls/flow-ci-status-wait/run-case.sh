@@ -27,6 +27,10 @@ SHA="880b77a92d93a9813ce24710be9679a0263954d2"
 
 cat > "$T/bin/curl" <<STUB
 #!/bin/sh
+# Read the header the gate pipes in. A stub that exits without reading it can
+# close the pipe before the writer runs; under pipefail that fails the whole
+# call and the gate reports it could not look (issue #1718).
+cat >/dev/null 2>&1 || true
 # POSIX "last argument" - \${@: -1} is bash-only and fails under dash.
 for url in "\$@"; do :; done
 case "\$url" in
