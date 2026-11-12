@@ -33,6 +33,7 @@
 # recoverable, deleting the wrong issue's branch is not. --force does not
 # override it; --steal does.
 #
+# help:begin
 # Usage:
 #   worktree-remove.sh <worktree-path> [--force] [--delete-branch] [--steal] [--allow-dirty] [--allow-unpushed]
 #   worktree-remove.sh <worktree-path> --finish-partial-removal --owner-repo <path> --allow-dirty
@@ -68,58 +69,8 @@
 #                    anything is printed. Required by, and meaningless
 #                    without, --finish-partial-removal.
 #
-# POSITIVE OWNERSHIP, NEVER DISCOVERY (issue #1524). A half-deleted worktree
-# has no .git file, so the normal path below - which derives the main
-# repository FROM the worktree's own .git file - cannot run at all; there is
-# nothing left to read. An earlier version of this flag (#1491, reverted
-# 20e72086) tried to find the owner by searching sibling and ancestor
-# directories for a repo that still lists the path. Three cross-model review
-# passes each found a new variant of the same structural gap: a repo that
-# TRUTHFULLY does not have the path registered answers "not registered"
-# exactly like a repo that was simply never asked, and a proximity search
-# cannot tell those apart. There is no global worktree registry to query, so
-# "nobody nearby admits to owning this" can never mean "nobody owns this" -
-# only "I did not ask the right repo". The redesign removes the search
-# entirely: the caller must NAME the owner with --owner-repo, and that repo's
-# own registry must say so, in git's own words - a `prunable` attribute on
-# the exact matching record - or this script refuses. A read failure (the
-# porcelain call itself fails) is also a refusal, never a silent "proceed
-# because nothing said no".
-#
-# VERIFY-AND-PRINT, NOT AUTO-REMOVE (issue #1524, owner decision after a
-# third review pass still found a real defect). Across three cross-model
-# review passes on this flag's positive-ownership redesign, EACH pass found
-# a genuine path-handling defect the previous pass's fix had not closed: a
-# newline guard checking the wrong value, a missing dirty/unpushed
-# requirement, `readlink -f`'s own trailing-newline loss, and finally a
-# normalization step SHARED with the normal removal path below (see its own
-# newline guard, right after "Worktree path is required") that could
-# silently substitute a different target before any of this branch's checks
-# ever ran. Three passes is this repository's ceiling for one change. Rather
-# than ship a fourth attempt at automatic `rm -rf` with no further review,
-# --finish-partial-removal now VERIFIES every precondition exactly as before
-# (positive ownership, occupancy, the undeletable pre-scan, dirty, unpushed)
-# and, on a pass, PRINTS the exact command for a human to run - it removes
-# nothing itself. Every defect the three passes found was in path handling
-# feeding an automatic deletion; none of them survive as a hazard once the
-# deletion itself is a human's own typed (or pasted) command.
-#
-# `worktree prune` is deliberately never run OR printed as a ready command:
-# it prunes every eligible stale entry in the owner's WHOLE registry, not
-# only the one target this script verified, and could drop an unrelated
-# stale worktree's registration that nothing here has checked. A
-# `--dry-run --verbose` hint is printed instead, so a human can see exactly
-# what pruning would affect before deciding to run it.
-#
-# A symlink in the PATH ITSELF is never named in the printed `rm -rf`. If the
-# caller passes a path whose final component is a symlink pointing at the
-# worktree, `rm -rf` on the symlink would remove only the link - the real
-# worktree directory would survive untouched, an orphan indistinguishable
-# from the outside from "this was never a worktree". This script resolves
-# the input ONCE via `realpath`, before any comparison, and uses that
-# resolved path for both the registry match and the printed command - never
-# the caller's own symlink, which may live anywhere (a different repo, a
-# home directory) and is not part of the worktree this script verifies.
+# Each refusal has its own override on purpose: one flag that silenced all
+# three would be one flag away from silencing everything.
 #
 # Exit codes:
 #   0  removed (or already absent - stale refs pruned) - the NORMAL
@@ -161,6 +112,39 @@
 #       --allow-dirty --allow-unpushed
 #   worktree-remove.sh ../nhl-api-issue-42 --delete-branch
 #   worktree-remove.sh /home/user/Projects/nhl-api-issue-42 --force --delete-branch
+# help:end
+#
+# POSITIVE OWNERSHIP, NEVER DISCOVERY (issue #1524). A half-deleted worktree
+# has no .git file, so the normal path below - which derives the main
+# repository FROM the worktree's own .git file - cannot run at all. There is
+# no global worktree registry to query, so "nobody nearby admits to owning
+# this" can never mean "nobody owns this". The caller must NAME the owner
+# with --owner-repo, and that repo's own registry must say so, in git's own
+# words - a `prunable` attribute on the exact matching record - or this
+# script refuses. A read failure (the porcelain call itself fails) is also a
+# refusal, never a silent "proceed because nothing said no".
+#
+# VERIFY-AND-PRINT, NOT AUTO-REMOVE (issue #1524, owner decision).
+# --finish-partial-removal VERIFIES every precondition (positive ownership,
+# occupancy, the undeletable pre-scan, dirty, unpushed) and, on a pass,
+# PRINTS the exact command for a human to run - it removes nothing itself.
+#
+# `worktree prune` is deliberately never run OR printed as a ready command:
+# it prunes every eligible stale entry in the owner's WHOLE registry, not
+# only the one target this script verified, and could drop an unrelated
+# stale worktree's registration that nothing here has checked. A
+# `--dry-run --verbose` hint is printed instead, so a human can see exactly
+# what pruning would affect before deciding to run it.
+#
+# A symlink in the PATH ITSELF is never named in the printed `rm -rf`. If the
+# caller passes a path whose final component is a symlink pointing at the
+# worktree, `rm -rf` on the symlink would remove only the link - the real
+# worktree directory would survive untouched, an orphan indistinguishable
+# from the outside from "this was never a worktree". This script resolves
+# the input ONCE via `realpath`, before any comparison, and uses that
+# resolved path for both the registry match and the printed command - never
+# the caller's own symlink, which may live anywhere (a different repo, a
+# home directory) and is not part of the worktree this script verifies.
 
 set -euo pipefail
 
@@ -222,68 +206,9 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -h|--help)
-            echo "Usage: worktree-remove.sh <worktree-path> [--force] [--delete-branch] [--steal] [--allow-dirty] [--allow-unpushed]"
-            echo ""
-            echo "Safely remove git worktrees. If you're currently inside the worktree"
-            echo "being removed, the script automatically changes to the main repository"
-            echo "first to prevent breaking your shell session."
-            echo ""
-            echo "Options:"
-            echo "  --force          Pass --force to 'git worktree remove' (the worktree is"
-            echo "                   busy). It does NOT override the data-loss refusals below"
-            echo "                   - being busy is not the same as being expendable (#899)"
-            echo "  --delete-branch  Also delete the associated branch after removal"
-            echo "                   (force-deletes a squash-merged branch non-interactively)"
-            echo "  --steal          Remove even when another live /flow session claims it"
-            echo "                   (issue #597; without it a live claim is a hard stop)"
-            echo "  --allow-dirty    Remove even though uncommitted work would be destroyed"
-            echo "                   (issue #899; exit 6 without it; implies --force, since"
-            echo "                   git worktree remove makes its own separate dirty-tree"
-            echo "                   judgment, Nit Store #864)"
-            echo "  --allow-unpushed Remove even though commits exist on no remote ref"
-            echo "                   (issue #899; exit 7 without it)"
-            echo "  --finish-partial-removal"
-            echo "                   VERIFY (never remove) a worktree already left half-"
-            echo "                   deleted (no .git file). On a pass, PRINTS the rm -rf"
-            echo "                   command for a human to run - never runs it. Requires"
-            echo "                   --owner-repo AND --allow-dirty - there is no .git left"
-            echo "                   to verify the directory is clean. Also needs"
-            echo "                   --allow-unpushed, but only if the owner's own refs show"
-            echo "                   HEAD is actually unreachable from a remote (#1524)"
-            echo "  --owner-repo <path>"
-            echo "                   The repo whose own registry must positively list the"
-            echo "                   target as prunable. Required by --finish-partial-removal"
-            echo ""
-            echo "Each refusal has its own override on purpose: one flag that silenced all"
-            echo "three would be one flag away from silencing everything."
-            echo ""
-            echo "Exit codes:"
-            echo "  0  removed (or already absent - stale refs pruned); normal path only"
-            echo "  1  usage, path, or repository validation error"
-            echo "  4  claimed by another live /flow session (#597)"
-            echo "  5  in use by a live process (#888, #1032)"
-            echo "  6  holds uncommitted work without --allow-dirty (#899)"
-            echo "  7  holds commits on no remote ref without --allow-unpushed (#899); for"
-            echo "     --finish-partial-removal this is checked via the owner's own refs"
-            echo "  8  --delete-branch asked for, but the directory name and the"
-            echo "     checked-out branch name different issues (#1032)"
-            echo "  9  a path cannot be deleted (parent directory not writable) (#864)"
-            echo " 10  --finish-partial-removal/--owner-repo given without the other (#1524)"
-            echo " 11  a literal newline in the argument (any invocation), --owner-repo, or"
-            echo "     the resolved target (--finish-partial-removal) - refused (#1524)"
-            echo " 12  --owner-repo is not a readable git working tree (#1524)"
-            echo " 13  --owner-repo's registry does not positively list the path as"
-            echo "     prunable (#1524)"
-            echo " 14  --finish-partial-removal without --allow-dirty (#1524)"
-            echo " 15  --finish-partial-removal: VERIFIED, not removed - printed instead (#1524)."
-            echo "     Distinct from 2 on purpose: a failing grep or bash builtin under"
-            echo "     set -euo pipefail also exits 2 elsewhere in this script."
-            echo ""
-            echo "Examples:"
-            echo "  worktree-remove.sh /home/user/Projects/nhl-api-issue-42"
-            echo "  worktree-remove.sh ../nhl-api-issue-42 --delete-branch"
-            echo "  worktree-remove.sh /path/to/half-deleted-wt --finish-partial-removal \\"
-            echo "      --owner-repo /path/to/main --allow-dirty --allow-unpushed"
+            # The header's help region, bounded by its own markers (never a
+            # line range: an edit above it must not cut the output).
+            sed -n '/^# help:begin$/,/^# help:end$/p' "$0" | sed -e '1d' -e '$d' -e 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -304,19 +229,11 @@ if [[ -z "$WORKTREE_PATH" ]]; then
     exit 1
 fi
 
-# Codex cross-model review (issue #1524, pass 3, HIGH): reject a literal
-# newline in the RAW argument for EVERY invocation, before any
-# normalization - not only inside --finish-partial-removal. The relative-
-# path resolution two blocks below is command substitution wrapped around
-# `basename`, and `basename` always appends its OWN trailing newline; when
-# the argument's last byte is already a newline, that becomes two
-# consecutive trailing newlines, and command substitution strips ALL of
-# them. Verified directly: a relative argument "collider" + a literal
-# trailing newline normalizes to the newline-free sibling "collider" - the
-# SAME hazard --finish-partial-removal's own newline guards exist to close,
-# reached through the NORMAL removal path instead, which has no guard of
-# its own and would act on whatever that newline-free name happens to name.
-# One guard, here, before normalization, closes it for both paths at once.
+# Reject a literal newline in the RAW argument for EVERY invocation, before
+# any normalization (issue #1524). The relative-path resolution two blocks
+# below wraps `basename` in command substitution, which strips ALL trailing
+# newlines: "collider" + a trailing newline would normalize to the
+# newline-free sibling "collider", and the script would act on that.
 case "$WORKTREE_PATH" in
     *$'\n'*)
         echo -e "${RED}Error: refusing a path containing a literal newline${NC}" >&2
@@ -348,18 +265,15 @@ if [[ "$FINISH_PARTIAL_REMOVAL" != true && -n "$OWNER_REPO" ]]; then
     exit 10
 fi
 
-# Resolve to absolute path. REFUSE if the parent cannot be entered, for
-# EVERY invocation (pass-4 supplementary review, cnb-orch + Gemini): the old
-# single-expression form silently substituted "" for a `cd` failure, so
-# WORKTREE_PATH became "/$(basename ...)" - an absolute, filesystem-ROOT
-# path unrelated to the argument's actual (missing) parent directory - and
-# the script carried on as if that had been the caller's intent all along.
-# Splitting the `cd` out and checking its own exit status, rather than
-# trusting the combined command substitution's output, is what makes a
-# resolution failure visible instead of silently reinterpreted.
+# Resolve to absolute path. REFUSE if the parent cannot be entered: a `cd`
+# failure inside a combined command substitution would yield "", making
+# WORKTREE_PATH "/$(basename ...)" - a filesystem-ROOT path unrelated to the
+# argument. The `cd` is split out so its own exit status is checked. CDPATH
+# is emptied for it: with CDPATH set, `cd` on a relative name can land in a
+# different directory and print it.
 if [[ "$WORKTREE_PATH" != /* ]]; then
     WT_DIR_PART="$(dirname "$WORKTREE_PATH")"
-    WT_REAL_DIR="$(cd -- "$WT_DIR_PART" 2>/dev/null && pwd)" || {
+    WT_REAL_DIR="$(CDPATH="" cd -- "$WT_DIR_PART" 2>/dev/null && pwd)" || {
         echo -e "${RED}Error: could not resolve the directory containing '${WORKTREE_PATH}'${NC}" >&2
         exit 1
     }
@@ -378,14 +292,6 @@ WORKTREE_PATH="${WORKTREE_PATH%/}"
 # load-bearing for --finish-partial-removal, which must never `rm -rf` a
 # symlink the caller passed in (see below).
 WT_REAL="$(readlink -f "$WORKTREE_PATH" 2>/dev/null || echo "$WORKTREE_PATH")"
-
-# Hoisted here (originally defined just above their own call sites further
-# down) so --finish-partial-removal's own branch - which runs much earlier,
-# at the "no .git file" check below, before a normal worktree's main
-# repository can even be derived - can call them too. Moving a pure function
-# definition earlier changes nothing about its later call site; bash just
-# needs the definition to have executed before the first call, wherever that
-# call is.
 
 # This script plus its ancestors. /flow:auto invokes us from a shell whose cwd
 # may still be the worktree, so without this the guard trips over its own caller
@@ -576,19 +482,9 @@ if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
         exit 1
     fi
 
-    # --finish-partial-removal (issue #1524): POSITIVE OWNERSHIP ONLY, never
-    # discovery. See the header comment above for why - three cross-model
-    # review passes on the earlier discovery-based version each found a new
-    # variant of the same structural gap, and it was removed entirely rather
-    # than patched again.
-    #
-    # The raw-argument newline guard that used to live here (red case 2) is
-    # now global, applied before normalization, before this branch is even
-    # reached - see the check near the top of the script, right after
-    # "Worktree path is required". Kept here only as this comment, not as a
-    # second (unreachable) check: a naive line-based parse of the registry
-    # still cannot survive a newline, which is why the NUL-delimited parser
-    # below exists independently of that guard.
+    # --finish-partial-removal (issue #1524): positive ownership only - see the
+    # header. The raw-argument newline guard is global (near the top), and the
+    # NUL-delimited registry parser below does not depend on it.
 
     if [[ -z "$OWNER_REPO" ]]; then
         # Already validated above; unreachable, but a defensive refusal costs
@@ -601,23 +497,13 @@ if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
         exit 12
     fi
 
-    # Codex cross-model review (issue #1524, pass 2, HIGH): the shared WT_REAL
-    # above is plain command substitution, which strips ALL trailing newlines
-    # from its OWN captured output - so a pass-1 fix that checked "$WT_REAL"
-    # for an embedded newline could never see one in the trailing position,
-    # because bash had already removed it before the check ran. Verified
-    # directly: a symlink to a directory named "target\n" resolves through
-    # that form to WT_REAL with no trailing \n at all.
-    #
-    # Resolved AGAIN here, robustly, for THIS branch only (never touching the
-    # shared WT_REAL the normal path above already relies on). Capture with a
-    # non-newline sentinel appended in the SAME command substitution, so
-    # nothing trailing gets stripped; then peel the sentinel and exactly the
-    # ONE newline `readlink -f` itself always appends as its own line
-    # terminator - whatever newline remains after that is part of the real
-    # resolved path, not readlink's formatting. A readlink FAILURE is a hard
-    # refusal: never fall back to the raw, unresolved argument the way the
-    # shared WT_REAL computation does for the normal path.
+    # Resolved AGAIN here, robustly, for THIS branch only (issue #1524): the
+    # shared WT_REAL above is plain command substitution, which strips ALL
+    # trailing newlines, so it can never show one. Capture with a non-newline
+    # sentinel appended in the SAME command substitution, then peel the
+    # sentinel and exactly the ONE newline `readlink -f` appends - whatever
+    # newline remains is part of the real resolved path. A readlink FAILURE is
+    # a hard refusal: never fall back to the raw, unresolved argument.
     if ! readlink -f "$WORKTREE_PATH" >/dev/null 2>&1; then
         echo -e "${RED}Error: could not resolve ${WORKTREE_PATH} to a real path${NC}" >&2
         exit 12
@@ -715,20 +601,11 @@ if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
 
     echo "WORKTREE_REMOVE_FINISH_PARTIAL: confirmed by ${OWNER_REPO}" >&2
 
-    # Codex cross-model review (issue #1524, pass 1, HIGH): the ORIGINAL
-    # version of this branch ran no dirty-tree check at all, reasoning that
-    # `git status` needs the worktree's own .git, which is already gone -
-    # "nothing left to check". That reasoning proved too much: removing
-    # `.git` does not remove the FILES. A worktree with real uncommitted
-    # edits or untracked work sitting in it is still full of exactly that
-    # content, and this branch would delete it unconditionally - the state
-    # cannot be verified clean, which is the opposite of permission to treat
-    # it as clean. --allow-dirty is now REQUIRED for --finish-partial-removal,
-    # not merely honoured: there is no `git status` to ask, so the caller
-    # must affirmatively accept that whatever is on disk may be destroyed,
-    # exactly as the explicit-override convention above requires for every
-    # other data-loss path. Checked FIRST, same order as the normal path
-    # below (dirty, then unpushed).
+    # --allow-dirty is REQUIRED for --finish-partial-removal, not merely
+    # honoured (issue #1524): `.git` is gone, so there is no `git status` to
+    # ask, but the FILES are still there. The caller must affirmatively accept
+    # that whatever is on disk may be destroyed. Checked FIRST, same order as
+    # the normal path below (dirty, then unpushed).
     if [[ "$ALLOW_DIRTY" != true ]]; then
         echo -e "${RED}Error: --finish-partial-removal cannot verify this path is clean${NC}" >&2
         echo "  There is no .git file left to ask - the directory may still hold" >&2
@@ -816,26 +693,14 @@ if [[ ! -f "$WORKTREE_PATH/.git" ]]; then
     echo "WORKTREE_REMOVE_PRESCAN: clear" >&2
 
     # VERIFY AND PRINT, NEVER REMOVE AUTOMATICALLY (issue #1524, owner
-    # decision after a pass-3 HIGH: three review passes each found a real
-    # path-handling defect in this branch - a newline guard that checked the
-    # wrong value, a missing dirty/unpushed requirement, a readlink
-    # trailing-newline loss, and finally a SHARED normalization step that
-    # could silently swap the target before any of this branch's own guards
-    # ever ran. That is the three-pass ceiling, so this ships as verification
-    # only: everything above (positive ownership, occupancy, the undeletable
-    # pre-scan, dirty, unpushed) still runs and still refuses on exactly the
-    # same conditions - what changes is that a PASS prints the exact command
-    # for a human to run, rather than running it. `printf %q` quotes the path
-    # so the printed line is safe to copy-paste even if it contains shell
-    # metacharacters this review process has not had cause to think about.
+    # decision; see the header). A PASS prints the exact command for a human
+    # to run. `printf %q` quotes the path so the printed line is safe to
+    # copy-paste even if it contains shell metacharacters.
     #
     # `worktree prune` is deliberately NOT run or printed as a command here:
-    # it prunes every eligible stale entry in the OWNER's whole registry
-    # (pass 3, MEDIUM), not just the one target this branch verified - a
-    # second, unrelated stale worktree could lose its registration with none
-    # of the checks above having looked at it. A `--dry-run --verbose` hint
-    # is printed instead, so the human can see exactly what pruning would
-    # drop before deciding to run it themselves.
+    # it prunes every eligible stale entry in the OWNER's whole registry, not
+    # just the one target this branch verified. A `--dry-run --verbose` hint
+    # is printed instead.
     echo "WORKTREE_REMOVE_FINISH_PARTIAL_VERIFIED: ${FP_WT_REAL}" >&2
     echo -e "${GREEN}Verified - this path is confirmed prunable, clean per --allow-dirty/--allow-unpushed, unoccupied, and deletable. Not removed.${NC}"
     # If occupancy could not be checked (FP_OCC_UNKNOWN), say so directly
@@ -891,12 +756,8 @@ BRANCH_NAME=$(git -C "$WORKTREE_PATH" rev-parse --abbrev-ref HEAD 2>/dev/null ||
 
 # --- Attribution: the BRANCH says whose work this is, never the path (#1032) --
 # A worktree directory is named after the issue it was created for, but the name
-# is just a string and nothing keeps it in step with what is checked out inside.
-# Observed on this host: a directory named `...-issue-971-...` (CLOSED, PR #1004
-# merged) holding the branch `issue-980-lexicon-quoted-token` (OPEN). Anything
-# deciding "safe to delete" from the directory name would have read "closed and
-# merged, safe" and destroyed an open lane's checkout. It survived only because
-# #980 happened to have no commits of its own yet.
+# is just a string and nothing keeps it in step with what is checked out inside
+# (observed: a directory named for a CLOSED issue holding an OPEN issue's branch).
 #
 # So: derive the issue from BOTH, report which one is authoritative, and refuse
 # the one operation whose blast radius reaches beyond this directory.
@@ -1064,13 +925,6 @@ fi
 # `unknown` (the lock could not be read) - and an unclaimed worktree is
 # indistinguishable from an idle one, so it was removed.
 #
-# That is how a LIVE session loses unsaved work. On 2026-09-13 a session sitting
-# in `flow-finish-gate` held a 21KB staged file in a worktree reporting
-# CLAIM=free; the only thing between it and deletion was the #503 mtime
-# heuristic, whose 30-minute window that session had already outlived by being
-# in a long test run. Both guards read "clear" on a checkout that was plainly
-# occupied.
-#
 # So when the claim did not positively name THIS session as owner, ask a second
 # question no time window can blind: is a live process sitting in it? A process
 # whose cwd would be unlinked may create unreachable work immediately after a
@@ -1079,10 +933,6 @@ fi
 # precisely what every /flow:auto Step 7 passes, so a guard it silences is a
 # guard that never fires where the damage happens. --steal remains the
 # deliberate override.
-#
-# WT_REAL, occupancy_self_pids, PROC_ROOT and occupancy_scan are all defined
-# earlier now (issue #1524), so --finish-partial-removal's own branch can use
-# them too - see the comment there.
 
 if [[ "$CLAIM_OWNED_BY_US" != true && "$STEAL" != true ]]; then
     OCC_RC=0
@@ -1351,10 +1201,6 @@ fi
 # BELOW root, so emptying every descendant still leaves one more removal -
 # `rmdir` on the root itself - which needs write+execute on a directory
 # outside anything `find` ever saw.
-#
-# undeletable_find (and its sticky-bit-aware sticky_dir_is_safe helper,
-# issue #1520) are defined earlier now (issue #1524), so
-# --finish-partial-removal's own branch can call them too.
 
 PRE_SCAN_RC=0
 PRE_UNDELETABLE="$(undeletable_find "$WORKTREE_PATH")" || PRE_SCAN_RC=$?
@@ -1396,12 +1242,9 @@ echo -e "${GREEN}Worktree removed successfully.${NC}"
 # of main even though the PR is MERGED and the work is safely on main. Fall back
 # to `git branch -D` non-interactively rather than prompting.
 #
-# The old interactive `read -p` confirmation broke every non-interactive caller
-# (/flow:auto, /flow:merge): with stdin not a TTY, `read` hit EOF and returned
-# non-zero, tripping `set -e` so the whole script exited non-zero AND left the
-# branch undeleted - a false "cleanup failed" even though the worktree removal
-# succeeded (issue #566). Branch-delete outcome never fails the script now: the
-# worktree removal (above) is the only step whose failure surfaces non-zero.
+# Never prompt (issue #566): callers are non-interactive. Branch-delete
+# outcome never fails the script: the worktree removal (above) is the only
+# step whose failure surfaces non-zero.
 if [[ "$DELETE_BRANCH" == true && -n "$BRANCH_NAME" && "$BRANCH_NAME" != "main" && "$BRANCH_NAME" != "master" ]]; then
     echo -e "${BLUE}Deleting branch: ${BRANCH_NAME}${NC}"
 
