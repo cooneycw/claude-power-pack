@@ -3610,3 +3610,44 @@ def test_coordination_directory_replacement_and_removal_are_observed(tmp_path: P
                             env=env, capture_output=True, text=True, timeout=5)
     assert result.returncode == 0, result.stderr
     assert result.stdout == result.stderr == ""
+
+
+# ── --help prints the header, by marker, and nothing else (issue #1692) ─────
+#
+# `--help` used to print a NUMBERED line range of the script (`sed -n 2,90p`),
+# so any edit to the header silently changed what it printed: a shorter header
+# would print code, and the range already stopped before the environment table.
+# It now prints from line 2 to an explicit `#: END-HELP` marker.
+
+HELP_TABLES = {
+    "usage": "flow-finish-gate.sh --plan check",
+    "verdict": "FLOW_FINISH_GATE: ok | fail | warn | skipped",
+    "exit-code": "verdict  exit  meaning",
+    "environment": "FLOW_GATE_CPP_DIR",
+}
+HELP_CODE_SENTINELS = ("set -uo pipefail", "coordination_admission_on()", "END-HELP")
+
+
+@requires_bash
+@requires_git
+def test_help_prints_all_four_tables_and_no_code() -> None:
+    """A shorter help that silently drops a table is the failure to guard, and
+    so is one that runs past the header into the script's code."""
+    result = subprocess.run(
+        ["bash", str(SCRIPT), "--help"], capture_output=True, text=True, timeout=30
+    )
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert out.strip(), "--help printed nothing"
+    for table, needle in HELP_TABLES.items():
+        assert needle in out, f"--help no longer prints the {table} table ({needle!r})"
+    for sentinel in HELP_CODE_SENTINELS:
+        assert sentinel not in out, f"--help printed past the header: {sentinel!r}"
+    # The header is all comment lines, so every source line --help printed must
+    # have been one: its output is exactly the lines between line 2 and the marker.
+    source = SCRIPT.read_text().splitlines()
+    end = source.index("#: END-HELP")
+    assert all(line.startswith("#") for line in source[1:end]), (
+        "a non-comment line sits inside the --help range"
+    )
+    assert len(out.splitlines()) == end - 1
