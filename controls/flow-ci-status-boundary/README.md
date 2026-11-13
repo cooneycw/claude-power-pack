@@ -43,3 +43,12 @@ Each of these single-guard mutations was executed against its own BAD population
 and caught. The two worker-case populations separately catch restoring the
 requested provider seed and deleting the worker-selection line. The attribution
 unit test remains a preservation case, not a claimed new regression.
+
+The harness reports this constructed bundle's provenance as `unverified`:
+its format is not a single historical source artifact, so the harness cannot
+compare it to a commit. `tests/test_flow_ci_boundary_provenance.py` fills that
+specific evidence gap. It compares every member byte-for-byte with
+`git show <source_main>:<path>`, honestly skips when the named commit is absent
+from a shallow/missing-history clone, and proves that an altered member fails
+even after its self-reported hash is recomputed. This test does not upgrade the
+harness's provenance verdict or claim a comparison on a skipped clone.

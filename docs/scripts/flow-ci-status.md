@@ -11,7 +11,9 @@ Recorded providers still select the public plan. `--fallback-provider-probes`
 is the only public opt-in to probing when no record selects lanes; a preset
 `CPP_FLOW_CI_BACKEND` alone does not bypass planning. Each reporting run emits
 one `FLOW_CI_SELECTION` line. Internal callers must set `CPP_FLOW_CI_WORKER=1`
-with a supported backend selector and receive `worker (<lane>)`; public output
+with a supported backend selector and receive `worker (<lane>)`. This marker is
+inheritable like any environment variable: an outside harness exporting both
+gets worker mode and `FLOW_CI_SELECTION: worker (<lane>)`. Public output
 suppresses those child labels. Workers start with provider `none` until a lane
 answers. The recorded public provider summary names selected providers, not
 independently authenticated provider identities; the existing ref/provider
