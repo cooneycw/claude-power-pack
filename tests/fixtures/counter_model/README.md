@@ -148,3 +148,13 @@ these cases do not assert that the two spellings are the same model. Tests build
 owned runtime-shaped transcripts from the pair, and separately mutate valid
 schema-5 and historical schema-1 receipts. The accepted cases preserve distinct
 models, a Codex reviewer, context-tag behavior and the narrow prefix boundary.
+
+`enrolment_cases.json` contains constructed #1765 enrolment inputs and expected
+answers, prepared before the replacement parser. The integration test creates
+owned Git histories and no-op quality targets, and invokes the actual gate in
+finish and enrolment-only modes. It can select main or the held reference by
+explicit test-only gate/helper paths. The held attempt is read as reference,
+never imported into shipped product code. Red measurements distinguish parser
+refusals from the preservation cases; negative fixture preconditions establish
+unreadable JSON, absent Git objects/helpers, and the blind-helper exit before
+the gate is blamed.

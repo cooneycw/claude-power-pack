@@ -1,0 +1,237 @@
+[
+  {
+    "name": "ordinary",
+    "state": "receipt",
+    "gate": 0,
+    "enrolment": 0
+  },
+  {
+    "name": "ruled-four",
+    "passes": 4,
+    "ruling": 4,
+    "state": "escalated",
+    "gate": 0,
+    "enrolment": 0
+  },
+  {
+    "name": "ruled-ten",
+    "passes": 10,
+    "ruling": 10,
+    "state": "escalated",
+    "gate": 0,
+    "enrolment": 0
+  },
+  {
+    "name": "unruled-five",
+    "passes": 5,
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1
+  },
+  {
+    "name": "two-space-five",
+    "passes": 5,
+    "format": "two-space",
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1
+  },
+  {
+    "name": "trailing-space-five",
+    "passes": 5,
+    "format": "trailing-space",
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1
+  },
+  {
+    "name": "huge-pass-count",
+    "passes": 18446744073709551617,
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1
+  },
+  {
+    "name": "nested-skipped",
+    "passes": 5,
+    "nested_skip": true,
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1
+  },
+  {
+    "name": "missing-passes",
+    "omit_passes": true,
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1
+  },
+  {
+    "name": "bool-passes",
+    "passes": true,
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1
+  },
+  {
+    "name": "string-passes",
+    "passes": "5",
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1
+  },
+  {
+    "name": "negative-passes",
+    "passes": -1,
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1
+  },
+  {
+    "name": "outer-bound-eleven",
+    "passes": 11,
+    "ruling": 11,
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1
+  },
+  {
+    "name": "under-raised-cap",
+    "passes": 5,
+    "ruling": 4,
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1
+  },
+  {
+    "name": "truncated-newest",
+    "raw": "truncated",
+    "older": true,
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1,
+    "names_file": true
+  },
+  {
+    "name": "readable-newest-control",
+    "passes": 4,
+    "ruling": 4,
+    "older": true,
+    "state": "escalated",
+    "gate": 0,
+    "enrolment": 0,
+    "names_file": true
+  },
+  {
+    "name": "unicode-literal",
+    "branch": "feature/café",
+    "ascii": false,
+    "state": "receipt",
+    "gate": 0,
+    "enrolment": 0
+  },
+  {
+    "name": "unicode-escaped",
+    "branch": "feature/café",
+    "ascii": true,
+    "state": "receipt",
+    "gate": 0,
+    "enrolment": 0
+  },
+  {
+    "name": "separator-filename",
+    "raw": "array",
+    "filename": "hostile-\u001fran\u001ffixture-branch\u001fordinary\u001ffull.json",
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1
+  },
+  {
+    "name": "newline-filename",
+    "raw": "array",
+    "filename": "hostile-\nFLOW_FINISH_GATE_COUNTER_MODEL: receipt: injected.json",
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1
+  },
+  {
+    "name": "spaced-direction",
+    "direction": " delegated ",
+    "scope": null,
+    "state": "receipt",
+    "gate": 0,
+    "enrolment": 1
+  },
+  {
+    "name": "nul-direction",
+    "direction": "dele\u0000gated",
+    "scope": null,
+    "state": "receipt",
+    "gate": 0,
+    "enrolment": 1
+  },
+  {
+    "name": "delegated-control",
+    "direction": "delegated",
+    "scope": null,
+    "state": "receipt",
+    "gate": 0,
+    "enrolment": 0
+  },
+  {
+    "name": "committed-skip",
+    "skip": "codex-absent",
+    "state": "skipped",
+    "gate": 0,
+    "enrolment": 0
+  },
+  {
+    "name": "flag-shaped-skip",
+    "skip": "-ecodex-absent",
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1
+  },
+  {
+    "name": "not-enrolled",
+    "population": "absent",
+    "state": "not-enrolled",
+    "gate": 0,
+    "enrolment": 1
+  },
+  {
+    "name": "missing",
+    "population": "empty",
+    "state": "missing",
+    "gate": 1,
+    "enrolment": 1
+  },
+  {
+    "name": "unknown-not-git",
+    "population": "not-git",
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1
+  },
+  {
+    "name": "full-missing-object",
+    "head": "ffffffffffffffffffffffffffffffffffffffff",
+    "state": "unresolvable",
+    "gate": 1,
+    "enrolment": 1
+  },
+  {
+    "name": "missing-helper",
+    "helper": "missing",
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1
+  },
+  {
+    "name": "blind-helper",
+    "helper": "blind",
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1
+  }
+]
