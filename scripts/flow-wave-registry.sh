@@ -960,6 +960,8 @@ bootstrap_escapes() {
 # A work move must not silently discard an active claim (#1762). Called only
 # after the old entry was snapshotted UNDER the write lock. --force concerns
 # role ownership and never consents to a work reset.
+# Private status: public refusal remains exit 1; unrelated status 1 is not consent evidence.
+WORK_RESET_REFUSAL=42
 work_reset_guard() {
   local needs
   needs="$(jq -r --arg issue "$A_ISSUE" --arg repo "$A_REPO" \
@@ -978,12 +980,12 @@ work_reset_guard() {
   # WORK_RESET_FILES_GUARD: independently controlled with the observation restated.
   if [[ ",$needs," == *,files,* ]] && [ "$A_FILES_SET" -eq 0 ]; then
     echo "flow-wave-registry: refused work move for role '$ROLE': restate --files (empty clears it), or consent with --allow-work-reset; --force does not reset work." >&2
-    return 1
+    return "$WORK_RESET_REFUSAL"
   fi
   # WORK_RESET_OBSERVATION_GUARD: independently controlled with the lane restated.
   if [[ ",$needs," == *,observation,* ]] && [ "$A_OBS" -ne 1 ] && [ "$A_CLEAR_PR" -ne 1 ]; then
     echo "flow-wave-registry: refused work move for role '$ROLE': restate --pr/--base/--diff, use --clear-pr, or consent with --allow-work-reset; --force does not reset work." >&2
-    return 1
+    return "$WORK_RESET_REFUSAL"
   fi
 }
 
@@ -992,6 +994,7 @@ with_lock() {
   local prog="$1"; shift
   mkdir -p "$REG_DIR" 2>/dev/null || usage_fail "cannot create $REG_DIR"
   (
+    { exec 9>"$LOCK_FILE"; } || { echo "flow-wave-registry: could not open registry lock" >&2; exit 3; }
     flock -w 10 9 || { echo "flow-wave-registry: could not lock registry" >&2; exit 3; }
     [ -s "$REG_FILE" ] || echo '{}' > "$REG_FILE"
     local tmp
@@ -1034,7 +1037,7 @@ with_lock() {
       echo "flow-wave-registry: registry update failed (corrupt JSON?)" >&2
       exit 3
     fi
-  ) 9>"$LOCK_FILE"
+  )
   #: A FAILED WRITE MUST NOT REPORT SUCCESS (#1190).
   #:
   #: The three failure paths above exit 3 inside this SUBSHELL, so that status
@@ -1043,7 +1046,7 @@ with_lock() {
   lock_status=$?
   if [ "$lock_status" -ne 0 ]; then
     rm -f "${LOCK_SNAP_PREV:-}" "${LOCK_SNAP_NEW:-}" 2>/dev/null
-    if [ "$lock_status" -eq 1 ]; then
+    if [ "$lock_status" -eq "$WORK_RESET_REFUSAL" ]; then
       emit refused
       exit 1
     fi

@@ -49,12 +49,17 @@ matrix repeats selected cases in a checkout, linked worktree and plain cwd.
 Consent is per component: empty `--files` clears the lane; `--clear-pr` clears
 the whole observation; neither authorizes losing the other. `--allow-work-reset`
 authorizes resetting omitted components on a move, while supplied components
-still win. With no active component there is nothing to protect. Released
-legacy rows are history, not active claims. Same PR/new base/same diff still
+still win. With no active component there is nothing to protect. The guard
+ignores released rows: their claims were already withdrawn. Existing legacy
+reuse remains unchanged: with unchanged identity, omitted retained files and
+observation/count are preserved and become active again (#1804). A changed
+identity clears omitted work and resets the count; supplied components win.
+Current `release` clears active work, so this concerns legacy retained fields.
+Same PR/new base/same diff still
 increments the overtake count; a changed diff preserves it, and a changed PR
 or observation repo resets it. A new work identity always starts at zero.
 
-Every successful re-registration changing a lane or observation prints a plain
+Every successful re-registration changing an active lane or observation prints a plain
 line naming the change. The role stores one plain `work_note`, also shown in
 human `list` and nested inside that role in `list --json`. It is the most recent
 work change, retained across unchanged re-briefs and cleared on role reuse;
