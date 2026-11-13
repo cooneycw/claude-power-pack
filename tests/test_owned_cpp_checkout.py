@@ -175,6 +175,7 @@ def test_a_build_that_fails_with_its_prerequisites_present_is_an_error(tmp_path:
     broken = tmp_path / "source"
     broken.mkdir()
     (broken / "pyproject.toml").write_text("this is [not a project file\n")
+    (broken / ".python-version").write_text("3.11\n")
     (broken / "uv.lock").write_text("")
     (broken / "lib").mkdir()
     (broken / "scripts").mkdir()

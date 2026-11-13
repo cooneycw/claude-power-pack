@@ -9,6 +9,16 @@
   `woodpeckerci/plugin-git:2` remain readable by required-check derivation and
   doctor; adoption requires regenerating and reviewing the emitted YAML.
 
+- The finish gate now refuses an existing CPP `.venv` on a different Python
+  minor (`cpp-runtime-environment-mismatch`) or with unverified interpreter
+  evidence (`cpp-runtime-environment-unverified`) instead of letting uv replace
+  it (#1768). Stop its users, then run the exact `uv sync --project ... --python
+  3.11 --no-python-downloads --extra dev` command printed by the mismatch
+  refusal, or explicitly allow the gate to rebuild with
+  `FLOW_GATE_REBUILD_CPP_VENV=1`. Broken environments require owner repair.
+  Fresh environments still build automatically; CPP's committed pin now makes
+  plain `uv sync --extra dev` select Python 3.11 too.
+
 ## [11.0.0] - 2026-11-12
 
 The simplification and lanes series (#1673): 56 merged pull requests since
