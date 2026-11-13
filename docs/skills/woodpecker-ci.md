@@ -143,10 +143,12 @@ as the **first** stage so credentials never reach later steps or logs:
 
 ```yaml
   - name: secret-scan
-    image: zricethezav/gitleaks:v8.30.1
+    image: zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
     commands:
       - gitleaks detect --source . --config .gitleaks.toml --redact
 ```
+
+The tag is a release label; the digest determines which image is pulled.
 
 Gate everything else behind it (`depends_on: [secret-scan]` in DAG mode).
 
