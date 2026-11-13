@@ -1,0 +1,79 @@
+{
+  "gate": "lib/cicd/__main__.py",
+  "invocation": [
+    "python3",
+    "controls/cicd-target-path/run-case.py",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^CICD_TARGET_PATH_CONTROL: (blocked|restored)$",
+  "good_signal": "^CICD_TARGET_PATH_CONTROL: ready$",
+  "limits": "Actual stdlib entrypoint decoder imported without dispatch. One actual owned interpreter-lookup restoration population plus eight malformed/forged populations exercise five independent guards; each flips when only its named guard is removed. A later-effect sentinel is reached only after acceptance. Historical pre-PATH entrypoint ignores these records and misses all BAD inputs; unmarked/no-op GOOD inputs agree. This control grades refusal and PATH, not metadata consumption; native tests cover exact restoration, marker consumption, actual uv/runner Python separation, security command/skip runtime and legacy policy. No PATH values are printed.",
+  "cases": [
+    {
+      "name": "bad-polluted-path",
+      "input": "cases/bad-polluted-path",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-value-without-presence",
+      "input": "cases/bad-value-without-presence",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-presence-without-value",
+      "input": "cases/bad-presence-without-value",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-presence-marker",
+      "input": "cases/bad-presence-marker",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-absent-with-value",
+      "input": "cases/bad-absent-with-value",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-current-path-missing",
+      "input": "cases/bad-current-path-missing",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-added-directory",
+      "input": "cases/bad-added-directory",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-reordered-directories",
+      "input": "cases/bad-reordered-directories",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-extra-directory-removed",
+      "input": "cases/bad-extra-directory-removed",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-unmarked",
+      "input": "cases/good-unmarked",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-noop",
+      "input": "cases/good-noop",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "35c51d81424999849f496f325a51ecc7b7ea9367",
+      "origin": "lib/cicd/__main__.py",
+      "path": "anchors/pre-path-handoff.py",
+      "sha256": "d00b272c2c5daa6167dfcdcb076ca9c31f564abe38f2479e5a6408c3236e7c89"
+    }
+  ]
+}

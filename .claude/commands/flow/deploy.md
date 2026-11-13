@@ -1,14 +1,12 @@
 # Flow: Deploy via Makefile
 
-Run deployment using the project's Makefile targets.
-
 ## Arguments
 
 - `TARGET` (optional): Makefile target to run (default: `deploy`)
 
 ## Instructions
 
-When the user invokes `/flow:deploy [TARGET]`, perform these steps:
+For `/flow:deploy [TARGET]`:
 
 ### Step 1: Verify on Main Branch
 
@@ -122,7 +120,7 @@ done
 if [ -n "$CPP_DIR" ] && grep -q "deploy_verification:" .claude/cicd.yml 2>/dev/null; then
     if command -v uv >/dev/null 2>&1; then
         # uv, with PYTHONPATH at the PARENT of lib/ (issue #595).
-        PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify --baseline --summary
+        PYTHONPATH="$CPP_DIR:$PYTHONPATH" env "CPP_RUNNER_TARGET_PATH=${PATH-}" "CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" uv run --project "$CPP_DIR" python -m lib.cicd verify --baseline --summary
     else
         echo "NOTE: no uv; baseline capture skipped." >&2
     fi
@@ -148,7 +146,7 @@ for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-p
 done
 
 if [ -n "$CPP_DIR" ] && [ "$TARGET" = "deploy" ]; then
-    PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd run --plan deploy
+    PYTHONPATH="$CPP_DIR:$PYTHONPATH" env "CPP_RUNNER_TARGET_PATH=${PATH-}" "CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" uv run --project "$CPP_DIR" python -m lib.cicd run --plan deploy
     RUNNER_EXIT=$?
     DEPLOY_EXIT=$RUNNER_EXIT
 fi
@@ -273,7 +271,7 @@ If `CPP_DIR` is found and `.claude/cicd.yml` exists:
 
    ```bash
    echo "Running deploy verification..."
-   PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify --release "$(git rev-parse --short HEAD)"
+   PYTHONPATH="$CPP_DIR:$PYTHONPATH" env "CPP_RUNNER_TARGET_PATH=${PATH-}" "CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" uv run --project "$CPP_DIR" python -m lib.cicd verify --release "$(git rev-parse --short HEAD)"
    VERIFY_EXIT=$?
    ```
 
@@ -299,7 +297,7 @@ If `CPP_DIR` is found and `.claude/cicd.yml` exists:
    ```bash
    HEALTH_PASS=$( [ "$HEALTH_EXIT" -eq 0 ] && echo "pass" || echo "fail" )
    SMOKE_PASS=$( [ "$SMOKE_EXIT" -eq 0 ] && echo "pass" || echo "fail" )
-   VERDICT=$( PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify --release "$(git rev-parse --short HEAD)" --summary 2>/dev/null | grep -oiE 'proceed|review|rollback' | head -1 | tr 'A-Z' 'a-z' )
+   VERDICT=$( PYTHONPATH="$CPP_DIR:$PYTHONPATH" env "CPP_RUNNER_TARGET_PATH=${PATH-}" "CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" uv run --project "$CPP_DIR" python -m lib.cicd verify --release "$(git rev-parse --short HEAD)" --summary 2>/dev/null | grep -oiE 'proceed|review|rollback' | head -1 | tr 'A-Z' 'a-z' )
    echo "$(date -Iseconds) | ${TARGET} | $(git rev-parse --short HEAD) | $(git branch --show-current) | $DEPLOY_EXIT | health:${HEALTH_PASS} | smoke:${SMOKE_PASS} | verify:${VERDICT:-none}" >> .claude/deploy.log
    ```
 

@@ -1,0 +1,8 @@
+{
+  "restore": true,
+  "environment": {
+    "PATH": "@CPP_BIN@:@CALLER@",
+    "CPP_RUNNER_TARGET_PATH": "@CALLER@",
+    "CPP_RUNNER_TARGET_PATH_PRESENT": "x"
+  }
+}

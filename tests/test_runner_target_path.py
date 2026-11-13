@@ -21,7 +21,8 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def run_probe(work: Path, target_uv_environment: bool) -> dict:
+def run_probe(work: Path, target_uv_environment: bool, inherited_path_record: bool = False,
+              make_query: bool = False) -> dict:
     work.mkdir(parents=True, exist_ok=True)
     target = work / "target"
     target.mkdir()
@@ -37,7 +38,21 @@ def run_probe(work: Path, target_uv_environment: bool) -> dict:
     (target / ".claude").mkdir()
     (target / ".claude/cicd_tasks.yml").write_text(
         'version: "1"\nsteps:\n  path_probe:\n    command: sh probe.sh\n'
-        '    timeout: 30\nplans:\n  path_probe:\n    steps: [path_probe]\n')
+        '    timeout: 30\n    skip_if: "command -v python3 > skip-command-v.txt; false"\n'
+        'plans:\n  path_probe:\n    steps: [path_probe]\n')
+    if make_query:
+        import shlex
+
+        real_make = shutil.which("make")
+        assert real_make
+        (target_venv / "bin/make").write_text(
+            '#!/bin/sh\nprintf \'%s\\n\' "$PATH" >> "$CPP_PATH_PROBE_MAKE_RECORD"\n'
+            f'exec {shlex.quote(real_make)} "$@"\n')
+        (target_venv / "bin/make").chmod(0o755)
+        (target / "Makefile").write_text(".PHONY: verify lint\nverify: lint\nlint:\n\tsh probe.sh\n")
+        (target / ".claude/cicd_tasks.yml").write_text(
+            'version: "1"\nsteps:\n  lint:\n    command: make lint\n'
+            '  verify:\n    command: make verify\nplans:\n  path_probe:\n    steps: [lint, verify]\n')
     # Extract the shipped assignment verbatim, rather than duplicate its argv.
     source = (ROOT / "scripts/flow-finish-gate.sh").read_text()
     wrapper = "CPP_RUN=(" + source.split("CPP_RUN=(", 1)[1].split("\n\n", 1)[0]
@@ -49,7 +64,11 @@ def run_probe(work: Path, target_uv_environment: bool) -> dict:
         env.pop(key, None)
     env.update(PATH=target_path, CPP_DIR=str(ROOT), PYTHONPATH=f"{FIXTURE}:{ROOT}",
                CPP_OFFLINE="1", UV_OFFLINE="1",
-               CPP_PATH_PROBE_RUNNER_RECORD=str(work / "runner-environment.json"))
+               CPP_PATH_PROBE_RUNNER_RECORD=str(work / "runner-environment.json"),
+               CPP_PATH_PROBE_MAKE_RECORD=str(work / "make-paths.txt"))
+    if inherited_path_record:
+        env["CPP_RUNNER_TARGET_PATH"] = "/foreign/inherited-record"
+        env["CPP_RUNNER_TARGET_PATH_PRESENT"] = "invalid"
     if target_uv_environment:
         env["UV_PROJECT_ENVIRONMENT"] = str(target_venv)
     caller = {key: env.get(key) for key in ("PATH", "VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT")}
@@ -66,6 +85,11 @@ def run_probe(work: Path, target_uv_environment: bool) -> dict:
                 "target_python": str(target_venv / "bin/python3"),
                 "source": str(ROOT / "scripts/flow-finish-gate.sh"),
                 "runner_source": str(ROOT / "lib/cicd/runner.py")}
+    if make_query:
+        observed["make_paths"] = (work / "make-paths.txt").read_text().splitlines()
+        observed["result"] = json.loads(done.stdout)
+    else:
+        observed["skip_command_v"] = (target / "skip-command-v.txt").read_text().strip()
     (work / "observation.json").write_text(json.dumps(observed, indent=2) + "\n")
     return observed
 
@@ -92,7 +116,7 @@ def test_the_runners_own_interpreter_stays_in_cpp(tmp_path: Path, target_uv_envi
 # Security migration observations use the proposed restored target PATH
 # directly in an owned ShellStep context. The production wrapper is unchanged.
 def security_probe(work: Path, with_yaml: bool, builtin: str | None = None,
-                   refuse_target_import: bool = False) -> dict:
+                   refuse_target_import: bool = False, source: str = "builtin") -> dict:
     import shlex
 
     import yaml
@@ -141,8 +165,18 @@ def security_probe(work: Path, with_yaml: bool, builtin: str | None = None,
                                  env={**env, "PYTHONPATH": str(ROOT)}, check=False)
         assert refused.returncode == 1, "precondition: target import probe really refuses"
     if builtin:
-        plan = "finish" if builtin == "security_scan" else "deploy"
-        definition = next(step for step in BUILTIN_PLANS[plan] if step.id == builtin)
+        if source == "builtin":
+            plan = "finish" if builtin == "security_scan" else "deploy"
+            definition = next(step for step in BUILTIN_PLANS[plan] if step.id == builtin)
+        else:
+            from lib.cicd.manifest import generate_manifest, load_manifest, step_model_to_step_def
+
+            manifest = generate_manifest(target) if source == "generated" else load_manifest(ROOT)
+            assert manifest is not None
+            definition = step_model_to_step_def(builtin, manifest.steps[builtin])
+            # CPP's own manifest normally imports via its checkout cwd; keep
+            # the scan population owned and tiny while resolving that real module.
+            env["PYTHONPATH"] = str(ROOT)
     else:
         definition = StepDef(id="handwritten_security", command=(
             f"PYTHONPATH={shlex.quote(str(ROOT))} python3 -m lib.security gate flow_finish"))
@@ -188,5 +222,53 @@ def test_handwritten_security_on_target_path_names_missing_yaml_honestly(tmp_pat
 @pytest.mark.parametrize("builtin", ["security_scan", "deploy_security_scan"])
 def test_owned_security_population_passes_when_target_yaml_is_installed(tmp_path: Path, builtin: str) -> None:
     observed = security_probe(tmp_path, with_yaml=True, builtin=builtin)
+    assert not observed["skipped"] and observed["success"], observed
+    assert " PASS " in observed["output"]
+
+
+def test_wrapper_overwrites_inherited_path_metadata(tmp_path: Path) -> None:
+    observed = run_probe(tmp_path, False, inherited_path_record=True)
+    assert observed["command_v"] == observed["target_python"]
+    assert observed["step"]["PATH"] == observed["caller"]["PATH"]
+
+
+@pytest.mark.parametrize("builtin", ["security_scan", "deploy_security_scan"])
+def test_command_only_security_mutant_is_still_rejected_by_acceptance(
+    tmp_path: Path, monkeypatch, builtin: str,
+) -> None:
+    from dataclasses import replace
+
+    from lib.cicd.steps import BUILTIN_PLANS
+
+    plan = "finish" if builtin == "security_scan" else "deploy"
+    original = next(step for step in BUILTIN_PLANS[plan] if step.id == builtin)
+    assert original.skip_if
+    mutant = replace(original, skip_if=original.skip_if.replace('"$CPP_RUNNER_PYTHON"', "python3"))
+    modified = [mutant if step.id == builtin else step for step in BUILTIN_PLANS[plan]]
+    monkeypatch.setitem(BUILTIN_PLANS, plan, modified)
+    observed = security_probe(tmp_path, False, builtin, refuse_target_import=True)
+    assert observed["skipped"] and not observed["success"], observed
+
+
+@pytest.mark.skipif(shutil.which("make") is None, reason="queries and executes owned real Makefile")
+def test_make_queries_and_the_target_step_share_restored_path(tmp_path: Path) -> None:
+    observed = run_probe(tmp_path, False, make_query=True)
+    assert len(observed["make_paths"]) >= 2, "the real query and actual recipe must both run"
+    assert set(observed["make_paths"]) == {observed["caller"]["PATH"]}
+    assert observed["command_v"] == observed["target_python"]
+    assert observed["result"]["subsumed_gates"] == {"lint": "verify"}, observed["result"]
+
+
+def test_skip_probe_uses_the_same_target_interpreter_as_the_command(tmp_path: Path) -> None:
+    observed = run_probe(tmp_path, False)
+    assert observed["skip_command_v"] == observed["command_v"] == observed["target_python"]
+
+
+@pytest.mark.parametrize("source", ["generated", "cpp-manifest"])
+@pytest.mark.parametrize("builtin", ["security_scan", "deploy_security_scan"])
+def test_emitted_cpp_security_commands_and_guards_use_cpp_runtime(
+    tmp_path: Path, source: str, builtin: str,
+) -> None:
+    observed = security_probe(tmp_path, False, builtin, refuse_target_import=True, source=source)
     assert not observed["skipped"] and observed["success"], observed
     assert " PASS " in observed["output"]

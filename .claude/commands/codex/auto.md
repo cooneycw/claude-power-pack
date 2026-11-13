@@ -5,8 +5,7 @@ allowed-tools: Bash(codex:*), Bash(git:*), Bash(gh:*), Bash(ls:*), Bash(cat:*), 
 
 # Codex Auto: Full Issue Lifecycle via Codex CLI
 
-Mirrors `/flow:auto` but delegates implementation (Step 4) to Codex CLI.
-Claude Code acts as supervisor/reviewer while Codex writes the code.
+Mirrors `/flow:auto`: Codex CLI implements Step 4; Claude Code supervises and reviews.
 
 ## Arguments
 
@@ -754,7 +753,7 @@ for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-p
 done
 
 if [ -n "$CPP_DIR" ]; then
-    PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd run --plan finish
+    PYTHONPATH="$CPP_DIR:$PYTHONPATH" env "CPP_RUNNER_TARGET_PATH=${PATH-}" "CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" uv run --project "$CPP_DIR" python -m lib.cicd run --plan finish
     RUNNER_EXIT=$?
 fi
 ```

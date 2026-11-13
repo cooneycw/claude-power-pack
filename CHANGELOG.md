@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- Finish/deploy runner steps and probes retain the caller's original PATH
+  instead of borrowing CPP's venv executables (#1801). The runner itself keeps
+  its selected interpreter. A malformed or forged PATH handoff fails before
+  CLI dispatch, without printing its value.
+
 - Generated main-app CI enrolment proves the pinned CPP revision belongs to a
   complete official main snapshot before checkout or execution (#1754).
   Fetchable unmerged code can no longer report a false green; missing or
@@ -24,6 +29,20 @@
   duplicates the marker. Bash 3.2 retains its previous unguarded behavior.
 
 ### Upgrading
+
+- Update the CPP gate/verify launchers and regenerate task manifests to adopt
+  the PATH handoff (#1801). Target bare `python`, `python3` and console tools
+  now resolve on the caller's original PATH; install target dependencies or
+  use its own `uv run`. Missing tools do not fall back to CPP's venv. Older
+  unmarked launchers retain their existing PATH behavior.
+- `CPP_RUNNER_PYTHON` is reserved and overwritten with the actual runner
+  interpreter, including after step env overrides. CPP-owned helper commands
+  and their skip probes use its quoted value. Existing hand-written
+  `PYTHONPATH=<cpp> python3 -m lib.security` steps remain target-owned: with
+  a security YAML and no target PyYAML they return UNKNOWN/exit 2; install
+  PyYAML or explicitly migrate that helper invocation. Unknown configuration
+  never becomes a skipped or clean scan. Coordination: [kyle#2424](https://github.com/cooneycw/kyle/issues/2424)
+  and [skillc#715](https://github.com/cooneycw/skillc/issues/715).
 
 - From a merged CPP checkout, re-run `/cpp:init`, regenerate both application
   pipelines and review the pin and job diff to adopt main-retention checks

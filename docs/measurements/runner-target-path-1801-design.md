@@ -1,6 +1,8 @@
 # Runner target PATH: design for owner ruling (#1801)
 
-Status: design and locally committed red cases only. No product code changed.
+Initial design snapshot, recorded before approval. The owner approved Q1-Q3
+verbatim ("1801 yes yes yes", relayed in mailbox 24318). Product implementation
+is now authorized; [current evidence](runner-target-path-1801.md) records it.
 Base: full clone at main `35c51d81424999849f496f325a51ecc7b7ea9367`.
 CPP venv: Python 3.11.14. Owned target venv: system Python 3.12.3, no packages.
 
