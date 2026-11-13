@@ -4,6 +4,18 @@
 
 ### Upgrading
 
+- The finish gate's counter-model line now reports `escalated: N passes,
+  ruled by WHO (FILE)` for a ruled review above three passes (#1765). It now
+  fails a selected `ran` receipt with no pass count, a count above three
+  without a complete ruling, and any unreadable or non-object receipt file
+  anywhere in the receipts directory. The last rule applies on every branch
+  until that file is repaired or removed; the diagnostic names it. Before
+  moving a consumer's CPP pin, run `python3 <cpp>/scripts/counter-model-receipt.py
+  validate --dir docs/measurements/counter-model` in that consumer and repair
+  unreadable receipts. Readers of `FLOW_FINISH_GATE_COUNTER_MODEL` must accept
+  `escalated:` beside `receipt:` and `skipped:`. Public gate exit codes stay
+  unchanged; unenrolled repositories still work without Python.
+
 - The finish gate now refuses an existing CPP `.venv` on a different Python
   minor (`cpp-runtime-environment-mismatch`) or with unverified interpreter
   evidence (`cpp-runtime-environment-unverified`) instead of letting uv replace

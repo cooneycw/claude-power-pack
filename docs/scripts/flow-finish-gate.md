@@ -2,6 +2,60 @@
 
 Per-script history, indexed from [the scripts inventory](../scripts.md).
 
+## Counter-model enrolment decided in Python (#1765)
+
+Owner ruling, 2026-11-13: "1765: approve all". The complete enrolled-repository
+answer is decided by `counter-model-receipt.py enrolment`; shell reads no receipt
+JSON and maps only a fixed private answer code. A missing, crashed, empty,
+undeclared or inconsistent helper answer is `unknown`. Zero from that helper is
+not a declared answer. The public gate exit codes and the counter-model line's
+name, stdout channel and position are unchanged. A bootstrap check for an
+absent receipts directory reads no JSON and still works without Python.
+
+The table assumes other quality gates pass; `proceed` preserves their final
+`ok`, `warn` or `skipped` verdict. An existing quality failure stays a failure.
+
+| Counter-model state | Meaning | Finish mode | `--enrolment-only` |
+|---|---|---|---|
+| `receipt:` | selected `ran`, positive integer count at most 3 | proceed | 0 |
+| `escalated:` | selected `ran` above 3, complete ruling, within raised cap and outer bound 10 | proceed | 0 |
+| `skipped:` | exact committed skip reason, printed on the line | proceed | 0 |
+| `not-enrolled:` | receipts directory absent | proceed | 1 |
+| `not-applicable:` | ordinary `--plan check` produces no PR | proceed | not exempted in this mode |
+| `missing:` | full known history, no matching receipt | 1 | 1 |
+| `unknown:` | unusable evidence or evaluation failure | 1 | 1 |
+| `undecidable:` | established shallow history or uncomputable candidate distance | proceed, explicitly undecided | 5 |
+| `unresolvable:` | absent receipt commit in a full checkout | 1 | 1 |
+| accepted line, missing scope | selected non-delegated `ran` lacks scope | unchanged | 1, `receipt-without-scope` |
+
+`--check-summary` still exits before enrolment. `--plan check` does not exempt
+`--enrolment-only`. The new passing line is exactly `escalated: N passes, ruled
+by WHO (FILE)` plus the existing branch/detached suffix. Who ruled is recorded,
+not authenticated. A hand-made count above three with no complete ruling and a
+selected `ran` with no count both report `unknown:` and fail.
+
+Every `*.json` file is decoded before branch/head filtering. An unreadable or
+non-object file cannot establish that it belongs to another branch: it fails
+the repository's enrolment answer as `unknown:`, naming that file. Readable
+objects still narrow by the exact decoded branch, including Unicode whether
+literal or JSON-escaped. Display escaping never manufactures a comparison
+value or the exact `direction: delegated` scope exemption. Other schema-invalid
+historical receipts do not block merely by existing; the enrolment policy is
+checked only for the selected candidates.
+
+Selection retains all-parent ancestry, nearest reviewed-head distance, latest
+filename only at the same head, and every distinct head tied on distance. Every
+tied review and scope is checked; an accepted escalation takes display priority.
+The parked proposals to carry reviews across renamed branches and to use only
+first-parent ancestry are declined: both would change the existing provenance
+or merge policy independently of this parser replacement.
+
+Prior attempt: `held/issue-1700-gate-half@54367bc8`, read as reference. It was not
+cherry-picked. The red cases preserve its unreadable-newest fallback and ASCII
+branch failures alongside the count, nested-field and hostile-filename cases.
+Real-gate control batteries cover finish, enrolment-only and selection; the
+Python-only implementation does not replace those integration checks.
+
 ## CPP environment preservation (#1768)
 
 This check protects against accidental damage to an environment in use.

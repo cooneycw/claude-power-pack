@@ -120,6 +120,11 @@ def test_enrolment_answer_contract(tmp_path: Path, case: dict, mode: str) -> Non
             assert not isinstance(json.loads(text), dict)
             assert "\n" in filename or "\x1f" in filename
         (receipts / filename).write_text(text + "\n")
+        if case.get("foreign_invalid"):
+            foreign = _receipt("another-branch", head)
+            del foreign["passes"]
+            assert foreign["branch"] != branch and "passes" not in foreign
+            (receipts / "foreign.json").write_text(json.dumps(foreign, indent=2))
     helper = HELPER
     if case.get("helper") == "missing":
         helper = tmp_path / "absent-helper.py"
@@ -129,6 +134,19 @@ def test_enrolment_answer_contract(tmp_path: Path, case: dict, mode: str) -> Non
         helper.write_text("raise SystemExit(0)\n")
         probe = subprocess.run(["python3", str(helper)], capture_output=True, text=True, timeout=20)
         assert probe.returncode == 0 and not probe.stdout, "fixture helper must be blind"
+    elif case.get("helper") in ("crash", "empty-declared", "undeclared", "multiline", "blank-line", "mismatched-code"):
+        helper = tmp_path / "bad-helper.py"
+        bodies = {
+            "crash": "raise RuntimeError('fixture crash')\n",
+            "blank-line": "print('FLOW_FINISH_GATE_COUNTER_MODEL: ')\nraise SystemExit(10)\n",
+            "mismatched-code": "print('FLOW_FINISH_GATE_COUNTER_MODEL: missing: no receipt')\nraise SystemExit(10)\n",
+            "empty-declared": "raise SystemExit(10)\n",
+            "undeclared": "print('FLOW_FINISH_GATE_COUNTER_MODEL: receipt: fake')\nraise SystemExit(99)\n",
+            "multiline": "print('FLOW_FINISH_GATE_COUNTER_MODEL: receipt: fake\\nextra line')\nraise SystemExit(10)\n",
+        }
+        helper.write_text(bodies[case["helper"]])
+        probe = subprocess.run(["python3", str(helper)], capture_output=True, text=True, timeout=20)
+        assert probe.returncode in (1, 10, 99), "fixture produces a rejected private answer"
     env = {key: os.environ[key] for key in ("PATH", "HOME") if key in os.environ}
     env.update(FLOW_GATE_CPP_DIR="", CM_RECEIPT_HELPER=str(helper),
                CPP_COORDINATION_ADMISSION_FILE=str(tmp_path / "admission-off"))
@@ -144,3 +162,63 @@ def test_enrolment_answer_contract(tmp_path: Path, case: dict, mode: str) -> Non
         assert filename in result.stdout + result.stderr
     if case.get("raw") == "array":
         assert "hostile-" in result.stdout + result.stderr, "unreadable filename must be named safely"
+
+
+@pytest.mark.parametrize("enrolled", [False, True])
+@pytest.mark.parametrize("mode", ["gate", "enrolment"])
+def test_only_an_unenrolled_repository_works_without_python(tmp_path: Path, enrolled: bool, mode: str) -> None:
+    from tests.test_flow_finish_gate import _enrolled_repo
+
+    repo = _enrolled_repo(tmp_path)
+    if not enrolled:
+        shutil.rmtree(repo / "docs/measurements/counter-model")
+    bindir = tmp_path / "bin-without-python"
+    bindir.mkdir()
+    for name in ("bash", "git", "sed", "head", "grep", "awk", "id", "dirname", "cat", "mktemp",
+                 "tee", "make", "env", "rm", "wc", "sort", "cut", "tr", "touch", "find", "date", "tail"):
+        binary = shutil.which(name)
+        if binary is None:
+            pytest.skip(f"fixture needs {name}")
+        (bindir / name).symlink_to(binary)
+    assert shutil.which("python3", path=str(bindir)) is None, "fixture PATH has no Python"
+    env = {"PATH": str(bindir), "HOME": str(tmp_path), "FLOW_GATE_CPP_DIR": "",
+           "CM_RECEIPT_HELPER": str(HELPER), "CPP_COORDINATION_ADMISSION_FILE": str(tmp_path / "off")}
+    args = ["bash", str(GATE)]
+    if mode == "enrolment":
+        args += ["--enrolment-only", "--branch", "master"]
+    result = subprocess.run(args, cwd=repo, env=env, capture_output=True, text=True, timeout=30)
+    expected = 1 if enrolled or mode == "enrolment" else 4
+    assert result.returncode == expected, result.stdout + result.stderr
+    state = "unknown" if enrolled else "not-enrolled"
+    assert f"FLOW_FINISH_GATE_COUNTER_MODEL: {state}:" in result.stdout
+
+
+@pytest.mark.parametrize("mode", ["gate", "enrolment"])
+@pytest.mark.parametrize("unruled", [False, True])
+def test_tied_heads_cannot_hide_an_escalation_or_an_invalid_review(tmp_path: Path, mode: str, unruled: bool) -> None:
+    from tests.test_flow_finish_gate import _diamond_repo, _named_receipt
+
+    repo, main, side = _diamond_repo(tmp_path)
+    first = "2026-01-01T000000Z-issue-1765.json"
+    _named_receipt(repo, first, main, scope="full")
+    _named_receipt(repo, "2026-01-02T000000Z-issue-1765.json", side, scope="full")
+    path = repo / "docs/measurements/counter-model" / first
+    receipt = json.loads(path.read_text())
+    receipt["passes"] = 4
+    if not unruled:
+        receipt.update(escalation=dict(ruled_by="fixture authority", reference="fixture ruling", raised_cap=4),
+                       extra_passes_reason="fixture needs four passes")
+    else:
+        assert "escalation" not in receipt
+    path.write_text(json.dumps(receipt, indent=2))
+    env = {key: os.environ[key] for key in ("PATH", "HOME") if key in os.environ}
+    env.update(FLOW_GATE_CPP_DIR="", CM_RECEIPT_HELPER=str(HELPER),
+               CPP_COORDINATION_ADMISSION_FILE=str(tmp_path / "off"))
+    args = ["bash", str(GATE)]
+    if mode == "enrolment":
+        args += ["--enrolment-only", "--branch", "master"]
+    result = subprocess.run(args, cwd=repo, env=env, capture_output=True, text=True, timeout=30)
+    expected = 1 if unruled else 0 if mode == "enrolment" else 4
+    assert result.returncode == expected, result.stdout + result.stderr
+    state = "unknown" if unruled else "escalated"
+    assert f"FLOW_FINISH_GATE_COUNTER_MODEL: {state}:" in result.stdout

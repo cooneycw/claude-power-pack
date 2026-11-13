@@ -72,8 +72,8 @@
     },
     "counter-model-receipt.py": {
       "class": "tested",
-      "consumer": "tests/test_counter_model_review.py",
-      "reason": "derives and writes the ADR 0007 counter-model receipt, refusing rather than asserting an identity"
+      "consumer": "tests/test_counter_model_enrolment_answer.py",
+      "reason": "writer/parser identity behavior remains covered by test_counter_model_review.py; real shell-entry tests and registered controls exercise the Python enrolment answer consumed by flow-finish-gate.sh"
     },
     "counter-model-reviewer-attribution.py": {
       "class": "tested",

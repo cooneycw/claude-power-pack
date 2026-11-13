@@ -233,5 +233,54 @@
     "state": "unknown",
     "gate": 1,
     "enrolment": 1
+  },
+  {
+    "name": "crash-helper",
+    "helper": "crash",
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1
+  },
+  {
+    "name": "empty-declared-helper",
+    "helper": "empty-declared",
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1
+  },
+  {
+    "name": "undeclared-helper",
+    "helper": "undeclared",
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1
+  },
+  {
+    "name": "multiline-helper",
+    "helper": "multiline",
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1
+  },
+  {
+    "name": "foreign-invalid-count",
+    "foreign_invalid": true,
+    "state": "receipt",
+    "gate": 0,
+    "enrolment": 0
+  },
+  {
+    "name": "blank-line-helper",
+    "helper": "blank-line",
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1
+  },
+  {
+    "name": "mismatched-code-helper",
+    "helper": "mismatched-code",
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1
   }
 ]

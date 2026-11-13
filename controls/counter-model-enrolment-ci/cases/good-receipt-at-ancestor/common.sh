@@ -16,6 +16,8 @@ r = {"schema": 1, "recorded_at": "2026-10-17T00:00:00Z", "issue": "1452",
      "branch": branch, "head": head, "status": status,
      "reviewer": None if status == "skipped" else "codex/gpt-6.1-sol",
      "implementer": "claude/claude-opus-5-5"}
+if status == "ran":
+    r["passes"] = 1
 if status == "skipped":
     r["skip_reason"] = sys.argv[4]
 elif os.environ.get("NO_SCOPE") != "1":

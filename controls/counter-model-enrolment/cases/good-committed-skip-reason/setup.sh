@@ -19,6 +19,8 @@ r = {"schema": 1, "recorded_at": "2026-09-21T12:00:00Z", "issue": "1171",
      "branch": "master", "head": head, "status": status,
      "reviewer": None if status == "skipped" else "codex/gpt-6-astra",
      "implementer": "claude/claude-opus-5"}
+if status == "ran":
+    r["passes"] = 1
 if status == "skipped":
     r["skip_reason"] = sys.argv[3]
 pathlib.Path("docs/measurements/counter-model/receipt.json").write_text(json.dumps(r, indent=2))
