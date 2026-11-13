@@ -64,6 +64,21 @@
       "input": "cases/unknown-shallow-history",
       "expect": "UNKNOWN",
       "why": "A depth-1 clone whose receipt names a commit it does not carry - CI's state before the step deepens it. The finish mode lets this through; this mode must refuse, or the CI step could never fail in the one place it runs."
+    },
+    {
+      "name": "bad-unruled-above-three",
+      "input": "cases/bad-unruled-above-three",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-missing-pass-count",
+      "input": "cases/bad-missing-pass-count",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-escalated-four",
+      "input": "cases/good-escalated-four",
+      "expect": "GOOD"
     }
   ],
   "anchors": [

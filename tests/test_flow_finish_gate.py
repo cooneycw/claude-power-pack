@@ -2467,6 +2467,8 @@ def _write_receipt(repo: Path, head: str, status: str = "ran", reason: str | Non
         "reviewer": None if status == "skipped" else "codex/gpt-6-astra",
         "implementer": "claude/claude-opus-5",
     }
+    if status == "ran":
+        r["passes"] = 1
     if reason:
         r["skip_reason"] = reason
     (repo / "docs/measurements/counter-model/receipt.json").write_text(json.dumps(r, indent=2))
@@ -4018,6 +4020,8 @@ def _named_receipt(
         "head": head, "status": status,
         "reviewer": "codex/gpt-6-astra", "implementer": "claude/claude-opus-5",
     }
+    if status == "ran":
+        r["passes"] = 1
     if scope:
         r["scope"] = scope
     if skip_reason:

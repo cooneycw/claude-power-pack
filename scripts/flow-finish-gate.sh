@@ -498,7 +498,7 @@ verdict() {
                     # rendered as `ok` and never as a receipt id: the line says the
                     # decision was not made here, which is the whole point of
                     # letting it through.
-                    receipt|skipped|not-enrolled|undecidable) ;;
+                    receipt|escalated|skipped|not-enrolled|undecidable) ;;
                     *)
                         echo "flow-finish-gate: no counter-model review is recorded for this branch at this commit, so this gate cannot tell a review that found nothing from one that never ran (issue #1171)." >&2
                         echo "  Run the Step 6 counter-model review, or record an explicit skip with a committed reason:" >&2
@@ -630,259 +630,55 @@ fi
 # move this evaluation above that block. Pinned by the control case
 # `good-check-summary-mode-not-enforced`.
 
-cm_field() {
-    # One flat JSON string field out of a receipt. Receipts are written by
-    # json.dump(indent=2) with string values only at this level, so a line-scoped
-    # read is exact here - this is deliberately NOT a general JSON parser, and it
-    # must not grow into one. `jq` is not assumed: this helper runs in repos that
-    # are not CPP and on the fallback lane, which exists precisely when the
-    # richer toolchain is missing.
-    sed -n "s/^[[:space:]]*\"$2\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$1" 2>/dev/null | head -1
-}
-
-cm_receipt_matches_head() {
-    # THE MATCH PREDICATE, in one place on purpose. $1 is a receipt's recorded
-    # head. It satisfies this run when it is the current HEAD or an ANCESTOR of
-    # it. See the ancestry note on verdict() above for why equality is not used
-    # and what this weakens.
-    #
-    # THREE ANSWERS, NOT TWO. `merge-base --is-ancestor` exits 0 for yes and 1 for
-    # no, but 128 when it cannot answer at all - the commit is not in this
-    # repository. A SHALLOW CLONE is the case that matters: CI clones with
-    # `--depth=1`, so a receipt taken at any earlier commit names an object the
-    # checkout does not contain, and git says `Not a valid commit name`. Treating
-    # that as "not an ancestor" would report `missing` - a review that did not
-    # happen - for a review that demonstrably did. That is the unknown-collapsed-
-    # into-negative failure this whole issue exists to remove, so it is reported
-    # separately rather than folded in.
-    #   0   -> 0  ancestor
-    #   1   -> 1  definitively not an ancestor
-    #   else-> 2  undecidable here (missing object, shallow clone, broken repo)
-    [[ -n "$1" ]] || return 1
-    git merge-base --is-ancestor "$1" HEAD >/dev/null 2>&1
-    case $? in
-        0) return 0 ;;
-        1) return 1 ;;
-        *) return 2 ;;
-    esac
-}
-
 cm_enrolment_evaluate() {
-    local root receipts branch f rbranch rhead rstatus rreason reasons
-    local cm_undecidable=0 cm_best_distance=0 cm_distance="" cm_uncounted=0
-    local cm_sha cm_i cm_same_head
-    local -a cm_best_files=() cm_best_heads=()
-    # EVERY `ran` receipt the judgement accepted, not only the last one named on
-    # the line: when two reviewed heads tie on distance both are accepted, and
-    # the enrolment-only scope check below must see both (counter-model review).
-    CM_ENROLMENT_RAN_FILES=()
-    # PARTICIPATION IS ESTABLISHED BEFORE GIT IS REQUIRED. Asking git first
-    # reports `unknown` - and so RED - for any directory that is not a checkout,
-    # which is most of what this gate is pointed at outside a flow run. A
-    # repository that does not participate must be answerable without git,
-    # because it is not being asked about a review at all.
-    root=$(git rev-parse --show-toplevel 2>/dev/null) || true
-    [[ -n "$root" ]] || root="$PWD"
+    local root receipts _cm_answer _cm_code
+    local -a _cm_args=()
+    # Bootstrap only: an unenrolled repository still works without Python.
+    # No receipt is read here. All enrolled-repository decisions are Python's.
+    root=$(git rev-parse --show-toplevel 2>/dev/null) || root="$PWD"
     receipts="$root/docs/measurements/counter-model"
     if [[ ! -d "$receipts" ]]; then
-        # THIS REPOSITORY DOES NOT PARTICIPATE, and that is a state rather than
-        # a pass. This helper is installed globally and /flow:auto runs it in
-        # other repositories, which have never run a counter-model review and
-        # have no receipts directory; reding them would break every unrelated
-        # repo's finish gate on the day this shipped. The bound is deliberately
-        # narrow and visible: the directory's PRESENCE is the participation
-        # signal, it is tracked in CPP with 50 receipts, and removing it to
-        # silence this gate would be a visible deletion rather than a quiet one.
         CM_ENROLMENT_STATE=not-enrolled
         CM_ENROLMENT_LINE="not-enrolled: this repository carries no counter-model receipts directory"
         return
     fi
-    # Participation is established, so git is now REQUIRED: an enrolled
-    # repository that cannot name a commit cannot attribute a review to one, and
-    # that is UNKNOWN rather than a pass.
-    if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
+    [[ -n "$CM_BRANCH_OVERRIDE" ]] && _cm_args+=(--branch "$CM_BRANCH_OVERRIDE")
+    _cm_answer=$(python3 "$CM_RECEIPT_HELPER" enrolment --root "$root" --mode "$MODE" "${_cm_args[@]}")
+    _cm_code=$?
+    # Fixed private codes only, never receipt fields. Zero is deliberately not
+    # an answer: a missing, crashed or blind helper cannot establish enrolment.
+    case "$_cm_code" in
+        10) CM_ENROLMENT_STATE=receipt ;;
+        11) CM_ENROLMENT_STATE=escalated ;;
+        12) CM_ENROLMENT_STATE=skipped ;;
+        13) CM_ENROLMENT_STATE=not-enrolled ;;
+        14) CM_ENROLMENT_STATE=not-applicable ;;
+        15) CM_ENROLMENT_STATE=missing ;;
+        16) CM_ENROLMENT_STATE=unknown ;;
+        17) CM_ENROLMENT_STATE=undecidable ;;
+        18) CM_ENROLMENT_STATE=unresolvable ;;
+        19) CM_ENROLMENT_STATE=receipt-without-scope ;;
+        *) _cm_answer="" ;;
+    esac
+    if [[ "$_cm_answer" != "FLOW_FINISH_GATE_COUNTER_MODEL: "* || "$_cm_answer" == *$'\n'* ]]; then
         CM_ENROLMENT_STATE=unknown
-        CM_ENROLMENT_LINE="unknown: the counter-model receipts directory exists but this is not a git checkout, so no review can be attributed to a commit"
+        CM_ENROLMENT_LINE="unknown: the receipt helper is missing, failed, or returned no declared enrolment answer"
         return
     fi
-    # A DETACHED HEAD IS NORMAL, NOT UNKNOWN. CI checks out a SHA, so
-    # `rev-parse --abbrev-ref HEAD` is literally `HEAD` on every Woodpecker run.
-    # The `controls/flow-finish-gate*` registrations run their cases IN PLACE
-    # inside the checkout, so a regression here shows only in CI, never locally.
-    #
-    # The branch is a NARROWING, not the match. Ancestry is what establishes that a
-    # review belongs to this history; the branch additionally excludes a receipt
-    # recorded on a sibling branch whose head happens to be reachable. Where no
-    # branch exists that narrowing is simply unavailable, so it is dropped and SAID,
-    # rather than failing closed on a state every CI run is in.
-    branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
-    if [[ -z "$branch" || "$branch" == "HEAD" ]]; then
-        branch=""
+    # Strip a fixed public marker, not a JSON field or a receipt-derived token.
+    CM_ENROLMENT_LINE="${_cm_answer#FLOW_FINISH_GATE_COUNTER_MODEL: }"
+    local _cm_declared=0
+    case "$CM_ENROLMENT_STATE" in
+        receipt-without-scope)
+            case "$CM_ENROLMENT_LINE" in receipt:\ ?*|escalated:\ ?*|skipped:\ ?*) _cm_declared=1 ;; esac ;;
+        undecidable)
+            case "$CM_ENROLMENT_LINE" in "undecidable: "?*|"undecidable (shallow clone): "?*) _cm_declared=1 ;; esac ;;
+        *) case "$CM_ENROLMENT_LINE" in "$CM_ENROLMENT_STATE: "?*) _cm_declared=1 ;; esac ;;
+    esac
+    if [[ "$_cm_declared" -ne 1 ]]; then
+        CM_ENROLMENT_STATE=unknown
+        CM_ENROLMENT_LINE="unknown: the receipt helper returned an answer inconsistent with its declared state"
     fi
-    # A DECLARED branch wins (issue #1452): the CI step is on a detached SHA and
-    # names the PR's source branch itself, which restores the narrowing above.
-    [[ -n "$CM_BRANCH_OVERRIDE" ]] && branch="$CM_BRANCH_OVERRIDE"
-
-    # COMPUTED ONCE, WITH AN EXPLICIT BRANCH (#1061). A nested
-    # `${branch:+...}${branch:-...}` expansion renders the branch name twice or
-    # with no separator, and reads fine at a glance: keep this an if/else.
-    if [[ -n "$branch" ]]; then
-        _cm_where=" for branch '$branch'"
-    else
-        _cm_where="  (detached HEAD: matched by ancestry, branch not comparable)"
-    fi
-
-    for f in "$receipts"/*.json; do
-        [[ -e "$f" ]] || continue
-        rbranch=$(cm_field "$f" branch)
-        # With no branch to compare, ancestry alone decides - see the detached-HEAD
-        # note above.
-        if [[ -n "$branch" && "$rbranch" != "$branch" ]]; then
-            continue
-        fi
-        rhead=$(cm_field "$f" head)
-        cm_receipt_matches_head "$rhead"
-        case $? in
-            0) ;;
-            1) continue ;;
-            *) cm_undecidable=1; continue ;;
-        esac
-        # NEAREST TO HEAD, NOT FIRST IN FILENAME ORDER (issue #1707). This loop
-        # used to judge and return on the first receipt that passed the filters
-        # above, and the glob sorts by filename, so on a branch with more than
-        # one receipt the OLDEST decided: an old valid review could carry a head
-        # whose own receipt was unusable, and the line named the wrong evidence.
-        # Every receipt that passes the filters is now a candidate, and the one
-        # whose reviewed head has the FEWEST commits between it and HEAD wins.
-        # The count decides; the filename only breaks a tie AT ONE HEAD, where
-        # the later file is the later review and replaces the earlier one.
-        # TWO DIFFERENT HEADS AT THE SAME DISTANCE (a merge whose two sides were
-        # each reviewed: `B..M` and `C..M` count the same) are BOTH kept and both
-        # judged below, and every one of them must be usable. Letting the
-        # filename choose between them would make renaming a receipt switch the
-        # gate between pass and fail (counter-model review).
-        # A distance that cannot be computed never wins: such a receipt is set
-        # aside, and if that leaves no candidate the answer is undecidable below
-        # - never a fall back to the first match, which would restore the defect.
-        if ! cm_distance=$(git rev-list --count "$rhead..HEAD" 2>/dev/null) \
-                || [[ ! "$cm_distance" =~ ^[0-9]+$ ]]; then
-            cm_uncounted=$(( ${cm_uncounted:-0} + 1 ))
-            continue
-        fi
-        cm_sha=$(git rev-parse --verify -q "$rhead^{commit}" 2>/dev/null) || cm_sha="$rhead"
-        if (( ${#cm_best_files[@]} == 0 )) || (( cm_distance < cm_best_distance )); then
-            cm_best_files=("$f")
-            cm_best_heads=("$cm_sha")
-            cm_best_distance="$cm_distance"
-        elif (( cm_distance == cm_best_distance )); then
-            cm_same_head=0
-            for cm_i in "${!cm_best_heads[@]}"; do
-                if [[ "${cm_best_heads[$cm_i]}" == "$cm_sha" ]]; then
-                    cm_best_files[cm_i]="$f"
-                    cm_same_head=1
-                fi
-            done
-            if (( ! cm_same_head )); then
-                cm_best_files+=("$f")
-                cm_best_heads+=("$cm_sha")
-            fi
-        fi
-    done
-
-    for f in ${cm_best_files[@]+"${cm_best_files[@]}"}; do
-        rstatus=$(cm_field "$f" status)
-        if [[ "$rstatus" == "skipped" ]]; then
-            rreason=$(cm_field "$f" skip_reason)
-            # The committed set is read from its ONE declaration rather than
-            # copied into shell (issue #1171). A second list here is the
-            # cross-language drift #890/#1147 kept removing, and it fails in the
-            # dangerous direction: a shell copy still naming a retired reason
-            # would accept a skip the committed set refuses.
-            reasons=$(python3 "$CM_RECEIPT_HELPER" skip-reasons 2>/dev/null)
-            if [[ -z "$reasons" ]]; then
-                CM_ENROLMENT_STATE=unknown
-                CM_ENROLMENT_LINE="unknown: cannot read the committed skip reasons, so '$rreason' cannot be checked against them"
-                return
-            fi
-            # `--` IS LOAD-BEARING (counter-model review pass 2, MEDIUM). Without
-            # it a reason of `-ecodex-absent` is read by grep as the OPTION
-            # `-e codex-absent`, which matches - so a reason absent from the
-            # committed set passed the allowlist. An allowlist that can be
-            # addressed with its own matcher's flags is not an allowlist.
-            if ! printf '%s\n' "$reasons" | grep -qxF -- "$rreason"; then
-                CM_ENROLMENT_STATE=unknown
-                CM_ENROLMENT_LINE="unknown: skip reason '$rreason' is not in the committed set"
-                return
-            fi
-            CM_ENROLMENT_STATE=skipped
-            CM_ENROLMENT_LINE="skipped: $rreason ($(basename "$f"))$_cm_where"
-            continue
-        fi
-        # STATUS IS CHECKED POSITIVELY, never by not-being-skipped (counter-model
-        # review, HIGH). Treating "anything that is not `skipped`" as a completed
-        # review accepted a receipt with NO status field and one reading
-        # `"status": "garbage"` - so incomplete evidence satisfied the gate without
-        # recording either a review or an allowed skip. That is this issue's own
-        # defect one level in: a receipt that cannot say what happened is not
-        # evidence that anything did.
-        if [[ "$rstatus" != "ran" ]]; then
-            CM_ENROLMENT_STATE=unknown
-            CM_ENROLMENT_LINE="unknown: receipt $(basename "$f") has status '${rstatus:-<absent>}', which is neither 'ran' nor 'skipped'"
-            return
-        fi
-        CM_ENROLMENT_STATE=receipt
-        CM_ENROLMENT_RAN_FILES+=("$f")
-        CM_ENROLMENT_LINE="receipt: $(basename "$f")$_cm_where"
-    done
-    if (( ${#cm_best_files[@]} > 0 )); then
-        return
-    fi
-    if [[ "${cm_uncounted:-0}" -gt 0 ]]; then
-        CM_ENROLMENT_STATE=undecidable
-        CM_ENROLMENT_LINE="undecidable: ${cm_uncounted} receipt(s) match this history but the distance from each to HEAD could not be computed - no receipt was selected, so the enrolment decision was NOT made here"
-        return
-    fi
-
-    # A SHALLOW CHECKOUT CANNOT BE TRUSTED TO SAY "NOT AN ANCESTOR" AT ALL, and this
-    # is sharper than the exit-128 case below. CI clones `--depth=1 --filter=tree:0`:
-    # the filter makes missing objects lazily FETCHABLE, so `merge-base` resolves the
-    # commit and answers - but `--depth=1` truncated the history, so it answers 1,
-    # "not an ancestor", for a commit that genuinely is one. That is worse than 128:
-    # git returns a confident WRONG answer rather than declining to answer, and
-    # nothing in the exit code says the graph was truncated underneath it.
-    #
-    # So in a shallow repository a NEGATIVE proves nothing. A positive still does -
-    # reachability found in a truncated graph is reachability - which is why this
-    # only fires when nothing matched.
-    if [[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" == "true" ]]; then
-        CM_ENROLMENT_STATE=undecidable
-        CM_ENROLMENT_LINE="undecidable (shallow clone): history is truncated, so 'no receipt reachable from HEAD' may be truncation rather than absence - the enrolment decision was NOT made here"
-        return
-    fi
-    if [[ "${cm_undecidable:-0}" -eq 1 ]]; then
-        # A receipt for this issue EXISTS and names a commit this checkout does not
-        # contain. That is not the same fact as "no review happened" - but it is
-        # also TWO different facts, and only one of them is benign:
-        #
-        #   shallow clone + a real earlier commit  -> the object is simply elsewhere
-        #   FULL clone    + a commit that is nowhere -> the receipt is wrong or fabricated
-        #
-        # Both exit 128. Letting every 128 pass would be the inverse of the defect
-        # this branch exists to fix: I collapsed cannot-answer into answered-NO, and
-        # collapsing two causes into one BENIGN state is the same error pointing the
-        # other way - the direction that fails open, and the fabricated-receipt
-        # escape this whole issue exists to close. `--is-shallow-repository` is what
-        # separates them, so the permissive answer is reachable ONLY where the
-        # shallow cause is ESTABLISHED rather than assumed.
-        # Shallow was handled above, so reaching here means a FULL checkout whose
-        # receipt names a commit that exists nowhere: wrong, or fabricated.
-        CM_ENROLMENT_STATE=unresolvable
-        CM_ENROLMENT_LINE="unresolvable: a receipt names a commit this FULL checkout does not contain - the receipt is wrong or fabricated"
-        return
-    fi
-    CM_ENROLMENT_STATE=missing
-    # shellcheck disable=SC2016  # the quotes are literal text inside a double-quoted string; $branch expands (#972)
-    CM_ENROLMENT_LINE="missing: no receipt${branch:+ for branch '$branch'} at a commit reachable from HEAD"
 }
 
 # Resolve the receipt helper the same way every other flow helper resolves
@@ -936,26 +732,8 @@ echo "FLOW_FINISH_GATE_COUNTER_MODEL: $CM_ENROLMENT_LINE"
 # never ok: a CI step that passed whenever history was missing would be a check
 # that cannot fail in the one place it runs. The step deepens the clone first.
 if [[ "$MODE" == "enrolment" ]]; then
-    # A NEW ran receipt must carry `scope` (issue #1461). The CLI already refuses
-    # to write one without it, and validate() requires it only from a date -
-    # which a hand-built receipt could backdate. Here the receipt is the PR's own,
-    # evaluated whatever date it claims, so the requirement holds at the merge
-    # boundary. Delegated receipts carry none by design.
-    # Every accepted `ran` receipt, whatever the last-judged state was: with two
-    # reviewed heads at one distance, a scope-less review must not pass because
-    # the OTHER receipt carried a scope or was an allowed skip (issue #1707).
-    if [[ "$CM_ENROLMENT_STATE" == "receipt" || "$CM_ENROLMENT_STATE" == "skipped" ]]; then
-        for _cm_ran in ${CM_ENROLMENT_RAN_FILES[@]+"${CM_ENROLMENT_RAN_FILES[@]}"}; do
-            if [[ "$(cm_field "$_cm_ran" direction)" != "delegated" ]] \
-                    && [[ -z "$(cm_field "$_cm_ran" scope)" ]]; then
-                echo "flow-finish-gate: receipt $(basename "$_cm_ran") records a review that ran but carries no 'scope' (issue #1461); write it with --scope \"\$CODEX_REVIEW_SCOPE\"." >&2
-                echo "FLOW_FINISH_GATE: fail (counter-model line receipt-without-scope)"
-                gate_exit fail
-            fi
-        done
-    fi
     case "$CM_ENROLMENT_STATE" in
-        receipt|skipped)
+        receipt|escalated|skipped)
             echo "FLOW_FINISH_GATE: ok"
             gate_exit ok
             ;;
@@ -963,6 +741,10 @@ if [[ "$MODE" == "enrolment" ]]; then
         # finish mode it lets other repositories through, which never ran a
         # review; this mode is invoked only where participation is REQUIRED, so
         # a PR that deleted the receipts directory must not pass by having done so.
+        receipt-without-scope)
+            echo "FLOW_FINISH_GATE: fail (counter-model line receipt-without-scope)"
+            gate_exit fail
+            ;;
         not-enrolled)
             echo "flow-finish-gate: --enrolment-only found no counter-model receipts directory; this mode runs where participation is required, so its absence is not a pass." >&2
             echo "FLOW_FINISH_GATE: fail (counter-model line $CM_ENROLMENT_STATE)"
