@@ -51,8 +51,9 @@ Without the flag, the output protocol and exit policy are unchanged.
 PR CI deepens its clone then explicitly fetches
 `refs/heads/main:refs/remotes/origin/main`, with three bounded attempts and a
 loud failure before writing the flag file. It uses existing origin credentials;
-no additional credential is read or stored. Source and owned-stub execution
-establish this behavior; runtime CI ref inventory was unavailable (HTTP 403),
+no additional credential is read or stored. Local bare-origin Git integration establishes the fetch and resulting strict
+verification from a shallow detached PR-only checkout. Owned stubs cover retries
+and failure injection; runtime CI ref inventory was unavailable (HTTP 403),
 so no claim is made about previous runner refs. Push CI deliberately fetches
 nothing and does not verify provenance, and says so; there is no claim about
 `origin/main` versus push HEAD.

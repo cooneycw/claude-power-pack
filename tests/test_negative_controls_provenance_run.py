@@ -736,3 +736,55 @@ def test_successful_ci_main_fetch_does_not_excuse_off_main_provenance(tmp_path: 
     # The emitted flag is passed to the actual harness over the known-bad tree.
     refused = run_case("bad-anchor-off-main", provenance_flag=flag)
     assert refused.returncode == 1 and "PROVENANCE:OFF_MAIN" in refused.stdout
+
+
+@pytest.mark.parametrize("off_main", [False, True])
+def test_ci_real_git_supplies_main_to_a_shallow_detached_restricted_checkout(tmp_path: Path, off_main: bool) -> None:
+    import os
+    source = _fixture(tmp_path, "good-anchor-matches-its-commit", shallow=False)
+
+    def git(repo: Path, *args: str) -> str:
+        return subprocess.check_output(["git", "-C", str(repo), *args], text=True).strip()
+
+    git(source, "checkout", "-qb", "pr")
+    (source / "pr-only").write_text("pull request commit\n")
+    if off_main:
+        # This real PR commit has matching anchor bytes but is not in main.
+        _commit(source)
+        side = git(source, "rev-parse", "HEAD")
+        _mutate(source, lambda spec: spec["anchors"][0].update(
+            sha=side, origin="controls/toy/anchors/first-commit-toy-gate.sh"))
+    _commit(source)
+    if off_main:
+        assert subprocess.run(["git", "-C", str(source), "merge-base", "--is-ancestor", side, "main"],
+                              capture_output=True, check=False).returncode == 1
+    git(source, "checkout", "-q", "main")
+    origin = tmp_path / "origin.git"
+    subprocess.run(["git", "clone", "-q", "--bare", str(source), str(origin)], check=True)
+    checkout = tmp_path / "checkout"
+    subprocess.run(["git", "clone", "-q", "--depth", "1", "--single-branch", "--branch", "pr",
+                    f"file://{origin}", str(checkout)], check=True)
+    git(checkout, "checkout", "-q", "--detach")
+    assert git(checkout, "rev-parse", "--is-shallow-repository") == "true"
+    assert git(checkout, "config", "--get", "remote.origin.fetch") == "+refs/heads/pr:refs/remotes/origin/pr"
+    assert subprocess.run(["git", "-C", str(checkout), "show-ref", "--verify", "--quiet",
+                           "refs/remotes/origin/main"], check=False).returncode == 1
+    assert harness(checkout, "--strict", "--verify-provenance").returncode == 1
+    (checkout / ".ci-bin").mkdir()
+    script, _command = _ci_step_script()
+    env = os.environ.copy()
+    env["CI_PIPELINE_EVENT"] = "pull_request"
+    done = subprocess.run(["sh", "-c", script], cwd=checkout, env=env,
+                          capture_output=True, text=True, timeout=60, check=False)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert git(checkout, "rev-parse", "--is-shallow-repository") == "false"
+    assert git(checkout, "rev-parse", "origin/main") == git(source, "rev-parse", "main")
+    assert git(checkout, "config", "--get", "remote.origin.fetch") == "+refs/heads/pr:refs/remotes/origin/pr"
+    flag = (checkout / ".ci-bin/provenance-flag").read_text()
+    assert flag == "--verify-provenance"
+    checked = harness(checkout, "--strict", flag)
+    assert counts(checked.stdout) == (1, 0), checked.stdout
+    if off_main:
+        assert checked.returncode == 1 and "PROVENANCE:OFF_MAIN" in checked.stdout
+    else:
+        assert checked.returncode == 0 and "on_main=1 off_main=0 unknown=0" in checked.stdout

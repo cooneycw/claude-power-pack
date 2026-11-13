@@ -21,8 +21,10 @@ The changed output's readers are strict `make negative-controls`, PR CI's
 negative-controls step, unit tests that parse the provenance/count protocol,
 and operators reading stdout. The tests feed the real emitted protocol to its
 assertions; the registered control runs the real checker. CI tests execute the
-actual extracted shell block using owned git/sleep stubs, then exercise the
-checker against the off-main case. They do not run a live Woodpecker pipeline.
+actual extracted shell block using owned git/sleep stubs for retry failures.
+Real Git integration also runs that block over a local bare origin with a
+shallow detached checkout and PR-only fetch refspec, then checks both retained
+and side-only historical records using the actual emitted flag. They do not run a live Woodpecker pipeline.
 Kyle's default caller omits provenance verification; the frozen baseline pins
 that call's stdout/exit compatibility. Skillc has no registered controls and is
 outside the changed historical population.
@@ -54,14 +56,21 @@ Only synthetic fixture commit IDs are normalized. Committed cases cover
 | Harness | Claude/Codex installs do not change this repository-local Python checker. No command or generated skill changes. |
 | Driver | Driver independent; both invoke the same strict checker. No live delegated workflow claim. |
 | Coordination | Kyle does not participate in the checker or its Git probes; CI runs without Kyle. |
-| CI provider | Will test actual Woodpecker PR/push shell block with owned git/sleep stubs; live pipeline untested before PR. No GitHub Actions wiring changed. |
+| CI provider | Will test actual Woodpecker PR/push shell block with local real Git and owned git/sleep failure stubs; live pipeline untested before PR. No GitHub Actions wiring changed. |
 | Project state | Will test historical, constructed/no historical, missing main, absent object and non-main remote default. No controls keeps the previous protocol. |
 
 | Reader | Output fed to reader | Evidence |
 | --- | --- | --- |
 | make negative-controls / make verify | Strict checker exit and provenance | Registered known-bad/known-good cases run the real checker; full gate requires a slot. |
-| Woodpecker PR step | Flag file, strict checker exit | Actual extracted shell block emits flag; test passes that emitted value to the real off-main control runner. Git network operations use owned stubs. |
+| Woodpecker PR step | Flag file, strict checker exit | Actual extracted shell block fetches local bare origin from a shallow detached PR-only checkout; real checker consumes emitted flag. Retained record passes, off-main fails. Retry failures use owned stubs. |
 | Woodpecker push step | Empty flag file and stdout | Actual block tested: no fetch and explicit no-verification diagnostic. |
 | Unit-test protocol parsers | Real provenance/count lines | Tests assert full stdout without the flag against frozen original bytes, and parse real retention/byte counts with the flag. |
 | Operator | Ref/reason and summary | Real cases assert OFF_MAIN versus UNCOMPARED, named ref and remedy; neither is summarized as clean. |
 | Kyle no-flag caller | Previous stdout/exit protocol | Three full-output compatibility cases; no live Kyle caller executed. |
+
+
+Independent first-pass review (`gpt-6-astra`, diff-only, network proxy unverified,
+repository-local credentials absent) identified missing real-Git fetch coverage.
+Accepted: the local-origin integration adds both retained and off-main cases.
+Both fail with the original CI block lacking the explicit main fetch, and pass
+with the new block. No live network or cloud service is involved.
