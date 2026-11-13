@@ -216,7 +216,9 @@ def run(case_dir, source, provided_bin=None):
         if case["mode"] == "announced":
             result = subprocess.run(["bash", str(gate), "--no-such-flag"], cwd=owned, env=env,
                                     capture_output=True, text=True, timeout=10)
-            if result.returncode != 2 or result.stderr.splitlines()[-1:] != ["FLOW_FINISH_GATE_EXIT=2"]:
+            markers = [line for line in result.stderr.splitlines() if line.startswith("FLOW_FINISH_GATE_EXIT=")]
+            if (result.returncode != 2 or markers != ["FLOW_FINISH_GATE_EXIT=2"]
+                    or result.stderr.splitlines()[-1:] != ["FLOW_FINISH_GATE_EXIT=2"]):
                 raise HarnessError("announced owner exit changed")
             print(PREFIX + "owner-only")
             return 0

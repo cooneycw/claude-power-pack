@@ -27,6 +27,14 @@ def _shell_env():
     return {k: os.environ[k] for k in ("PATH", "HOME") if k in os.environ}
 
 
+def _control_module():
+    control = ROOT / "controls/flow-finish-gate-owner"
+    spec = importlib.util.spec_from_file_location("owner_control", control / "run-case.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 @requires_bash
 @pytest.mark.parametrize("status_file", [False, True])
 def test_forked_trap_cannot_emit_write_status_or_remove_owner_files(tmp_path, status_file):
@@ -94,9 +102,7 @@ def test_denied_ptrace_is_explicitly_unavailable_never_success(monkeypatch, caps
         pytest.skip("BASHPID unavailable: ownership guard intentionally unarmed")
     assert capability.returncode == 0
     control = ROOT / "controls/flow-finish-gate-owner"
-    spec = importlib.util.spec_from_file_location("owner_control", control / "run-case.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module = _control_module()
 
     class DeniedPtrace:
         restype = None
@@ -115,3 +121,15 @@ def test_denied_ptrace_is_explicitly_unavailable_never_success(monkeypatch, caps
     result = module.main([str(control / "cases/bad-fork-sigterm"), str(GATE)])
     assert result == 3
     assert capsys.readouterr().out == "FLOW_FINISH_GATE_OWNER_CONTROL: unavailable - ptrace unavailable (EPERM)\n"
+
+
+@requires_bash
+def test_announced_control_rejects_duplicate_owner_markers(monkeypatch, capsys):
+    module = _control_module()
+    duplicate = subprocess.CompletedProcess([], 2, "", "FLOW_FINISH_GATE_EXIT=2\n" * 2)
+    assert duplicate.stderr.splitlines() == ["FLOW_FINISH_GATE_EXIT=2"] * 2
+    monkeypatch.setattr(module.subprocess, "run", lambda *args, **kwargs: duplicate)
+    control = ROOT / "controls/flow-finish-gate-owner"
+    result = module.main([str(control / "cases/good-owner-usage"), str(GATE)])
+    assert result == 2
+    assert "harness-error - announced owner exit changed" in capsys.readouterr().out
