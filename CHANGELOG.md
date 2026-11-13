@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- The bootstrap shell wrapper loads CPP's checker from an external working
+  directory (#1803). It still uses ambient `python3` and checks its own CPP
+  checkout's bootstrap configuration.
+
 - Generated main-app CI enrolment proves the pinned CPP revision belongs to a
   complete official main snapshot before checkout or execution (#1754).
   Fetchable unmerged code can no longer report a false green; missing or
