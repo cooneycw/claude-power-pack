@@ -2,6 +2,73 @@
 
 Per-script history, indexed from [the scripts inventory](../scripts.md).
 
+## Re-registration work moves (#1762)
+
+Owner ruling, 2026-11-13, verbatim: "1762 yes yes yes". A re-brief keeps an
+omitted issue or repo. Explicit empty values clear them; cwd and branch still
+rewrite. `--force` concerns ownership only. A work-reset refusal uses the
+existing `refused` verdict and exit 1, leaves the registry byte-identical, and
+names the missing consent. Usage 2 and I/O 3 remain unchanged. The decision
+uses the entry snapshotted under the same lock as the write.
+
+Each identity dimension has seven states. This table applies independently to
+issue and repo; "named" means the supplied value after normal repo resolution.
+
+| Stored | Supplied | Effective | Move contribution |
+|---|---|---|---|
+| absent | omitted | absent | no |
+| absent | named | named | yes |
+| present | omitted | stored | no |
+| present | same | stored | no |
+| present | different | supplied | yes |
+| absent | explicit empty | absent | no |
+| present | explicit empty | absent | yes |
+
+Either dimension moving makes the combined identity move: 33 of the 49 pairs
+move, 16 keep identity. The following four outcomes apply to every pair. Here
+"supplied" includes empty `--files`; an observation is complete only with all
+three `--pr`, `--base`, `--diff` flags. Partial observations remain usage errors.
+The table assumes the role holds both an active lane and an observation.
+
+| Identity | Files | Observation | Outcome without reset consent |
+|---|---|---|---|
+| kept | omitted | omitted | keep both and their overtake count |
+| kept | supplied | omitted | replace lane; keep observation/count |
+| kept | omitted | complete | keep lane; replace observation using existing count rules |
+| kept | supplied | complete | replace both using existing count rules |
+| moved | omitted | omitted | refuse, unchanged |
+| moved | supplied | omitted | refuse, unchanged |
+| moved | omitted | complete | refuse, unchanged |
+| moved | supplied | complete | replace both, count zero |
+
+These are all 196 combinations; the 99 refusals are the 33 moves times three
+incomplete restatements. Their exact inputs and chosen outcomes are committed
+in `tests/fixtures/flow-wave-reregister-cross-product/cases.json`. The older
+matrix repeats selected cases in a checkout, linked worktree and plain cwd.
+
+Consent is per component: empty `--files` clears the lane; `--clear-pr` clears
+the whole observation; neither authorizes losing the other. `--allow-work-reset`
+authorizes resetting omitted components on a move, while supplied components
+still win. With no active component there is nothing to protect. Released
+legacy rows are history, not active claims. Same PR/new base/same diff still
+increments the overtake count; a changed diff preserves it, and a changed PR
+or observation repo resets it. A new work identity always starts at zero.
+
+Every successful re-registration changing a lane or observation prints a plain
+line naming the change. The role stores one plain `work_note`, also shown in
+human `list` and nested inside that role in `list --json`. It is the most recent
+work change, retained across unchanged re-briefs and cleared on role reuse;
+there is no structured event line or change-history object. Withdrawals say
+"merge observation withdrawn". Existing file-delta lines remain. Consumers of
+exit 1 must read the diagnostic and must not automatically retry with `--force`.
+The output lexicon and existing verdict values are unchanged.
+
+The committed `controls/flow-wave-reregister-work` has independent missing-lane
+and missing-observation witnesses. The old helper accepts both. Mutation tests
+remove only each witness's guard: its case becomes accepted while the other
+still refuses. No test or control reads a live wave registry.
+
+
 ## `flow-wave-registry`
 
 - flow-wave-registry - role -> address registry for multi-session flow waves (#638, companion to the #637 wave loop): `register`/`list`/`get`/`verify`/`release`/`close`/`self-address` verbs over a flock-atomic, wave-namespaced JSON roster at `$XDG_RUNTIME_DIR/cc-flow-wave/registry.json` - OUTSIDE any repo (never shared mutable repo state, the #635 hazard class) and outside transcripts (survives a worker `/clear`; the runtime dir dies at reboot, exactly when every session socket dies too). Self-derived sockets (ancestor-pid walk) are bootstrap only: `verify --from` reconciles against the transport-observed `from=`, and the OBSERVED address replaces the self-derived one as canonical - never the reverse. The non-matching outcomes are SPLIT (#674): a recorded `unknown` filled in by observation is the documented fallback succeeding and reports `address_filled` unflagged (`list` renders `filled`, a fully verified state and not a lesser grade than `verified`), while only a recorded REAL address contradicted by the observed one is flagged `mismatch-corrected`; both exit 0. Role conflicts against a LIVE session refuse (exit 1) without `--force`; dead owners read stale and are taken over, mirroring #597 claim semantics. `list` warns on lane overlap only for the useful signal (same repo + same issue, same branch, same/nested worktrees among LIVE entries) - same repo alone is the normal wave shape and stays info-level, and roles that DECLARED NO LANE are exempt from the pairwise checks entirely (#683: the `orchestrator`, plus any live role with no issue, no branch and a shared-parent cwd; announced in the roster, never silent, and lapsing the moment a lane is declared). `list` also reconciles `flow-claim` worktree locks (#687), since registration is opt-in and orthogonal to `/flow:auto`: a LIVE lock no live registry entry accounts for renders as a claim-derived row and PARTICIPATES in overlap detection (contactable but never a role - separate `unregistered_claims` key in `--json`, never a `verify`/`release` target), its address OBSERVED rather than derived from the pid, and coverage bounded to repos the wave already knows about plus an explicit `--repo` - a host with nothing registered has nothing to scan

@@ -2,7 +2,10 @@
 
 These 196 rows characterize current `flow-wave-registry.sh register`, measured
 on main `b2da2133e3958caede2a94c942e4b4c6459ab838` and rerun after merging
-`57de62ae`. No proposed-outcome column is committed: the owner has not ruled.
+`57de62ae`. The measured fields remain as the pre-fix baseline. `chosen` records the
+owner ruling of 2026-11-13, "1762 yes yes yes". On that baseline the chosen
+196 rows plus completeness yield 133 failures / 64 passes; the plain
+withdrawal-note check separately fails.
 
 Each identity has seven states: absent/omitted, absent/present,
 present/omitted, present/same, present/different, absent/explicit-empty and

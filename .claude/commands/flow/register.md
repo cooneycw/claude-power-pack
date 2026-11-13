@@ -411,22 +411,18 @@ and is wiped by the OS at reboot - exactly when every session's address dies too
    ~/.claude/scripts/flow-wave-registry.sh register 1 --wave cpp --cwd /path/to/worktree --repo /path/to/repo --issue 42 --branch issue-42-slug --model opus --permission-mode bypassPermissions --driver flow:auto --files scripts/flow-wave-registry.sh,tests/test_flow_wave_registry.py
    ```
 
-   The role-level facts are optional and each answers a routing question the
-   orchestrator otherwise had to ask (#699). They are PRESERVED across a
-   re-register that omits them - unlike cwd/**repo**/issue/branch, which a
-   re-register REWRITES because they describe a lane that goes stale.
-   Pass an empty value (`--files ""`) to clear one deliberately. EXCEPTION
-   (#1222): changing `--issue` or `--repo` between two non-empty values is a
-   move to other work. Unless that call supplies them, the file lane (reported:
-   `FLOW_WAVE_FILES_DROPPED`, stderr) and the `--pr`/`--base`/`--diff`
-   observation (not reported) reset. Omitting or first adding either is no move.
-
-   **`--repo` must be passed on EVERY re-register (#800).** It is in the
-   rewritten group while `--files` is in the preserved one, and file-lane and
-   same-issue overlap detection is scoped to same-repo pairs - so a re-register
-   that omits `--repo` keeps the lane and drops the key making it
-   comparable. The registry says so at registration and reports the role as
-   UNKNOWN, not clean, in `list` (below); the fix is one flag.
+   Omitted role facts, including `--issue` and `--repo`, keep their stored
+   values. Explicit empty values clear them; cwd and branch are still rewritten.
+   Changing a supplied issue or repo is a work move, including empty-to-named
+   and named-to-empty. An active file lane or merge observation must be restated
+   (`--files` and complete `--pr/--base/--diff`) or explicitly reset: empty
+   `--files` clears the lane, `--clear-pr` withdraws the observation, and
+   `--allow-work-reset` consents to resetting omitted components on a move.
+   Otherwise registration refuses with exit 1 and leaves the registry unchanged.
+   `--force` overrides ownership only. Successful work changes print one plain
+   line and retain a `work_note` under the role, shown by `list` and `list --json`.
+   `--files` replaces the complete lane. An unscoped lane still reads UNKNOWN;
+   supply `--repo <path>` when first declaring it.
 
    The helper self-derives this session's address by walking ancestor pids
    against the socket dir. **This step is genuinely uds-specific** and is the
@@ -458,11 +454,12 @@ and is wiped by the OS at reboot - exactly when every session's address dies too
      the failure the field exists to remove.
    Then the address verdicts:
    - `FLOW_WAVE: registered` / `updated` - proceed.
-   - `FLOW_WAVE: refused` (exit 1) - the role is held by a LIVE session. Two
-     sessions both believing they are "worker 1" is the failure this command
-     exists to prevent. **STOP** and report; only re-run with `--force` when
-     the user confirms the other session is genuinely gone. A dead owner's
-     entry is stale and taken over automatically - no `--force` needed.
+   - `FLOW_WAVE: refused` (exit 1) - read the diagnostic: ownership is held
+     or a work move lacks reset consent. **STOP** and report. `--force` applies
+     only to an ownership conflict after the user confirms takeover; for work
+     refusal, restate the protected facts or give explicit reset consent.
+     A proven-dead owner's entry is taken over automatically.
+
 
 3. For native Codex, use the bounded native handoff above for the hello and its
    matching acknowledgement. The following hello branches describe Claude messaging.

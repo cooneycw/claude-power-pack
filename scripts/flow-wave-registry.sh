@@ -69,7 +69,7 @@
 # that is a caller bug, not a wave state.
 #
 # Usage:
-#   flow-wave-registry.sh register <role> [--wave W] [--force] [--cwd P]
+#   flow-wave-registry.sh register <role> [--wave W] [--force] [--allow-work-reset] [--cwd P]
 #                         [--repo P] [--issue N] [--branch B] [--socket S]
 #                         [--model M] [--permission-mode P] [--files A,B]
 #                         [--capacity C] [--driver D]
@@ -151,22 +151,15 @@
 #             UNCHANGED diff adds one to the role's `overtaken` count, which
 #             `list` reports as STARVATION. --clear-pr (#1266) withdraws the
 #             whole observation and cannot be combined with the other three.
-#             WHAT A RE-REGISTER KEEPS. --model, --permission-mode, --files,
-#             --capacity, --driver and the merge observation are PRESERVED when
-#             their flag is omitted (an explicit empty value clears one of the
-#             five flags; --clear-pr withdraws the observation); --cwd, --repo,
-#             --issue and --branch are REWRITTEN every time, to empty when
-#             omitted. ONE EXCEPTION (#1222, #1266): a re-register whose
-#             --issue differs from the recorded one, or whose --repo does, is
-#             a move to other work - but only between TWO NON-EMPTY values.
-#             Then the file lane and the merge observation (PR, base, diff and
-#             the overtake count) reset unless that same call supplies them.
-#             The dropped lane is reported as FLOW_WAVE_FILES_DROPPED and on
-#             stderr; the withdrawn observation is not reported. Omitting
-#             --issue is not a move, and neither is naming one where none is
-#             recorded: a role registered or re-briefed without --issue and
-#             then given an issue KEEPS its lane, its PR and its overtake
-#             count. The same holds for --repo.
+#             Omitted issue/repo values and role facts are kept (#1762); only
+#             cwd/branch still rewrite to empty when omitted. Explicit empty
+#             identity values clear them. A changed supplied identity is a move,
+#             including empty-to-named. Active files/observations must be
+#             restated or explicitly reset, else refused/exit 1 with no write.
+#             Empty --files clears a lane, --clear-pr withdraws an observation,
+#             and --allow-work-reset consents to omitted resets on a move.
+#             --force remains ownership-only. A plain caller line and nested
+#             roster work_note name successful lane/observation changes.
 #   list      Show the roster: role, address, issue, liveness, verification.
 #             Marks dead entries stale rather than deleting them - a dead
 #             worker mid-issue is information. Warns on lane overlaps between
@@ -185,17 +178,14 @@
 #             clean (#800). The same-issue and FILE-LANE arms are scoped to
 #             same-repo pairs, so a live role holding a declared lane with an
 #             EMPTY repo matches nothing and falls out of the report in silence -
-#             a re-register that omits --repo CLEARS it while --files is
+#             before #1762 an omitted --repo was cleared while --files was
 #             preserved, so extending a lane was the act that stopped it being
 #             checked. Such roles are NAMED, counted in
 #             FLOW_WAVE_OVERLAP_UNSCOPED, and said aloud on stderr; `register`
 #             and `get` answer the same question per role as
-#             FLOW_WAVE_LANE_SCOPED=yes|no|-. NOT fixed by preserving `repo`
-#             across a re-register: `repo` is a LANE fact and lane facts go
-#             stale (the #683 trap), so preserving it would make a worker that
-#             moved repos cry wolf, and would still leave a never-declared repo
-#             silent. Fail loud, so an unscoped role is visible rather than
-#             invisible.
+#             FLOW_WAVE_LANE_SCOPED=yes|no|-. Since #1762 omitted repo is kept,
+#             but never-declared or explicitly cleared repos still need this
+#             UNKNOWN surface; preserving omission alone cannot scope them.
 #             ALSO reconciles `flow-claim` worktree locks (#687): a session that
 #             went straight to /flow:auto never registered, so its issue, branch
 #             and worktree were invisible to the roster while it held a real
@@ -539,6 +529,7 @@ SELF_SESSION="${CLAUDE_CODE_SESSION_ID:--}"
 SELF_HOST="${FLOW_WAVE_HOST:-${HOSTNAME:-$(hostname 2>/dev/null || echo unknown)}}"
 NOW="${FLOW_WAVE_NOW:-$(date +%s)}"
 
+#: NEGATIVE-CONTROL: controls/flow-wave-reregister-work
 #: NEGATIVE-CONTROL: controls/flow-wave-registry
 #: NEGATIVE-CONTROL: controls/flow-wave-registry-takeover
 usage_fail() { echo "flow-wave-registry: $1" >&2; emit error; exit 2; }
@@ -966,6 +957,36 @@ bootstrap_escapes() {
 }
 
 # All mutations run under flock, read-modify-write with an atomic rename.
+# A work move must not silently discard an active claim (#1762). Called only
+# after the old entry was snapshotted UNDER the write lock. --force concerns
+# role ownership and never consents to a work reset.
+work_reset_guard() {
+  local needs
+  needs="$(jq -r --arg issue "$A_ISSUE" --arg repo "$A_REPO" \
+    --arg iset "$A_ISSUE_SET" --arg rset "$A_REPO_SET" '
+      (.) as $old |
+      (if $iset == "1" then $issue else ($old.issue // "") end) as $next_issue |
+      (if $rset == "1" then $repo else ($old.repo // "") end) as $next_repo |
+      if . == null or (.released // false)
+         or (($old.issue // "") == $next_issue and ($old.repo // "") == $next_repo)
+      then ""
+      else [if ($old.files // "") != "" then "files" else empty end,
+            if any([.pr, .base, .diff, .obs_repo][]; . != null and . != "")
+               or (.overtaken // 0) != 0 then "observation" else empty end] | join(",")
+      end' "$LOCK_SNAP_PREV")" || return 3
+  if [ "$A_ALLOW_WORK_RESET" -eq 1 ]; then return 0; fi
+  # WORK_RESET_FILES_GUARD: independently controlled with the observation restated.
+  if [[ ",$needs," == *,files,* ]] && [ "$A_FILES_SET" -eq 0 ]; then
+    echo "flow-wave-registry: refused work move for role '$ROLE': restate --files (empty clears it), or consent with --allow-work-reset; --force does not reset work." >&2
+    return 1
+  fi
+  # WORK_RESET_OBSERVATION_GUARD: independently controlled with the lane restated.
+  if [[ ",$needs," == *,observation,* ]] && [ "$A_OBS" -ne 1 ] && [ "$A_CLEAR_PR" -ne 1 ]; then
+    echo "flow-wave-registry: refused work move for role '$ROLE': restate --pr/--base/--diff, use --clear-pr, or consent with --allow-work-reset; --force does not reset work." >&2
+    return 1
+  fi
+}
+
 # with_lock JQ_PROGRAM [jq args...] - applies the program to the registry.
 with_lock() {
   local prog="$1"; shift
@@ -985,6 +1006,11 @@ with_lock() {
     if [ -n "${LOCK_SNAP_PREV:-}" ]; then
       jq -c --arg w "$LOCK_SNAP_W" --arg r "$LOCK_SNAP_R" '.[$w].roles[$r] // null' "$REG_FILE" > "$LOCK_SNAP_PREV" 2>/dev/null \
         || { rm -f "$tmp"; echo "flow-wave-registry: registry snapshot failed (corrupt JSON?)" >&2; exit 3; }
+    fi
+    if [ -n "${LOCK_SNAP_PREV:-}" ]; then
+      work_reset_guard
+      local work_status=$?
+      if [ "$work_status" -ne 0 ]; then rm -f "$tmp"; exit "$work_status"; fi
     fi
     if jq "$@" "$prog" "$REG_FILE" > "$tmp" 2>/dev/null; then
       # The after-snapshot is taken from the CANDIDATE, before it replaces the
@@ -1017,6 +1043,10 @@ with_lock() {
   lock_status=$?
   if [ "$lock_status" -ne 0 ]; then
     rm -f "${LOCK_SNAP_PREV:-}" "${LOCK_SNAP_NEW:-}" 2>/dev/null
+    if [ "$lock_status" -eq 1 ]; then
+      emit refused
+      exit 1
+    fi
     echo "flow-wave-registry: the registry was NOT updated - nothing was recorded." >&2
     echo "  Treat this as a refusal, not a slow write: re-run once the cause is fixed." >&2
     emit error
@@ -2579,7 +2609,7 @@ A_MODEL=""; A_PERMMODE=""; A_FILES=""; A_CAPACITY=""
 A_MODEL_SET=0; A_PERMMODE_SET=0; A_FILES_SET=0; A_CAPACITY_SET=0
 A_PR=""; A_BASE=""; A_DIFF=""
 A_PR_SET=0; A_BASE_SET=0; A_DIFF_SET=0
-A_CLEAR_PR=0
+A_CLEAR_PR=0; A_ALLOW_WORK_RESET=0; A_ISSUE_SET=0; A_REPO_SET=0
 # `lane-check --granted` (#1026): the grant that AUTHORISED the lane, so the
 # declaration can be compared against it and not only against other lanes.
 A_GRANTED=""; A_GRANTED_SET=0
@@ -2603,10 +2633,10 @@ while [ "$#" -gt 0 ]; do
     --any-live) ANY_LIVE_ONLY=1 ;;
     --cwd) [ "$#" -ge 2 ] || usage_fail "--cwd requires a path"; A_CWD="$2"; shift ;;
     --cwd=*) A_CWD="${1#--cwd=}" ;;
-    --repo) [ "$#" -ge 2 ] || usage_fail "--repo requires a path"; A_REPO="$2"; shift ;;
-    --repo=*) A_REPO="${1#--repo=}" ;;
-    --issue) [ "$#" -ge 2 ] || usage_fail "--issue requires a number"; A_ISSUE="$2"; shift ;;
-    --issue=*) A_ISSUE="${1#--issue=}" ;;
+    --repo) [ "$#" -ge 2 ] || usage_fail "--repo requires a path"; A_REPO="$2"; A_REPO_SET=1; shift ;;
+    --repo=*) A_REPO="${1#--repo=}"; A_REPO_SET=1 ;;
+    --issue) [ "$#" -ge 2 ] || usage_fail "--issue requires a number"; A_ISSUE="$2"; A_ISSUE_SET=1; shift ;;
+    --issue=*) A_ISSUE="${1#--issue=}"; A_ISSUE_SET=1 ;;
     --branch) [ "$#" -ge 2 ] || usage_fail "--branch requires a name"; A_BRANCH="$2"; shift ;;
     --branch=*) A_BRANCH="${1#--branch=}" ;;
     --socket) [ "$#" -ge 2 ] || usage_fail "--socket requires an address"; A_SOCKET="$2"; shift ;;
@@ -2624,6 +2654,7 @@ while [ "$#" -gt 0 ]; do
     --pr) [ "$#" -ge 2 ] || usage_fail "--pr requires a value"; A_PR="$2"; A_PR_SET=1; shift ;;
     --pr=*) A_PR="${1#--pr=}"; A_PR_SET=1 ;;
     --clear-pr) A_CLEAR_PR=1 ;;
+    --allow-work-reset) A_ALLOW_WORK_RESET=1 ;;
     --base) [ "$#" -ge 2 ] || usage_fail "--base requires a value"; A_BASE="$2"; A_BASE_SET=1; shift ;;
     --base=*) A_BASE="${1#--base=}"; A_BASE_SET=1 ;;
     --diff) [ "$#" -ge 2 ] || usage_fail "--diff requires a value"; A_DIFF="$2"; A_DIFF_SET=1; shift ;;
@@ -3014,13 +3045,9 @@ case "$VERB" in
     POL_REV="$(policy_rev_of "$POL")"
     # Role-level facts are PRESERVED when their flag is omitted, unlike
     # cwd/repo/issue/branch above, which a re-register rewrites. The difference is
-    # deliberate and worth stating: those describe a LANE, which genuinely goes
-    # stale (the #683 trap), while model / permission mode / capacity / file lane
-    # / driver describe the SESSION and its grant, and re-registering is the documented
-    # cheap re-brief (#670). Blanking a granted file lane because a compacted
-    # worker re-registered to re-read the protocol would delete the very thing
-    # overlap detection reads. Passing an empty value (`--files ""`) clears a
-    # field explicitly - the flag was given, so intent is unambiguous.
+    # deliberate: cwd/branch describe placement; issue/repo omission now keeps
+    # identity (#1762). Explicit work moves need consent before an active file
+    # lane or observation can be reset. The guard reads the locked snapshot.
     # The witness against pid recycling (#1094): THIS pid's own start time,
     # captured now while it is unambiguously the registering session's own
     # process, never re-derived later against whatever the kernel currently
@@ -3061,28 +3088,16 @@ case "$VERB" in
     with_lock '
       .[$w] //= {"roles": {}} |
       (.[$w].roles[$r] // {}) as $prev |
-      #: A ROW DESCRIBES ONE PIECE OF WORK (#1222). `issue` and `branch` are
-      #: rewritten on every register while the lane facts below are preserved,
-      #: so a role re-registering onto a NEW issue kept the previous issue
-      #: pr, base and files - a blend (issue 1189 beside PR 1214) that never
-      #: existed at any single moment. On an issue CHANGE the preserved facts
-      #: reset unless this call supplies them. Both sides must be non-empty:
-      #: a re-brief that omits --issue is not a move to other work, and
-      #: treating it as one would wipe the starvation baseline (#989).
-      #: ...and the SAME issue number in a DIFFERENT repo is different work too
-      #: (issue #1266): comparing the number alone kept the lane and PR of repo A on a
-      #: role now working #N in repo B. Both repos must be non-empty, for the
-      #: same reason as the issues - an omitted --repo is not a move. The repo is
-      #: the repository identity the overlap arms already compare (separate
-      #: worktrees of one repository share it), so this cannot fire on a worker
-      #: merely changing worktree.
-      ((($prev.issue // "") != "" and $issue != "" and ($prev.issue // "") != $issue)
-       or (($prev.repo // "") != "" and $repo != "" and ($prev.repo // "") != $repo)) as $moved |
+      # Omission preserves identity; explicit empty values clear it. A move
+      # includes empty-to-named and named-to-empty transitions (#1762).
+      (if $issue_set == "1" then $issue else ($prev.issue // "") end) as $effective_issue |
+      (if $repo_set == "1" then $repo else ($prev.repo // "") end) as $effective_repo |
+      (($prev.issue // "") != $effective_issue or ($prev.repo // "") != $effective_repo) as $moved |
       .[$w].roles[$r] = {
         socket: $sock, self_socket: $selfsock, pid: ($pid | tonumber? // $pid),
         pid_started: $pidstarted,
-        session: $session, host: $host, cwd: $cwd, repo: $repo,
-        issue: $issue, branch: $branch, registered_ts: ($now | tonumber),
+        session: $session, host: $host, cwd: $cwd, repo: $effective_repo,
+        issue: $effective_issue, branch: $branch, registered_ts: ($now | tonumber),
         verified: ($verified == "true"), address_mismatch: ($mismatch == "true"),
         address_filled: ($filled == "true"), released: false,
         model:           (if $model_set == "1" then $model else ($prev.model // "") end),
@@ -3105,7 +3120,7 @@ case "$VERB" in
         pr:       (if $obs == "1" then $pr   elif $moved or $clearpr == "1" then "" else ($prev.pr // "") end),
         base:     (if $obs == "1" then $base elif $moved or $clearpr == "1" then "" else ($prev.base // "") end),
         diff:     (if $obs == "1" then $diff elif $moved or $clearpr == "1" then "" else ($prev.diff // "") end),
-        obs_repo: (if $obs == "1" then $repo elif $moved or $clearpr == "1" then "" else ($prev.obs_repo // "") end),
+        obs_repo: (if $obs == "1" then $effective_repo elif $moved or $clearpr == "1" then "" else ($prev.obs_repo // "") end),
         #: MERGE STARVATION (#989). Increments ONLY when the same (repo, pr) is
         #: seen again with a CHANGED base and an UNCHANGED diff: the signature of
         #: losing a queue place without doing any work. A changed diff is a worker
@@ -3120,14 +3135,31 @@ case "$VERB" in
         overtaken: (
           if $obs != "1" then (if $moved or $clearpr == "1" then 0 else ($prev.overtaken // 0) end)
           elif $moved then 0
-          elif ($prev.pr // "") != $pr or ($prev.obs_repo // "") != $repo then 0
+          elif ($prev.pr // "") != $pr or ($prev.obs_repo // "") != $effective_repo then 0
           elif ($prev.base // "") == "" or ($prev.diff // "") == "" then 0
           elif ($prev.base // "") != $base and ($prev.diff // "") == $diff
           then (($prev.overtaken // 0) + 1)
           else ($prev.overtaken // 0) end
         ),
         policy_rev:      ($polrev | tonumber)
-      }' \
+      } |
+      .[$w].roles[$r] as $new |
+      # One plain roster note, not a change-event protocol or history object.
+      (if $prev == {} or ($prev.released // false) then [] else
+        [if ($prev.files // "") != $new.files then
+           "file lane " + (($prev.files // "") | tojson) + " -> " + ($new.files | tojson)
+         else empty end,
+         if ([$prev.pr, $prev.base, $prev.diff, $prev.obs_repo, ($prev.overtaken // 0)]
+             != [$new.pr, $new.base, $new.diff, $new.obs_repo, $new.overtaken]) then
+           if $new.pr == "" and $new.base == "" and $new.diff == "" then "merge observation withdrawn"
+           else "merge observation replaced: PR " + ($new.pr | tojson) + ", base " + ($new.base | tojson)
+                + ", diff " + ($new.diff | tojson) + ", overtaken " + ($new.overtaken | tostring)
+           end
+         else empty end] end) as $changes |
+      .[$w].roles[$r].work_note =
+        (if ($changes | length) > 0 then ($changes | join("; "))
+         elif ($prev.released // false) then "" else ($prev.work_note // "") end)' \
+      --arg issue_set "$A_ISSUE_SET" --arg repo_set "$A_REPO_SET" \
       --arg w "$WAVE" --arg r "$ROLE" --arg sock "$SOCK" --arg pid "$SELF_PID" \
       --arg pidstarted "$SELF_PID_STARTED" --arg clearpr "$A_CLEAR_PR" \
       --arg selfsock "$SELF_SOCK" --arg verified "$KEEP_VERIFIED" \
@@ -3187,6 +3219,14 @@ case "$VERB" in
     [ -n "$NEW_ENTRY" ] || NEW_ENTRY=null
     NEW_REPO="$(printf '%s' "$NEW_ENTRY" | jq -r '.repo // ""')"
     NEW_FILES="$(printf '%s' "$NEW_ENTRY" | jq -r '.files // ""')"
+    WORK_NOTE="$(printf '%s' "$NEW_ENTRY" | jq -r '.work_note // ""')"
+    WORK_CHANGED="$(jq -n --argjson old "$REPLACED_ENTRY" --argjson new "$NEW_ENTRY" '
+      ($old != null and ($old.released // false) != true) and
+      ([$old.files, $old.pr, $old.base, $old.diff, $old.obs_repo, $old.overtaken]
+       != [$new.files, $new.pr, $new.base, $new.diff, $new.obs_repo, $new.overtaken])')"
+    if [ -n "$WORK_NOTE" ] && [ "$WORK_CHANGED" = true ]; then
+      echo "flow-wave-registry: role '$ROLE' $WORK_NOTE" >&2
+    fi
     NEW_ISSUE="$(printf '%s' "$NEW_ENTRY" | jq -r '.issue // ""')"
     # THE LANE LAPSE (#1026). `--files` REPLACES wholesale, so a role that
     # re-registers for its next issue with a new list loses its claim on
@@ -3258,7 +3298,7 @@ case "$VERB" in
           echo "flow-wave-registry: role '$ROLE' declares a lane (${DECLARED# }) but repo '$NEW_REPO' does not resolve to a directory - overlap detection is UNSCOPED for it (#891)." >&2
         fi
         echo "  The same-issue and FILE-LANE arms compare same-repo pairs only, so an empty or non-resolving repo matches nothing and 'list' reads CLEAN while this lane goes unchecked." >&2
-        echo "  Re-register with --repo <path>. --repo is REWRITTEN by every re-register, so it must be passed EVERY time; --files is kept when omitted, except that a change of --issue or --repo between two non-empty values resets the file lane unless the same call names it." >&2
+        echo "  Re-register with --repo <path>. omitted --issue and --repo are kept; moving work refuses unconsented lane or observation loss. --files replaces the complete lane." >&2
       fi
     fi
     # Loud default (#671) - independent of addressing: a silently-defaulted
@@ -4386,6 +4426,8 @@ EOF
       lvs="$lv"
       [ "$lv" = "unknown" ] && lvs="$lv:$lb"
       echo "  $r -> $sock [$lvs, $ver] issue=$iss$extra"
+      work_note="$(printf '%s' "$e" | jq -r '.work_note // ""')"
+      [ -z "$work_note" ] || printf '    work: %s\n' "$work_note"
     done
     # Claim-derived rows (#687), rendered AFTER the roles and visibly not roles.
     # An orchestrator scanning the issue column now sees a lane held by a
@@ -4606,7 +4648,7 @@ EOF
     if [ -n "$UNSCOPED_ROLES" ]; then
       echo "  UNKNOWN: overlap NOT computed for live role(s) with a declared lane and NO repo:${UNSCOPED_ROLES}"
       echo "  The same-issue and FILE-LANE arms compare same-repo pairs, so an empty repo matches nothing - these roles are UNCHECKED, not clean."
-      echo "  Each fixes it by re-registering with --repo <path>; --repo is rewritten by every re-register, so it must be passed every time (--files is kept when omitted, except that a change of --issue or --repo between two non-empty values resets the file lane unless the same call names it)."
+      echo "  Each fixes it by re-registering with --repo <path>; omitted --issue and --repo are kept; moving work refuses unconsented lane or observation loss. --files replaces the complete lane."
     fi
     [ "$UNSCOPED" -gt 0 ] && echo "flow-wave-registry: overlap detection is UNSCOPED for $UNSCOPED live role(s) - this roster CANNOT be read as clean (#800)." >&2
     # Issue #1403's advisory tail: a live role's OWN diff touched something

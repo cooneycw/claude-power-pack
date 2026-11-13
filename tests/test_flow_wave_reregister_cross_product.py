@@ -88,6 +88,9 @@ def test_chosen_reregister_cross_product(tmp_path, cross_places, seeds, case):
     after = json.loads(registry.read_text())[matrix.WAVE]["roles"][matrix.ROLE]
     expected = {key: matrix._fill(value, cross_places) for key, value in case["chosen"]["expected"].items()}
     assert {key: after[key] for key in FIELDS} == expected
+    if case["files"] or case["pr"]:
+        assert after.get("work_note"), "every successful work change needs a roster note"
+        assert after["work_note"] in result.stderr
     assert _detail(result, "FLOW_WAVE_FILES") == (expected["files"] or "-")
     dropped = "a.py,b.py" if case["files"] else "-"
     assert _detail(result, "FLOW_WAVE_FILES_DROPPED") == dropped
@@ -126,3 +129,102 @@ def test_withdrawal_has_plain_caller_line_and_nested_roster_note(tmp_path, cross
     assert "merge observation withdrawn" in data[matrix.ROLE]["work_note"]
     human = _run(tmp_path, "list", "--wave", matrix.WAVE)
     assert "merge observation withdrawn" in human.stdout
+
+
+@matrix.requires_tools
+@pytest.mark.parametrize("lane_before", [False, True])
+def test_move_refusal_uses_the_entry_under_the_write_lock(tmp_path, cross_places, seeds, lane_before):
+    import concurrent.futures
+    import time
+
+    registry = tmp_path / "reg/registry.json"
+    registry.parent.mkdir()
+    data = json.loads(json.dumps(seeds[(True, True)]))
+    data[matrix.WAVE]["roles"][matrix.ROLE]["files"] = "a.py,b.py" if lane_before else ""
+    registry.write_text(json.dumps(data))
+    pause = tmp_path / "pause"
+    pause.mkdir()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        pending = pool.submit(
+            _run, tmp_path, "register", matrix.ROLE, "--wave", matrix.WAVE,
+            "--issue", "1711", "--pr", "77", "--base", "b3", "--diff", "d3",
+            cwd=cross_places["plain"], extra_env={"FLOW_WAVE_REGISTRY_TEST_PAUSE_REGISTER": str(pause)},
+        )
+        try:
+            deadline = time.monotonic() + 10
+            while not (pause / "paused").exists() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            assert (pause / "paused").exists(), "writer must pause before taking the lock"
+            replacement = "" if lane_before else "c.py"
+            updated = _run(tmp_path, "register", matrix.ROLE, "--wave", matrix.WAVE,
+                           "--files", replacement, cwd=cross_places["plain"])
+            assert updated.returncode == 0
+            before_move = registry.read_bytes()
+            assert json.loads(before_move)[matrix.WAVE]["roles"][matrix.ROLE]["files"] == replacement
+        finally:
+            (pause / "release").touch()
+        moved = pending.result(timeout=20)
+    assert moved.returncode == (0 if lane_before else 1), moved.stdout + moved.stderr
+    if not lane_before:
+        assert registry.read_bytes() == before_move
+
+
+@matrix.requires_tools
+def test_released_legacy_lane_is_history_not_an_active_claim(tmp_path, cross_places, seeds):
+    registry = tmp_path / "reg/registry.json"
+    registry.parent.mkdir()
+    data = json.loads(json.dumps(seeds[(True, True)]))
+    data[matrix.WAVE]["roles"][matrix.ROLE]["released"] = True
+    registry.write_text(json.dumps(data))
+    assert data[matrix.WAVE]["roles"][matrix.ROLE]["files"] == "a.py,b.py"
+    done = _run(tmp_path, "register", matrix.ROLE, "--wave", matrix.WAVE,
+                "--issue", "1711", cwd=cross_places["plain"])
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "work move" not in done.stderr and "merge observation withdrawn" not in done.stderr
+
+
+@matrix.requires_tools
+@pytest.mark.parametrize("consent", [("--force",), ("--files", ""), ("--clear-pr",)])
+def test_force_or_consent_to_only_one_component_cannot_drop_the_other(
+    tmp_path, cross_places, seeds, monkeypatch, consent,
+):
+    from tests import test_flow_wave_registry as registry_module
+
+    registry = tmp_path / "reg/registry.json"
+    registry.parent.mkdir()
+    registry.write_text(json.dumps(seeds[(True, True)]))
+    before = registry.read_bytes()
+    current = registry_module.REGISTRY
+    old = current.parents[1] / "controls/flow-wave-reregister-work/anchors/pre-1762-flow-wave-registry.sh"
+    # Positive red control: the same existing flags are accepted by pre-fix code.
+    monkeypatch.setattr(registry_module, "REGISTRY", old)
+    old_answer = _run(tmp_path, "register", matrix.ROLE, "--wave", matrix.WAVE,
+                      "--issue", "1711", *consent, cwd=cross_places["plain"])
+    assert old_answer.returncode == 0, old_answer.stdout + old_answer.stderr
+    registry.write_bytes(before)
+    monkeypatch.setattr(registry_module, "REGISTRY", current)
+    done = _run(tmp_path, "register", matrix.ROLE, "--wave", matrix.WAVE,
+                "--issue", "1711", *consent, cwd=cross_places["plain"])
+    assert done.returncode == 1 and _verdict(done) == "refused", done.stdout + done.stderr
+    assert registry.read_bytes() == before
+
+
+@matrix.requires_tools
+@pytest.mark.parametrize("files,observation", [(False, False), (False, True), (True, False), (True, True)])
+def test_reset_consent_resets_only_omitted_components(tmp_path, cross_places, seeds, files, observation):
+    registry = tmp_path / "reg/registry.json"
+    registry.parent.mkdir()
+    registry.write_text(json.dumps(seeds[(True, True)]))
+    flags = ["--issue", "1711", "--allow-work-reset"]
+    if files:
+        flags += ["--files", "c.py"]
+    if observation:
+        flags += ["--pr", "77", "--base", "b3", "--diff", "d3"]
+    done = _run(tmp_path, "register", matrix.ROLE, "--wave", matrix.WAVE,
+                *flags, cwd=cross_places["plain"])
+    assert done.returncode == 0, done.stdout + done.stderr
+    after = json.loads(registry.read_text())[matrix.WAVE]["roles"][matrix.ROLE]
+    assert after["files"] == ("c.py" if files else "")
+    assert after["pr"] == ("77" if observation else "")
+    assert after["overtaken"] == 0
+    assert after["work_note"] and "role 'w1'" in done.stderr

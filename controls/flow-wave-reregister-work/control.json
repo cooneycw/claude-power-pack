@@ -1,0 +1,46 @@
+{
+  "gate": "scripts/flow-wave-registry.sh",
+  "invocation": [
+    "python3",
+    "controls/flow-wave-reregister-work/run-case.py",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^FLOW_WAVE_WORK_CONTROL: finding\\b",
+  "unavailable_signal": "^FLOW_WAVE_WORK_CONTROL: unavailable - ",
+  "limits": "The owned role has both an active lane and a nonzero merge observation. Each BAD case restates the other component, isolating one refusal guard. The detection requires exit 1/refused and byte-identical registry contents; crashes and changed-on-refusal files are unavailable. Historical anchor accepts both BAD inputs. Unit mutation tests additionally remove only the corresponding guard and require its own case to become accepted. Does not exercise live waves or authenticate caller intent.",
+  "cases": [
+    {
+      "name": "bad-missing-lane",
+      "input": "cases/bad-missing-lane",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-missing-observation",
+      "input": "cases/bad-missing-observation",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-both-restated",
+      "input": "cases/good-both-restated",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-rebrief",
+      "input": "cases/good-rebrief",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "35c51d81424999849f496f325a51ecc7b7ea9367",
+      "origin": "scripts/flow-wave-registry.sh",
+      "path": "anchors/pre-1762-flow-wave-registry.sh",
+      "sha256": "d61edefece072ebc52aaa12a873fdc087d638e01ba160407a779bc53a6fcd296",
+      "why": "Current main before #1762 accepts both incomplete moves, dropping the omitted active component. Existing flags only: detection cannot come from rejection of the new reset-consent option."
+    }
+  ],
+  "good_signal": "^FLOW_WAVE_WORK_CONTROL: clean - accepted"
+}
