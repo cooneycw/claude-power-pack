@@ -1,0 +1,15 @@
+{
+  "name": "bad-b-unknown-0",
+  "row": "b",
+  "kind": "BAD",
+  "expected": {
+    "exit": 2,
+    "STATUS": "unknown",
+    "PROVIDER": "none",
+    "SELECTION": "fallback",
+    "no_requests": true
+  },
+  "fallback": true,
+  "missing_tools": true,
+  "args": []
+}

@@ -1,4 +1,4 @@
-"""#1758 optional broader fallback exit policy; separable pending owner ruling."""
+"""#1758 owner-approved B1 fallback exit policy."""
 
 import pytest
 
@@ -35,3 +35,40 @@ def test_fallback_valid_ref_not_found_is_two(tmp_path, boundary_env, exit_code):
     result = _run(tmp_path, *args, env=env)
     assert _markers(result.stdout)["FLOW_CI_STATUS"] == ["not-found"]
     assert result.returncode == 2, result.stdout + result.stderr
+
+
+@requires_bash
+@pytest.mark.parametrize("exit_code", [False, True])
+def test_fallback_unknown_is_two_without_any_provider_request(tmp_path, boundary_env, exit_code):
+    env = {**boundary_env, "FLOW_CI_CURL": "/nonexistent/curl", "FLOW_CI_GH": "/nonexistent/gh",
+           "WOODPECKER_API_TOKEN": "", "WOODPECKER_SERVER": ""}
+    args = [SHA, "--path", str(tmp_path), "--repo", "o/r", "--event", "push"]
+    if exit_code:
+        args.append("--exit-code")
+    result = _run(tmp_path, *args, env=env)
+    marks = _markers(result.stdout)
+    assert marks["FLOW_CI_STATUS"] == ["unknown"]
+    assert marks["FLOW_CI_PROVIDER"] == ["none"]
+    assert result.returncode == 2, result.stdout + result.stderr
+
+
+@requires_bash
+@pytest.mark.parametrize("recorded", [False, True])
+@pytest.mark.parametrize("state", ["not-found", "unknown", "pending"])
+def test_valid_ref_wait_expiry_precedes_unknown_exit_policy(tmp_path, boundary_env, recorded, state):
+    from tests.test_flow_ci_boundary import record
+    from tests.test_flow_ci_status import _stall_routes
+
+    routes = (_stall_routes(state) if state != "not-found" else {
+        "/api/repos/lookup/": {"id": 1, "timeout": 60}, "pipelines?per_page": [],
+    })
+    env, _ = wp_env(tmp_path, boundary_env, routes=routes)
+    if recorded:
+        record(tmp_path, "woodpecker")
+    result = _run(tmp_path, SHA, "--path", str(tmp_path), "--repo", "o/r", "--event", "push",
+                  "--wait", "1", "--exit-code", recorded=recorded, env=env)
+    marks = _markers(result.stdout)
+    assert result.returncode == 5, result.stdout + result.stderr
+    assert marks["FLOW_CI_WAIT"][0].startswith("expired")
+    expected_state = "running" if recorded and state == "pending" else state
+    assert marks["FLOW_CI_STATUS"] == [expected_state]

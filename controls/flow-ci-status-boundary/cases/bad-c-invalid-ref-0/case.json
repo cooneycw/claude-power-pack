@@ -1,0 +1,16 @@
+{
+  "name": "bad-c-invalid-ref-0",
+  "row": "c",
+  "kind": "BAD",
+  "expected": {
+    "exit": 2,
+    "STATUS": "unknown",
+    "PROVIDER": "none",
+    "SELECTION": "fallback",
+    "no_requests": true
+  },
+  "fallback": true,
+  "wp": "not-found",
+  "ref": "fixture-ref-does-not-exist",
+  "args": []
+}

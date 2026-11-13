@@ -1,0 +1,106 @@
+{
+  "gate": "scripts/flow-ci-status.sh",
+  "invocation": [
+    "python3",
+    "controls/flow-ci-status-boundary/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "good_signal": "^FLOW_CI_BOUNDARY_CONTROL: (ready|missed boundary)$",
+  "detect_signal": "^FLOW_CI_BOUNDARY_CONTROL: refused unsafe proceed$",
+  "unavailable_signal": "^FLOW_CI_BOUNDARY_CONTROL: unavailable - ",
+  "limits": "Public/worker boundary cases execute the actual shell together with its dispatcher and canonical provider reader in an owned temporary package. Stubs return owned HTTP/GHA answers and log requests; Git ceiling prevents ancestor checkout leakage. BAD cases require exact codes/status/provider, exactly one selection, and no forbidden requests across approved rows a-e. Runtime unknown/2 is an unsafe-proceed refusal, not an unavailable control. GOOD success/recorded/advisory cases preserve intended behavior. The constructed bundle freezes the pre-change shell, flow module and provider reader together, with per-member hashes, so it cannot import a fixed current dispatcher and hide an old ref/mode defect. No live CI/network or independent provider identity authentication is claimed; existing provider-marker equality is preserved separately by tests.",
+  "cases": [
+    {
+      "name": "bad-a-stalled-exit",
+      "input": "cases/bad-a-stalled-exit",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-a-stalled-wait-exit",
+      "input": "cases/bad-a-stalled-wait-exit",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-b-not-found-0",
+      "input": "cases/bad-b-not-found-0",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-b-unknown-0",
+      "input": "cases/bad-b-unknown-0",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-b-not-found-1",
+      "input": "cases/bad-b-not-found-1",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-b-unknown-1",
+      "input": "cases/bad-b-unknown-1",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-c-invalid-ref-0",
+      "input": "cases/bad-c-invalid-ref-0",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-c-invalid-ref-1",
+      "input": "cases/bad-c-invalid-ref-1",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-d-preset-probe",
+      "input": "cases/bad-d-preset-probe",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-d-preset-woodpecker",
+      "input": "cases/bad-d-preset-woodpecker",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-d-preset-no-record",
+      "input": "cases/bad-d-preset-no-record",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-e-worker-no-tool-woodpecker",
+      "input": "cases/bad-e-worker-no-tool-woodpecker",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-e-worker-no-tool-github-actions",
+      "input": "cases/bad-e-worker-no-tool-github-actions",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-fallback-success",
+      "input": "cases/good-fallback-success",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-recorded-success",
+      "input": "cases/good-recorded-success",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-stalled-advisory",
+      "input": "cases/good-stalled-advisory",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "path": "anchors/pre-1758-bundle.json",
+      "sha": "0000000",
+      "origin": "constructed isolated package from main35c51d81 pre-boundary shell/dispatcher/provider bytes",
+      "why": "The whole old public boundary is retained; no fixed dispatcher can be borrowed from the live checkout.",
+      "sha256": "46daed349966f6e01df59a67b11f0d4f533f7caf7d41b6c28af472b7d87ae1ce"
+    }
+  ]
+}

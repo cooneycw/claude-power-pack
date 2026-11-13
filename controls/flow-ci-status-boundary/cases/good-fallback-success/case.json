@@ -1,0 +1,13 @@
+{
+  "name": "good-fallback-success",
+  "row": "positive",
+  "kind": "GOOD",
+  "expected": {
+    "exit": 0,
+    "STATUS": "success",
+    "PROVIDER": "woodpecker",
+    "SELECTION": "fallback"
+  },
+  "fallback": true,
+  "wp": "success"
+}

@@ -61,5 +61,5 @@
       "sha256": "ac98a22b90537cd3a5efee3f466831796343d545eaf899cc3877059863b8a75f"
     }
   ],
-  "limits": " Backend-only credential cases explicitly set CPP_FLOW_CI_BACKEND=probe; recorded-provider selection is a separate question."
+  "limits": " Backend-only credential cases explicitly set CPP_FLOW_CI_BACKEND=probe; recorded-provider selection is a separate question. Backend fixture calls explicitly set CPP_FLOW_CI_WORKER=1 as well as the lane selector; recorded fixture calls omit the worker marker. Frozen anchors ignore the new marker and remain executable. This change preserves each case's existing evidence rather than treating a dispatch failure as detection."
 }

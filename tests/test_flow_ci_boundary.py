@@ -1,4 +1,4 @@
-"""#1758 proposed boundary regressions; product implementation awaits owner ruling.
+"""#1758 approved boundary regressions; implementation awaits coordination posting.
 
 The attribution case preserves existing behavior and proves a constructed blind
 variant accepts the very same mismatched producer report. It is not a regression
@@ -139,3 +139,46 @@ def test_provider_consistency_preserved_and_blind_anchor_detected(
     assert flow.markers(capsys.readouterr().out)["FLOW_CI_STATUS"] == ["success"]
     assert blind_code == 0
     assert calls == ["woodpecker", "woodpecker"]
+
+
+@requires_bash
+@pytest.mark.parametrize("preset", ["probe", "woodpecker", "github-actions"])
+def test_backend_preset_without_optin_cannot_probe_unrecorded_project(tmp_path, boundary_env, preset):
+    env, calls = wp_env(tmp_path, boundary_env)
+    env["CPP_FLOW_CI_BACKEND"] = preset
+    assert not (tmp_path / ".claude/cicd.yml").exists()
+    result = _run(tmp_path, SHA, "--path", str(tmp_path), "--repo", "o/r", recorded=True, env=env)
+    marks = _markers(result.stdout)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert marks["FLOW_CI_SELECTION"] == ["unknown"]
+    assert marks["FLOW_CI_PROVIDER"] == ["none"]
+    assert not calls.exists(), "legacy preset is not authorization to probe"
+
+
+@requires_bash
+@pytest.mark.parametrize("backend", ["woodpecker", "github-actions"])
+def test_explicit_worker_missing_tool_reports_none_with_one_selection(tmp_path, boundary_env, backend):
+    env = {**boundary_env, "CPP_FLOW_CI_WORKER": "1", "CPP_FLOW_CI_BACKEND": backend,
+           "FLOW_CI_CURL": "/nonexistent/curl", "FLOW_CI_GH": "/nonexistent/gh",
+           "WOODPECKER_API_TOKEN": "", "WOODPECKER_SERVER": ""}
+    assert not Path(env["FLOW_CI_CURL"]).exists() and not Path(env["FLOW_CI_GH"]).exists()
+    result = _run(tmp_path, SHA, "--path", str(tmp_path), "--repo", "o/r", recorded=True, env=env)
+    marks = _markers(result.stdout)
+    assert marks.get("FLOW_CI_SELECTION") == [f"worker ({backend})"], result.stdout + result.stderr
+    assert marks["FLOW_CI_PROVIDER"] == ["none"]
+    assert marks["FLOW_CI_STATUS"] == ["unknown"]
+    assert result.returncode == 2
+
+
+@requires_bash
+@pytest.mark.parametrize("recorded", [True, False])
+def test_public_selection_occurs_once_even_with_explicit_workers(tmp_path, boundary_env, recorded):
+    env, _ = wp_env(tmp_path, boundary_env, routes=_stall_routes("success", workflow_state="success", children=[]))
+    if recorded:
+        record(tmp_path, "woodpecker")
+    result = _run(tmp_path, SHA, "--path", str(tmp_path), "--repo", "o/r", "--event", "push",
+                  recorded=recorded, env=env)
+    marks = _markers(result.stdout)
+    assert len(marks["FLOW_CI_SELECTION"]) == 1, result.stdout + result.stderr
+    assert marks["FLOW_CI_SELECTION"][0].startswith("recorded" if recorded else "fallback")
+    assert marks["FLOW_CI_STATUS"] == ["success"] and result.returncode == 0

@@ -1,0 +1,15 @@
+{
+  "name": "bad-e-worker-no-tool-github-actions",
+  "row": "e",
+  "kind": "BAD",
+  "expected": {
+    "exit": 2,
+    "STATUS": "unknown",
+    "PROVIDER": "none",
+    "SELECTION": "worker (github-actions)",
+    "no_requests": true
+  },
+  "backend": "github-actions",
+  "worker": true,
+  "missing_tools": true
+}
