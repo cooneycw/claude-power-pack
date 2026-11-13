@@ -134,13 +134,18 @@ def test_enrolment_answer_contract(tmp_path: Path, case: dict, mode: str) -> Non
         helper.write_text("raise SystemExit(0)\n")
         probe = subprocess.run(["python3", str(helper)], capture_output=True, text=True, timeout=20)
         assert probe.returncode == 0 and not probe.stdout, "fixture helper must be blind"
-    elif case.get("helper") in ("crash", "empty-declared", "undeclared", "multiline", "blank-line", "mismatched-code", "escalated-code-receipt-line"):
+    elif case.get("helper") in (
+        "crash", "empty-declared", "undeclared", "multiline", "blank-line",
+        "mismatched-code", "escalated-code-receipt-line",
+    ):
         helper = tmp_path / "bad-helper.py"
         bodies = {
             "crash": "raise RuntimeError('fixture crash')\n",
             "blank-line": "print('FLOW_FINISH_GATE_COUNTER_MODEL: ')\nraise SystemExit(10)\n",
             "mismatched-code": "print('FLOW_FINISH_GATE_COUNTER_MODEL: missing: no receipt')\nraise SystemExit(10)\n",
-            "escalated-code-receipt-line": "print('FLOW_FINISH_GATE_COUNTER_MODEL: receipt: fake')\nraise SystemExit(11)\n",
+            "escalated-code-receipt-line": (
+                "print('FLOW_FINISH_GATE_COUNTER_MODEL: receipt: fake')\nraise SystemExit(11)\n"
+            ),
             "empty-declared": "raise SystemExit(10)\n",
             "undeclared": "print('FLOW_FINISH_GATE_COUNTER_MODEL: receipt: fake')\nraise SystemExit(99)\n",
             "multiline": "print('FLOW_FINISH_GATE_COUNTER_MODEL: receipt: fake\\nextra line')\nraise SystemExit(10)\n",
