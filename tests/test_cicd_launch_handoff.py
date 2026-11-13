@@ -26,6 +26,32 @@ DYNAMIC_MODULE = re.compile(
     r"\s+(?:-[A-Z]\s+)*-m\s+[^\s;|&]*\$[^\s;|&]*")
 
 
+def direct_uv_python(tokens: list[str]) -> bool:
+    """Only reviewed direct uv/Python forms may carry a credited handoff."""
+    if "uv" not in tokens or "-m" not in tokens:
+        return False
+    command = tokens[tokens.index("uv"):tokens.index("-m")]
+    if command[:2] != ["uv", "run"] or command[-1:] not in (["python"], ["python3"]):
+        return False
+    options = command[2:-1]
+    seen = set()
+    while options:
+        option, *options = options
+        if option in seen:
+            return False
+        seen.add(option)
+        if option == "--no-python-downloads":
+            continue
+        if option not in {"--project", "--python"} or not options:
+            return False
+        value, *options = options
+        if not value or value.startswith("-"):
+            return False
+        if option == "--python" and not re.fullmatch(r"[0-9]+(?:\.[0-9]+)*", value):
+            return False
+    return True
+
+
 def statements(text: str) -> list[tuple[int, str]]:
     """Join shell continuations before looking for a module invocation."""
     result = []
@@ -97,8 +123,16 @@ def inventory(root: Path) -> list[dict[str, object]]:
                 environments = [i for i, token in enumerate(prefix) if token == "env" or token.endswith("(env")]
                 if environments:
                     arguments = prefix[environments[-1] + 1:]
-                    handed = ASSIGNMENTS.issubset(set(arguments)) and not any(
-                        token and set(token) <= set(";&|") for token in arguments)
+                    # The existing verify lane unsets only this uv selector.
+                    if arguments[:2] == ["-u", "UV_PROJECT_ENVIRONMENT"]:
+                        arguments = arguments[2:]
+                    allowed = ASSIGNMENTS | {
+                        "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}",
+                        "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}",
+                    }
+                    handed = (ASSIGNMENTS.issubset(set(arguments))
+                              and len(arguments) == len(set(arguments))
+                              and set(arguments) <= allowed and direct_uv_python(tokens))
             reason = "record/generation or fixed CPP probes; no target-configured step"
             category = "ii"
             error = ""
@@ -229,5 +263,20 @@ def test_handoff_belongs_to_the_module_launch_command(tmp_path: Path, separator:
     bad = inventory(tmp_path)
     assert len(bad) == 1 and bad[0]["error"]
     source.write_text((fixture / "good-earlier-uv.md").read_text().replace(";", separator))
+    good = inventory(tmp_path)
+    assert len(good) == 1 and not good[0]["error"]
+
+
+@pytest.mark.parametrize("name", ["bad-inner-env.md", "bad-outer-env-unset.md", "bad-overwritten-record.md"])
+def test_environment_wrappers_cannot_strip_or_replace_captured_policy(tmp_path: Path, name: str) -> None:
+    fixture = ROOT / "tests/fixtures/cicd_launch_handoff"
+    source = tmp_path / ".claude/commands/owned.md"
+    source.parent.mkdir(parents=True)
+    statement = (fixture / name).read_text()
+    assert "CPP_RUNNER_TARGET_PATH=${PATH-}" in statement and "uv run" in statement
+    source.write_text(statement)
+    bad = inventory(tmp_path)
+    assert len(bad) == 1 and bad[0]["error"]
+    source.write_text((fixture / "good.md").read_text())
     good = inventory(tmp_path)
     assert len(good) == 1 and not good[0]["error"]

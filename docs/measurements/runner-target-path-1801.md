@@ -195,6 +195,22 @@ The scanner binds metadata to the matched module's own simple-command segment;
 bad/repaired two-uv fixtures exercise semicolon, AND, OR and pipeline boundaries.
 The final focused PATH/control/inventory run passes 76 cases.
 
+## Counter-model pass 3 follow-up
+
+Terra reviewed product c13099a1, including the absent/empty policy matrix, and
+identified one remaining inventory bypass: inner env could unset the captured
+metadata before Python starts. This tests/docs-only follow-up requires the
+reviewed direct uv run form, known uv options and direct python/python3 -m.
+Unknown wrappers or options are refused rather than credited. The outer env
+accepts only the exact capture assignments (no duplicates or replacements),
+plus the existing initial -u UV_PROJECT_ENVIRONMENT option in verify lanes.
+Three committed BAD fixtures cover inner env, outer unsetting of a record,
+and replacement of an already captured record. All three assertions fail on
+unchanged c13099a1; the direct repaired fixture passes. The complete existing
+138-row inventory stays green, and 79 focused tests pass.
+Terra has not reviewed this follow-up check; it is submitted to cr-orch for
+independent delta review. All product launcher and runtime bytes are unchanged.
+
 ## Complete literal launch inventory
 
 This table records all 138 literal occurrences, including module references and
