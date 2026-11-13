@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- With `BASHPID` available, the finish gate's exit marker, coordination status
+  and temporary-file cleanup belong only to the invocation that installed the
+  trap (#1783). A signal reaching a pipeline child before exec no longer
+  duplicates the marker. Bash 3.2 retains its previous unguarded behavior.
+
 ### Upgrading
 
 - The finish gate now refuses an existing CPP `.venv` on a different Python
