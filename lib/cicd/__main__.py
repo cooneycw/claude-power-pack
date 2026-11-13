@@ -35,6 +35,8 @@ def restore_target_path(environment: MutableMapping[str, str]) -> None:
         raise ValueError("CPP target PATH policy is unverified: invalid presence marker")
     if present == "" and value != "":
         raise ValueError("CPP target PATH policy is unverified: inconsistent absent value")
+    if present == "" and value == "":
+        raise ValueError("CPP target PATH policy is unverified: absent search policy cannot be restored")
     if "PATH" not in environment:
         raise ValueError("CPP target PATH policy is unverified: current search policy is unavailable")
     current = environment.get("PATH", "")
@@ -43,10 +45,7 @@ def restore_target_path(environment: MutableMapping[str, str]) -> None:
         raise ValueError("CPP target PATH policy is unverified: search policy differs from launch handoff")
     environment.pop(PATH_VALUE, None)
     environment.pop(PATH_PRESENT, None)
-    if present == "":
-        environment.pop("PATH", None)
-    else:
-        environment["PATH"] = value
+    environment["PATH"] = value
 
 
 #: NEGATIVE-CONTROL: controls/cicd-environment-handoff

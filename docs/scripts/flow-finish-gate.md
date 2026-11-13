@@ -261,3 +261,8 @@ empty PATH becomes `CPP-bin:` and is restored to exactly empty (no borrowed
 Python or tools). The unmodified launcher itself cannot find bare env/uv in
 these populations. Native tests freeze only those two executable locations to
 reach real uv and pin the decoder behavior without adding a PATH directory.
+
+Marked absent-PATH handoffs are always refused: deleting PATH would enable the
+system default executable search directories. Explicit empty PATH (presence x,
+value empty) stays present and empty. An accepted handoff never deletes PATH;
+unmarked callers retain legacy behavior, including absent PATH (#1801).

@@ -33,12 +33,13 @@ def test_exact_caller_path_survives_with_presence_and_metadata_consumed(  # nega
     assert env == {"PATH": original, "KEEP": "yes"}
 
 
-def test_captured_absence_and_unmarked_absence_are_preserved(  # negative-fixture: allow pure decoder mapping
+def test_captured_absence_is_refused_and_unmarked_absence_is_preserved(  # negative-fixture: allow pure decoder mapping
 
 ) -> None:
     env = {"PATH": BIN + os.pathsep, VALUE: "", PRESENT: ""}
-    entry.restore_target_path(env)
-    assert env == {}
+    with pytest.raises(ValueError, match="absent search policy"):
+        entry.restore_target_path(env)
+    env = {}
     entry.restore_target_path(env)
     assert env == {}, "no record must not manufacture a default PATH"
 
@@ -86,6 +87,7 @@ GUARDS = {
     "presence": "invalid presence marker",
     "absence": "inconsistent absent value",
     "current": "current search policy is unavailable",
+    "absent-policy": "absent search policy cannot be restored",
     "topology": "search policy differs from launch handoff",
 }
 CASES = sorted(path.name for path in (CONTROL / "cases").glob("bad-*")
@@ -177,3 +179,33 @@ def test_restoration_control_fails_when_only_the_path_assignment_is_removed(tmp_
     old = subprocess.run([*command, str(CONTROL / "anchors/pre-path-handoff.py")],
                          text=True, capture_output=True, check=False)
     assert old.returncode == 0 and old.stdout.strip() == "CICD_TARGET_PATH_CONTROL: ready"
+
+
+@pytest.mark.skipif(shutil.which("sh") is None, reason="compares actual empty and absent PATH subprocess lookup")
+@pytest.mark.parametrize("current", ["", BIN + os.pathsep])
+def test_forged_absence_cannot_enable_default_tool_search(tmp_path: Path, current: str) -> None:
+    environment = {"PATH": current, VALUE: "", PRESENT: ""}
+    before = dict(environment)
+    assert not (tmp_path / "sh").exists()
+    assert shutil.which("sh", path=current) is None, "owned empty policy must exclude sh"
+    with pytest.raises(FileNotFoundError):
+        subprocess.run(["sh", "-c", "exit 0"], env=environment, cwd=tmp_path, check=False)
+    try:
+        entry.restore_target_path(environment)
+    except ValueError:
+        assert environment == before
+        return
+    leaked = subprocess.run(["sh", "-c", "exit 0"], env=environment, cwd=tmp_path, check=False)
+    assert leaked.returncode != 0, "forged absence enabled default search directories"
+
+
+@pytest.mark.skipif(shutil.which("sh") is None, reason="checks explicit empty PATH cannot gain default tool lookup")
+@pytest.mark.parametrize("current", ["", BIN + os.pathsep])
+def test_explicit_empty_path_stays_present_and_excludes_default_search(tmp_path: Path, current: str) -> None:
+    environment = {"PATH": current, VALUE: "", PRESENT: "x"}
+    assert not (tmp_path / "sh").exists()
+    assert shutil.which("sh", path=current) is None, "owned empty policy must exclude sh"
+    entry.restore_target_path(environment)
+    assert environment == {"PATH": ""}
+    with pytest.raises(FileNotFoundError):
+        subprocess.run(["sh", "-c", "exit 0"], env=environment, cwd=tmp_path, check=False)

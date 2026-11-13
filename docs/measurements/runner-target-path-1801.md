@@ -45,7 +45,9 @@ missing-current-policy and changed-topology records before CLI import. A valid
 record is an exact no-op or removal of the one leading actual-runner bin entry.
 Original duplicates, spaces, empty components and intentionally supplied CPP
 entries survive; values are never shell-evaluated or included in diagnostics.
-Without records, PATH stays unchanged, including absence. Metadata is consumed.
+Without records, PATH stays unchanged, including absence. Marked absence is
+refused because removing PATH can introduce system default directories. Explicit
+empty PATH (presence x, value empty) stays present and empty. Metadata is consumed.
 
 The reserved CPP_RUNNER_PYTHON is always the actual sys.executable, overwriting
 both host and explicit step values. Ten CPP-owned command bindings plus six
@@ -66,14 +68,14 @@ Generated Codex mirrors were rebuilt and their changed launcher text read.
 ## Committed control
 
 controls/cicd-target-path executes the actual stdlib decoder without CLI dispatch,
-with nine BAD populations and two GOOD populations: one polluted-PATH lookup
-plus eight independent refusal populations. The byte-compared actual
+with ten BAD populations and two GOOD populations: one polluted-PATH lookup
+plus nine independent refusal populations. The byte-compared actual
 pre-PATH entrypoint at 35c51d81 misses every BAD input and agrees on the GOOD
 unmarked/no-op population. It grades refusal and PATH; metadata consumption and
 actual uv runtime are separate native tests.
 
-Five independent guards: pair completeness (two cases), presence enum, absent
-value consistency, current PATH availability, and topology (added/reordered/
+Six independent guards: pair completeness (two cases), presence enum, absent
+value consistency, marked-absence refusal, current PATH availability, and topology (added/reordered/
 extra-removed directories). For every BAD input, a test removes only its named
 If guard by AST and proves exit 1 blocked becomes exit 0 ready. No exception or
 second guard is allowed to conceal the removed check. A later-effect sentinel
@@ -99,7 +101,7 @@ command dispatcher and never echoes its private fixture value.
 | Shell wrapper / entrypoint | Actual array extraction; inherited forged metadata overwritten; malformed metadata refuses before CLI import. |
 | Make queries / retries / deploy strategies | Actual make query and make verify recipe record the same restored PATH; real subsumption credits lint to verify. Existing retry/deploy tests retained; no live deployment claimed. |
 | Generated task manifests / CPP manifest | Explicit runtime commands and guards emitted; manifest and shell-boundary contract tests compare actual values. |
-| Strict negative-control reader | Real checker runs all nine bad/two good populations and actual historical anchor with provenance. |
+| Strict negative-control reader | Real checker runs all ten bad/two good populations and actual historical anchor with provenance. |
 | Kyle consumer | Required container red-on-main/green-on-reviewed-branch run is pending; [kyle#2424](https://github.com/cooneycw/kyle/issues/2424). |
 | Skillc consumer | Coordination recorded in [skillc#715](https://github.com/cooneycw/skillc/issues/715); no acceptance change required by owner. |
 
@@ -177,6 +179,21 @@ physical line numbers while preserving source path, classification and repeated
 occurrences. Duplicating a launcher still changes the inventory.
 The focused PATH/control/inventory tests pass all 66 cases. No bytes under lib/
 or scripts/ changed from the checkpoint; the runtime protocol is unchanged.
+
+## Counter-model pass 2 corrections
+
+Terra identified a forged-absence default-search widening and an earlier-uv
+handoff attribution error. Both regression tests fail on unchanged 9bb5a8eb:
+the forged record actually runs system sh after an empty PATH excluded it, and
+the two-command launcher incorrectly appears captured. Marked absence is now
+refused by an independent named guard; accepted records always assign PATH
+rather than deleting it. A committed BAD case and single-guard mutant pin that
+refusal. Actual subprocess tests distinguish absent from explicit empty policy;
+both current-empty and CPP-bin-prefixed empty inputs preserve explicit empty
+PATH and continue to exclude default tools. Unmarked absence is unchanged.
+The scanner binds metadata to the matched module's own simple-command segment;
+bad/repaired two-uv fixtures exercise semicolon, AND, OR and pipeline boundaries.
+The final focused PATH/control/inventory run passes 76 cases.
 
 ## Complete literal launch inventory
 

@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- Runner PATH handoffs refuse marked absence to prevent default-directory
+  lookup; explicit empty PATH stays present and empty. The launch inventory
+  binds metadata to the actual module command, including shell separators
+  (#1801).
+
 - Finish/deploy runner steps and probes retain the caller's original PATH
   instead of borrowing CPP's venv executables (#1801). The runner itself keeps
   its selected interpreter. A malformed or forged PATH handoff fails before

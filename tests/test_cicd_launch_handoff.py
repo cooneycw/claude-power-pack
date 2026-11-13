@@ -81,6 +81,15 @@ def inventory(root: Path) -> list[dict[str, object]]:
             lexer = shlex.shlex(statement, posix=True, punctuation_chars=";&|")
             lexer.whitespace_split = True
             tokens = list(lexer) if "uv run" in statement else []
+            # A preceding command's env is unrelated to this module launch.
+            # Bind the matched module to its own shell simple-command segment.
+            module_tokens = [i for i, token in enumerate(tokens) if token.startswith("lib.cicd")]
+            if module_tokens:
+                launch = module_tokens[-1]
+                boundaries = [i for i, token in enumerate(tokens[:launch])
+                              if token and set(token) <= set(";&|")]
+                if boundaries:
+                    tokens = tokens[boundaries[-1] + 1:]
             uv = "uv" in tokens and "run" in tokens
             handed = False
             if uv:
@@ -209,3 +218,16 @@ def test_inventory_identity_survives_unrelated_line_shifts(tmp_path: Path) -> No
     assert render_inventory(before) == render_inventory(after)
     source.write_text(statement + statement)
     assert render_inventory(inventory(tmp_path)) != render_inventory(before)
+
+
+@pytest.mark.parametrize("separator", [";", "&&", "||", "|"])
+def test_handoff_belongs_to_the_module_launch_command(tmp_path: Path, separator: str) -> None:
+    fixture = ROOT / "tests/fixtures/cicd_launch_handoff"
+    source = tmp_path / ".claude/commands/owned.md"
+    source.parent.mkdir(parents=True)
+    source.write_text((fixture / "bad-earlier-uv.md").read_text().replace(";", separator))
+    bad = inventory(tmp_path)
+    assert len(bad) == 1 and bad[0]["error"]
+    source.write_text((fixture / "good-earlier-uv.md").read_text().replace(";", separator))
+    good = inventory(tmp_path)
+    assert len(good) == 1 and not good[0]["error"]

@@ -24,8 +24,13 @@ and retention `on_main=1 off_main=0 unknown=0`. Missing
 history/ref is UNCOMPARED; known side-only retention is OFF_MAIN. Neither is a
 verified pass under strict verification.
 
-The nine BAD cases cover actual owned interpreter lookup and eight independent
+The ten BAD cases cover actual owned interpreter lookup and nine independent
 refusal populations. Two GOOD cases are unmarked and no-op caller policy. The
 historical anchor ignores PATH records. Native tests cover all refusal mutants,
 the missing-restoration assignment, exact marker consumption, actual uv startup
 and separation between target and CPP interpreters. No PATH values are printed.
+
+The forged-absence case has its own named guard and single-guard mutation.
+Marked absence is refused; explicit empty PATH stays present and empty.
+Unmarked absent PATH retains legacy behavior. The decoder never removes PATH
+from an accepted handoff, preventing implicit default-directory lookup.

@@ -35,6 +35,9 @@ with tempfile.TemporaryDirectory() as temporary:
         assert environment["CPP_RUNNER_TARGET_PATH_PRESENT"] not in ("", "x")
     elif guard == "absence":
         assert environment["CPP_RUNNER_TARGET_PATH_PRESENT"] == "" and environment["CPP_RUNNER_TARGET_PATH"]
+    elif guard == "absent-policy":
+        assert environment["CPP_RUNNER_TARGET_PATH_PRESENT"] == ""
+        assert environment["CPP_RUNNER_TARGET_PATH"] == environment["PATH"] == ""
     elif guard == "current":
         assert "PATH" not in environment
     elif guard == "topology":

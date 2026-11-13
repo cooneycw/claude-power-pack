@@ -9,7 +9,7 @@
   "good_exit": 0,
   "detect_signal": "^CICD_TARGET_PATH_CONTROL: (blocked|restored)$",
   "good_signal": "^CICD_TARGET_PATH_CONTROL: ready$",
-  "limits": "Actual stdlib entrypoint decoder imported without dispatch. One actual owned interpreter-lookup restoration population plus eight malformed/forged populations exercise five independent guards; each flips when only its named guard is removed. A later-effect sentinel is reached only after acceptance. Historical pre-PATH entrypoint ignores these records and misses all BAD inputs; unmarked/no-op GOOD inputs agree. This control grades refusal and PATH, not metadata consumption; native tests cover exact restoration, marker consumption, actual uv/runner Python separation, security command/skip runtime and legacy policy. No PATH values are printed.",
+  "limits": "Actual stdlib entrypoint decoder imported without dispatch. One actual owned interpreter-lookup restoration population plus nine malformed/forged populations exercise six independent guards; each flips when only its named guard is removed. A later-effect sentinel is reached only after acceptance. Historical pre-PATH entrypoint ignores these records and misses all BAD inputs; unmarked/no-op GOOD inputs agree. This control grades refusal and PATH, not metadata consumption; native tests cover exact restoration, marker consumption, actual uv/runner Python separation, security command/skip runtime and legacy policy. No PATH values are printed.",
   "cases": [
     {
       "name": "bad-polluted-path",
@@ -34,6 +34,11 @@
     {
       "name": "bad-absent-with-value",
       "input": "cases/bad-absent-with-value",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-forged-absence",
+      "input": "cases/bad-forged-absence",
       "expect": "BAD"
     },
     {
