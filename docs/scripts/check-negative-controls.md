@@ -27,3 +27,37 @@ Per-script history, indexed from [the scripts inventory](../scripts.md).
 - check-negative-controls path-form census subjects normalize to a basename (#1394) - `registration_subject` has always resolved a plain-file registration to `path.name`; cpp-w2's comment on #1394 measured that kyle's own census cites the full relative path (`scripts/check-skills-install.py`) where this repository cites the basename alone, so EVERY one of that repository's registered controls printed as `NEGATIVE_CONTROL_CENSUS_NONMEMBER` once its ADR path resolved (#1264) - a confident, wrong answer, not an unknown. `subject_of` (the shared extraction rule both readers import) now strips a `/`-containing head word to its final segment; a `make:`/dotted `lib.<pkg>` subject has nothing to strip and this is a no-op for it
 - check-negative-controls `--verify-provenance` is run for real (#1732). The flag byte-compares each HISTORICAL anchor with the commit its manifest names, so an anchor cannot be swapped quietly. It crashed on the real tree until #1719 and nothing passed it: no Makefile target, no CI step, and the tests that did ran fixture trees. Wiring it as it stood would have been blind: CI clones at depth 1, a historical anchor's commit is not in a depth-1 clone, and the harness answered `unverified` for that, the same word a constructed anchor gets because it has nothing to compare WITH. So a historical anchor that could not be compared now reads `UNCOMPARED`, is named with its reason (git absent; the commit is not in this clone, with the `git fetch --unshallow` remedy when the clone is shallow), and fails under `--strict`. Two strings are new, both printed only under the flag: the provenance word `UNCOMPARED` (and `-> PROVENANCE:UNCOMPARED` on the failing line), and a closing `NEGATIVE_CONTROL_PROVENANCE_HISTORICAL: compared=N uncompared=M - ...` line, which is what lets a reader tell "compared every one" from "compared none". Constructed, synthetic and vendored anchors keep `unverified` and never fail for it. DECISION recorded on #1732: a constructed anchor does not need a placeholder `sha`; `kind` already says what it is, and an omitted key reads the same as `n/a`. Committed cases: `controls/check-negative-controls-provenance`, whose blind anchor is the live harness with the flag removed, because the blindness was in the wiring and never in the harness's code
 - check-negative-controls provenance, where it runs and what the first real run found (#1732). `make negative-controls` (part of `make verify`) passes `--verify-provenance`; measured over 120 controls it adds 3 to 16 seconds to about 120. CI passes it on PULL REQUESTS only, inside the one `negative-controls` step (the CI-dependency check derives the controls' environment from the single step that runs the harness, and a second step would run the battery twice): the step deepens the depth-1 clone first, tolerating `counter-model-enrolment` deepening the same workspace at the same moment, and an event it cannot name is a failure, not a quiet run without the flag. Pushes to main do not run it. The first run over the real tree compared 44 of 45 historical anchors and could not compare one: `controls/shellcheck-gate` named `ed5349c`, a pre-squash commit on the #960 branch that the squash merge orphaned, so it exists in no clone. Its own note already said so, and said `unverified` there meant something terminal; that was the "same word, two causes" this change separates. It is now registered `constructed`, with no sha: only the stored digest vouches for its bytes
+
+
+## Main retention under provenance verification (#1797)
+
+With `--verify-provenance`, a historical anchor needs both matching committed
+bytes and retention by complete main history. `refs/remotes/origin/main` is
+preferred, with local `refs/heads/main` as an offline fallback. Detached HEAD is
+never treated as main. The verdict describes that named ref's available snapshot;
+it does not assert remote freshness. A known non-main origin default, missing or
+unreadable main, shallow history, or failed Git enumeration yields `UNCOMPARED`
+with a reason. Strict verification refuses it. Constructed anchors are exempt.
+
+A recorded commit absent from complete main ancestry is `OFF_MAIN`, even if its
+object is absent from the clone. Available committed bytes are still compared;
+a byte mismatch takes priority. The existing historical count describes byte
+comparisons, while `NEGATIVE_CONTROL_PROVENANCE_RETENTION: on_main=N off_main=N
+unknown=N` separately counts main retention. These axes must not be conflated:
+matching bytes on an expendable feature branch do not establish retention.
+The provenance axis fails strict verification independently of discrimination.
+Without the flag, the output protocol and exit policy are unchanged.
+
+PR CI deepens its clone then explicitly fetches
+`refs/heads/main:refs/remotes/origin/main`, with three bounded attempts and a
+loud failure before writing the flag file. It uses existing origin credentials;
+no additional credential is read or stored. Source and owned-stub execution
+establish this behavior; runtime CI ref inventory was unavailable (HTTP 403),
+so no claim is made about previous runner refs. Push CI deliberately fetches
+nothing and does not verify provenance, and says so; there is no claim about
+`origin/main` versus push HEAD.
+
+Committed side-branch and missing-main cases prove refusal, with a detached
+checkout carrying origin/main as the repair. The original #1797 record and a
+frozen no-flag stdout baseline are described in
+[the compatibility evidence](../../controls/check-negative-controls-provenance/no-flag-baseline.md).

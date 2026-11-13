@@ -10,7 +10,7 @@
   "detect_signal": "^APP_DECLARATION_CONTROL: refused$",
   "good_signal": "^APP_DECLARATION_CONTROL: applied$",
   "unavailable_signal": "^APP_DECLARATION_CONTROL: unavailable",
-  "limits": "Whole --apply entrypoint with an owned gh stub recording the actual PUT stdin. Null/omitted check app IDs must refuse before PUT; explicit -1 applies byte-equivalent JSON. Historical anchor1a13bc6e applies both ambiguous inputs. No live protection mutation or claim about authenticating status creators. Repairing only the declaration to app_id:-1 must remove refusal.",
+  "limits": "Whole --apply entrypoint with an owned gh stub recording actual PUT stdin. Null/omitted check app IDs refuse before PUT; explicit -1 applies byte-equivalent JSON. Historical anchor bbba536c is the version on main before #1661; it applies both ambiguous inputs and agrees on the explicit good input. The earlier registered intermediate feature-branch bytes never existed on main. No live protection mutation or claim about authenticating status creators. Repairing only the declaration to app_id:-1 removes refusal.",
   "cases": [
     {
       "name": "bad-null",
@@ -31,10 +31,10 @@
   "anchors": [
     {
       "kind": "historical",
-      "sha": "1a13bc6e184aebfaa1a3ddb8d492f2b6a80d78ce",
+      "sha": "bbba536c9ea9027e03dfc23c9642a0f26a11ab78",
       "origin": "scripts/branch-protection.sh",
       "path": "anchors/pre-owner-review-branch-protection.sh",
-      "sha256": "074a28aa67e2ec15d46a9b6c031e480ac3363d20649416f16a71801c3f79c820"
+      "sha256": "6088fcfabfe79e1de10433b019f24239857a16aab73b942f415f32155868e78c"
     }
   ]
 }

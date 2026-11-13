@@ -4,6 +4,14 @@
 
 ### Fixed
 
+- Historical negative-control provenance now checks retention by a named main
+  reference as well as artifact bytes (#1797). A matching side-branch-only
+  anchor is `OFF_MAIN`; missing main or shallow history stays `UNCOMPARED` and
+  fails strict verification. PR CI explicitly fetches main before verifying.
+  The branch-protection control now uses its actual pre-fix main artifact,
+  removing its dependency on the squash-merged feature branch. Calls without
+  `--verify-provenance` retain their previous output and exit behavior.
+
 - With `BASHPID` available, the finish gate's exit marker, coordination status
   and temporary-file cleanup belong only to the invocation that installed the
   trap (#1783). A signal reaching a pipeline child before exec no longer

@@ -23,7 +23,7 @@
     "{gate}"
   ],
   "good_exit": 0,
-  "detect_signal": "^negative-controls: \\S+ -> PROVENANCE:(MISMATCH|UNCOMPARED)$",
+  "detect_signal": "^negative-controls: \\S+ -> PROVENANCE:(MISMATCH|UNCOMPARED|OFF_MAIN)$",
   "good_signal": "^negative-controls: ok - ",
   "unavailable_signal": "^PROVENANCE_CONTROL: unavailable - ",
   "limits": "Covers the HISTORICAL comparison under --strict --verify-provenance: bytes that differ from the named commit, and a commit absent from the clone. It does not cover an anchor whose bytes differ from its recorded digest (that is MISMATCH with or without the flag, pinned by tests/test_negative_controls.py), the non-strict run, the absence of git, or whether anything PASSES the flag - that last is pinned by tests/test_negative_controls_provenance_run.py, which reads the Makefile and the CI file. It says nothing about whether an anchor is BLIND; that is the verdict axis.",
@@ -51,6 +51,24 @@
       "input": "cases/good-constructed-anchor-names-no-commit",
       "expect": "GOOD",
       "why": "A constructed anchor with no sha key: nothing to compare, unverified, and not a failure. Fourteen registered controls are in this shape."
+    },
+    {
+      "name": "bad-anchor-off-main",
+      "input": "cases/bad-anchor-off-main",
+      "expect": "BAD",
+      "why": "The bytes match an available commit, but only a deletable side branch retains it."
+    },
+    {
+      "name": "bad-main-reference-missing",
+      "input": "cases/bad-main-reference-missing",
+      "expect": "BAD",
+      "why": "Detached full history with no main ref cannot establish retention."
+    },
+    {
+      "name": "good-detached-main-reference",
+      "input": "cases/good-detached-main-reference",
+      "expect": "GOOD",
+      "why": "A detached checkout with origin/main can prove retention; HEAD is not inferred to be main."
     }
   ],
   "anchors": [

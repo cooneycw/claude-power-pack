@@ -42,8 +42,8 @@ pytestmark = pytest.mark.skipif(
 COUNT = re.compile(r"^NEGATIVE_CONTROL_PROVENANCE_HISTORICAL: compared=(\d+) uncompared=(\d+) ", re.M)
 
 
-def run_case(name: str, harness: Path = HARNESS) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["sh", str(RUNNER), str(CONTROL / "cases" / name), str(harness)],
+def run_case(name: str, harness: Path = HARNESS, *, provenance_flag: str = "--verify-provenance") -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["sh", str(RUNNER), str(CONTROL / "cases" / name), str(harness), provenance_flag],
                           cwd=ROOT, capture_output=True, text=True, timeout=300, check=False)
 
 
@@ -93,7 +93,31 @@ def test_a_constructed_anchor_with_no_sha_is_unverified_and_never_fails_for_it()
     assert "no historical anchor is registered here" in done.stdout
 
 
-@pytest.mark.parametrize("case", ["bad-anchor-differs-from-its-commit", "bad-commit-not-in-this-clone"])
+def test_matching_bytes_on_a_side_branch_are_not_retained_by_main() -> None:
+    done = run_case("bad-anchor-off-main")
+    assert done.returncode == 1, done.stdout
+    assert "NEGATIVE_CONTROL_PROVENANCE: OFF_MAIN" in done.stdout
+    assert "not an ancestor of" in done.stdout
+    assert "on_main=0 off_main=1 unknown=0" in done.stdout
+    assert counts(done.stdout) == (1, 0), "bytes were compared; retention is the failed axis"
+
+
+def test_detached_history_without_main_is_unknown() -> None:
+    done = run_case("bad-main-reference-missing")
+    assert done.returncode == 1, done.stdout
+    assert "NEGATIVE_CONTROL_PROVENANCE: UNCOMPARED" in done.stdout
+    assert "no main reference" in done.stdout
+    assert "on_main=0 off_main=0 unknown=1" in done.stdout
+
+
+def test_a_detached_checkout_with_origin_main_can_prove_retention() -> None:
+    done = run_case("good-detached-main-reference")
+    assert done.returncode == 0, done.stdout
+    assert "on_main=1 off_main=0 unknown=0" in done.stdout
+
+
+@pytest.mark.parametrize("case", ["bad-anchor-differs-from-its-commit", "bad-commit-not-in-this-clone",
+                                  "bad-anchor-off-main", "bad-main-reference-missing"])
 def test_the_wiring_before_this_change_passes_both_bad_cases(case: str) -> None:
     """Red case: with the flag never passed, both known-bad trees are green."""
     done = run_case(case, harness=BLIND)
@@ -339,7 +363,7 @@ def _ci_step_script() -> tuple[str, str]:
     return script, block[1].splitlines()[0]
 
 
-def _run_ci_block(tmp_path: Path, event: str | None, *, shallow: str, fetch_rc: int = 0):
+def _run_ci_block(tmp_path: Path, event: str | None, *, shallow: str, fetch_rc: int = 0, main_fetch_rc: int = 0):
     """Run the CI step's own shell block against a stub git."""
     script, _command = _ci_step_script()
     work = tmp_path / "ws"
@@ -349,6 +373,7 @@ def _run_ci_block(tmp_path: Path, event: str | None, *, shallow: str, fetch_rc: 
 echo "$*" >> "{work}/git.log"
 case "$*" in
   *is-shallow-repository*) echo {shallow} ;;
+  *"fetch --quiet origin refs/heads/main:refs/remotes/origin/main"*) exit {main_fetch_rc} ;;
   *fetch*) exit {fetch_rc} ;;
 esac
 """)
@@ -377,6 +402,7 @@ def test_on_a_pull_request_ci_deepens_a_shallow_clone_and_passes_the_flag(tmp_pa
     assert done.returncode == 0, done.stdout + done.stderr
     assert flag == "--verify-provenance"
     assert "fetch --quiet --unshallow origin" in log
+    assert "fetch --quiet origin refs/heads/main:refs/remotes/origin/main" in log
 
 
 def test_on_a_pull_request_an_already_deepened_clone_is_not_fetched_again(tmp_path: Path) -> None:
@@ -384,7 +410,15 @@ def test_on_a_pull_request_an_already_deepened_clone_is_not_fetched_again(tmp_pa
     `--unshallow` on a complete clone is an error, so it must not be tried."""
     done, flag, log = _run_ci_block(tmp_path, "pull_request", shallow="false")
     assert done.returncode == 0 and flag == "--verify-provenance"
-    assert "fetch" not in log
+    assert "--unshallow" not in log
+    assert "fetch --quiet origin refs/heads/main:refs/remotes/origin/main" in log
+
+
+def test_a_failed_main_reference_fetch_never_passes_the_provenance_flag(tmp_path: Path) -> None:
+    done, flag, log = _run_ci_block(tmp_path, "pull_request", shallow="false", main_fetch_rc=1)
+    assert done.returncode == 1 and "could not fetch main retention reference" in done.stdout
+    assert flag is None
+    assert log.count("fetch --quiet origin refs/heads/main:") == 3
 
 
 def test_a_history_fetch_that_keeps_failing_reds_the_step_and_passes_nothing(tmp_path: Path) -> None:
@@ -625,3 +659,79 @@ def test_the_pipeline_braces_only_variables_woodpecker_itself_supplies() -> None
 def test_the_reader_sees_a_braced_shell_variable_and_ignores_the_escaped_form() -> None:
     line = 'echo "${PROVENANCE:-none} ${CI_PIPELINE_EVENT} $PLAIN $${ESCAPED}"'
     assert _compile_time_names(line) == {"PROVENANCE", "CI_PIPELINE_EVENT"}
+
+
+# --- main-retention contract (issue #1797) -----------------------------------
+
+@pytest.mark.parametrize("state", ["main", "missing-main", "side-branch"])
+def test_no_flag_stdout_and_exit_match_the_frozen_main_baseline(tmp_path: Path, state: str) -> None:
+    root = _fixture(tmp_path, "good-anchor-matches-its-commit", shallow=False)
+    if state == "missing-main":
+        subprocess.run(["git", "-C", str(root), "checkout", "--detach", "-q"], check=True)
+        subprocess.run(["git", "-C", str(root), "branch", "-D", "main"], check=True, capture_output=True)
+    elif state == "side-branch":
+        # Repoint the recorded SHA to a genuine sibling commit with matching bytes.
+        subprocess.run(["git", "-C", str(root), "checkout", "-qb", "side", "HEAD~1"], check=True)
+        (root / "side-only").write_text("side branch commit\n")
+        _commit(root)
+        side = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+        subprocess.run(["git", "-C", str(root), "checkout", "-q", "main"], check=True)
+        assert subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", side, "main"],
+                              capture_output=True, check=False).returncode == 1
+        _mutate(root, lambda spec: spec["anchors"][0].update(sha=side))
+        _commit(root)
+    done = harness(root, "--strict")
+    normalized = re.sub(r"(?m)(^NEGATIVE_CONTROL_SOURCE: worktree-at-)[0-9a-f]+", r"\1<COMMIT>", done.stdout)
+    normalized = re.sub(r"(?<=historical )[0-9a-f]{40}", "<COMMIT>", normalized)
+    assert done.returncode == 0 and done.stderr == ""
+    assert normalized == (CONTROL / "no-flag-baseline.stdout").read_text()
+
+
+def test_the_real_old_1a13_record_is_off_main_even_when_its_object_is_absent(tmp_path: Path) -> None:
+    import hashlib
+    module = _harness_module()
+    root = _fixture(tmp_path, "good-anchor-matches-its-commit", shallow=False)
+    sha = "1a13bc6e184aebfaa1a3ddb8d492f2b6a80d78ce"
+    assert subprocess.run(["git", "-C", str(root), "cat-file", "-e", sha],
+                          capture_output=True, check=False).returncode != 0
+    anchor_path = CONTROL / "anchors/off-main-1a13-branch-protection.sh"
+    digest = "074a28aa67e2ec15d46a9b6c031e480ac3363d20649416f16a71801c3f79c820"
+    assert hashlib.sha256(anchor_path.read_bytes()).hexdigest() == digest
+    anchor = {"kind": "historical", "sha": sha, "origin": "scripts/branch-protection.sh", "sha256": digest}
+    assert module._provenance(anchor, anchor_path, root, False) == "unverified"
+    assert module._provenance(anchor, anchor_path, root, True) == "OFF_MAIN"
+    assert "refs/heads/main" in module._HISTORICAL_RETENTION[id(anchor)][1]
+    assert not module._HISTORICAL_COMPARED.get(id(anchor), False)
+
+
+def test_a_non_main_remote_default_is_unknown_even_with_a_main_ref(tmp_path: Path) -> None:
+    root = _fixture(tmp_path, "good-anchor-matches-its-commit", shallow=False)
+    for ref in ("refs/remotes/origin/main", "refs/remotes/origin/trunk"):
+        subprocess.run(["git", "-C", str(root), "update-ref", ref, "HEAD"], check=True)
+    subprocess.run(["git", "-C", str(root), "symbolic-ref", "refs/remotes/origin/HEAD",
+                    "refs/remotes/origin/trunk"], check=True)
+    done = harness(root, "--strict", "--verify-provenance")
+    assert done.returncode == 1 and "default branch is not main" in done.stdout
+    assert "on_main=0 off_main=0 unknown=1" in done.stdout
+
+
+def test_a_shallow_clone_with_visible_anchor_still_cannot_prove_main_history(tmp_path: Path) -> None:
+    root = _fixture(tmp_path, "good-anchor-matches-its-commit", shallow=True)
+    # Current HEAD's toy gate bytes differ, so use another committed path whose
+    # bytes are the vendored anchor and name this visible commit instead.
+    sha = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+    _mutate(root, lambda spec: spec["anchors"][0].update(
+        sha=sha, origin="controls/toy/anchors/first-commit-toy-gate.sh"))
+    done = harness(root, "--strict", "--verify-provenance")
+    assert done.returncode == 1 and counts(done.stdout) == (1, 0)
+    assert "main ancestry is unknown in a shallow clone" in done.stdout
+    assert "on_main=0 off_main=0 unknown=1" in done.stdout
+
+
+def test_successful_ci_main_fetch_does_not_excuse_off_main_provenance(tmp_path: Path) -> None:
+    done, flag, log = _run_ci_block(tmp_path, "pull_request", shallow="false")
+    assert done.returncode == 0 and flag == "--verify-provenance"
+    assert "refs/heads/main:refs/remotes/origin/main" in log
+    # The emitted flag is passed to the actual harness over the known-bad tree.
+    refused = run_case("bad-anchor-off-main", provenance_flag=flag)
+    assert refused.returncode == 1 and "PROVENANCE:OFF_MAIN" in refused.stdout

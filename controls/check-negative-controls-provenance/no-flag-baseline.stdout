@@ -1,0 +1,19 @@
+NEGATIVE_CONTROL_REGISTERED: 1
+NEGATIVE_CONTROL_UNIVERSE: unknown
+NEGATIVE_CONTROL_DISCOVERY_SCOPE: scripts/** (recursive; issue #1394 widened this from top-level files only); Makefile targets (a marker directly above the rule it covers); lib/**/*.py (a marker inside a module file; the subject is its package, dotted)
+NEGATIVE_CONTROL_UNAVAILABLE: 0
+NEGATIVE_CONTROL_CENSUS_MEMBERS: unknown
+NEGATIVE_CONTROL_CENSUS_NONMEMBERS: unknown
+NEGATIVE_CONTROL_UNIVERSE_EXTERNAL: unknown
+NEGATIVE_CONTROL_UNIVERSE_REGISTRABLE: unknown
+NEGATIVE_CONTROL_GATE: scripts/toy-gate.sh
+NEGATIVE_CONTROL_CONTROL: controls/toy
+NEGATIVE_CONTROL_SOURCE: worktree-at-<COMMIT>
+NEGATIVE_CONTROL_DETAIL: case bad: expected=BAD observed=BAD (exit 1)
+NEGATIVE_CONTROL_DETAIL: case good: expected=GOOD observed=GOOD (exit 0)
+NEGATIVE_CONTROL_DETAIL: anchor anchors/first-commit-toy-gate.sh (historical <COMMIT>) on case bad: missed the known-bad input (blind, as required)
+NEGATIVE_CONTROL_PROVENANCE: unverified
+NEGATIVE_CONTROL_TRACKING: tracked
+NEGATIVE_CONTROL_VERDICT: PASS
+
+negative-controls: ok - 1 discriminating control(s) of 1 registered, against an UNKNOWN universe (neither controls/census.md nor docs/decisions/0008-instrument-negative-control-bound.md exists and nothing matches docs/decisions/*negative-control*.md, docs/adr/*negative-control*.md) - this is a sample, and how large a sample cannot be said; 1 gate control(s), each reporting its declared detection signal on the known-bad input and demonstrated against an anchor that misses it
