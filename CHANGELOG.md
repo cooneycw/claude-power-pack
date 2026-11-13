@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- Generated main-app CI enrolment proves the pinned CPP revision belongs to a
+  complete official main snapshot before checkout or execution (#1754).
+  Fetchable unmerged code can no longer report a false green; missing or
+  shallow main remains UNKNOWN (exit 5). Both providers report the pin and
+  measured main snapshot. Installer receipt behavior is unchanged.
+
 - Historical negative-control provenance now checks retention by a named main
   reference as well as artifact bytes (#1797). A matching side-branch-only
   anchor is `OFF_MAIN`; missing main or shallow history stays `UNCOMPARED` and
@@ -18,6 +24,12 @@
   duplicates the marker. Bash 3.2 retains its previous unguarded behavior.
 
 ### Upgrading
+
+- From a merged CPP checkout, re-run `/cpp:init`, regenerate both application
+  pipelines and review the pin and job diff to adopt main-retention checks
+  (#1754). Existing workflows gain no check until regenerated. CI now fetches
+  full official CPP main history; an unmerged pin or unavailable history stops
+  as UNKNOWN (exit 5), and old main ancestors still run their exact checker.
 
 - With `--verify-provenance`, non-strict negative-control runs still exit 0 on
   unknown or off-main provenance, but now print the named failure summary

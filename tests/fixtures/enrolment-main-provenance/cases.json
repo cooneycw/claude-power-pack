@@ -1,0 +1,6 @@
+[
+  {"name": "bad-fetchable-unmerged", "pin": "feature", "history": "full", "expect": "not-reachable", "exit": 5},
+  {"name": "good-main-ancestor", "pin": "ancestor", "history": "full", "expect": "reachable", "exit": 0},
+  {"name": "unknown-main-missing", "pin": "ancestor", "history": "missing-main", "expect": "unknown", "exit": 5},
+  {"name": "unknown-main-shallow", "pin": "tip", "history": "shallow", "expect": "unknown", "exit": 5}
+]

@@ -5,6 +5,7 @@ Infra generators remain path-scoped and are deliberately not enrolled here.
 # NEGATIVE-CONTROL: controls/pinned-enrolment
 # NEGATIVE-CONTROL: controls/pinned-enrolment-fork-evidence
 # NEGATIVE-CONTROL: controls/pinned-enrolment-exit-class
+# NEGATIVE-CONTROL: controls/pinned-enrolment-main-provenance
 from __future__ import annotations
 
 import json
@@ -30,8 +31,20 @@ def bootstrap_script(pin: str, provider: str) -> str:
         raise ValueError("enrolment provider unavailable")
     return r'''#!/usr/bin/env bash
 set -uo pipefail
-unknown() { echo "CPP_COUNTER_MODEL_ENROLMENT: unknown ($1; retry or refresh /cpp:init)"; exit 5; }
 CPP_SHA=__PIN__
+CPP_MAIN_SHA=-
+CPP_REVISION_REPORTED=0
+cpp_revision() {
+    local pin="$CPP_SHA"
+    [[ "$pin" =~ ^[0-9a-f]{40}$ ]] || pin=-
+    echo "CPP_COUNTER_MODEL_CPP_REVISION: $1 pin=$pin main=$CPP_MAIN_SHA"
+    CPP_REVISION_REPORTED=1
+}
+unknown() {
+    [[ "$CPP_REVISION_REPORTED" == 1 ]] || cpp_revision unknown
+    echo "CPP_COUNTER_MODEL_ENROLMENT: unknown ($1; retry or refresh /cpp:init)"
+    exit 5
+}
 provider=__PROVIDER__
 event="${CPP_PR_EVENT:-}"
 branch="${CPP_PR_BRANCH:-}"
@@ -98,9 +111,28 @@ esac
 cpp_tmp=$(mktemp -d) || unknown 'temporary checkout unavailable'
 trap 'rm -rf -- "$cpp_tmp"' EXIT
 git -C "$cpp_tmp" init --quiet || unknown 'CPP checkout init failed'
-timeout 120s git -C "$cpp_tmp" fetch --quiet --no-tags --depth=1 \
-    https://github.com/cooneycw/claude-power-pack.git "$CPP_SHA" || unknown 'CPP fetch failed'
-git -C "$cpp_tmp" checkout --quiet --detach FETCH_HEAD || unknown 'CPP checkout failed'
+# A pin is immutable, not necessarily approved. Only this official main
+# snapshot can authorize code; consumer/local refs never participate (#1754).
+timeout 120s git -C "$cpp_tmp" fetch --quiet --no-tags \
+    https://github.com/cooneycw/claude-power-pack.git \
+    refs/heads/main:refs/remotes/cpp-enrolment/main || unknown 'CPP main fetch failed'
+cpp_shallow=$(git -C "$cpp_tmp" rev-parse --is-shallow-repository) || unknown 'CPP main history unreadable'
+[[ "$cpp_shallow" == false ]] || unknown 'CPP main history is shallow or unavailable'
+CPP_MAIN_SHA=$(git -C "$cpp_tmp" rev-parse --verify refs/remotes/cpp-enrolment/main^{commit}) ||
+    { CPP_MAIN_SHA=-; unknown 'CPP main reference unavailable'; }
+[[ "$CPP_MAIN_SHA" =~ ^[0-9a-f]{40}$ ]] || { CPP_MAIN_SHA=-; unknown 'CPP main revision invalid'; }
+main_history=$(timeout 120s git -C "$cpp_tmp" rev-list "$CPP_MAIN_SHA") || unknown 'CPP main history unavailable'
+grep -Fxq "$CPP_MAIN_SHA" <<<"$main_history" || unknown 'CPP main history incomplete'
+if grep -Fxq "$CPP_SHA" <<<"$main_history"; then
+    cpp_revision reachable
+else
+    comparison_status=$?
+    [[ "$comparison_status" == 1 ]] || unknown 'CPP main history comparison failed'
+    cpp_revision not-reachable
+    unknown 'CPP pin is not retained by official main; use merged CPP and regenerate'
+fi
+# No pin fetch, checkout or checker execution occurs before the proof above.
+git -C "$cpp_tmp" checkout --quiet --detach "$CPP_SHA" || unknown 'CPP checkout failed'
 resolved=$(git -C "$cpp_tmp" rev-parse HEAD) || unknown 'CPP checkout revision unreadable'
 [[ "$resolved" == "$CPP_SHA" ]] || unknown 'resolved CPP SHA mismatch'
 [[ "$(git rev-parse HEAD)" == "$consumer_head" ]] || unknown 'consumer head changed during bootstrap'
@@ -142,13 +174,15 @@ def github_actions_job(pin: str) -> list[str]:
 
 
 def woodpecker_step(pin: str) -> list[str]:
+    diagnostic_pin = pin if re.fullmatch(r"[0-9a-f]{40}", pin) else "-"
     lines = ["  - name: counter-model-enrolment",
              "    # Enrolment runtime is a tag-only exception to the clone/scanner digest pins.",
              "    image: python:3.11-bookworm",
              "    when:", "      event: pull_request", "    commands:",
              "      - >-", "        timeout 120s sh -c",
              '        "apt-get update && apt-get install -y --no-install-recommends bash git curl ca-certificates"',
-             "        || { echo 'CPP_COUNTER_MODEL_ENROLMENT: unknown (tool bootstrap failed; retry)'; exit 5; }",
+             "        || { echo 'CPP_COUNTER_MODEL_CPP_REVISION: unknown pin=" + diagnostic_pin + " main=-';",
+             "             echo 'CPP_COUNTER_MODEL_ENROLMENT: unknown (tool bootstrap failed; retry)'; exit 5; }",
              "      - |", "        bash -s <<'CPP_ENROLMENT_BOOTSTRAP'"]
     # Woodpecker expands ${...} before starting the shell. Escape every dollar
     # so event values and shell substitutions remain data until runtime.

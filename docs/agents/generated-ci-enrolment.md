@@ -37,15 +37,33 @@ override it. The rendered job embeds the full 40-character revision. A missing,
 invalid or unreadable snapshot produces an UNKNOWN job with an `/cpp:init`
 remedy, rather than following a branch or tag.
 
-The job fetches that exact object from the official CPP repository into a
-temporary checkout, verifies its resolved HEAD equals the pin, and invokes
-`scripts/flow-finish-gate.sh --enrolment-only --branch <PR-source-branch>` from
-there while the working directory remains the consumer checkout. A changed
-consumer HEAD, failed fetch, incomplete bootstrap or unreadable checker result
-is UNKNOWN (exit 5): retry the pipeline. It never becomes unenrolled or green.
+A full SHA is immutable, but an unmerged checker can still print a false green.
+Before checking out or executing the pin, the job fetches complete
+`refs/heads/main` history from the fixed official CPP repository into an empty
+private temporary repository. It captures that main tip and proves exact pin
+membership in its history. Consumer refs, local CPP refs and remote defaults
+cannot authorize code. The pin is never fetched directly. A retained historical
+main ancestor is allowed and runs its own checker, not the latest main checker.
 
-Update CPP, refresh `/cpp:init`, regenerate the pipeline, and review the resulting
-pin change in a PR. Release names are not executable references. In-memory API
+The job reports the measured snapshot separately:
+`CPP_COUNTER_MODEL_CPP_REVISION: reachable|not-reachable|unknown pin=<sha> main=<sha or ->`.
+A pin excluded from complete main history is `not-reachable`; failed fetch,
+missing main, unexpected shallow history or unreadable evidence is `unknown`.
+Both stop before checkout or execution and produce enrolment UNKNOWN (exit 5).
+No unavailable comparison is treated as approval. Full-history fetch costs more
+bandwidth than the previous shallow object fetch and remains time bounded.
+
+Only a proven pin is checked out, verified against HEAD and used to invoke
+`scripts/flow-finish-gate.sh --enrolment-only --branch <PR-source-branch>` while
+the working directory remains the consumer checkout. A changed consumer HEAD,
+incomplete bootstrap or unreadable checker result also remains UNKNOWN (exit 5).
+The installation receipt and offline generation keep recording the actual CPP
+revision; they are not provenance attestations. Development checkouts can still
+be installed, but their unmerged pins cannot execute in the generated CI job.
+
+Update to a merged CPP checkout, re-run `/cpp:init`, regenerate the pipeline,
+and review both the pin and generated job diff in a PR. Existing workflows gain
+this check only after regeneration; there is no retroactive enforcement. Release names are not executable references. In-memory API
 configurations without loaded install metadata also generate UNKNOWN jobs.
 
 ## PR policy and history
@@ -70,7 +88,7 @@ No new secret binding is required by the generated template. Woodpecker's clone
 has depth 0 and disables synthetic PR merges to preserve head attribution.
 
 The Woodpecker step installs its own shell/git/HTTP tools; installation failures
-are UNKNOWN. Enrolment is independent of application checks; explicit dependency
+emit the unknown revision diagnostic with `main=-` and exit UNKNOWN. Enrolment is independent of application checks; explicit dependency
 edges retain their secret-scan, build, security, smoke and deploy ordering.
 Runtime dollars in its emitted command are escaped for provider
 substitution. See the official [environment](https://woodpecker-ci.org/docs/usage/environment)
@@ -79,7 +97,9 @@ documentation for the provider fields and escaping contract.
 
 ## Evidence boundaries
 
-On `pull_request`, the PR's own workflow runs, so a same-repository PR can edit the pin or the job.
+On `pull_request`, the PR's own workflow runs, so a same-repository PR can
+edit the pin or the job. Main retention does not make that workflow tamper-proof,
+authenticate a signature, or reject an old vulnerable main ancestor.
 
 `controls/pinned-enrolment` executes the actual emitted shell with owned git and
 HTTP stubs, using Actions' `bash -eo pipefail` behavior for its cases. Committed
@@ -93,3 +113,19 @@ fork evidence or collapse UNKNOWN into FAIL. These controls do not claim live
 provider coverage. Unit tests
 also fetch a local trusted CPP fixture, run the real enrolment-only helper and
 verify a receipt at an ancestor of the consumer HEAD.
+
+`controls/pinned-enrolment-main-provenance` runs both actual stdlib job emitters
+with real owned Git: a fetchable unmerged permissive checker is BAD, a non-tip
+main ancestor is GOOD, and missing or genuinely shallow main is UNKNOWN. Its
+constructed blind anchor mistakes readable main for pin approval and fetches
+an arbitrary missing pin, still runs the feature sentinel, and preserves UNKNOWN
+handling. Unit tests also retain the exact
+historical bootstrap that ran unmerged code, and inject main-fetch timeout,
+missing/invalid refs and history-read failures before checkout. These are offline
+emitted-command tests, not live GitHub Actions or Woodpecker executions.
+
+The shallow-history control requires the named shallow cause and the actual
+CPP-history probe before any enumeration or checkout. A committed near-miss
+removes that guard and substitutes an unrelated refusal of main-tip pins; the
+control rejects it. Full-history main-tip positives also require execution, so
+a blanket tip refusal cannot impersonate the shallow boundary.

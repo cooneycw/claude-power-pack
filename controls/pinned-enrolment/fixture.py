@@ -34,7 +34,19 @@ if [[ "$1" == -C ]]; then
   if [[ "$1" == init ]]; then exit 0; fi
   if [[ "$1" == fetch ]]; then
     [[ "$OWNED_SCENARIO" == fetch-failure ]] && exit 22
-    exit 0
+    case "$*" in
+      'fetch --quiet --no-tags https://github.com/cooneycw/claude-power-pack.git '\
+'refs/heads/main:refs/remotes/cpp-enrolment/main') exit 0 ;;
+      "fetch --quiet --no-tags --depth=1 https://github.com/cooneycw/claude-power-pack.git $OWNED_PIN") exit 0 ;;
+      *) exit 90 ;;
+    esac
+  fi
+  if [[ "$1 $2" == 'rev-parse --is-shallow-repository' ]]; then echo false; exit 0; fi
+  if [[ "$*" == 'rev-parse --verify refs/remotes/cpp-enrolment/main^{commit}' ]]; then
+    echo "$OWNED_MAIN"; exit 0
+  fi
+  if [[ "$1 $2" == "rev-list $OWNED_MAIN" ]]; then
+    printf '%s\\n' "$OWNED_MAIN" "$OWNED_PIN"; exit 0
   fi
   if [[ "$1" == checkout ]]; then
     mkdir -p "$target/scripts"
@@ -74,12 +86,13 @@ printf '{"base":{"repo":{"full_name":"o/r"}},"head":{"ref":"owned-branch","sha":
 printf '"repo":{"full_name":"%s"}}}\\n' "$OWNED_API_HEAD_REPO"
 """)
     curl.chmod(0o755)
-    env = {**os.environ, "PATH": str(binaries) + os.pathsep + os.environ["PATH"],
+    # Owned metadata never inherits a live authentication branch.
+    env = {**os.environ, "GH_TOKEN": "", "PATH": str(binaries) + os.pathsep + os.environ["PATH"],
            "CPP_PR_EVENT": "pull_request", "CPP_PR_BRANCH": "owned-branch",
            "CPP_PR_HEAD_REPO": "fork/r" if fork else "o/r", "CPP_PR_BASE_REPO": "o/r",
            "CI_PIPELINE_EVENT": "pull_request", "CI_COMMIT_SOURCE_BRANCH": "owned-branch",
            "CI_COMMIT_PULL_REQUEST": "12", "CI_REPO": "o/r", "CI_FORGE_TYPE": "github",
-           "CI_FORGE_URL": "https://github.com", "OWNED_CALLS": str(calls), "OWNED_PIN": PIN,
+           "CI_FORGE_URL": "https://github.com", "OWNED_CALLS": str(calls), "OWNED_PIN": PIN, "OWNED_MAIN": "b" * 40,
            "OWNED_PROJECT": str(tmp_path), "OWNED_SCENARIO": scenario,
            "OWNED_API_HEAD_REPO": "fork/r" if fork else "o/r"}
     if provider == "woodpecker":

@@ -1,0 +1,8 @@
+{
+  "name": "unknown-main-missing",
+  "pin": "ancestor",
+  "history": "missing-main",
+  "expect": "unknown",
+  "exit": 5,
+  "provider": "github-actions"
+}
