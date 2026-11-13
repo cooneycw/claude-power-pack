@@ -88,6 +88,9 @@ Python-floor/pin, stripping and explicit step-env policies.
    finish/check, two security modules and bootstrap); two generated manifest
    security steps; and three CPP-owned manifest Python helper steps. No automatic
    fallback to CPP for a target's missing ruff/pytest/mypy/python is permitted.
+   Also pin all six security import skip probes to that same runtime: two
+   built-in, two generated and two CPP manifest expressions. Thus the proposal
+   covers ten command bindings plus six skip expressions, not ten total uses.
    Explicit manifest env overrides remain explicit consumer policy, not a new
    privilege boundary. The reserved value is not taken from handoff metadata.
 
@@ -166,3 +169,40 @@ No full suite, gate, PR, consumer ticket or product change is authorized yet.
    kyle, skillc and kyle-candidate before CPP ships this interface change. Which
    consumers must demonstrate acceptance before merge? Orchestrator/master files
    those coordination issues; this worker has filed none.
+
+
+## Additional security acceptance cases (orchestrator 24312)
+
+Still test-only, with production files unchanged. The extended local battery
+has **6 failed, 6 passed**. Two red cases are original target-Python resolution;
+four are CPP-owned security steps under restored target PATH: finish/deploy
+without PyYAML and finish/deploy with an explicitly refusing target import probe.
+The passing controls are two CPP runner-interpreter populations, two hand-written
+security outcomes, and two positive built-in scans with target PyYAML installed.
+
+Important measured distinction: bare `import lib.security` succeeds without
+PyYAML, because config.py imports yaml lazily. Both current built-in skip probes
+therefore return false for skip; their commands RUN and exit 2 with
+`SECURITY_GATE: flow_finish UNKNOWN` / `flow_deploy UNKNOWN`, explaining that
+configuration was not applied. The no-PyYAML input alone does not establish a
+silent skip. A separate owned target-python shim refuses exactly that import
+probe and delegates all other invocations to the actual target Python; its
+refusal is asserted before running the step. Both current steps then skip,
+which makes forgetting to pin skip_if distinguishable from fixing the command.
+
+The consumer's hand-written `PYTHONPATH=<cpp> python3 -m lib.security gate
+flow_finish` runs with the actual target venv under the proposed restored-PATH
+environment supplied directly to ShellStep (no product implementation). With an
+owned empty security YAML and no PyYAML: exit 2 UNKNOWN, not skip, and no scan
+verdict. With the real PyYAML 6.0.3 Python implementation copied from CPP's
+installed dependency into the isolated target's site-packages (no native extension
+for the different Python, no fake module): exit 0 PASS. Both built-in scan fixture
+populations also exit 0 PASS when that target dependency is present, proving the
+missing-dependency red has no unrelated finding. The source fixture contains
+only harmless owned files and a complete ignore policy. No live scan is run.
+
+The binding count is now explicit: **10 command expressions plus 6 skip_if
+expressions = 16 interpreter-bearing expressions**, in addition to 11 launcher
+handoffs. Target hand-written commands remain target-owned and require their own
+PyYAML when using a security config; they are not automatically reclassified as
+CPP-owned. Coordination text must state that measured migration requirement.

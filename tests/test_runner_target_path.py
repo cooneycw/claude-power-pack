@@ -87,3 +87,106 @@ def test_the_runners_own_interpreter_stays_in_cpp(tmp_path: Path, target_uv_envi
     assert observed["runner"]["prefix"] == str(ROOT / ".venv")
     assert observed["runner"]["version"].startswith("3.11.")
     assert observed["runner"]["VIRTUAL_ENV"] == str(ROOT / ".venv")
+
+
+# Security migration observations use the proposed restored target PATH
+# directly in an owned ShellStep context. The production wrapper is unchanged.
+def security_probe(work: Path, with_yaml: bool, builtin: str | None = None,
+                   refuse_target_import: bool = False) -> dict:
+    import shlex
+
+    import yaml
+
+    from lib.cicd.state import StepStatus
+    from lib.cicd.steps import BUILTIN_PLANS, ShellStep, StepDef
+
+    work.mkdir(parents=True, exist_ok=True)
+    target = work / "target"
+    target.mkdir()
+    target_venv = target / ".target-venv"
+    target_python = shutil.which("python3", path="/usr/bin:/bin")
+    assert target_python
+    subprocess.run(["uv", "venv", "--python", target_python, "--no-python-downloads", str(target_venv)],
+                   check=True, capture_output=True, text=True, timeout=30)
+    site = subprocess.check_output([str(target_venv / "bin/python3"), "-c",
+                                    "import sysconfig;print(sysconfig.get_path('purelib'))"], text=True).strip()
+    if with_yaml:
+        # The actual installed PyYAML's Python implementation, not a fake module.
+        # Binary extensions for CPP's different Python are deliberately excluded.
+        shutil.copytree(Path(yaml.__file__).parent, Path(site) / "yaml",
+                        ignore=shutil.ignore_patterns("*.so", "__pycache__"))
+    yaml_probe = subprocess.run([str(target_venv / "bin/python3"), "-c", "import yaml;print(yaml.__version__)"],
+                                text=True, capture_output=True, check=False)
+    assert (yaml_probe.returncode == 0) is with_yaml, "precondition: actual target PyYAML population"
+    (target / ".claude").mkdir()
+    (target / ".claude/security.yml").write_text("{}\n")
+    (target / ".gitignore").write_text(".env\n.env.*\n*.pem\n*.key\nsecrets.*\n*.p12\n.claude/security.yml\n")
+    (target / "owned.py").write_text("answer = 42\n")
+    env = os.environ.copy()
+    env.update(PATH=f"{target_venv / 'bin'}:/usr/local/bin:/usr/bin:/bin",
+               CPP_RUNNER_PYTHON=str(ROOT / ".venv/bin/python3"))
+    for key in ("PYTHONPATH", "VIRTUAL_ENV", "PYTHONHOME"):
+        env.pop(key, None)
+    assert shutil.which("python3", path=env["PATH"]) == str(target_venv / "bin/python3")
+    if refuse_target_import:
+        # Force the separate skip-guard population explicitly. Missing PyYAML
+        # alone is NOT enough: lib.security loads that dependency lazily.
+        target_command = target_venv / "bin/python3"
+        target_command.unlink()
+        target_command.write_text(
+            '#!/bin/sh\nif [ "${1-}" = -c ] && [ "${2-}" = "import lib.security" ]; then exit 1; fi\n'
+            f'exec {shlex.quote(str(target_venv / "bin/python"))} "$@"\n')
+        target_command.chmod(0o755)
+        refused = subprocess.run([str(target_command), "-c", "import lib.security"],
+                                 env={**env, "PYTHONPATH": str(ROOT)}, check=False)
+        assert refused.returncode == 1, "precondition: target import probe really refuses"
+    if builtin:
+        plan = "finish" if builtin == "security_scan" else "deploy"
+        definition = next(step for step in BUILTIN_PLANS[plan] if step.id == builtin)
+    else:
+        definition = StepDef(id="handwritten_security", command=(
+            f"PYTHONPATH={shlex.quote(str(ROOT))} python3 -m lib.security gate flow_finish"))
+    step = ShellStep(definition)
+    context = {"project_root": str(target), "env": env}
+    skipped = step.should_skip(context)
+    result = None if skipped else step.execute(context)
+    observed = {"with_yaml": with_yaml, "yaml_version": yaml_probe.stdout.strip(),
+                "builtin": builtin, "refuse_target_import": refuse_target_import, "skipped": skipped,
+                "success": result is not None and result.status == StepStatus.SUCCESS,
+                "exit_code": None if result is None else result.exit_code,
+                "output": "" if result is None else result.output,
+                "error": "" if result is None else result.error,
+                "command": definition.command, "skip_if": definition.skip_if}
+    (work / "observation.json").write_text(json.dumps(observed, indent=2) + "\n")
+    return observed
+
+
+@pytest.mark.parametrize("builtin", ["security_scan", "deploy_security_scan"])
+@pytest.mark.parametrize("refuse_target_import", [False, True])
+def test_cpp_security_runs_without_borrowing_target_pyyaml(
+    tmp_path: Path, builtin: str, refuse_target_import: bool,
+) -> None:
+    observed = security_probe(tmp_path, with_yaml=False, builtin=builtin,
+                              refuse_target_import=refuse_target_import)
+    assert not observed["skipped"], observed
+    assert observed["success"], observed
+    assert "SECURITY_GATE:" in observed["output"] and " PASS " in observed["output"]
+
+
+@pytest.mark.parametrize("with_yaml", [False, True])
+def test_handwritten_security_on_target_path_names_missing_yaml_honestly(tmp_path: Path, with_yaml: bool) -> None:
+    observed = security_probe(tmp_path, with_yaml=with_yaml)
+    assert not observed["skipped"]
+    assert observed["exit_code"] == (0 if with_yaml else 2), observed
+    if with_yaml:
+        assert "SECURITY_GATE: flow_finish PASS " in observed["output"]
+    else:
+        assert "SECURITY_GATE: flow_finish UNKNOWN" in observed["output"]
+        assert "PyYAML is not importable" in observed["output"]
+
+
+@pytest.mark.parametrize("builtin", ["security_scan", "deploy_security_scan"])
+def test_owned_security_population_passes_when_target_yaml_is_installed(tmp_path: Path, builtin: str) -> None:
+    observed = security_probe(tmp_path, with_yaml=True, builtin=builtin)
+    assert not observed["skipped"] and observed["success"], observed
+    assert " PASS " in observed["output"]
