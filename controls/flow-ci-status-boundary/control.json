@@ -10,7 +10,7 @@
   "good_signal": "^FLOW_CI_BOUNDARY_CONTROL: (ready|missed boundary)$",
   "detect_signal": "^FLOW_CI_BOUNDARY_CONTROL: refused unsafe proceed$",
   "unavailable_signal": "^FLOW_CI_BOUNDARY_CONTROL: unavailable - ",
-  "limits": "Public/worker boundary cases execute the actual shell together with its dispatcher and canonical provider reader in an owned temporary package. Stubs return owned HTTP/GHA answers and log requests; Git ceiling prevents ancestor checkout leakage. BAD cases require exact codes/status/provider, exactly one selection, and no forbidden requests across approved rows a-e. Runtime unknown/2 is an unsafe-proceed refusal, not an unavailable control. GOOD success/recorded/advisory cases preserve intended behavior. The constructed bundle freezes the pre-change shell, flow module and provider reader together, with per-member hashes, so it cannot import a fixed current dispatcher and hide an old ref/mode defect. No live CI/network or independent provider identity authentication is claimed; existing provider-marker equality is preserved separately by tests.",
+  "limits": "Public/worker boundary cases execute the actual shell together with its dispatcher and canonical provider reader in an owned temporary package. Stubs return owned HTTP/GHA answers and log requests; Git ceiling prevents ancestor checkout leakage. BAD cases require exact codes/status/provider, exactly one selection, and no forbidden requests across approved rows a-e. Runtime unknown/2 is an unsafe-proceed refusal, not an unavailable control. GOOD success/recorded/advisory cases preserve intended behavior. The constructed bundle freezes the pre-change shell, flow module and provider reader together, with per-member hashes, so it cannot import a fixed current dispatcher and hide an old ref/mode defect. No live CI/network or independent provider identity authentication is claimed; existing provider-marker equality is preserved separately by tests. A valid-ref not-found wait expiry is a committed GOOD exit5 case, before the single-shot unknown/not-found exit2 rule.",
   "cases": [
     {
       "name": "bad-a-stalled-exit",
@@ -90,6 +90,11 @@
     {
       "name": "good-stalled-advisory",
       "input": "cases/good-stalled-advisory",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-expired-not-found",
+      "input": "cases/good-expired-not-found",
       "expect": "GOOD"
     }
   ],

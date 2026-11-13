@@ -12,5 +12,6 @@
   "fallback": true,
   "wp": "not-found",
   "ref": "fixture-ref-does-not-exist",
-  "args": []
+  "args": [],
+  "python_unavailable": true
 }

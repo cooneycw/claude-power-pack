@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- Flow CI fallback now exits 1 for stalled automation and 2 for unknown or
+  not-found results (#1758). Invalid refs stop before provider requests;
+  valid-ref wait expiry still wins as exit 5. A backend preset alone cannot
+  bypass recorded selection; explicit workers report one scoped selection
+  and provider `none` until a lane answers. Canceled/killed stays failure.
+
 - Generated main-app CI enrolment proves the pinned CPP revision belongs to a
   complete official main snapshot before checkout or execution (#1754).
   Fetchable unmerged code can no longer report a false green; missing or
@@ -24,6 +30,11 @@
   duplicates the marker. Bash 3.2 retains its previous unguarded behavior.
 
 ### Upgrading
+
+- Consumers of `flow-ci-status.sh` must handle fallback unknown/not-found as
+  exit 2, even without `--exit-code` (#1758). Valid-ref expired waits stay 5.
+  Internal backend harnesses must set `CPP_FLOW_CI_WORKER=1` with the selector;
+  public callers use `--fallback-provider-probes` for explicit probing.
 
 - From a merged CPP checkout, re-run `/cpp:init`, regenerate both application
   pipelines and review the pin and job diff to adopt main-retention checks

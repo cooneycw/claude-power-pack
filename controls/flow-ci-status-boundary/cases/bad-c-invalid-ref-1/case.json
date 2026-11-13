@@ -15,5 +15,6 @@
   "args": [
     "--wait",
     "1"
-  ]
+  ],
+  "python_unavailable": true
 }

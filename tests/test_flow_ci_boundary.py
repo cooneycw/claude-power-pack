@@ -182,3 +182,40 @@ def test_public_selection_occurs_once_even_with_explicit_workers(tmp_path, bound
     assert len(marks["FLOW_CI_SELECTION"]) == 1, result.stdout + result.stderr
     assert marks["FLOW_CI_SELECTION"][0].startswith("recorded" if recorded else "fallback")
     assert marks["FLOW_CI_STATUS"] == ["success"] and result.returncode == 0
+
+
+@requires_bash
+@pytest.mark.parametrize("worker,backend", [("2", "woodpecker"), ("1", ""), ("1", "unregistered")])
+def test_invalid_worker_context_stops_without_probe(tmp_path, boundary_env, worker, backend):
+    env, calls = wp_env(tmp_path, boundary_env)
+    env.update(CPP_FLOW_CI_WORKER=worker, CPP_FLOW_CI_BACKEND=backend)
+    result = _run(tmp_path, SHA, "--path", str(tmp_path), "--repo", "o/r", recorded=True, env=env)
+    marks = _markers(result.stdout)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert marks["FLOW_CI_SELECTION"] == ["unknown"]
+    assert marks["FLOW_CI_PROVIDER"] == ["none"]
+    assert not calls.exists()
+
+
+@requires_bash
+@pytest.mark.parametrize("fallback", [False, True])
+def test_python_unavailable_needs_actual_fallback_flag(tmp_path, boundary_env, fallback):
+    import shutil
+
+    env, calls = wp_env(tmp_path, boundary_env, routes=_stall_routes("success", workflow_state="success", children=[]))
+    binaries = tmp_path / "without-python"
+    binaries.mkdir()
+    for name in ("bash", "jq", "tr", "date", "cat", "sed", "grep", "head", "awk", "dirname", "env"):
+        source = shutil.which(name)
+        assert source, name
+        (binaries / name).symlink_to(source)
+    env["PATH"] = str(binaries)
+    assert shutil.which("python3", path=env["PATH"]) is None
+    assert shutil.which("bash", path=env["PATH"]) is not None
+    result = _run(tmp_path, SHA, "--path", str(tmp_path), "--repo", "o/r", "--event", "push",
+                  recorded=not fallback, env=env)
+    marks = _markers(result.stdout)
+    assert result.returncode == (0 if fallback else 2), result.stdout + result.stderr
+    assert marks["FLOW_CI_STATUS"] == ["success" if fallback else "unknown"]
+    assert len(marks["FLOW_CI_SELECTION"]) == 1
+    assert calls.exists() == fallback

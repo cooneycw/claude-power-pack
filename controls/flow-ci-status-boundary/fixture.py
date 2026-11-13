@@ -81,6 +81,16 @@ else:sys.exit(1)
         env.update(FLOW_CI_CURL="/nonexistent/curl", FLOW_CI_GH="/nonexistent/gh",
                    WOODPECKER_API_TOKEN="", WOODPECKER_SERVER="")
         assert not Path(env["FLOW_CI_CURL"]).exists() and not Path(env["FLOW_CI_GH"]).exists()
+    if case.get("python_unavailable"):
+        no_python = root / "no-python"
+        no_python.mkdir()
+        for name in ("bash", "jq", "git", "tr", "date", "cat", "sed", "grep", "head", "awk", "dirname", "env"):
+            source = shutil.which(name)
+            assert source, name
+            (no_python / name).symlink_to(source)
+        env["PATH"] = str(no_python)
+        assert shutil.which("python3", path=env["PATH"]) is None
+        assert shutil.which("git", path=env["PATH"]) is not None
     if "backend" in case:
         env["CPP_FLOW_CI_BACKEND"] = case["backend"]
     if case.get("worker"):
