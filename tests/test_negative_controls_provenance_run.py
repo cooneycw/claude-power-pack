@@ -788,3 +788,52 @@ def test_ci_real_git_supplies_main_to_a_shallow_detached_restricted_checkout(tmp
         assert checked.returncode == 1 and "PROVENANCE:OFF_MAIN" in checked.stdout
     else:
         assert checked.returncode == 0 and "on_main=1 off_main=0 unknown=0" in checked.stdout
+
+
+@pytest.mark.parametrize("state", ["unknown", "off-main"])
+def test_non_strict_provenance_failure_is_advisory_but_never_a_clean_summary(tmp_path: Path, state: str) -> None:
+    root = _fixture(tmp_path, "good-anchor-matches-its-commit", shallow=(state == "unknown"))
+    if state == "off-main":
+        _mutate(root, lambda spec: spec["anchors"][0].update(sha="1a13bc6e184aebfaa1a3ddb8d492f2b6a80d78ce"))
+    advisory = harness(root, "--verify-provenance")
+    strict = harness(root, "--strict", "--verify-provenance")
+    assert advisory.returncode == 0 and strict.returncode == 1
+    for done in (advisory, strict):
+        word = "UNCOMPARED" if state == "unknown" else "OFF_MAIN"
+        assert f"-> PROVENANCE:{word}" in done.stdout
+        assert "negative-controls: ok" not in done.stdout
+
+
+def test_main_history_is_cached_by_root_and_tip_and_unknown_is_not_cached(tmp_path: Path, monkeypatch) -> None:
+    module = _harness_module()
+    (tmp_path / "one").mkdir()
+    (tmp_path / "two").mkdir()
+    one = _fixture(tmp_path / "one", "good-anchor-matches-its-commit", shallow=False)
+    two = _fixture(tmp_path / "two", "good-anchor-matches-its-commit", shallow=False)
+    anchor = json.loads((one / "controls/toy/control.json").read_text())["anchors"][0]
+    real_run = subprocess.run
+    enumerated = []
+    fail_once = True
+
+    def recording_run(argv, *args, **kwargs):
+        nonlocal fail_once
+        if "rev-list" in argv:
+            enumerated.append(tuple(argv))
+            if fail_once:
+                fail_once = False
+                return subprocess.CompletedProcess(argv, 1, "", "injected unreadable history")
+        return real_run(argv, *args, **kwargs)
+
+    monkeypatch.setattr(module.subprocess, "run", recording_run)
+    assert module._main_ancestry(anchor, one)[0] == "UNCOMPARED"
+    assert not module._MAIN_ANCESTORS, "a failed enumeration cannot populate the cache"
+    assert module._main_ancestry(anchor, one)[0] == "ok"
+    assert module._main_ancestry(anchor, one)[0] == "ok"
+    assert len(enumerated) == 2, "one failure then one successful enumeration"
+    anchor_two = json.loads((two / "controls/toy/control.json").read_text())["anchors"][0]
+    assert module._main_ancestry(anchor_two, two)[0] == "ok"
+    assert len(enumerated) == 3, "another root has an independent history"
+    (one / "new-main-tip").write_text("tip changed\n")
+    _commit(one)
+    assert module._main_ancestry(anchor, one)[0] == "ok"
+    assert len(enumerated) == 4, "a new main tip must not reuse old ancestry"

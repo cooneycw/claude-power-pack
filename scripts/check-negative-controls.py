@@ -2768,6 +2768,7 @@ OFF_MAIN = "OFF_MAIN"
 #: the count line needs without changing what that function returns.
 _HISTORICAL_COMPARED: dict[int, bool] = {}
 _HISTORICAL_RETENTION: dict[int, tuple[str, str]] = {}
+_MAIN_ANCESTORS: dict[tuple[Path, str], frozenset[str]] = {}
 
 
 def _main_ancestry(anchor: dict[str, str], root: Path) -> tuple[str, str]:
@@ -2776,11 +2777,11 @@ def _main_ancestry(anchor: dict[str, str], root: Path) -> tuple[str, str]:
     The verdict describes the available main snapshot, not an unseen remote.
     A shallow boundary or missing reference cannot establish this policy.
     """
-    def git(*args: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(["git", "-C", str(root), *args], capture_output=True,
-                              text=True, timeout=30, check=False)
-
     try:
+        def git(*args: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(["git", "-C", str(root), *args], capture_output=True,
+                                  text=True, timeout=30, check=False)
+
         shallow = git("rev-parse", "--is-shallow-repository")
         if shallow.returncode != 0 or shallow.stdout.strip() not in {"true", "false"}:
             return UNCOMPARED, "main ancestry is unknown: repository history could not be read"
@@ -2803,10 +2804,14 @@ def _main_ancestry(anchor: dict[str, str], root: Path) -> tuple[str, str]:
             main_sha = tip.stdout.strip()
             # Enumerating complete main history also answers for an absent
             # side-branch object. Requiring that object would defeat a main-only clone.
-            history = git("rev-list", main_sha)
-            ancestors = history.stdout.splitlines()
-            if history.returncode != 0 or main_sha not in ancestors:
-                return UNCOMPARED, f"main ancestry is unknown: could not enumerate {ref} at {main_sha}"
+            cache_key = (root.resolve(), main_sha)
+            ancestors = _MAIN_ANCESTORS.get(cache_key)
+            if ancestors is None:
+                history = git("rev-list", main_sha)
+                ancestors = frozenset(history.stdout.splitlines())
+                if history.returncode != 0 or main_sha not in ancestors:
+                    return UNCOMPARED, f"main ancestry is unknown: could not enumerate {ref} at {main_sha}"
+                _MAIN_ANCESTORS[cache_key] = ancestors
             matches = [sha for sha in ancestors if sha.startswith(anchor["sha"])]
             if len(matches) == 1:
                 return "ok", ""
@@ -2939,6 +2944,7 @@ def _provenance(anchor: dict[str, str], anchor_path: Path, root: Path, verify: b
 
 
 def main(argv: list[str] | None = None) -> int:
+    _MAIN_ANCESTORS.clear()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--strict", action="store_true", help="exit non-zero on anything that is not PASS")

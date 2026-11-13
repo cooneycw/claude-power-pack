@@ -19,6 +19,15 @@
 
 ### Upgrading
 
+- With `--verify-provenance`, non-strict negative-control runs still exit 0 on
+  unknown or off-main provenance, but now print the named failure summary
+  instead of `negative-controls: ok`; add `--strict` when that must block work.
+  Repositories whose origin default branch is not `main` now report unknown
+  retention (`UNCOMPARED`) and fail strict verification. This policy currently
+  supports main only: omit the optional flag to retain discrimination-only
+  checks, or keep verification failing until default-branch support is added;
+  do not rename an unrelated branch to pretend it is main (#1797).
+
 - Regenerate and review existing infrastructure pipelines by hand with
   `/cicd:infra-pipeline` (#1756); nothing detects stale generated content or
   tells existing consumers to regenerate. GitHub jobs now use contents-only

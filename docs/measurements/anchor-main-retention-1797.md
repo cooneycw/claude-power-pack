@@ -74,3 +74,37 @@ repository-local credentials absent) identified missing real-Git fetch coverage.
 Accepted: the local-origin integration adds both retained and off-main cases.
 Both fail with the original CI block lacking the explicit main fetch, and pass
 with the new block. No live network or cloud service is involved.
+
+
+## Final preflight corrections and cost
+
+The first 45-record preflight at `f695a32c` had 44 exit-zero records (including
+1,386 tests in 26 referencing files) and one binary-guard failure. The new nested
+Git helper's definition was lexically outside its caller's `try/OSError` scope;
+the static scanner charged 148 no-flag tests with a hard Git dependency. Moving
+the definition inside the existing try preserves runtime handling and makes the
+existing scanner recognize it. Standalone binary-guard and 62 provenance tests
+then passed. No scan exception or gate policy was changed.
+
+Orchestrator review requested explicit non-strict exit/summary tests and an
+Upgrading note: verification failures remain advisory exit 0 without strict,
+but print their named failure instead of an ok summary. Strict exits 1 on the
+same input. Repositories with a non-main default now get unknown retention;
+the supported policy and consumer options are stated in Upgrading.
+
+The ancestry set is cached for one run by resolved root and main tip. Failed
+reads never enter the cache; a changed root or tip causes another enumeration.
+A focused test forces read failure, retry, reuse, second root, and changed tip.
+It fails on the pre-cache instrument.
+
+Five consecutive measurements of the provenance phase over all 49 actual
+historical registrations (same clone, Python 3.11, each run's cache empty) give:
+
+| Version | Median seconds | Range seconds | rev-list calls per run |
+| --- | --- | --- | --- |
+| Before cache, f695a32c | 1.719 | 1.709-1.739 | 49 |
+| After cache | 0.652 | 0.640-0.658 | 1 |
+
+Every run returned ok for all 49 anchors. These times measure the byte/history
+verification performed by `--verify-provenance`, excluding unrelated execution
+of the 127 controls; they are not whole-command timings or a remote CI estimate.
