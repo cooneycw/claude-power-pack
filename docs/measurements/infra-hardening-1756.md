@@ -46,12 +46,23 @@ enumerated by this search and must regenerate manually.
 | Reader: shell running emitted commands | tested against real output | `test_emitted_infra_commands_execute_the_selected_tool` runs the actual command strings in Bash with owned executable stubs. Bicep location is checked set and unset. |
 | Reader: real IaC/cloud CLIs | not covered | Stubs record selected argv; no cloud credentials, real plan/apply or provider API is exercised. No claim of successful cloud deployment. |
 | Reader: CLI errors and file writes | tested against real output | `test_cli_rejects_unsupported_infra_tool_without_writing` goes through `main`/`cmd_infra_pipeline` with actual config and compares the file population before/after. |
+| Reader: CLI preview text | reader unchanged for supported tools | The handler prints generated strings without parsing the changed fields. Unsupported values now take the tested error/no-write path in preview mode. |
+| Reader: CLI JSON file inventory | reader unchanged for supported tools | JSON contains provider names and generated path names, which are unchanged; it does not include workflow content. Unsupported values take the tested error/no-write path in JSON mode. |
 | Reader: required-check derivation | tested against real output | Existing `test_cicd_required_checks.py` generates real infra files and verifies the path-filtered population boundary. |
+| Reader: doctor | reader unchanged | `collect` reads committed file inventory and derived contexts; paths, event/path filters and job/step names are unchanged. It does not inspect the altered permission, timeout, credential, image or command fields. |
 | Reader: GitHub/Woodpecker service parser | not covered | Local YAML parsing and execution controls are evidence about generated structure/commands, not an actual provider run. |
 
-The final regression run with main's infrastructure module (new image constants
-retained for imports) failed 61 cases and passed 34. After the fix, 276 focused
-hardening/required-check tests passed. Full-gate evidence is recorded in the PR.
+GitHub expression substitution is simulated by inserting the raw value. Its
+existing unquoted location expression is preserved: a committed control uses a
+spaced value to prove the harness exposes argument splitting. Normal GitHub
+execution uses a valid location; Woodpecker's quoted runtime value is additionally
+tested with a space. No new quoting is attributed to GitHub substitution.
+
+The first regression run with main's infrastructure module (new image constants
+retained for imports) failed 61 cases and passed 34. After the initial fix, 276
+focused hardening/required-check tests passed. Review then added CLI preview/JSON
+rejection coverage and corrected the GitHub substitution harness; the final
+counts and full-gate evidence are recorded in the PR.
 
 ## Image provenance
 

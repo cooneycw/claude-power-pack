@@ -469,7 +469,8 @@ def test_unsupported_infra_tool_writes_nothing(tool: str, provider: str, tmp_pat
 
 @pytest.mark.parametrize("tool", ["none", "cloudformation"])
 @pytest.mark.parametrize("provider", ["github-actions", "woodpecker"])
-def test_cli_rejects_unsupported_infra_tool_without_writing(tool, provider, tmp_path, capsys):
+@pytest.mark.parametrize("mode", ["preview", "write", "json"])
+def test_cli_rejects_unsupported_infra_tool_without_writing(tool, provider, mode, tmp_path, capsys):
     from lib.cicd.cli import main
 
     config = tmp_path / ".claude/cicd.yml"
@@ -477,7 +478,8 @@ def test_cli_rejects_unsupported_infra_tool_without_writing(tool, provider, tmp_
     config.write_text(f"pipeline:\n  providers: [{provider}]\ninfrastructure:\n  provider: {tool}\n")
     before = {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
     assert tool not in INFRA_TOOLS and len(before) == 1
-    assert main(["infra-pipeline", "--path", str(tmp_path), "--write"]) == 2
+    extra = [] if mode == "preview" else ["--" + mode]
+    assert main(["infra-pipeline", "--path", str(tmp_path), *extra]) == 2
     error = capsys.readouterr().err
     assert "infrastructure.provider" in error and tool in error
     assert all(value in error for value in INFRA_TOOLS)
@@ -511,7 +513,7 @@ def execute_infra_commands(tmp_path, commands, provider, location):
         script = script.replace("$$", "$")  # Woodpecker's documented transport escape.
         cwd = workspace
     else:
-        script = script.replace("${{ vars.AZURE_LOCATION }}", shlex.quote(location or ""))
+        script = script.replace("${{ vars.AZURE_LOCATION }}", location or "")
         cwd = workspace / "infra/app"
     result = subprocess.run(["bash", "-e", "-c", script], env=env, cwd=cwd,
                             capture_output=True, text=True, timeout=10)
@@ -535,7 +537,7 @@ def test_emitted_infra_commands_execute_the_selected_tool(tool, provider, phase,
     else:
         document = yaml.load(files[".github/workflows/infra-app.yml"], Loader=yaml.BaseLoader)
         commands = [step["run"] for step in document["jobs"][phase]["steps"] if "run" in step]
-    location = "fixture region"
+    location = "fixture region" if provider == "woodpecker" else "fixture-region"
     result, calls = execute_infra_commands(tmp_path, commands, provider, location)
     assert result.returncode == 0, result.stderr
     expected = [shlex.split(command) for command in infra_commands(tool, shlex.quote(location))]
@@ -552,6 +554,24 @@ def test_woodpecker_bicep_requires_runtime_location(tmp_path):
     result, calls = execute_infra_commands(tmp_path, step["commands"], "woodpecker", None)
     assert result.returncode != 0 and "AZURE_LOCATION" in result.stderr
     assert calls == [["az", "bicep", "install"]]
+
+
+def test_github_location_substitution_does_not_add_quoting(tmp_path):
+    from lib.cicd.config import InfrastructureConfig
+    from lib.cicd.infrastructure import generate_infra_pipeline
+
+    text = generate_infra_pipeline(InfrastructureConfig(provider="bicep"))[".github/workflows/infra-app.yml"]
+    document = yaml.load(text, Loader=yaml.BaseLoader)
+    commands = [step["run"] for step in document["jobs"]["plan"]["steps"] if "run" in step]
+    location = "fixture region"
+    assert len(location.split()) == 2 and "${{ vars.AZURE_LOCATION }}" in commands[1]
+    result, calls = execute_infra_commands(tmp_path, commands, "github-actions", location)
+    assert result.returncode == 0
+    # GitHub inserts the raw value. The existing unquoted command splits it;
+    # the harness must expose that fact, not manufacture shell quoting.
+    assert calls == [["az", "bicep", "install"],
+                     ["az", "deployment", "sub", "what-if", "--location", "fixture", "region",
+                      "--template-file", "main.bicep"]]
 
 
 @pytest.mark.parametrize("tier", INFRA_TIERS)
