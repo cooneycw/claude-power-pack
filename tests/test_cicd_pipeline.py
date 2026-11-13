@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from lib.cicd.actions import GITLEAKS_IMAGE
+from lib.cicd.actions import GIT_CLONE_IMAGE, GITLEAKS_IMAGE, TRIVY_IMAGE
 from lib.cicd.cli import _check_secrets_source
 from lib.cicd.config import CICDConfig, WoodpeckerConfig
 from lib.cicd.models import Framework, FrameworkInfo, PackageManager
@@ -72,16 +72,54 @@ def _assert_digest_pinned_images(images: list[str]) -> None:
         assert re.fullmatch(r"[^@\s]+@sha256:[0-9a-f]{64}", image), image
 
 
+def _woodpecker_clone_and_security_images(text: str) -> list[str]:
+    document = yaml.load(text, Loader=yaml.BaseLoader)
+    clone = document["clone"]
+    assert clone, "No clone images examined"
+    security = [step for step in document["steps"] if step["name"] in {"secret-scan", "image-security"}]
+    assert {step["name"] for step in security} == {"secret-scan", "image-security"}
+    return [step["image"] for step in clone + security]
+
+
 @pytest.mark.parametrize("provider", ["github-actions", "woodpecker"])
 @pytest.mark.parametrize("framework", list(Framework))
-def test_generated_secret_scan_images_are_digest_pinned(provider: str, framework: Framework) -> None:
+def test_generated_clone_and_security_images_are_digest_pinned(provider: str, framework: Framework) -> None:
     config = _make_config(provider=provider)
-    config.pipeline.woodpecker = WoodpeckerConfig(secret_scan=True)
+    config.pipeline.woodpecker = WoodpeckerConfig(secret_scan=True, image_security=True)
     files = generate_pipeline(_make_info(framework), config)
     path = ".woodpecker.yml" if provider == "woodpecker" else ".github/workflows/ci.yml"
     images = _secret_scan_images(files[path], provider)
     _assert_digest_pinned_images(images)
     assert set(images) == {GITLEAKS_IMAGE}
+    if provider == "woodpecker":
+        protected = _woodpecker_clone_and_security_images(files[path])
+        _assert_digest_pinned_images(protected)
+        assert set(protected) == {GIT_CLONE_IMAGE, GITLEAKS_IMAGE, TRIVY_IMAGE}
+        document = yaml.load(files[path], Loader=yaml.BaseLoader)
+        # Explicit exception: enrolment's runtime pin is tracked separately.
+        exceptions = {"counter-model-enrolment": "python:3.11-bookworm"}
+        for name, image in exceptions.items():
+            assert [step["image"] for step in document["steps"] if step["name"] == name] == [image]
+        assert "# Enrolment runtime is a tag-only exception" in files[path]
+
+
+@pytest.mark.parametrize("tag_only", ["woodpeckerci/plugin-git:2", "aquasec/trivy:0.66.0"])
+def test_clone_and_security_image_assertion_rejects_tag_only_output(tag_only: str) -> None:
+    fixture = Path(__file__).parent / "fixtures" / "woodpecker-protected-images-tag-only.yml"
+    images = _woodpecker_clone_and_security_images(fixture.read_text())
+    assert tag_only in images and "@" not in tag_only
+    with pytest.raises(AssertionError, match=re.escape(tag_only)):
+        _assert_digest_pinned_images([tag_only])
+
+
+@pytest.mark.parametrize("framework", list(Framework))
+def test_generated_image_security_step_is_digest_pinned(framework: Framework) -> None:
+    config = _make_config(provider="woodpecker")
+    config.pipeline.woodpecker = WoodpeckerConfig(image_security=True)
+    document = yaml.load(generate_woodpecker(_make_info(framework), config), Loader=yaml.BaseLoader)
+    images = [step["image"] for step in document["steps"] if step["name"] == "image-security"]
+    _assert_digest_pinned_images(images)
+    assert images == [TRIVY_IMAGE]
 
 
 def test_secret_scan_image_assertion_rejects_tag_only_output() -> None:

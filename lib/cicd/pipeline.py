@@ -15,11 +15,13 @@ from .actions import (
     AWS_SECRETS,
     CACHE,
     CHECKOUT,
+    GIT_CLONE_IMAGE,
     GITLEAKS_IMAGE,
     SETUP_GO,
     SETUP_NODE,
     SETUP_PYTHON,
     SETUP_RUST,
+    TRIVY_IMAGE,
     UV_VERSION,
     deploy_concurrency,
     secret_scan_job,
@@ -339,7 +341,7 @@ def generate_woodpecker(info: FrameworkInfo, config: CICDConfig) -> str:
     lines.append("  branch: [main]")
     lines.append("  event: [push, pull_request]")
     lines.append("")
-    lines.extend(["clone:", "  - name: git", "    image: woodpeckerci/plugin-git:2",
+    lines.extend(["clone:", "  - name: git", f"    image: {GIT_CLONE_IMAGE}",
                   "    settings:", "      depth: 0", "      merge_pull_request: false", ""])
 
     # Steps
@@ -481,7 +483,7 @@ def _woodpecker_image_security_step() -> list[str]:
     """
     return [
         "  - name: image-security",
-        "    image: aquasec/trivy:0.66.0",
+        f"    image: {TRIVY_IMAGE}",
         "    commands:",
         "      # Dockerfile / compose misconfiguration scan + dependency CVE scan.",
         "      # Fail only on fixed HIGH/CRITICAL findings (matches CPP policy).",

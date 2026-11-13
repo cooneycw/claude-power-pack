@@ -132,6 +132,22 @@ steps:
 
 ## The four hardening stages
 
+Generated pipelines clone with an exact release and a multi-architecture digest:
+
+```yaml
+clone:
+  - name: git
+    image: woodpeckerci/plugin-git:2.12.1@sha256:b8d2401997be68ec25d62bd753fe5d30236e029fe007a5e823177e0e485ae205
+    settings:
+      depth: 0
+      merge_pull_request: false
+```
+
+The tag labels the release; the digest selects the index pulled for the agent's
+platform. The clone and scanner pins are named constants in `lib/cicd/actions.py`.
+The enrolment step's `python:3.11-bookworm` runtime remains an explicit tag-only
+exception, stated beside its generated image.
+
 Self-hosted CI must supply what the GitHub Marketplace gives away. The
 `/cicd:woodpecker` generator emits these as opt-in stages
 (`WoodpeckerConfig.secret_scan` / `image_security` / `runtime_smoke`):
@@ -232,7 +248,7 @@ Two levels, increasing cost:
 
   ```yaml
   - name: image-security
-    image: aquasec/trivy:0.66.0
+    image: aquasec/trivy:0.66.0@sha256:086971aaf400beebd94e8300fd8ea623774419597169156cec56eec5b00dfb1e
     commands:
       - trivy config --exit-code 1 --severity HIGH,CRITICAL .
       - trivy fs --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed .

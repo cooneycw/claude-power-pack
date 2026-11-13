@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Upgrading
+
+- Regenerate committed Woodpecker pipelines with `/cicd:pipeline` to adopt the
+  digest-pinned Trivy and clone-plugin images (#1787). Existing pipelines using
+  `woodpeckerci/plugin-git:2` remain readable by required-check derivation and
+  doctor; adoption requires regenerating and reviewing the emitted YAML.
+
 ## [11.0.0] - 2026-11-12
 
 The simplification and lanes series (#1673): 56 merged pull requests since
