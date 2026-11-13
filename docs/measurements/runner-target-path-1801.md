@@ -115,12 +115,15 @@ checkpoint review. They have not been claimed by these focused results.
 
 ## Checkpoint review corrections
 
-The launch inventory enforcement test scans every literal -m lib.cicd occurrence
+The launch inventory enforcement test joins shell continuation lines before
+scanning every literal -m lib.cicd occurrence
 in command documents, templates, scripts, canonical skills and built Codex skills,
 plus the authoritative rationale source copied into the generated skill. It
 fails unknown subcommands and missing target-boundary metadata, rejects an echo
 of metadata as a handoff, and refuses multiple module launches on one line until
-they are separately classified. Committed bad/repaired fixtures prove this check
+they are separately classified. Opaque Python module and lib.cicd subcommand
+variables are refused pending explicit classification. Committed bad/repaired
+fixtures prove this check
 can fail. Against the actual 49d7ff60 source tree, it finds 13 missing source
 handoffs; all are now fixed, including three delegated finish paths, check,
 health, smoke, the generic skill example and runnable rationale examples.
@@ -162,6 +165,19 @@ Supplemental existing bootstrap-wrapper cwd defect was separately filed as
 fixed here. Its direct wrapper retains original PATH and is classified below.
 
 
+## Counter-model pass 1 corrections
+
+The gpt-6.1-terra review identified continuation/constructed-launch blind spots
+and line-number churn in the inventory identity. Four new assertions fail on
+unchanged checkpoint a5d9b825: split module tokens, a variable module, a variable
+subcommand, and an unrelated introductory paragraph. Joining continuations before
+matching and refusing opaque Python module/subcommand expressions makes the bad
+launches visible. The repaired split launcher passes. Stable inventory rows omit
+physical line numbers while preserving source path, classification and repeated
+occurrences. Duplicating a launcher still changes the inventory.
+The focused PATH/control/inventory tests pass all 66 cases. No bytes under lib/
+or scripts/ changed from the checkpoint; the runtime protocol is unchanged.
+
 ## Complete literal launch inventory
 
 This table records all 138 literal occurrences, including module references and
@@ -173,149 +189,154 @@ are explicit direct-call exceptions: one inline check instruction plus its mirro
 and the standalone bootstrap wrapper. None activates CPP through uv. The 89
 remaining rows are read/generation/fixed-provider operations or module references.
 The unit check rejects new unclassified or missing-policy launchers and pins this
-table to the real population. It classifies known subcommands; it is not a call-
+table to the real population using source paths, classifications and multiplicity;
+physical line numbers remain diagnostics and are excluded from identity. It
+classifies known subcommands; it is not a call-
 graph analyzer, so semantic changes inside an existing subcommand require review.
+It recognizes Python executables and interpreter variables named with PYTHON;
+arbitrary executable aliases, eval and indirect shell expansion require review
+rather than a claim of static coverage.
 The runnable rationale source is included because Codex packages its examples.
 
 <!-- launch-inventory:begin -->
-| Source:line | Subcommand | Class | Policy | Basis |
+| Source | Subcommand | Class | Policy | Basis |
 | --- | --- | --- | --- | --- |
-| `.claude/commands/cicd/check.md:51` | `check` | i | captured | PATH handoff before target execution/query boundary |
-| `.claude/commands/cicd/container.md:14` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/cicd/container.md:20` | `container` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/cicd/container.md:33` | `container` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/cicd/health.md:60` | `health` | i | captured | PATH handoff before target execution/query boundary |
-| `.claude/commands/cicd/infra-discover.md:36` | `infra-discover` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/cicd/infra-init.md:34` | `infra-init` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/cicd/infra-init.md:48` | `infra-init` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/cicd/infra-pipeline.md:32` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/cicd/infra-pipeline.md:40` | `infra-pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/cicd/init.md:37` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/cicd/init.md:55` | `check` | i | captured | PATH handoff before target execution/query boundary |
-| `.claude/commands/cicd/init.md:62` | `check` | i | direct/no prepend | inline direct interpreter retains caller PATH; no uv boundary |
-| `.claude/commands/cicd/init.md:93` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/cicd/init.md:94` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/cicd/init.md:103` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/cicd/init.md:109` | `checks` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/cicd/pipeline.md:9` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/cicd/pipeline.md:11` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/cicd/pipeline.md:57` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/cicd/pipeline.md:63` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/cicd/pipeline.md:66` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/cicd/pipeline.md:77` | `checks` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/cicd/pipeline.md:83` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/cicd/smoke.md:59` | `smoke` | i | captured | PATH handoff before target execution/query boundary |
-| `.claude/commands/cicd/verify.md:41` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
-| `.claude/commands/cicd/verify.md:80` | `verify` | i | captured | PATH handoff before target execution/query boundary |
-| `.claude/commands/cicd/verify.md:97` | `verify` | i | captured | PATH handoff before target execution/query boundary |
-| `.claude/commands/cicd/verify.md:110` | `verify` | i | captured | PATH handoff before target execution/query boundary |
-| `.claude/commands/cicd/woodpecker.md:28` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/cicd/woodpecker.md:60` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/cicd/woodpecker.md:72` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/codex/auto.md:756` | `run` | i | captured | PATH handoff before target execution/query boundary |
-| `.claude/commands/cpp/init.md:1996` | `host-ci` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/cpp/status.md:438` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/flow/auto.md:1439` | `verify` | i | captured | PATH handoff before target execution/query boundary |
-| `.claude/commands/flow/auto.md:1449` | `verify` | i | captured | PATH handoff before target execution/query boundary |
-| `.claude/commands/flow/deploy.md:121` | `verify` | i | captured | PATH handoff before target execution/query boundary |
-| `.claude/commands/flow/deploy.md:147` | `run` | i | captured | PATH handoff before target execution/query boundary |
-| `.claude/commands/flow/deploy.md:252` | `health` | i | captured | PATH handoff before target execution/query boundary |
-| `.claude/commands/flow/deploy.md:259` | `smoke` | i | captured | PATH handoff before target execution/query boundary |
-| `.claude/commands/flow/deploy.md:272` | `verify` | i | captured | PATH handoff before target execution/query boundary |
-| `.claude/commands/flow/deploy.md:298` | `verify` | i | captured | PATH handoff before target execution/query boundary |
-| `.claude/commands/flow/doctor.md:87` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
-| `.claude/commands/flow/doctor.md:280` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/flow/doctor.md:283` | `check` | i | captured | PATH handoff before target execution/query boundary |
-| `.claude/commands/flow/doctor.md:308` | `doctor-ci` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/flow/finish.md:106` | `flow-host` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/flow/merge.md:129` | `flow-host` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/gemma/auto.md:920` | `run` | i | captured | PATH handoff before target execution/query boundary |
-| `.claude/commands/project/init.md:140` | `checks` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/project/init.md:343` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/project/init.md:363` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/project/init.md:364` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/project/init.md:374` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/project/init.md:381` | `checks` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/qwen/auto.md:878` | `run` | i | captured | PATH handoff before target execution/query boundary |
-| `templates/delegated-driver-core.md:379` | `run` | i | captured | PATH handoff before target execution/query boundary |
-| `scripts/bootstrap-check.sh:53` | `.bootstrap list` | ii | not required | lists configuration only |
-| `scripts/bootstrap-check.sh:58` | `.bootstrap check` | i | direct/no prepend | standalone original-PATH wrapper, no CPP uv activation |
-| `scripts/check-control-ci-deps.py:1348` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
-| `scripts/ci-provider-advisory.sh:20` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `scripts/ci-provider-advisory.sh:73` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `scripts/ci-provider-advisory.sh:75` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `scripts/ci-provider-advisory.sh:86` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `scripts/flow-finish-gate.sh:13` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
-| `scripts/flow-finish-gate.sh:543` | `dispatcher` | i | captured | PATH handoff before target execution/query boundary |
-| `.claude/skills/cicd-verification/SKILL.md:46` | `<command>` | i | captured | PATH handoff before target execution/query boundary |
-| `codex/skills/cicd-check/reference.md:48` | `check` | i | captured | PATH handoff before target execution/query boundary |
-| `codex/skills/cicd-container/SKILL.md:16` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/cicd-container/SKILL.md:22` | `container` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/cicd-container/SKILL.md:35` | `container` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/cicd-health/reference.md:57` | `health` | i | captured | PATH handoff before target execution/query boundary |
-| `codex/skills/cicd-infra-discover/SKILL.md:43` | `infra-discover` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/cicd-infra-init/SKILL.md:41` | `infra-init` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/cicd-infra-init/SKILL.md:55` | `infra-init` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/cicd-infra-pipeline/SKILL.md:40` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/cicd-infra-pipeline/SKILL.md:48` | `infra-pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/cicd-init/reference.md:34` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/cicd-init/reference.md:52` | `check` | i | captured | PATH handoff before target execution/query boundary |
-| `codex/skills/cicd-init/reference.md:59` | `check` | i | direct/no prepend | inline direct interpreter retains caller PATH; no uv boundary |
-| `codex/skills/cicd-init/reference.md:90` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/cicd-init/reference.md:91` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/cicd-init/reference.md:100` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/cicd-init/reference.md:106` | `checks` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/cicd-pipeline/reference.md:6` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/cicd-pipeline/reference.md:8` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/cicd-pipeline/reference.md:54` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/cicd-pipeline/reference.md:60` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/cicd-pipeline/reference.md:63` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/cicd-pipeline/reference.md:74` | `checks` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/cicd-pipeline/reference.md:80` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/cicd-smoke/reference.md:56` | `smoke` | i | captured | PATH handoff before target execution/query boundary |
-| `codex/skills/cicd-verify/reference.md:38` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
-| `codex/skills/cicd-verify/reference.md:77` | `verify` | i | captured | PATH handoff before target execution/query boundary |
-| `codex/skills/cicd-verify/reference.md:94` | `verify` | i | captured | PATH handoff before target execution/query boundary |
-| `codex/skills/cicd-verify/reference.md:107` | `verify` | i | captured | PATH handoff before target execution/query boundary |
-| `codex/skills/cicd-woodpecker/reference.md:25` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/cicd-woodpecker/reference.md:57` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/cicd-woodpecker/reference.md:69` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/flow-auto/docs/reference/flow-auto-rationale.md:1846` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
-| `codex/skills/flow-auto/docs/reference/flow-auto-rationale.md:1914` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
-| `codex/skills/flow-auto/docs/reference/flow-auto-rationale.md:1915` | `verify` | i | captured | PATH handoff before target execution/query boundary |
-| `codex/skills/flow-auto/docs/reference/flow-auto-rationale.md:1926` | `verify` | i | captured | PATH handoff before target execution/query boundary |
-| `codex/skills/flow-auto/reference.md:1441` | `verify` | i | captured | PATH handoff before target execution/query boundary |
-| `codex/skills/flow-auto/reference.md:1451` | `verify` | i | captured | PATH handoff before target execution/query boundary |
-| `codex/skills/flow-auto/scripts/flow-finish-gate.sh:13` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
-| `codex/skills/flow-auto/scripts/flow-finish-gate.sh:543` | `dispatcher` | i | captured | PATH handoff before target execution/query boundary |
-| `codex/skills/flow-check/lib/cicd/evidence.py:986` | `evidence` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/flow-check/lib/cicd/evidence.py:989` | `evidence` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/flow-check/scripts/flow-finish-gate.sh:13` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
-| `codex/skills/flow-check/scripts/flow-finish-gate.sh:543` | `dispatcher` | i | captured | PATH handoff before target execution/query boundary |
-| `codex/skills/flow-deploy/reference.md:123` | `verify` | i | captured | PATH handoff before target execution/query boundary |
-| `codex/skills/flow-deploy/reference.md:149` | `run` | i | captured | PATH handoff before target execution/query boundary |
-| `codex/skills/flow-deploy/reference.md:254` | `health` | i | captured | PATH handoff before target execution/query boundary |
-| `codex/skills/flow-deploy/reference.md:261` | `smoke` | i | captured | PATH handoff before target execution/query boundary |
-| `codex/skills/flow-deploy/reference.md:274` | `verify` | i | captured | PATH handoff before target execution/query boundary |
-| `codex/skills/flow-deploy/reference.md:300` | `verify` | i | captured | PATH handoff before target execution/query boundary |
-| `codex/skills/flow-doctor/reference.md:84` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
-| `codex/skills/flow-doctor/reference.md:277` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/flow-doctor/reference.md:280` | `check` | i | captured | PATH handoff before target execution/query boundary |
-| `codex/skills/flow-doctor/reference.md:305` | `doctor-ci` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/flow-finish/reference.md:108` | `flow-host` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/flow-finish/scripts/flow-finish-gate.sh:13` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
-| `codex/skills/flow-finish/scripts/flow-finish-gate.sh:543` | `dispatcher` | i | captured | PATH handoff before target execution/query boundary |
-| `codex/skills/flow-merge/reference.md:131` | `flow-host` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/flow-merge/scripts/flow-finish-gate.sh:13` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
-| `codex/skills/flow-merge/scripts/flow-finish-gate.sh:543` | `dispatcher` | i | captured | PATH handoff before target execution/query boundary |
-| `codex/skills/project-init/reference.md:137` | `checks` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/project-init/reference.md:340` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/project-init/reference.md:360` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/project-init/reference.md:361` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/project-init/reference.md:371` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `codex/skills/project-init/reference.md:378` | `checks` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `docs/reference/flow-auto-rationale.md:1846` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
-| `docs/reference/flow-auto-rationale.md:1914` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
-| `docs/reference/flow-auto-rationale.md:1915` | `verify` | i | captured | PATH handoff before target execution/query boundary |
-| `docs/reference/flow-auto-rationale.md:1926` | `verify` | i | captured | PATH handoff before target execution/query boundary |
+| `.claude/commands/cicd/check.md` | `check` | i | captured | PATH handoff before target execution/query boundary |
+| `.claude/commands/cicd/container.md` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/cicd/container.md` | `container` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/cicd/container.md` | `container` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/cicd/health.md` | `health` | i | captured | PATH handoff before target execution/query boundary |
+| `.claude/commands/cicd/infra-discover.md` | `infra-discover` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/cicd/infra-init.md` | `infra-init` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/cicd/infra-init.md` | `infra-init` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/cicd/infra-pipeline.md` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/cicd/infra-pipeline.md` | `infra-pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/cicd/init.md` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/cicd/init.md` | `check` | i | captured | PATH handoff before target execution/query boundary |
+| `.claude/commands/cicd/init.md` | `check` | i | direct/no prepend | inline direct interpreter retains caller PATH; no uv boundary |
+| `.claude/commands/cicd/init.md` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/cicd/init.md` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/cicd/init.md` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/cicd/init.md` | `checks` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/cicd/pipeline.md` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/cicd/pipeline.md` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/cicd/pipeline.md` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/cicd/pipeline.md` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/cicd/pipeline.md` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/cicd/pipeline.md` | `checks` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/cicd/pipeline.md` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/cicd/smoke.md` | `smoke` | i | captured | PATH handoff before target execution/query boundary |
+| `.claude/commands/cicd/verify.md` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
+| `.claude/commands/cicd/verify.md` | `verify` | i | captured | PATH handoff before target execution/query boundary |
+| `.claude/commands/cicd/verify.md` | `verify` | i | captured | PATH handoff before target execution/query boundary |
+| `.claude/commands/cicd/verify.md` | `verify` | i | captured | PATH handoff before target execution/query boundary |
+| `.claude/commands/cicd/woodpecker.md` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/cicd/woodpecker.md` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/cicd/woodpecker.md` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/codex/auto.md` | `run` | i | captured | PATH handoff before target execution/query boundary |
+| `.claude/commands/cpp/init.md` | `host-ci` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/cpp/status.md` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/flow/auto.md` | `verify` | i | captured | PATH handoff before target execution/query boundary |
+| `.claude/commands/flow/auto.md` | `verify` | i | captured | PATH handoff before target execution/query boundary |
+| `.claude/commands/flow/deploy.md` | `verify` | i | captured | PATH handoff before target execution/query boundary |
+| `.claude/commands/flow/deploy.md` | `run` | i | captured | PATH handoff before target execution/query boundary |
+| `.claude/commands/flow/deploy.md` | `health` | i | captured | PATH handoff before target execution/query boundary |
+| `.claude/commands/flow/deploy.md` | `smoke` | i | captured | PATH handoff before target execution/query boundary |
+| `.claude/commands/flow/deploy.md` | `verify` | i | captured | PATH handoff before target execution/query boundary |
+| `.claude/commands/flow/deploy.md` | `verify` | i | captured | PATH handoff before target execution/query boundary |
+| `.claude/commands/flow/doctor.md` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
+| `.claude/commands/flow/doctor.md` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/flow/doctor.md` | `check` | i | captured | PATH handoff before target execution/query boundary |
+| `.claude/commands/flow/doctor.md` | `doctor-ci` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/flow/finish.md` | `flow-host` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/flow/merge.md` | `flow-host` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/gemma/auto.md` | `run` | i | captured | PATH handoff before target execution/query boundary |
+| `.claude/commands/project/init.md` | `checks` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/project/init.md` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/project/init.md` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/project/init.md` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/project/init.md` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/project/init.md` | `checks` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `.claude/commands/qwen/auto.md` | `run` | i | captured | PATH handoff before target execution/query boundary |
+| `templates/delegated-driver-core.md` | `run` | i | captured | PATH handoff before target execution/query boundary |
+| `scripts/bootstrap-check.sh` | `.bootstrap list` | ii | not required | lists configuration only |
+| `scripts/bootstrap-check.sh` | `.bootstrap check` | i | direct/no prepend | standalone original-PATH wrapper, no CPP uv activation |
+| `scripts/check-control-ci-deps.py` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
+| `scripts/ci-provider-advisory.sh` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `scripts/ci-provider-advisory.sh` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `scripts/ci-provider-advisory.sh` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `scripts/ci-provider-advisory.sh` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `scripts/flow-finish-gate.sh` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
+| `scripts/flow-finish-gate.sh` | `dispatcher` | i | captured | PATH handoff before target execution/query boundary |
+| `.claude/skills/cicd-verification/SKILL.md` | `<command>` | i | captured | PATH handoff before target execution/query boundary |
+| `codex/skills/cicd-check/reference.md` | `check` | i | captured | PATH handoff before target execution/query boundary |
+| `codex/skills/cicd-container/SKILL.md` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/cicd-container/SKILL.md` | `container` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/cicd-container/SKILL.md` | `container` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/cicd-health/reference.md` | `health` | i | captured | PATH handoff before target execution/query boundary |
+| `codex/skills/cicd-infra-discover/SKILL.md` | `infra-discover` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/cicd-infra-init/SKILL.md` | `infra-init` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/cicd-infra-init/SKILL.md` | `infra-init` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/cicd-infra-pipeline/SKILL.md` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/cicd-infra-pipeline/SKILL.md` | `infra-pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/cicd-init/reference.md` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/cicd-init/reference.md` | `check` | i | captured | PATH handoff before target execution/query boundary |
+| `codex/skills/cicd-init/reference.md` | `check` | i | direct/no prepend | inline direct interpreter retains caller PATH; no uv boundary |
+| `codex/skills/cicd-init/reference.md` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/cicd-init/reference.md` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/cicd-init/reference.md` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/cicd-init/reference.md` | `checks` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/cicd-pipeline/reference.md` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/cicd-pipeline/reference.md` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/cicd-pipeline/reference.md` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/cicd-pipeline/reference.md` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/cicd-pipeline/reference.md` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/cicd-pipeline/reference.md` | `checks` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/cicd-pipeline/reference.md` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/cicd-smoke/reference.md` | `smoke` | i | captured | PATH handoff before target execution/query boundary |
+| `codex/skills/cicd-verify/reference.md` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
+| `codex/skills/cicd-verify/reference.md` | `verify` | i | captured | PATH handoff before target execution/query boundary |
+| `codex/skills/cicd-verify/reference.md` | `verify` | i | captured | PATH handoff before target execution/query boundary |
+| `codex/skills/cicd-verify/reference.md` | `verify` | i | captured | PATH handoff before target execution/query boundary |
+| `codex/skills/cicd-woodpecker/reference.md` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/cicd-woodpecker/reference.md` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/cicd-woodpecker/reference.md` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/flow-auto/docs/reference/flow-auto-rationale.md` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
+| `codex/skills/flow-auto/docs/reference/flow-auto-rationale.md` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
+| `codex/skills/flow-auto/docs/reference/flow-auto-rationale.md` | `verify` | i | captured | PATH handoff before target execution/query boundary |
+| `codex/skills/flow-auto/docs/reference/flow-auto-rationale.md` | `verify` | i | captured | PATH handoff before target execution/query boundary |
+| `codex/skills/flow-auto/reference.md` | `verify` | i | captured | PATH handoff before target execution/query boundary |
+| `codex/skills/flow-auto/reference.md` | `verify` | i | captured | PATH handoff before target execution/query boundary |
+| `codex/skills/flow-auto/scripts/flow-finish-gate.sh` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
+| `codex/skills/flow-auto/scripts/flow-finish-gate.sh` | `dispatcher` | i | captured | PATH handoff before target execution/query boundary |
+| `codex/skills/flow-check/lib/cicd/evidence.py` | `evidence` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/flow-check/lib/cicd/evidence.py` | `evidence` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/flow-check/scripts/flow-finish-gate.sh` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
+| `codex/skills/flow-check/scripts/flow-finish-gate.sh` | `dispatcher` | i | captured | PATH handoff before target execution/query boundary |
+| `codex/skills/flow-deploy/reference.md` | `verify` | i | captured | PATH handoff before target execution/query boundary |
+| `codex/skills/flow-deploy/reference.md` | `run` | i | captured | PATH handoff before target execution/query boundary |
+| `codex/skills/flow-deploy/reference.md` | `health` | i | captured | PATH handoff before target execution/query boundary |
+| `codex/skills/flow-deploy/reference.md` | `smoke` | i | captured | PATH handoff before target execution/query boundary |
+| `codex/skills/flow-deploy/reference.md` | `verify` | i | captured | PATH handoff before target execution/query boundary |
+| `codex/skills/flow-deploy/reference.md` | `verify` | i | captured | PATH handoff before target execution/query boundary |
+| `codex/skills/flow-doctor/reference.md` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
+| `codex/skills/flow-doctor/reference.md` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/flow-doctor/reference.md` | `check` | i | captured | PATH handoff before target execution/query boundary |
+| `codex/skills/flow-doctor/reference.md` | `doctor-ci` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/flow-finish/reference.md` | `flow-host` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/flow-finish/scripts/flow-finish-gate.sh` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
+| `codex/skills/flow-finish/scripts/flow-finish-gate.sh` | `dispatcher` | i | captured | PATH handoff before target execution/query boundary |
+| `codex/skills/flow-merge/reference.md` | `flow-host` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/flow-merge/scripts/flow-finish-gate.sh` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
+| `codex/skills/flow-merge/scripts/flow-finish-gate.sh` | `dispatcher` | i | captured | PATH handoff before target execution/query boundary |
+| `codex/skills/project-init/reference.md` | `checks` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/project-init/reference.md` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/project-init/reference.md` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/project-init/reference.md` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/project-init/reference.md` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `codex/skills/project-init/reference.md` | `checks` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
+| `docs/reference/flow-auto-rationale.md` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
+| `docs/reference/flow-auto-rationale.md` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
+| `docs/reference/flow-auto-rationale.md` | `verify` | i | captured | PATH handoff before target execution/query boundary |
+| `docs/reference/flow-auto-rationale.md` | `verify` | i | captured | PATH handoff before target execution/query boundary |
 <!-- launch-inventory:end -->

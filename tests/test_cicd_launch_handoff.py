@@ -1,9 +1,11 @@
-"""Inventory every literal lib.cicd launch; target execution cannot lose PATH policy."""
+"""Inventory literal and opaque Python module launches in the declared source roots."""
 from __future__ import annotations
 
 import re
 import shlex
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCAN_ROOTS = (".claude/commands", "templates", "scripts", ".claude/skills", "codex/skills")
@@ -17,6 +19,30 @@ OTHER = {"detect", "container", "infra-discover", "infra-init", "infra-pipeline"
 ASSIGNMENTS = {"CPP_RUNNER_TARGET_PATH=${PATH-}", "CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}"}
 MATCH = re.compile(r"-m\s+lib\.cicd\b(?P<module>\.[a-z_]+)?(?:[ \t]+(?P<command><command>|[a-z][a-z0-9-]*))?")
 
+# Opaque Python module expressions cannot be classified from text. Refuse them
+# rather than silently omitting a potentially target-running lib.cicd launch.
+DYNAMIC_MODULE = re.compile(
+    r"(?:\bpython[0-9.]*|[\"']?\$(?:[A-Z_]*PYTHON[A-Z_]*|\{[A-Z_]*PYTHON[A-Z_]*\})[\"']?)"
+    r"\s+(?:-[A-Z]\s+)*-m\s+[^\s;|&]*\$[^\s;|&]*")
+
+
+def statements(text: str) -> list[tuple[int, str]]:
+    """Join shell continuations before looking for a module invocation."""
+    result = []
+    pending = ""
+    start = 1
+    for number, line in enumerate(text.splitlines(), 1):
+        if not pending:
+            start = number
+        if line.rstrip().endswith(chr(92)):
+            pending += line.rstrip()[:-1] + " "
+        else:
+            result.append((start, pending + line))
+            pending = ""
+    if pending:
+        result.append((start, pending))
+    return result
+
 
 def inventory(root: Path) -> list[dict[str, object]]:
     rows = []
@@ -28,13 +54,18 @@ def inventory(root: Path) -> list[dict[str, object]]:
         if not path.is_file() or path.suffix not in {".md", ".sh", ".py"} or "__pycache__" in path.parts:
             continue
         text = path.read_text()
-        lines = text.splitlines()
-        for index, line in enumerate(lines):
+        for number, line in statements(text):
+            if DYNAMIC_MODULE.search(line):
+                rows.append({"path": str(path.relative_to(root)), "line": number,
+                             "command": "(constructed module)", "category": "unknown", "handoff": False,
+                             "reason": "replace opaque module expressions with explicit module launches",
+                             "error": "variable-built Python module needs explicit execution/query classification"})
+                continue
             found = MATCH.search(line)
             if not found:
                 continue
             if len(list(MATCH.finditer(line))) > 1:
-                rows.append({"path": str(path.relative_to(root)), "line": index + 1,
+                rows.append({"path": str(path.relative_to(root)), "line": number,
                              "command": "multiple", "category": "unknown", "handoff": False,
                              "reason": "separate launch statements before classifying",
                              "error": "multiple module launches on one line require explicit classification"})
@@ -44,14 +75,9 @@ def inventory(root: Path) -> list[dict[str, object]]:
             statement = line
             if command is None and "lib.cicd)" in line:
                 start = text.rfind("CPP_RUN=(", 0, text.find(line))
-                assert start >= 0, f"{path}:{index + 1}: unclassified dispatcher"
+                assert start >= 0, f"{path}:{number}: unclassified dispatcher"
                 statement = text[start:text.find(line) + len(line)]
                 command = "dispatcher"
-            else:
-                first = index
-                while first > 0 and lines[first - 1].rstrip().endswith(chr(92)):
-                    first -= 1
-                statement = "\n".join(lines[first:index + 1]).replace(chr(92) + "\n", " ")
             lexer = shlex.shlex(statement, posix=True, punctuation_chars=";&|")
             lexer.whitespace_split = True
             tokens = list(lexer) if "uv run" in statement else []
@@ -67,7 +93,9 @@ def inventory(root: Path) -> list[dict[str, object]]:
             reason = "record/generation or fixed CPP probes; no target-configured step"
             category = "ii"
             error = ""
-            if module:
+            if command is None and re.match(r"\s+[\"']?\$", line[found.end():]):
+                error = "variable-built subcommand needs explicit execution/query classification"
+            elif module:
                 if module == ".bootstrap" and command == "check":
                     category = "i"
                     reason = "standalone original-PATH wrapper, no CPP uv activation"
@@ -94,7 +122,7 @@ def inventory(root: Path) -> list[dict[str, object]]:
                 reason = "reference to module/import root, no dispatched subcommand"
             elif command not in OTHER:
                 error = "unknown subcommand needs execution/query classification"
-            rows.append({"path": str(path.relative_to(root)), "line": index + 1,
+            rows.append({"path": str(path.relative_to(root)), "line": number,
                          "command": ((module or "") + " " + (command or "(reference)")).strip(),
                          "category": category, "handoff": handed, "reason": reason, "error": error})
     return rows
@@ -138,11 +166,11 @@ INVENTORY_END = "<!-- launch-inventory:end -->"
 
 
 def render_inventory(rows: list[dict[str, object]]) -> str:
-    lines = ["| Source:line | Subcommand | Class | Policy | Basis |",
+    lines = ["| Source | Subcommand | Class | Policy | Basis |",
              "| --- | --- | --- | --- | --- |"]
     for row in rows:
         policy = "captured" if row["handoff"] else "direct/no prepend" if row["category"] == "i" else "not required"
-        lines.append(f"| `{row['path']}:{row['line']}` | `{row['command']}` | "
+        lines.append(f"| `{row['path']}` | `{row['command']}` | "
                      f"{row['category']} | {policy} | {row['reason']} |")
     return "\n".join(lines)
 
@@ -152,3 +180,32 @@ def test_committed_inventory_matches_the_actual_source_and_generated_population(
     recorded = document.split(INVENTORY_BEGIN, 1)[1].split(INVENTORY_END, 1)[0].strip()
     assert recorded == render_inventory(inventory(ROOT)), (
         "regenerate Codex mirrors and update the explicit launch inventory after source changes")
+
+
+@pytest.mark.parametrize("name", ["bad-split.md", "bad-variable.md", "bad-variable-command.md"])
+def test_split_and_constructed_module_launches_cannot_evade_inventory(tmp_path: Path, name: str) -> None:
+    fixture = ROOT / "tests/fixtures/cicd_launch_handoff"
+    source = tmp_path / ".claude/commands/owned.md"
+    source.parent.mkdir(parents=True)
+    statement = (fixture / name).read_text()
+    assert "uv run" in statement and "-m" in statement
+    source.write_text(statement)
+    rows = inventory(tmp_path)
+    assert rows and any(row["error"] for row in rows), name
+    source.write_text((fixture / "good-split.md").read_text())
+    rows = inventory(tmp_path)
+    assert len(rows) == 1 and not rows[0]["error"]
+
+
+def test_inventory_identity_survives_unrelated_line_shifts(tmp_path: Path) -> None:
+    source = tmp_path / ".claude/commands/owned.md"
+    source.parent.mkdir(parents=True)
+    statement = (ROOT / "tests/fixtures/cicd_launch_handoff/good.md").read_text()
+    source.write_text(statement)
+    before = inventory(tmp_path)
+    source.write_text("An unrelated introductory paragraph.\n\n" + statement)
+    after = inventory(tmp_path)
+    assert before[0]["line"] != after[0]["line"]
+    assert render_inventory(before) == render_inventory(after)
+    source.write_text(statement + statement)
+    assert render_inventory(inventory(tmp_path)) != render_inventory(before)
