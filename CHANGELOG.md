@@ -4,6 +4,11 @@
 
 ### Upgrading
 
+- Regenerate committed Woodpecker pipelines with `/cicd:pipeline` to adopt the
+  digest-pinned Trivy and clone-plugin images (#1787). Existing pipelines using
+  `woodpeckerci/plugin-git:2` remain readable by required-check derivation and
+  doctor; adoption requires regenerating and reviewing the emitted YAML.
+
 - The finish gate now refuses an existing CPP `.venv` on a different Python
   minor (`cpp-runtime-environment-mismatch`) or with unverified interpreter
   evidence (`cpp-runtime-environment-unverified`) instead of letting uv replace
