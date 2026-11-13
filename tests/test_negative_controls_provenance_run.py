@@ -42,7 +42,8 @@ pytestmark = pytest.mark.skipif(
 COUNT = re.compile(r"^NEGATIVE_CONTROL_PROVENANCE_HISTORICAL: compared=(\d+) uncompared=(\d+) ", re.M)
 
 
-def run_case(name: str, harness: Path = HARNESS, *, provenance_flag: str = "--verify-provenance") -> subprocess.CompletedProcess[str]:
+def run_case(name: str, harness: Path = HARNESS, *,
+             provenance_flag: str = "--verify-provenance") -> subprocess.CompletedProcess[str]:
     return subprocess.run(["sh", str(RUNNER), str(CONTROL / "cases" / name), str(harness), provenance_flag],
                           cwd=ROOT, capture_output=True, text=True, timeout=300, check=False)
 

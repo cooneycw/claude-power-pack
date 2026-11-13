@@ -2959,7 +2959,8 @@ def main(argv: list[str] | None = None) -> int:
         help="with --strict: do not fail on UNAVAILABLE (a gate whose own tool is absent); "
              "report it as unexamined instead",
     )
-    parser.add_argument("--verify-provenance", action="store_true", help="compare anchor bytes and verify historical retention by main")
+    parser.add_argument("--verify-provenance", action="store_true",
+                        help="compare anchor bytes and verify historical retention by main")
     parser.add_argument("--quiet", action="store_true", help="contract lines only")
     #: A NARROWING SELECTOR, added for issue #970's mutation probe, which needs to
     #: ask "did THIS control notice" rather than "did the register notice". Running
