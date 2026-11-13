@@ -15,6 +15,7 @@ from .actions import (
     AWS_SECRETS,
     CACHE,
     CHECKOUT,
+    GITLEAKS_IMAGE,
     SETUP_GO,
     SETUP_NODE,
     SETUP_PYTHON,
@@ -458,7 +459,7 @@ def _woodpecker_secret_scan_step(gitleaks_config: str) -> list[str]:
     )
     lines = [
         "  - name: secret-scan",
-        "    image: zricethezav/gitleaks:v8.30.1",
+        f"    image: {GITLEAKS_IMAGE}",
         "    commands:",
         "      - |",
         "        cat > .gitleaks-findings.tmpl <<'TMPL'",

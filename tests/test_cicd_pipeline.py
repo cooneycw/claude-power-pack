@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import re
+import shlex
 from pathlib import Path
 
+import pytest
 import yaml
 
+from lib.cicd.actions import GITLEAKS_IMAGE
 from lib.cicd.cli import _check_secrets_source
 from lib.cicd.config import CICDConfig, WoodpeckerConfig
 from lib.cicd.models import Framework, FrameworkInfo, PackageManager
@@ -46,6 +49,49 @@ def _make_config(**overrides: object) -> CICDConfig:
     for key, value in overrides.items():
         setattr(config.pipeline, key, value)
     return config
+
+
+def _secret_scan_images(text: str, provider: str) -> list[str]:
+    document = yaml.load(text, Loader=yaml.BaseLoader)
+    if provider == "woodpecker":
+        images = [step["image"] for step in document["steps"] if step["name"] == "secret-scan"]
+    else:
+        images = []
+        for step in document["jobs"]["secret-scan"]["steps"]:
+            if "run" in step:
+                command = shlex.split(step["run"])
+                assert command[:2] == ["docker", "run"]
+                images.append(command[command.index("detect") - 1])
+    assert images, "No secret-scan images examined"
+    return images
+
+
+def _assert_digest_pinned_images(images: list[str]) -> None:
+    assert images, "No images examined"
+    for image in images:
+        assert re.fullmatch(r"[^@\s]+@sha256:[0-9a-f]{64}", image), image
+
+
+@pytest.mark.parametrize("provider", ["github-actions", "woodpecker"])
+@pytest.mark.parametrize("framework", list(Framework))
+def test_generated_secret_scan_images_are_digest_pinned(provider: str, framework: Framework) -> None:
+    config = _make_config(provider=provider)
+    config.pipeline.woodpecker = WoodpeckerConfig(secret_scan=True)
+    files = generate_pipeline(_make_info(framework), config)
+    path = ".woodpecker.yml" if provider == "woodpecker" else ".github/workflows/ci.yml"
+    images = _secret_scan_images(files[path], provider)
+    _assert_digest_pinned_images(images)
+    assert set(images) == {GITLEAKS_IMAGE}
+
+
+def test_secret_scan_image_assertion_rejects_tag_only_output() -> None:
+    # The pre-#1755 Woodpecker secret-scan output is the committed red input.
+    fixture = Path(__file__).parent / "fixtures" / "secret-scan-tag-only.yml"
+    images = _secret_scan_images(fixture.read_text(), "woodpecker")
+    assert images == ["zricethezav/gitleaks:v8.30.1"]
+    assert all("@" not in image for image in images)
+    with pytest.raises(AssertionError, match="zricethezav/gitleaks:v8.30.1"):
+        _assert_digest_pinned_images(images)
 
 
 # ---------------------------------------------------------------------------
