@@ -221,3 +221,29 @@ def test_unreadable_main_proof_cannot_checkout_or_execute(tmp_path, owned_source
     assert "CPP_COUNTER_MODEL_ENROLMENT: unknown" in result.stdout
     assert " checkout " not in calls
     assert "OWNED_CPP_CODE:" not in result.stdout
+
+
+@requires_tools
+@pytest.mark.parametrize("provider", ["github-actions", "woodpecker"])
+def test_shallow_control_rejects_unrelated_unknown_near_miss(tmp_path, provider):
+    """Review counterexample: UNKNOWN alone does not prove the shallow guard."""
+    import sys
+
+    root = Path(__file__).resolve().parents[1]
+    mutation = json.loads((FIXTURES / "shallow-near-miss.json").read_text())
+    source = (root / "lib/cicd/enrolment.py").read_text()
+    assert source.count(mutation["remove"]) == source.count(mutation["insert_before"]) == 1
+    mutated = source.replace(mutation["remove"], "# shallow refusal deliberately removed")
+    mutated = mutated.replace(mutation["insert_before"], mutation["insert"] + mutation["insert_before"])
+    assert mutation["remove"] not in mutated
+    assert "unrelated main-tip refusal" in mutated
+    gate = tmp_path / "broken-enrolment.py"
+    gate.write_text(mutated)
+    case = root / "controls/pinned-enrolment-main-provenance/cases" / ("unknown-main-shallow-" + provider)
+    result = subprocess.run(
+        [sys.executable, str(root / "controls/pinned-enrolment-main-provenance/run-case.py"), str(gate), str(case)],
+        capture_output=True, text=True, timeout=20,
+    )
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert "PINNED_MAIN_CONTROL: malformed evidence" in result.stdout
+    assert "unrelated main-tip refusal" in result.stdout

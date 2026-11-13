@@ -257,8 +257,10 @@ def test_invalid_install_revision_never_becomes_a_fetch_ref(tmp_path, revision):
 
 
 @requires_bash
-def test_woodpecker_tool_bootstrap_failure_is_unknown(tmp_path):
+@pytest.mark.parametrize("pin", [PIN, ""])
+def test_woodpecker_tool_bootstrap_failure_is_unknown(tmp_path, pin):
     config = CICDConfig()
+    config._cpp_revision = pin
     command = yaml.load(generate_woodpecker(_make_info(), config), Loader=yaml.BaseLoader)["steps"][0]["commands"][0]
     apt = tmp_path / "apt-get"
     apt.write_text("#!/bin/sh\nexit 22\n")
@@ -268,6 +270,7 @@ def test_woodpecker_tool_bootstrap_failure_is_unknown(tmp_path):
                             env={**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"]},
                             capture_output=True, text=True, timeout=5)
     assert result.returncode == 5 and "CPP_COUNTER_MODEL_ENROLMENT: unknown" in result.stdout
+    assert ("CPP_COUNTER_MODEL_CPP_REVISION: unknown pin=" + (pin or "-") + " main=-") in result.stdout
 
 
 @requires_bash

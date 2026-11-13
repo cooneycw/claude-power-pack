@@ -88,7 +88,7 @@ No new secret binding is required by the generated template. Woodpecker's clone
 has depth 0 and disables synthetic PR merges to preserve head attribution.
 
 The Woodpecker step installs its own shell/git/HTTP tools; installation failures
-are UNKNOWN. Enrolment is independent of application checks; explicit dependency
+emit the unknown revision diagnostic with `main=-` and exit UNKNOWN. Enrolment is independent of application checks; explicit dependency
 edges retain their secret-scan, build, security, smoke and deploy ordering.
 Runtime dollars in its emitted command are escaped for provider
 substitution. See the official [environment](https://woodpecker-ci.org/docs/usage/environment)
@@ -123,3 +123,9 @@ handling. Unit tests also retain the exact
 historical bootstrap that ran unmerged code, and inject main-fetch timeout,
 missing/invalid refs and history-read failures before checkout. These are offline
 emitted-command tests, not live GitHub Actions or Woodpecker executions.
+
+The shallow-history control requires the named shallow cause and the actual
+CPP-history probe before any enumeration or checkout. A committed near-miss
+removes that guard and substitutes an unrelated refusal of main-tip pins; the
+control rejects it. Full-history main-tip positives also require execution, so
+a blanket tip refusal cannot impersonate the shallow boundary.

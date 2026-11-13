@@ -11,7 +11,7 @@
   "detect_signal": "^PINNED_MAIN_CONTROL: refused$",
   "unknown_signal": "^PINNED_MAIN_CONTROL: unknown$",
   "unavailable_signal": "^PINNED_MAIN_CONTROL: unavailable - ",
-  "limits": "Executes the actual stdlib job emitters for Actions and Woodpecker, including dollar expansion and Actions shell flags. Real owned Git establishes published unmerged permissive checker, older main ancestor, missing main and genuinely shallow main. Only the fixed official URL and HTTP metadata are redirected; no live network, CI or package installation. BAD pin must not be fetched directly, checked out or executed, and must report not-reachable/exit5. Missing/shallow main is UNKNOWN/exit5, not approval. GOOD main ancestor executes its own checker. Constructed blind anchor mistakes readable main for pin approval and fetches arbitrary missing pins, retaining missing/shallow-main UNKNOWN behavior while executing the unmerged feature sentinel. Historical pre-fix behavior is independently pinned by unit tests. This does not make PR-owned workflows tamper-proof or reject old approved main ancestors.",
+  "limits": "Executes the actual stdlib job emitters for Actions and Woodpecker, including dollar expansion and Actions shell flags. Real owned Git establishes published unmerged permissive checker, older main ancestor, missing main and genuinely shallow main. Only the fixed official URL and HTTP metadata are redirected; no live network, CI or package installation. BAD pin must not be fetched directly, checked out or executed, and must report not-reachable/exit5. Missing/shallow main is UNKNOWN/exit5, not approval. GOOD main ancestor executes its own checker. Constructed blind anchor mistakes readable main for pin approval and fetches arbitrary missing pins, retaining missing/shallow-main UNKNOWN behavior while executing the unmerged feature sentinel. Historical pre-fix behavior is independently pinned by unit tests. This does not make PR-owned workflows tamper-proof or reject old approved main ancestors. Shallow UNKNOWN requires the actual CPP shallow probe, the named shallow-history cause, and no history enumeration or checkout. Missing-main UNKNOWN requires the named main-fetch failure. Full-history tip and ancestor positives prevent unrelated main-tip refusals from satisfying shallow cases; a committed unit near-miss deletes the shallow guard and substitutes such a refusal.",
   "cases": [
     {
       "name": "bad-fetchable-unmerged-github-actions",
@@ -52,6 +52,16 @@
       "name": "unknown-main-shallow-woodpecker",
       "input": "cases/unknown-main-shallow-woodpecker",
       "expect": "UNKNOWN"
+    },
+    {
+      "name": "good-main-tip-github-actions",
+      "input": "cases/good-main-tip-github-actions",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-main-tip-woodpecker",
+      "input": "cases/good-main-tip-woodpecker",
+      "expect": "GOOD"
     }
   ],
   "anchors": [

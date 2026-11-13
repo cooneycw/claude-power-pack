@@ -174,13 +174,15 @@ def github_actions_job(pin: str) -> list[str]:
 
 
 def woodpecker_step(pin: str) -> list[str]:
+    diagnostic_pin = pin if re.fullmatch(r"[0-9a-f]{40}", pin) else "-"
     lines = ["  - name: counter-model-enrolment",
              "    # Enrolment runtime is a tag-only exception to the clone/scanner digest pins.",
              "    image: python:3.11-bookworm",
              "    when:", "      event: pull_request", "    commands:",
              "      - >-", "        timeout 120s sh -c",
              '        "apt-get update && apt-get install -y --no-install-recommends bash git curl ca-certificates"',
-             "        || { echo 'CPP_COUNTER_MODEL_ENROLMENT: unknown (tool bootstrap failed; retry)'; exit 5; }",
+             "        || { echo 'CPP_COUNTER_MODEL_CPP_REVISION: unknown pin=" + diagnostic_pin + " main=-';",
+             "             echo 'CPP_COUNTER_MODEL_ENROLMENT: unknown (tool bootstrap failed; retry)'; exit 5; }",
              "      - |", "        bash -s <<'CPP_ENROLMENT_BOOTSTRAP'"]
     # Woodpecker expands ${...} before starting the shell. Escape every dollar
     # so event values and shell substitutions remain data until runtime.
