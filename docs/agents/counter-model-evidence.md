@@ -18,8 +18,28 @@ One thing is not an alias: a trailing context-window tag. `claude-opus-5-5[1m]`
 is `claude-opus-5-5` with a larger window, so the tag (exactly `[`, digits, `k`
 or `m`, `]` at the end of the name) is removed before a name is recorded or
 compared. Without that, one model could review its own work under two
-spellings (issue #1710). Two different names, such as `opus-5` and
-`claude-opus-5`, are still two names (issue #1747).
+spellings (issue #1710).
+
+Independence is also refused when the comparison keys differ only by one
+leading `claude-`, after harness/provider and context-tag stripping (#1747).
+For example, `claude/opus-5` versus `claude/claude-opus-5` may be the same
+model; their equivalence is not established, so independence cannot be claimed.
+The same rule applies to the Sonnet spellings and to every write-time and
+validation comparison. It does not assert an alias or rewrite the recorded
+names. No other prefix or fuzzy matching is applied; Opus versus Sonnet and a
+different Codex model remain independent under this comparison.
+
+The 28 short-name receipts dated 2026-09-15 through 2026-09-19 (27
+`claude/opus-5`, one `claude/sonnet-5`) are caller-typed labels predating
+implementer measurement. The [original writer and worked example at
+ffc315ad](https://github.com/cooneycw/claude-power-pack/commit/ffc315ad)
+accepted free-text `--implementer` and supplied literal `claude/opus-5`.
+[727725eb](https://github.com/cooneycw/claude-power-pack/commit/727725eb)
+removed that argument and derived the transcript model; [09a9d656](https://github.com/cooneycw/claude-power-pack/commit/09a9d656)
+restricted the source to assistant `message.model` and recorded the first
+derived long-name receipt. Those historical short labels have no retained
+implementer evidence pointer and do not establish which model actually ran.
+String comparison cannot turn them into measured identities.
 
 A Codex review launched with `codex exec --ephemeral` writes no rollout, so
 it cannot back a receipt: the reviewer's model is read from the rollout. When

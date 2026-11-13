@@ -1318,3 +1318,77 @@ def test_schema_custom_only_rollout_supplies_the_head_probe():
     assert load()._review_commands(records, "codex") == [
         ("git rev-parse HEAD", "1111111111111111111111111111111111111111\n")
     ]
+
+
+# #1747: possible equivalence blocks a claim of independence; source names stay raw.
+CLAUDE_INDEPENDENCE_CASES = json.loads(
+    (ROOT / "tests/fixtures/counter_model/claude_independence.json").read_text()
+)
+
+
+@requires_git
+@pytest.mark.parametrize("case", CLAUDE_INDEPENDENCE_CASES, ids=lambda c: c["name"])
+def test_claude_spelling_independence_at_write_time(evidence, case):
+    e = evidence
+    impl_runtime, impl_model = case["implementer"].split("/", 1)
+    rev_runtime, rev_model = case["reviewer"].split("/", 1)
+    assert impl_model != rev_model, "fixture targets differing model spellings"
+    args = runtime(e, "implementer", impl_runtime, impl_model)
+    args += runtime(e, "reviewer", rev_runtime, rev_model, patch=e["patch"])
+    result = write(e, *args)
+    if case["refuse"]:
+        assert result.returncode != 0, result.stdout + result.stderr
+        assert "equivalence is not established" in result.stderr
+        assert "independence cannot be claimed" in result.stderr
+        for identity in (case["implementer"], case["reviewer"]):
+            assert load()._bare_model(identity) in result.stderr
+        assert not list((e["tmp"] / "out").glob("*.json"))
+    else:
+        assert result.returncode == 0, result.stderr
+        receipt = json.loads(next((e["tmp"] / "out").glob("*.json")).read_text())
+        assert receipt["implementer"] == load()._bare_model(case["implementer"])
+        assert receipt["reviewer"] == load()._bare_model(case["reviewer"])
+        assert load().validate(receipt) == []
+
+
+@requires_git
+@pytest.mark.parametrize("case", CLAUDE_INDEPENDENCE_CASES, ids=lambda c: c["name"])
+def test_claude_spelling_independence_in_schema5_validation(evidence, case):
+    e = evidence
+    args = runtime(e, "implementer", case["implementer"].split("/", 1)[0], "model-a")
+    args += runtime(e, "reviewer", case["reviewer"].split("/", 1)[0], "model-b", patch=e["patch"])
+    result = write(e, *args)
+    assert result.returncode == 0, result.stderr
+    receipt = json.loads(next((e["tmp"] / "out").glob("*.json")).read_text())
+    module = load()
+    assert module.validate(receipt) == []
+    # Preserve a valid schema-5 fixture while changing only its role identities.
+    for role in ("implementer", "reviewer"):
+        identity = case[role]
+        receipt[role] = identity
+        receipt[f"{role}_evidence"]["models"] = [identity]
+    # The adapter independence check is called directly so the generic check
+    # cannot hide a missing comparison at this separate site.
+    adapter_problems = module._validate_adapters(
+        receipt, "controlled", [receipt["implementer"]], receipt["reviewer"]
+    )
+    collisions = [p for p in adapter_problems if "overlaps an implementing model" in p]
+    assert bool(collisions) == case["refuse"], adapter_problems
+    if case["refuse"]:
+        assert any("equivalence is not established" in p for p in collisions)
+        assert any("independence cannot be claimed" in p for p in collisions)
+    else:
+        assert adapter_problems == []
+
+
+@pytest.mark.parametrize("case", CLAUDE_INDEPENDENCE_CASES, ids=lambda c: c["name"])
+def test_claude_spelling_independence_in_legacy_validation(case):
+    module = load()
+    legacy = json.loads((ROOT / "docs/measurements/counter-model/2026-09-15T173825Z-issue-934.json").read_text())
+    assert module.validate(legacy) == []
+    legacy.update(implementer=case["implementer"], reviewer=case["reviewer"])
+    problems = module.validate(legacy)
+    assert bool(problems) == case["refuse"], problems
+    if case["refuse"]:
+        assert any("equivalence is not established" in p for p in problems)
+        assert any("independence cannot be claimed" in p for p in problems)

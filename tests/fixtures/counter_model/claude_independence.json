@@ -1,0 +1,74 @@
+[
+  {
+    "name": "opus-5--claude-opus-5",
+    "implementer": "claude/opus-5",
+    "reviewer": "claude/claude-opus-5",
+    "refuse": true
+  },
+  {
+    "name": "claude-opus-5--opus-5",
+    "implementer": "claude/claude-opus-5",
+    "reviewer": "claude/opus-5",
+    "refuse": true
+  },
+  {
+    "name": "sonnet-5--claude-sonnet-5",
+    "implementer": "claude/sonnet-5",
+    "reviewer": "claude/claude-sonnet-5",
+    "refuse": true
+  },
+  {
+    "name": "claude-sonnet-5--sonnet-5",
+    "implementer": "claude/claude-sonnet-5",
+    "reviewer": "claude/sonnet-5",
+    "refuse": true
+  },
+  {
+    "name": "prefix-and-size",
+    "implementer": "claude/opus-5[1m]",
+    "reviewer": "claude/claude-opus-5",
+    "refuse": true
+  },
+  {
+    "name": "cross-runtime",
+    "implementer": "codex/opus-5",
+    "reviewer": "claude/claude-opus-5",
+    "refuse": true
+  },
+  {
+    "name": "different-claude-models",
+    "implementer": "claude/claude-opus-5",
+    "reviewer": "claude/claude-sonnet-5",
+    "refuse": false
+  },
+  {
+    "name": "codex-over-short",
+    "implementer": "claude/opus-5",
+    "reviewer": "codex/gpt-6-astra",
+    "refuse": false
+  },
+  {
+    "name": "codex-over-long",
+    "implementer": "claude/claude-opus-5",
+    "reviewer": "codex/gpt-6-astra",
+    "refuse": false
+  },
+  {
+    "name": "different-with-size",
+    "implementer": "claude/claude-opus-5[1m]",
+    "reviewer": "claude/claude-sonnet-5",
+    "refuse": false
+  },
+  {
+    "name": "unrelated-prefix",
+    "implementer": "claude/opus-5",
+    "reviewer": "claude/vendor-opus-5",
+    "refuse": false
+  },
+  {
+    "name": "one-leading-prefix-only",
+    "implementer": "claude/opus-5",
+    "reviewer": "claude/claude-claude-opus-5",
+    "refuse": false
+  }
+]
