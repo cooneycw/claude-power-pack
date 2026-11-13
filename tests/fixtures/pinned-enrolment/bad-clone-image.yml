@@ -1,0 +1,14 @@
+when:
+  branch: [main]
+  event: [push, pull_request]
+clone:
+  - name: git
+    image: example.invalid/unexamined-clone:1
+    settings:
+      depth: 0
+      merge_pull_request: false
+steps:
+  - name: lint
+    image: python:3.11-bookworm
+    commands:
+      - echo owned-fixture

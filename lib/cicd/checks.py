@@ -19,6 +19,7 @@ from typing import Any
 
 import yaml
 
+from .actions import GIT_CLONE_IMAGE
 from .config import CICDConfig
 from .providers import PROVIDERS, ProviderError, require_providers
 
@@ -206,8 +207,11 @@ def woodpecker_checks(files: dict[str, str]) -> RequiredChecks:
             raise UnknownChecks(filename + ": unsupported Woodpecker shape")
         if "clone" in pipeline:
             clone = pipeline["clone"]
+            # Keep already-generated consumers readable alongside the new pin.
             if (not isinstance(clone, list) or len(clone) != 1 or
-                    clone[0] != {"name": "git", "image": "woodpeckerci/plugin-git:2",
+                    not isinstance(clone[0], dict) or
+                    clone[0].get("image") not in (GIT_CLONE_IMAGE, "woodpeckerci/plugin-git:2") or
+                    clone[0] != {"name": "git", "image": clone[0]["image"],
                                  "settings": {"depth": "0", "merge_pull_request": "false"}}):
                 raise UnknownChecks(filename + ": unsupported clone configuration")
         when = _mapping(pipeline.get("when"), filename + " when")

@@ -15,6 +15,11 @@ AWS_CREDENTIALS = 'aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c
 AWS_SECRETS = 'aws-actions/aws-secretsmanager-get-secrets@a9a7eb4e2f2871d30dc5b892576fde60a2ecc802'
 UV_VERSION = '0.9.7'
 GITLEAKS_IMAGE = 'zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f'
+# Multi-architecture indexes resolved from Docker Hub on 2026-11-13 (#1787).
+TRIVY_IMAGE = 'aquasec/trivy:0.66.0@sha256:086971aaf400beebd94e8300fd8ea623774419597169156cec56eec5b00dfb1e'
+GIT_CLONE_IMAGE = (
+    'woodpeckerci/plugin-git:2.12.1@sha256:b8d2401997be68ec25d62bd753fe5d30236e029fe007a5e823177e0e485ae205'
+)
 
 
 def workflow_permissions_and_concurrency() -> list[str]:
