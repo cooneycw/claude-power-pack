@@ -1,0 +1,8 @@
+{
+  "name": "good-main-ancestor",
+  "pin": "ancestor",
+  "history": "full",
+  "expect": "reachable",
+  "exit": 0,
+  "provider": "github-actions"
+}

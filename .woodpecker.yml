@@ -925,6 +925,14 @@ steps:
               sleep 10
             done
             [ "$ok" = 1 ] || { echo "negative-controls: could not deepen the clone after 3 attempts - a fetch failure, not a finding; retry the pipeline"; exit 1; }
+            # A detached PR checkout is not main. Fetch its named retention
+            # reference explicitly; unshallow alone follows existing refspecs.
+            ok=0
+            for attempt in 1 2 3; do
+              if PATH="$PWD/.ci-bin:$PATH" git fetch --quiet origin refs/heads/main:refs/remotes/origin/main; then ok=1; break; fi
+              sleep 10
+            done
+            [ "$ok" = 1 ] || { echo "negative-controls: could not fetch main retention reference after 3 attempts - retry the pipeline"; exit 1; }
             PROVENANCE="--verify-provenance"
             ;;
           "") echo "negative-controls: CI_PIPELINE_EVENT is not set, so this step cannot tell whether to verify anchor provenance - refusing to run without knowing"; exit 1 ;;

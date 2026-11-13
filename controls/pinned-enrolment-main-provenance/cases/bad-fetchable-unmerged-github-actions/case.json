@@ -1,0 +1,8 @@
+{
+  "name": "bad-fetchable-unmerged",
+  "pin": "feature",
+  "history": "full",
+  "expect": "not-reachable",
+  "exit": 5,
+  "provider": "github-actions"
+}
