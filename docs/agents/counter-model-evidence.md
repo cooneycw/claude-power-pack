@@ -158,12 +158,14 @@ and a named authority may raise it mid-run for that run.
 - **Recorded, not authenticated.** The writer requires the fields to be present
   and non-blank. It cannot check that the named authority exists or ruled. The
   reference is what lets a reader check it.
-- **The gate does not read the count yet (issue #1765).** `flow-finish-gate.sh`
-  prints `receipt:` for an escalated receipt and passes, as it does for any
-  other `ran` receipt. Nothing on the gate's line says the review was
-  escalated; read the receipt. For the same reason a HAND-MADE receipt above
-  three passes with no ruling still passes the gate, though `validate` and the
-  corpus check reject it.
+- **The gate reads the count (#1765).** A ruled review above three passes
+  prints `escalated: N passes, ruled by WHO (FILE)` and passes enrolment. A
+  selected review above three with no complete ruling, a missing pass count,
+  or an unreadable/non-object receipt anywhere in the directory reports
+  `unknown:` and fails. The unreadable-file diagnostic names the file. A
+  readable schema-invalid historical record is not rejected merely by
+  existing: it matters when selected for a branch. See the [enrolment state
+  table](https://github.com/cooneycw/claude-power-pack/blob/main/docs/scripts/flow-finish-gate.md#counter-model-enrolment-decided-in-python-1765).
 - **Exactly three passes** keeps its earlier form: a reason and nothing more,
   and the line reads `receipt:`.
 - **No new status value, deliberately.** A repository whose CI pins an OLDER

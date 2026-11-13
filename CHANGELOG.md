@@ -11,6 +11,18 @@
 
 ### Upgrading
 
+- The finish gate's counter-model line now reports `escalated: N passes,
+  ruled by WHO (FILE)` for a ruled review above three passes (#1765). It now
+  fails a selected `ran` receipt with no pass count, a count above three
+  without a complete ruling, and any unreadable or non-object receipt file
+  anywhere in the receipts directory. The last rule applies on every branch
+  until that file is repaired or removed; the diagnostic names it. Before
+  moving a consumer's CPP pin, run `python3 <cpp>/scripts/counter-model-receipt.py
+  validate --dir docs/measurements/counter-model` in that consumer and repair
+  unreadable receipts. Readers of `FLOW_FINISH_GATE_COUNTER_MODEL` must accept
+  `escalated:` beside `receipt:` and `skipped:`. Public gate exit codes stay
+  unchanged; unenrolled repositories still work without Python.
+
 - Regenerate and review existing infrastructure pipelines by hand with
   `/cicd:infra-pipeline` (#1756); nothing detects stale generated content or
   tells existing consumers to regenerate. GitHub jobs now use contents-only
