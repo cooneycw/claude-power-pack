@@ -248,3 +248,16 @@ project and retain their caller PATH.
 
 See [the implementation evidence](../measurements/runner-target-path-1801.md)
 for limits, actual interpreter measurements and the single-guard controls.
+
+
+Consumer migration order: move the CPP pin to this implementation before a
+hand-written step adopts `"$CPP_RUNNER_PYTHON"`; older CPP leaves that variable
+empty and the shell cannot execute the command.
+
+
+With uv 0.9.7, an unset caller PATH becomes the CPP bin directory alone; that
+unverifiable handoff is deliberately refused before dispatch. An explicitly
+empty PATH becomes `CPP-bin:` and is restored to exactly empty (no borrowed
+Python or tools). The unmodified launcher itself cannot find bare env/uv in
+these populations. Native tests freeze only those two executable locations to
+reach real uv and pin the decoder behavior without adding a PATH directory.

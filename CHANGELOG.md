@@ -34,7 +34,8 @@
   the PATH handoff (#1801). Target bare `python`, `python3` and console tools
   now resolve on the caller's original PATH; install target dependencies or
   use its own `uv run`. Missing tools do not fall back to CPP's venv. Older
-  unmarked launchers retain their existing PATH behavior.
+  unmarked launchers retain their existing PATH behavior. With no caller PATH,
+  real uv startup is refused; an explicitly empty PATH stays empty.
 - `CPP_RUNNER_PYTHON` is reserved and overwritten with the actual runner
   interpreter, including after step env overrides. CPP-owned helper commands
   and their skip probes use its quoted value. Existing hand-written

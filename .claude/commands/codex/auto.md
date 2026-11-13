@@ -741,7 +741,7 @@ Report: `Step 5/8: Review complete - {PASS|N issues found}`
 
 ### Step 6: Quality Gates - Lint, Test, Security (with Fix Loop)
 
-Run the deterministic quality gate runner:
+Run quality gates:
 
 ```bash
 CPP_DIR=""

@@ -43,7 +43,7 @@ code → lint/test → deploy → health check → smoke test → report
 ### CLI Usage
 
 ```bash
-PYTHONPATH="$HOME/Projects/claude-power-pack:$PYTHONPATH" uv run --project "$HOME/Projects/claude-power-pack" python -m lib.cicd <command> [options]
+PYTHONPATH="$HOME/Projects/claude-power-pack:$PYTHONPATH" env "CPP_RUNNER_TARGET_PATH=${PATH-}" "CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" uv run --project "$HOME/Projects/claude-power-pack" python -m lib.cicd <command> [options]
 ```
 
 Subcommands: `detect`, `check`, `health`, `smoke`, `pipeline`

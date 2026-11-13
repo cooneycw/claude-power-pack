@@ -5,6 +5,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 SCRIPT = Path(__file__).parents[1] / "scripts" / "check-claude-md-behavior.py"
 SPEC = importlib.util.spec_from_file_location("check_claude_md_behavior", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
@@ -486,7 +488,17 @@ def test_the_real_flow_auto_fixture_is_substantial_and_satisfied() -> None:
     steps, retirements = behavior._load_fixture(root / behavior.COMMAND_STEP_FIXTURES[_STEP_DOC])
 
     assert len(steps) >= 300, "the pre-trim flow/auto.md held 300 recorded steps"
-    assert retirements == {}
+    assert set(retirements) == {"bash-0195", "bash-0201"}
+    mapping = dict(steps)
+    raw = json.loads((root / behavior.COMMAND_STEP_FIXTURES[_STEP_DOC]).read_text())
+    entries = {item["slug"]: item for item in raw["obligations"]}
+    addition = ('"CPP_RUNNER_TARGET_PATH=${PATH-}" '
+                '"CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" ')
+    for slug, reason in retirements.items():
+        assert "#1801" in reason and "original baseline retained" in reason
+        assert entries[slug]["kind"] == entries[slug + "-caller-path"]["kind"] == "bash-line"
+        assert entries[slug].get("count", 1) == entries[slug + "-caller-path"].get("count", 1) == 1
+        assert mapping[slug + "-caller-path"] == mapping[slug].replace("uv run", addition + "uv run", 1)
     assert behavior.check_command_steps(root) == ([], 1)
 
 
@@ -556,3 +568,21 @@ def test_a_command_whose_CASE_changed_is_a_missing_step(tmp_path: Path) -> None:
     _write_steps(tmp_path, body="```bash\nMAKE DEPLOY\n```\n", needles=[step])
 
     assert [finding.kind for finding in behavior.check_tree(tmp_path)] == ["missing-step"]
+
+
+@pytest.mark.parametrize("slug", ["bash-0195", "bash-0201"])
+def test_retired_launcher_still_requires_its_exact_path_aware_replacement(tmp_path: Path, slug: str) -> None:
+    root = SCRIPT.parents[1]
+    fixture = json.loads((root / behavior.COMMAND_STEP_FIXTURES[_STEP_DOC]).read_text())
+    mapping = {step["slug"]: step["needle"] for step in fixture["obligations"]}
+    lines = (root / _STEP_DOC).read_text().splitlines()
+    new = slug + "-caller-path"
+    selected = [index for index, line in enumerate(lines) if line.strip() == mapping[new]]
+    assert len(selected) == 1, "precondition: the complete new launcher appears exactly once"
+    index = selected[0]
+    lines[index] = lines[index].replace(mapping[new], mapping[slug])
+    _write_steps(tmp_path, body="\n".join(lines), needles=fixture["obligations"],
+                 retirements=fixture["retirements"])
+    findings, examined = behavior.check_command_steps(tmp_path)
+    assert examined == 1 and len(findings) == 1
+    assert findings[0].kind == "missing-step" and new in findings[0].detail

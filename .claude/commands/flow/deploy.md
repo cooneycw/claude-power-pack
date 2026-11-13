@@ -6,8 +6,6 @@
 
 ## Instructions
 
-For `/flow:deploy [TARGET]`:
-
 ### Step 1: Verify on Main Branch
 
 ```bash
@@ -19,7 +17,7 @@ if [[ "$BRANCH" != "main" && "$BRANCH" != "master" ]]; then
 fi
 ```
 
-### Step 2: Check Makefile Exists
+### Step 2: Check Makefile
 
 ```bash
 if [[ ! -f "Makefile" ]]; then
@@ -251,14 +249,14 @@ If `CPP_DIR` is found and `.claude/cicd.yml` exists:
 2. **Run health checks:**
    ```bash
    echo "Running post-deploy health checks..."
-   PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd health --summary
+   PYTHONPATH="$CPP_DIR:$PYTHONPATH" env "CPP_RUNNER_TARGET_PATH=${PATH-}" "CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" uv run --project "$CPP_DIR" python -m lib.cicd health --summary
    HEALTH_EXIT=$?
    ```
 
 3. **Run smoke tests:**
    ```bash
    echo "Running post-deploy smoke tests..."
-   PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd smoke --summary
+   PYTHONPATH="$CPP_DIR:$PYTHONPATH" env "CPP_RUNNER_TARGET_PATH=${PATH-}" "CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" uv run --project "$CPP_DIR" python -m lib.cicd smoke --summary
    SMOKE_EXIT=$?
    ```
 

@@ -272,3 +272,72 @@ def test_emitted_cpp_security_commands_and_guards_use_cpp_runtime(
     observed = security_probe(tmp_path, False, builtin, refuse_target_import=True, source=source)
     assert not observed["skipped"] and observed["success"], observed
     assert " PASS " in observed["output"]
+
+
+# Missing/empty PATH can prevent finding env/uv before Python starts. The
+# resolved-executable variant freezes only those two known launch binaries;
+# the exact extracted array and PATH record still run through actual uv.
+def run_empty_path_probe(work: Path, state: str, resolve_launchers: bool) -> dict:
+    work.mkdir(parents=True)
+    target = work / "target"
+    (target / ".claude").mkdir(parents=True)
+    (target / ".claude/cicd_tasks.yml").write_text(
+        'version: "1"\nsteps:\n  owned:\n    command: >-\n'
+        '      printf \'%s\' "${PATH+x}:${PATH-}" > step-path;\n'
+        '      command -v python3 > step-python || :;\n'
+        '      echo dispatched > dispatched\n'
+        'plans:\n  owned:\n    steps: [owned]\n')
+    env_exe = shutil.which("env")
+    uv_exe = shutil.which("uv")
+    bash_exe = shutil.which("bash")
+    assert env_exe and uv_exe and bash_exe
+    source = (ROOT / "scripts/flow-finish-gate.sh").read_text()
+    wrapper = "CPP_RUN=(" + source.split("CPP_RUN=(", 1)[1].split("\n\n", 1)[0]
+    env = os.environ.copy()
+    for key in ("PATH", "VIRTUAL_ENV", "PYTHONHOME", "UV_PROJECT_ENVIRONMENT", "UV_PYTHON"):
+        env.pop(key, None)
+    if state == "empty":
+        env["PATH"] = ""
+    assert env.get("PATH") in (None, ""), "precondition: no caller search directories"
+    assert shutil.which("env", path=str(target)) is None, "empty PATH searches owned cwd, which has no env"
+    env.update(CPP_DIR=str(ROOT), PYTHONPATH=f"{FIXTURE}:{ROOT}", UV_OFFLINE="1", CPP_OFFLINE="1",
+               ENV_EXE=env_exe, UV_EXE=uv_exe,
+               CPP_PATH_PROBE_RUNNER_RECORD=str(work / "runtime.json"))
+    prefix = "unset PATH\n" if state == "unset" else ""
+    fix_lookup = '' if not resolve_launchers else (
+        '\nCPP_RUN[0]="$ENV_EXE"\n'
+        'for _i in "${!CPP_RUN[@]}"; do\n'
+        '  if [[ "${CPP_RUN[_i]}" == uv ]]; then CPP_RUN[_i]="$UV_EXE"; fi\n'
+        'done\n')
+    done = subprocess.run([bash_exe, "-c", prefix + wrapper + fix_lookup + '\n"${CPP_RUN[@]}" run --plan owned'],
+                          cwd=target, env=env, text=True, capture_output=True, timeout=60, check=False)
+    observation = {"state": state, "resolved_launchers": resolve_launchers, "exit_code": done.returncode,
+                   "dispatched": (target / "dispatched").exists(), "stderr": done.stderr,
+                   "step_path": (target / "step-path").read_text() if (target / "step-path").exists() else None,
+                   "step_python": (target / "step-python").read_text() if (target / "step-python").exists() else None,
+                   "runtime": json.loads((work / "runtime.json").read_text())
+                   if (work / "runtime.json").exists() else None}
+    (work / "observation.json").write_text(json.dumps(observation, indent=2) + "\n")
+    return observation
+
+
+@pytest.mark.parametrize("state", ["unset", "empty"])
+def test_actual_uv_missing_or_empty_path_never_borrows_cpp_for_target(tmp_path: Path, state: str) -> None:
+    observed = run_empty_path_probe(tmp_path / "resolved", state, True)
+    assert observed["runtime"] is not None, "the real uv child must have started"
+    if state == "unset":
+        assert observed["runtime"]["PATH"] == str(ROOT / ".venv/bin")
+        assert observed["exit_code"] == 1 and not observed["dispatched"]
+        assert "PATH policy is unverified" in observed["stderr"]
+    else:
+        assert observed["runtime"]["PATH"] == str(ROOT / ".venv/bin") + os.pathsep
+        assert observed["exit_code"] == 0 and observed["dispatched"]
+        assert observed["step_path"] == "x:" and observed["step_python"] == ""
+
+
+@pytest.mark.parametrize("state", ["unset", "empty"])
+def test_unresolved_empty_path_launcher_never_silently_dispatches(tmp_path: Path, state: str) -> None:
+    observed = run_empty_path_probe(tmp_path / "unresolved", state, False)
+    assert observed["exit_code"] != 0 and not observed["dispatched"]
+    if observed["runtime"] is not None:
+        assert "PATH policy is unverified" in observed["stderr"]
