@@ -29,16 +29,16 @@ Schema 5 selects evidence independently for each role and binds the reviewed
 artifact through runtime HEAD execution or exact captured patch bytes (#1584).
 Schemas 1-4 retain historical shape validation, without a corpus migration.
 
-WHAT THIS IS NOT
-----------------
-It is not a gate and it returns no verdict about a change. `validate` checks
-SHAPE only, and its failure is caught by the surrounding suite
-(tests/test_counter_model_review.py), which is why it carries no committed
-negative control of its own - see docs/decisions/0008-instrument-negative-control-bound.md
-for the bound. Reading the accumulated counts is a documented `jq` query in
-ADR 0007 rather than a summarising instrument here, deliberately: a number that
-decides whether the stage gets promoted to blocking should be derived in the
-open by whoever is deciding, not handed to them by a script nobody controlled.
+WRITING, VALIDATING, AND ENROLMENT
+---------------------------------
+The writer records a review and `validate` checks stored shape, not the quality
+of the reviewed change. Their failures are caught by the surrounding suite.
+The `enrolment` verb (#1765) decides the finish gate's complete answer. Its
+private codes and rendered public line are load-bearing; real shell-entry
+controls in controls/counter-model-enrolment, -ci and -selection exercise it.
+See docs/decisions/0008-instrument-negative-control-bound.md for the bound.
+Reading accumulated review counts remains a documented `jq` query in ADR 0007,
+not a claim from this gate about review quality.
 """
 
 from __future__ import annotations
@@ -3389,6 +3389,190 @@ def cmd_skip_reasons(args: argparse.Namespace) -> int:
     return 0
 
 
+# Private CLI answers, not public finish-gate exit codes. A blind exit 0 is
+# deliberately not an answer. No receipt field crosses into shell decisions.
+ENROLMENT_CODES = {
+    "receipt": 10, "escalated": 11, "skipped": 12, "not-enrolled": 13,
+    "not-applicable": 14, "missing": 15, "unknown": 16, "undecidable": 17,
+    "unresolvable": 18, "receipt-without-scope": 19,
+}
+
+
+class EnrolmentAnswer:
+    def __init__(self, state: str, line: str, diagnostic: str = "") -> None:
+        self.state, self.line, self.diagnostic = state, line, diagnostic
+
+
+def _enrolment_display(value: str) -> str:
+    """Display one line without changing the values used for any decision."""
+    return "".join(
+        "\\\\" if ch == "\\" else ch if ch.isprintable() else f"\\u{ord(ch):04x}"
+        for ch in value
+    )
+
+
+def _enrolment_git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", *args], cwd=root, capture_output=True,
+                          text=True, timeout=30, check=False)
+
+
+def evaluate_enrolment(root: Path, branch: str | None, mode: str) -> EnrolmentAnswer:
+    """Decide the complete enrolment answer, including selection (#1765).
+
+    prior attempt: held/issue-1700-gate-half@54367bc8, read as reference.
+    There is no field transport: Unicode and controls stay intact for matching,
+    and an unreadable file cannot be filtered away as if it named another branch.
+    This checks enrolment policy, not every historical receipt schema.
+    """
+    resolved = _enrolment_git(root, "rev-parse", "--show-toplevel")
+    if resolved.returncode == 0:
+        root = Path(resolved.stdout.rstrip("\n"))
+    receipts = root / RECEIPT_DIR
+    if not receipts.is_dir():
+        return EnrolmentAnswer(
+            "not-enrolled", "not-enrolled: this repository carries no counter-model receipts directory")
+    if resolved.returncode != 0:
+        return EnrolmentAnswer(
+            "unknown", "unknown: the counter-model receipts directory exists but this is not a git checkout, "
+            "so no review can be attributed to a commit")
+    if branch is None:
+        named = _enrolment_git(root, "rev-parse", "--abbrev-ref", "HEAD")
+        if named.returncode:
+            return EnrolmentAnswer("unknown", "unknown: cannot establish the current Git branch")
+        branch = named.stdout.rstrip("\n")
+        if branch == "HEAD":
+            branch = ""
+    where = (f" for branch '{_enrolment_display(branch)}'" if branch else
+             "  (detached HEAD: matched by ancestry, branch not comparable)")
+
+    # Parse EVERY file before narrowing. Otherwise truncating the newest receipt
+    # removes its branch/head and quietly selects an older review (finding 7).
+    parsed: list[tuple[Path, dict]] = []
+    for path in sorted(p for p in receipts.iterdir() if p.name.endswith(".json")):
+        try:
+            receipt = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(receipt, dict):
+                raise ValueError("not a JSON object")
+        except (OSError, ValueError, UnicodeError) as exc:
+            return EnrolmentAnswer(
+                "unknown", f"unknown: receipt {_enrolment_display(path.name)} is unreadable or not a JSON object "
+                f"({_enrolment_display(str(exc))})")
+        parsed.append((path, receipt))
+
+    best: dict[str, tuple[Path, dict]] = {}
+    best_distance: int | None = None
+    unresolved = False
+    uncounted = 0
+    for path, receipt in parsed:
+        if branch and receipt.get("branch") != branch:
+            continue
+        head = receipt.get("head")
+        # Older well-formed historical receipts may lack a head. They cannot
+        # establish ancestry, just as before; unreadable objects never reach here.
+        if not isinstance(head, str) or not head:
+            continue
+        if head.startswith("-"):
+            unresolved = True
+            continue
+        ancestor = _enrolment_git(root, "merge-base", "--is-ancestor", "--", head, "HEAD")
+        if ancestor.returncode == 1:
+            continue
+        if ancestor.returncode != 0:
+            unresolved = True
+            continue
+        distance = _enrolment_git(root, "rev-list", "--count", f"{head}..HEAD")
+        if distance.returncode or not re.fullmatch(r"[0-9]+", distance.stdout.strip()):
+            uncounted += 1
+            continue
+        count = int(distance.stdout.strip())
+        sha = _enrolment_git(root, "rev-parse", "--verify", "-q", f"{head}^{{commit}}")
+        key = sha.stdout.strip() if sha.returncode == 0 else head
+        if best_distance is None or count < best_distance:
+            best, best_distance = {}, count
+        if count == best_distance:
+            # Filename order replaces only at ONE head. Distinct tied heads
+            # are all judged; renaming a file cannot excuse another bad review.
+            best[key] = path, receipt
+
+    if not best:
+        if uncounted:
+            return EnrolmentAnswer(
+                "undecidable", f"undecidable: {uncounted} receipt(s) match this history but the distance from each "
+                "to HEAD could not be computed - no receipt was selected, so the enrolment decision was NOT made here")
+        shallow = _enrolment_git(root, "rev-parse", "--is-shallow-repository")
+        if shallow.returncode:
+            return EnrolmentAnswer("unknown", "unknown: cannot determine whether this Git history is shallow")
+        if shallow.stdout.strip() == "true":
+            return EnrolmentAnswer(
+                "undecidable", "undecidable (shallow clone): history is truncated, so 'no receipt reachable from HEAD' "
+                "may be truncation rather than absence - the enrolment decision was NOT made here")
+        if unresolved:
+            return EnrolmentAnswer(
+                "unresolvable", "unresolvable: a receipt names a commit this FULL checkout does not contain - "
+                "the receipt is wrong or fabricated")
+        suffix = f" for branch '{_enrolment_display(branch)}'" if branch else ""
+        return EnrolmentAnswer("missing", f"missing: no receipt{suffix} at a commit reachable from HEAD")
+
+    answers: list[EnrolmentAnswer] = []
+    missing_scope: Path | None = None
+    for path, receipt in best.values():
+        filename = _enrolment_display(path.name)
+        status = receipt.get("status")
+        if status == "skipped":
+            reason = receipt.get("skip_reason")
+            if reason not in SKIP_REASONS:
+                return EnrolmentAnswer(
+                    "unknown", f"unknown: skip reason '{_enrolment_display(str(reason))}' is not in the committed set")
+            answers.append(EnrolmentAnswer("skipped", f"skipped: {reason} ({filename}){where}"))
+            continue
+        if status != "ran":
+            shown = _enrolment_display(str(status)) if status is not None else "<absent>"
+            return EnrolmentAnswer(
+                "unknown", f"unknown: receipt {filename} has status '{shown}', which is neither 'ran' nor 'skipped'")
+        passes = receipt.get("passes")
+        if type(passes) is not int or passes < 1:
+            return EnrolmentAnswer("unknown", f"unknown: receipt {filename} has no positive integer pass count")
+        if passes > PASSES_HARD_CEILING:
+            problems = escalation_problems(passes, receipt.get("escalation"))
+            reason = receipt.get("extra_passes_reason")
+            if not isinstance(reason, str) or not reason.strip():
+                problems.append("no extra-pass reason")
+            if problems:
+                detail = _enrolment_display("; ".join(problems))
+                return EnrolmentAnswer(
+                    "unknown", f"unknown: receipt {filename} has an invalid escalated review: {detail}")
+            ruler = _enrolment_display(receipt["escalation"]["ruled_by"])
+            answers.append(EnrolmentAnswer(
+                "escalated", f"escalated: {passes} passes, ruled by {ruler} ({filename}){where}"))
+        else:
+            answers.append(EnrolmentAnswer("receipt", f"receipt: {filename}{where}"))
+        scope = receipt.get("scope")
+        if (mode == "enrolment" and receipt.get("direction") != "delegated"
+                and not (isinstance(scope, str) and scope != "")):
+            missing_scope = missing_scope or path
+    # Every tied review is checked. An ordinary/skip line must not hide a valid
+    # escalation; otherwise retain the existing last accepted line convention.
+    answer = next((a for a in reversed(answers) if a.state == "escalated"), answers[-1])
+    if missing_scope is not None:
+        filename = _enrolment_display(missing_scope.name)
+        diagnostic = (f"flow-finish-gate: receipt {filename} records a review that ran but carries no 'scope' "
+                      '(issue #1461); write it with --scope "$CODEX_REVIEW_SCOPE".')
+        return EnrolmentAnswer("receipt-without-scope", answer.line, diagnostic)
+    return answer
+
+
+def cmd_enrolment(args: argparse.Namespace) -> int:
+    try:
+        answer = evaluate_enrolment(args.root, args.branch, args.mode)
+    except (OSError, ValueError, UnicodeError, subprocess.SubprocessError) as exc:
+        answer = EnrolmentAnswer("unknown", "unknown: cannot evaluate counter-model enrolment ("
+                                 + _enrolment_display(str(exc)) + ")")
+    print(f"FLOW_FINISH_GATE_COUNTER_MODEL: {answer.line}")
+    if answer.diagnostic:
+        print(answer.diagnostic, file=sys.stderr)
+    return ENROLMENT_CODES[answer.state]
+
+
 def cmd_rollout_model(args: argparse.Namespace) -> int:
     """Derive one Codex exec stream's reviewing model and print it alone.
 
@@ -3560,6 +3744,12 @@ def main() -> int:
     sr = sub.add_parser("skip-reasons",
                         help="print the committed skip reasons, one per line")
     sr.set_defaults(func=cmd_skip_reasons)
+
+    enrolment = sub.add_parser("enrolment", help="decide the finish gate's complete enrolment answer")
+    enrolment.add_argument("--root", type=Path, default=Path.cwd())
+    enrolment.add_argument("--branch")
+    enrolment.add_argument("--mode", choices=("gate", "enrolment"), default="gate")
+    enrolment.set_defaults(func=cmd_enrolment)
 
     rm = sub.add_parser(
         "rollout-model",

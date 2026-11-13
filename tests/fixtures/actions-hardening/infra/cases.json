@@ -1,0 +1,76 @@
+[
+  {
+    "file": "bad-permissions.yml",
+    "good_file": "good-github.yml",
+    "property": "permissions",
+    "provider": "github-actions",
+    "tool": "terraform",
+    "path": [
+      "jobs",
+      "apply",
+      "permissions"
+    ],
+    "bad_value": {
+      "contents": "write"
+    }
+  },
+  {
+    "file": "bad-timeout.yml",
+    "good_file": "good-github.yml",
+    "property": "timeouts",
+    "provider": "github-actions",
+    "tool": "terraform",
+    "path": [
+      "jobs",
+      "apply",
+      "timeout-minutes"
+    ],
+    "bad_value": "0"
+  },
+  {
+    "file": "bad-checkout-credentials.yml",
+    "good_file": "good-github.yml",
+    "property": "checkout_credentials",
+    "provider": "github-actions",
+    "tool": "terraform",
+    "path": [
+      "jobs",
+      "plan",
+      "steps",
+      0,
+      "with",
+      "persist-credentials"
+    ],
+    "bad_value": "true"
+  },
+  {
+    "file": "bad-image-pinning.yml",
+    "good_file": "good-woodpecker.yml",
+    "property": "image_pinning",
+    "provider": "woodpecker",
+    "tool": "pulumi",
+    "path": [
+      "steps",
+      0,
+      "image"
+    ],
+    "bad_value": "pulumi/pulumi-python:latest"
+  },
+  {
+    "file": "bad-iac-commands.yml",
+    "good_file": "good-woodpecker.yml",
+    "property": "iac_commands",
+    "provider": "woodpecker",
+    "tool": "pulumi",
+    "path": [
+      "steps",
+      0,
+      "commands"
+    ],
+    "bad_value": [
+      "cd infra/app",
+      "terraform init",
+      "terraform plan -out=tfplan"
+    ]
+  }
+]

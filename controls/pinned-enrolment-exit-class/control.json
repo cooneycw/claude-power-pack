@@ -9,7 +9,7 @@
   "good_exit": 0,
   "detect_signal": "^PINNED_ENROLMENT_CONTROL: refused unsafe proceed$",
   "good_signal": "^PINNED_ENROLMENT_CONTROL: (ready|missed contract)$",
-  "limits": "Near miss: the bootstrap otherwise behaves correctly but collapses UNKNOWN into FAIL exit1 instead of retry exit5. Executes the same emitted shell with owned offline fixtures; exact expected exits are case data. This battery is separate because each anchor must miss every BAD case in its own declared population.",
+  "limits": "Near miss: the bootstrap otherwise behaves correctly but collapses UNKNOWN into FAIL exit1 instead of retry exit5. Executes the same emitted shell with owned offline fixtures; exact expected exits are case data. This battery is separate because each anchor must miss every BAD case in its own declared population. The owned Git stub now explicitly models full official main fetch, a complete main-history population including the fixture pin, and exact checkout; unknown commands are refused. Historical near-miss anchors retain their original depth-1 pin-fetch path so the original independent defect remains observable. Main-source trust discrimination is exercised separately by controls/pinned-enrolment-main-provenance with real Git.",
   "cases": [
     {
       "name": "bad-fetch-failure",

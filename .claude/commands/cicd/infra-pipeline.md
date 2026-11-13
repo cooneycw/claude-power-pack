@@ -57,15 +57,12 @@ Woodpecker emits `.woodpecker/infra-<tier>.yml` for each tier. Selecting both
 providers emits both path families. These path-filtered workflows do not supply
 unconditional required contexts for every PR; `cicd checks` reports that boundary.
 
+For permissions, authentication, deadlines, pinned tools and regeneration, read
+[the infrastructure workflow setup guide](../../../docs/skills/infrastructure-workflows.md).
+
 ### Approval Gates
 
 Foundation tier uses GitHub Environments with required reviewers. Set up:
 1. Go to repo Settings > Environments
 2. Create `infra-foundation` environment
 3. Add required reviewers
-
-## Related
-
-- `/cicd:infra-init` - Scaffold IaC directory structure
-- `/cicd:infra-discover` - Audit existing cloud resources
-- `/cicd:pipeline` - Application-layer pipeline generation

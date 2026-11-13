@@ -134,7 +134,7 @@ def test_real_trusted_checker_checks_consumer_ancestry(tmp_path, receipt):
 
     for repo in (cpp, project):
         repo.mkdir()
-        git_at(repo, "init", "-q", "-b", "owned-branch")
+        git_at(repo, "init", "-q", "-b", "main" if repo == cpp else "owned-branch")
     (cpp / "scripts").mkdir()
     for name in ("flow-finish-gate.sh", "counter-model-receipt.py", "gate-lib.sh", "coordination-admission.sh"):
         shutil.copy2(root / "scripts" / name, cpp / "scripts" / name)
@@ -157,7 +157,7 @@ def test_real_trusted_checker_checks_consumer_ancestry(tmp_path, receipt):
         directory.mkdir(parents=True)
         (directory / "owned.json").write_text(json.dumps({
             "branch": "owned-branch", "head": head, "status": receipt, "scope": "diff-only",
-            "skip_reason": "codex-absent",
+            "skip_reason": "codex-absent", "passes": 1,
         }, indent=2) + "\n")
         git_at(project, "add", ".")
         git_at(project, "commit", "-qm", "receipt for ancestor")
@@ -257,8 +257,10 @@ def test_invalid_install_revision_never_becomes_a_fetch_ref(tmp_path, revision):
 
 
 @requires_bash
-def test_woodpecker_tool_bootstrap_failure_is_unknown(tmp_path):
+@pytest.mark.parametrize("pin", [PIN, ""])
+def test_woodpecker_tool_bootstrap_failure_is_unknown(tmp_path, pin):
     config = CICDConfig()
+    config._cpp_revision = pin
     command = yaml.load(generate_woodpecker(_make_info(), config), Loader=yaml.BaseLoader)["steps"][0]["commands"][0]
     apt = tmp_path / "apt-get"
     apt.write_text("#!/bin/sh\nexit 22\n")
@@ -268,6 +270,7 @@ def test_woodpecker_tool_bootstrap_failure_is_unknown(tmp_path):
                             env={**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"]},
                             capture_output=True, text=True, timeout=5)
     assert result.returncode == 5 and "CPP_COUNTER_MODEL_ENROLMENT: unknown" in result.stdout
+    assert ("CPP_COUNTER_MODEL_CPP_REVISION: unknown pin=" + (pin or "-") + " main=-") in result.stdout
 
 
 @requires_bash

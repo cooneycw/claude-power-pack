@@ -1,0 +1,7 @@
+{
+  "kind": "constructed",
+  "purpose": "Remove shallow refusal and substitute an unrelated UNKNOWN for main-tip pins. A generic UNKNOWN matcher accepts this broken gate.",
+  "remove": "[[ \"$cpp_shallow\" == false ]] || unknown 'CPP main history is shallow or unavailable'",
+  "insert_before": "main_history=$(timeout 120s git -C \"$cpp_tmp\" rev-list \"$CPP_MAIN_SHA\")",
+  "insert": "[[ \"$CPP_SHA\" != \"$CPP_MAIN_SHA\" ]] || unknown 'unrelated main-tip refusal'\n"
+}
