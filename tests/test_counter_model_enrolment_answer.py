@@ -14,8 +14,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-GATE = Path(os.environ.get("CPP_ENROLMENT_TEST_GATE", ROOT / "scripts/flow-finish-gate.sh"))
-HELPER = Path(os.environ.get("CPP_ENROLMENT_TEST_HELPER", ROOT / "scripts/counter-model-receipt.py"))
+GATE = Path(os.environ.get("CPP_ENROLMENT_TEST_GATE", ROOT / "scripts" / "flow-finish-gate.sh"))
+HELPER = Path(os.environ.get("CPP_ENROLMENT_TEST_HELPER", ROOT / "scripts" / "counter-model-receipt.py"))
 CASES = json.loads((ROOT / "tests/fixtures/counter_model/enrolment_cases.json").read_text())
 pytestmark = pytest.mark.skipif(
     shutil.which("bash") is None or shutil.which("git") is None
