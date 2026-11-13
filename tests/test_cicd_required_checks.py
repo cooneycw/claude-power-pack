@@ -11,6 +11,27 @@ from lib.cicd.models import Framework, FrameworkInfo, PackageManager
 from lib.cicd.pipeline import generate_pipeline
 
 
+def test_required_check_reader_rejects_unknown_clone_image():
+    import yaml
+
+    from lib.cicd.actions import GIT_CLONE_IMAGE
+    from lib.cicd.checks import derive_required_checks
+
+    fixture = Path(__file__).parent / "fixtures/pinned-enrolment/bad-clone-image.yml"
+    text = fixture.read_text()
+    data = yaml.load(text, Loader=yaml.BaseLoader)
+    image = data["clone"][0]["image"]
+    assert image == "example.invalid/unexamined-clone:1"
+    assert image not in (GIT_CLONE_IMAGE, "woodpeckerci/plugin-git:2")
+    result = derive_required_checks(["woodpecker"], {".woodpecker.yml": text})
+    assert result.status == "unknown" and "clone" in result.reason
+    for accepted in (GIT_CLONE_IMAGE, "woodpeckerci/plugin-git:2"):
+        repaired = text.replace(image, accepted)
+        result = derive_required_checks(["woodpecker"], {".woodpecker.yml": repaired})
+        assert result.status == "known", result.reason
+        assert result.checks == ("ci/woodpecker/pr/woodpecker",)
+
+
 def test_infra_recorded_provider_list_generates_both(tmp_path: Path, capsys):
     from lib.cicd.cli import main
     path = tmp_path / ".claude/cicd.yml"

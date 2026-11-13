@@ -142,7 +142,9 @@ def github_actions_job(pin: str) -> list[str]:
 
 
 def woodpecker_step(pin: str) -> list[str]:
-    lines = ["  - name: counter-model-enrolment", "    image: python:3.11-bookworm",
+    lines = ["  - name: counter-model-enrolment",
+             "    # Enrolment runtime is a tag-only exception to the clone/scanner digest pins.",
+             "    image: python:3.11-bookworm",
              "    when:", "      event: pull_request", "    commands:",
              "      - >-", "        timeout 120s sh -c",
              '        "apt-get update && apt-get install -y --no-install-recommends bash git curl ca-certificates"',

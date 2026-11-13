@@ -1790,10 +1790,33 @@ def _bare_model(name: str) -> str:
 
 def _model_key(identity: str) -> str:
     """What two identities are compared by: the model name, without the harness
-    prefix and without a context-window tag. No aliases between different
-    model names: `opus-5` and `claude-opus-5` stay two names (issue #1747)."""
+    prefix and without a context-window tag. Recorded names are not aliases:
+    possible equivalence is handled by _possibly_same_model (issue #1747)."""
     name = identity.split("/", 2)[-1] if identity.startswith("opencode/") else identity.split("/", 1)[-1]
     return _bare_model(name)
+
+
+def _possibly_same_model(left: str, right: str) -> bool:
+    """Refuse unproven independence without asserting an alias (#1747).
+
+    Existing key equality, or exactly one leading `claude-` difference, after
+    harness/provider and size-tag stripping. No other prefix or fuzzy match.
+    This affects comparison only; evidence and recorded names stay unchanged.
+    """
+    # The 28 short-name receipts from 2026-09-15 through 2026-09-19 are
+    # pre-measurement caller-typed labels: ffc315ad supplied --implementer
+    # literally; 727725eb removed it; 09a9d656 first recorded a derived name.
+    # Their actual model and equivalence to the long spelling remain unresolved.
+    a, b = _model_key(left), _model_key(right)
+    return a == b or a == f"claude-{b}" or b == f"claude-{a}"
+
+
+def _independence_detail(reviewer: str, implementer: str) -> str:
+    detail = f"reviewer {reviewer!r}, implementer {implementer!r}"
+    if _model_key(reviewer) != _model_key(implementer):
+        return f"{detail}: equivalence is not established, so independence cannot be claimed"
+    return (f"{detail}: the reviewing model must not be the implementing model; "
+            "it must differ from every implementing model")
 
 
 def _review_inputs(records: list[dict], runtime: str) -> list[tuple[int, str]]:
@@ -2286,10 +2309,12 @@ def _validate_adapters(receipt: dict, source: str, implementers: list[str], revi
                 type(item.get("bytes")) is int and item["bytes"] > 0, f"{role} source requires positive byte length"
             )
     if isinstance(reviewer, str):
-        require(
-            all(_model_key(reviewer) != _model_key(i) for i in implementers),
-            "reviewer overlaps an implementing model independently of runtime",
-        )
+        for implementing in implementers:
+            require(
+                not _possibly_same_model(reviewer, implementing),
+                "reviewer overlaps an implementing model independently of runtime; "
+                + _independence_detail(reviewer, implementing),
+            )
     artifact = receipt.get("reviewed_artifact")
     if not isinstance(artifact, dict):
         require(False, "missing reviewed_artifact binding")
@@ -2436,18 +2461,16 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
         # a counter-model review at all - it is the author agreeing with
         # themselves, recorded as independent evidence. Worse than no receipt,
         # because it is counted.
-        if _bare_model(reviewer.strip()) in {_bare_model(i) for i in implementers}:
+        for implementing in implementers:
+            if not _possibly_same_model(reviewer.strip(), implementing):
+                continue
             if has_implementer_set:
-                bad.append(
-                    f"{source}: reviewer overlaps the implementer set "
-                    f"({reviewer.strip()!r}); the reviewing model must differ from "
-                    "every implementing model"
-                )
+                description = "reviewer overlaps the implementer set"
+            elif _model_key(reviewer.strip()) == _model_key(implementing):
+                description = "reviewer and implementer are the same model"
             else:
-                bad.append(
-                    f"{source}: reviewer and implementer are the same model "
-                    f"({reviewer!r}); the reviewing model must not be the implementing model"
-                )
+                description = "reviewer and implementer may be the same model"
+            bad.append(f"{source}: {description}; " + _independence_detail(reviewer.strip(), implementing))
 
     head = receipt.get("head")
     if head is not None:
@@ -3084,9 +3107,12 @@ def cmd_write(args: argparse.Namespace) -> int:
             args.scope = args.scope or "unverified"
             args.implementer = implementing[0] if len(implementing) == 1 else implementing
             args.reviewer = reviewing[0]
-            if any(_model_key(args.reviewer) == _model_key(i) for i in implementing):
-                raise EvidenceRefused(f"reviewer overlaps the implementer set ({args.reviewer!r}; {implementing!r}); "
-                                      "the reviewing model must differ from every implementing model")
+            for implemented_by in implementing:
+                if _possibly_same_model(args.reviewer, implemented_by):
+                    raise EvidenceRefused(
+                        "reviewer overlaps the implementer set; "
+                        + _independence_detail(args.reviewer, implemented_by)
+                    )
             args.adapter_records = True
             args.network = args.network or "unverified"
             args.local_credentials = args.local_credentials or "unknown"
