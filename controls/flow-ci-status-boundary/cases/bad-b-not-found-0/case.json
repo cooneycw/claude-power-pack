@@ -1,0 +1,14 @@
+{
+  "name": "bad-b-not-found-0",
+  "row": "b",
+  "kind": "BAD",
+  "expected": {
+    "exit": 2,
+    "STATUS": "not-found",
+    "PROVIDER": "woodpecker",
+    "SELECTION": "fallback"
+  },
+  "fallback": true,
+  "wp": "not-found",
+  "args": []
+}

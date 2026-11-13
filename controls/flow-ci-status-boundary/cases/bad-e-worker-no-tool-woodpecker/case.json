@@ -1,0 +1,15 @@
+{
+  "name": "bad-e-worker-no-tool-woodpecker",
+  "row": "e",
+  "kind": "BAD",
+  "expected": {
+    "exit": 2,
+    "STATUS": "unknown",
+    "PROVIDER": "none",
+    "SELECTION": "worker (woodpecker)",
+    "no_requests": true
+  },
+  "backend": "woodpecker",
+  "worker": true,
+  "missing_tools": true
+}

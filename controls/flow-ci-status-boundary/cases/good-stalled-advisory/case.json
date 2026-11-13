@@ -1,0 +1,12 @@
+{
+  "name": "good-stalled-advisory",
+  "row": "positive",
+  "kind": "GOOD",
+  "expected": {
+    "exit": 0,
+    "STATUS": "stalled",
+    "PROVIDER": "woodpecker",
+    "SELECTION": "fallback"
+  },
+  "fallback": true
+}

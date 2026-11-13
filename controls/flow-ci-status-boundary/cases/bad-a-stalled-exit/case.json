@@ -1,0 +1,15 @@
+{
+  "name": "bad-a-stalled-exit",
+  "row": "a",
+  "kind": "BAD",
+  "expected": {
+    "exit": 1,
+    "STATUS": "stalled",
+    "PROVIDER": "woodpecker",
+    "SELECTION": "fallback"
+  },
+  "fallback": true,
+  "args": [
+    "--exit-code"
+  ]
+}

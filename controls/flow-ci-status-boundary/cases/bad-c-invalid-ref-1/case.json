@@ -1,0 +1,20 @@
+{
+  "name": "bad-c-invalid-ref-1",
+  "row": "c",
+  "kind": "BAD",
+  "expected": {
+    "exit": 2,
+    "STATUS": "unknown",
+    "PROVIDER": "none",
+    "SELECTION": "fallback",
+    "no_requests": true
+  },
+  "fallback": true,
+  "wp": "not-found",
+  "ref": "fixture-ref-does-not-exist",
+  "args": [
+    "--wait",
+    "1"
+  ],
+  "python_unavailable": true
+}
