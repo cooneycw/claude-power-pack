@@ -10,7 +10,7 @@
   "detect_signal": "^FLOW_CPP_RUNTIME_CONTROL: blocked$",
   "good_signal": "^FLOW_CPP_RUNTIME_CONTROL: ready$",
   "unavailable_signal": "^FLOW_CPP_RUNTIME_CONTROL: unavailable$",
-  "limits": "Actual shell dispatch and verdict with owned fake uv/make, no live git repository. uv argv models installed or absent 3.11; removing no-download writes an owned marker and returns fixture-ready, never fetches. Synthetic runner JSON is a fixture transcript, not real gate execution. Installed and Make-only populations are positive controls. Independent missing-tool/present127 classification is registered separately at controls/flow-finish-missing-tools, since selection anchors cannot be blind to that distinct refusal. Native dual-runtime behavior is tested separately.",
+  "limits": "Actual shell dispatch and verdict with owned fake uv/make, no live git repository. uv argv models installed or absent 3.11; removing no-download writes an owned marker and returns fixture-ready, never fetches. Synthetic runner JSON is a fixture transcript, not real gate execution. Installed and Make-only populations are positive controls. Independent missing-tool/present127 classification is registered separately at controls/flow-finish-missing-tools, since selection anchors cannot be blind to that distinct refusal. Native dual-runtime behavior is tested separately. Existing-environment cases use owned pyvenv.cfg and executable interpreter doubles: mismatched 3.12 and broken interpreters must refuse before uv; matching 3.11 must run. A real 3.12 environment and its file fingerprint are covered by tests/test_cpp_environment_preservation.py. Successful interpreter doubles evaluate the supplied probe with fixture-owned version and executable facts; the constant-output broken executable must be refused. This control does not authenticate against a deliberately malicious executable.",
   "cases": [
     {
       "name": "good-installed",
@@ -25,6 +25,61 @@
     {
       "name": "bad-missing-runtime-no-download",
       "input": "cases/bad-missing-runtime-no-download",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-existing-runtime",
+      "input": "cases/good-existing-runtime",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-mismatched-environment",
+      "input": "cases/bad-mismatched-environment",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-broken-environment",
+      "input": "cases/bad-broken-environment",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-virtualenv-runtime",
+      "input": "cases/good-virtualenv-runtime",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-invalid-config-version",
+      "input": "cases/bad-invalid-config-version",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-disagreeing-version",
+      "input": "cases/bad-disagreeing-version",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-malformed-matching-version",
+      "input": "cases/bad-malformed-matching-version",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-malformed-mismatch-optin",
+      "input": "cases/bad-malformed-mismatch-optin",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-constant-interpreter",
+      "input": "cases/bad-constant-interpreter",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-contradictory-config",
+      "input": "cases/bad-contradictory-config",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-contradictory-config-optin",
+      "input": "cases/bad-contradictory-config-optin",
       "expect": "BAD"
     }
   ],

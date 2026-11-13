@@ -105,6 +105,9 @@
 # via tree_signature is a safe crash-resume and stays silent: warning on every
 # legitimate resume would train readers to stop reading the line.
 #
+# Env (operator policy):
+#   FLOW_GATE_REBUILD_CPP_VENV=1 explicitly allow replacing an existing CPP
+#                       environment on another Python minor. Stop its users first.
 # Env (test hooks - unset in normal use):
 #   FLOW_GATE_CPP_DIR   override the CPP checkout path (set empty to force
 #                       "no checkout found" and exercise the fallback)
@@ -521,6 +524,65 @@ CPP_RUN=(env -u UV_PROJECT_ENVIRONMENT
     "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}"
     uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd)
 
+# uv otherwise replaces an incompatible environment before it starts Python.
+# Read both sources directly: asking uv would already have performed the repair.
+cpp_environment_check() {
+    local venv="$CPP_DIR/.venv" cfg_version python_version cfg_minor python_minor
+    local cfg_versions="" candidate canonical cfg_canonical="" cfg_valid=1 marker probe=""
+    [[ -e "$venv" || -L "$venv" ]] || return 0
+    if [[ -f "$venv/pyvenv.cfg" && -r "$venv/pyvenv.cfg" && -x "$venv/bin/python" ]]; then
+        cfg_versions=$(awk '/^[[:space:]]*(version|version_info)[[:space:]]*=/ {
+            sub(/^[^=]*=[[:space:]]*/, ""); sub(/[[:space:]]*$/, ""); print
+        }' "$venv/pyvenv.cfg") || cfg_versions=""
+        marker="CPP_VENV_PROBE_${BASHPID:-$$}_${RANDOM}_${RANDOM}"
+        # -S keeps site/.pth hooks out of the probe. On Python 3.11 it also
+        # suppresses venv sys.prefix, so verify the invoked executable instead.
+        probe=$("$venv/bin/python" -I -S -c '
+import os, sys
+if os.path.abspath(sys.executable) != os.path.abspath(sys.argv[2]):
+    raise SystemExit(1)
+print(sys.argv[1] + ":" + ".".join(map(str, sys.version_info[:3])))
+' "$marker" "$venv/bin/python" 2>/dev/null) || probe=""
+    fi
+    cfg_version="${cfg_versions//$'\n'/, }"
+    python_version=""
+    if [[ -n "${marker:-}" && "$probe" == "$marker:"* ]]; then
+        python_version="${probe#"$marker:"}"
+    fi
+    cfg_minor=""
+    python_minor=""
+    # virtualenv appends release metadata (for example 3.11.14.final.0).
+    while IFS= read -r candidate; do
+        if [[ "$candidate" =~ ^(([0-9]+\.[0-9]+)\.[0-9]+)(\.(alpha|beta|candidate|final)\.[0-9]+)?$ ]]; then
+            cfg_minor="${BASH_REMATCH[2]}"
+            canonical="${BASH_REMATCH[1]}${BASH_REMATCH[3]:-.final.0}"
+            if [[ -n "$cfg_canonical" && "$canonical" != "$cfg_canonical" ]]; then
+                cfg_valid=0
+            fi
+            cfg_canonical="$canonical"
+        else
+            cfg_valid=0
+        fi
+    done <<< "$cfg_versions"
+    if [[ "$python_version" =~ ^([0-9]+\.[0-9]+)\.[0-9]+$ ]]; then
+        python_minor="${BASH_REMATCH[1]}"
+    fi
+    if [[ "$cfg_valid" != 1 || -z "$cfg_minor" || -z "$python_minor" || "$cfg_minor" != "$python_minor" ]]; then
+        echo "FLOW_FINISH_GATE: fail (cpp-runtime-environment-unverified: $venv; pyvenv.cfg=${cfg_version:-unreadable}, bin/python=${python_version:-unavailable}; wanted Python 3.11)"
+        gate_exit fail
+    fi
+    if [[ "$python_minor" != 3.11 ]]; then
+        if [[ "${FLOW_GATE_REBUILD_CPP_VENV:-0}" == 1 ]]; then
+            echo "flow-finish-gate: explicitly allowing CPP environment rebuild: found Python $python_version, wanted 3.11 ($venv)" >&2
+        else
+            echo "FLOW_FINISH_GATE: fail (cpp-runtime-environment-mismatch: found Python $python_version (pyvenv.cfg=$cfg_version), wanted Python 3.11; $venv preserved)"
+            echo "Stop users of this environment, then explicitly sync it with Python 3.11 or set FLOW_GATE_REBUILD_CPP_VENV=1 for an intentional in-place rebuild." >&2
+            printf '  uv sync --project %q --python 3.11 --no-python-downloads --extra dev\n' "$CPP_DIR" >&2
+            gate_exit fail
+        fi
+    fi
+}
+
 # --- Advisory Makefile-completeness mode (/flow:check Step 5) ---------------
 if [[ "$MODE" == "check-summary" ]]; then
     if [[ "$RUNNER_OK" -eq 0 ]]; then
@@ -533,6 +595,7 @@ if [[ "$MODE" == "check-summary" ]]; then
         verdict skipped
         gate_exit skipped
     fi
+    cpp_environment_check
     if PYTHONPATH="$CPP_DIR:${PYTHONPATH:-}" "${CPP_RUN[@]}" check --summary; then
         verdict ok
         gate_exit ok
@@ -939,6 +1002,7 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
     # Tee the runner's JSON (stdout) so the #621 qualification can be read back
     # while the user still sees it live; stderr - the per-step progress log -
     # streams straight through untouched.
+    cpp_environment_check
     RUNNER_JSON=$(mktemp "${TMPDIR:-/tmp}/flow-finish-gate.XXXXXX")
     # WRITTEN THROUGH ONE DESCRIPTOR, NEVER RE-OPENED BY NAME (issue #1313).
     # `tee` is a pipeline member that can outlive this shell: killed mid-run,

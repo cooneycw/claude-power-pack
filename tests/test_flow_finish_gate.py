@@ -72,6 +72,7 @@ _BASE_ENV_ALLOWLIST = ("PATH", "HOME")
 # a knob out - the allowlist does that for names nobody listed - it is the
 # input for the test that proves it.
 _GATE_KNOBS = (
+    "FLOW_GATE_REBUILD_CPP_VENV",
     "FLOW_GATE_RERUN",
     "FLOW_GATE_CPP_DIR",
     "CPP_GATE_RERUN_FAILED",
