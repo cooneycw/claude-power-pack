@@ -289,5 +289,12 @@
     "state": "unknown",
     "gate": 1,
     "enrolment": 1
+  },
+  {
+    "name": "escalated-code-receipt-line-helper",
+    "helper": "escalated-code-receipt-line",
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1
   }
 ]
