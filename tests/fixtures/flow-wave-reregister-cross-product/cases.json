@@ -16,7 +16,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-absent-omitted__files-0__pr-1",
@@ -35,7 +48,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-absent-omitted__files-1__pr-0",
@@ -54,7 +80,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "c.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-absent-omitted__files-1__pr-1",
@@ -73,7 +112,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-absent-present__files-0__pr-0",
@@ -92,7 +144,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-absent-present__files-0__pr-1",
@@ -111,7 +176,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-absent-present__files-1__pr-0",
@@ -130,7 +208,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-absent-present__files-1__pr-1",
@@ -149,7 +240,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-present-omitted__files-0__pr-0",
@@ -168,7 +272,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-present-omitted__files-0__pr-1",
@@ -187,7 +304,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-present-omitted__files-1__pr-0",
@@ -206,7 +336,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-present-omitted__files-1__pr-1",
@@ -225,7 +368,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-present-same__files-0__pr-0",
@@ -244,7 +400,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-present-same__files-0__pr-1",
@@ -263,7 +432,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-present-same__files-1__pr-0",
@@ -282,7 +464,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-present-same__files-1__pr-1",
@@ -301,7 +496,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-present-different__files-0__pr-0",
@@ -320,7 +528,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-present-different__files-0__pr-1",
@@ -339,7 +560,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-present-different__files-1__pr-0",
@@ -358,7 +592,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-present-different__files-1__pr-1",
@@ -377,7 +624,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "{other}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{other}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-absent-explicit-empty__files-0__pr-0",
@@ -396,7 +656,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-absent-explicit-empty__files-0__pr-1",
@@ -415,7 +688,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-absent-explicit-empty__files-1__pr-0",
@@ -434,7 +720,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "c.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-absent-explicit-empty__files-1__pr-1",
@@ -453,7 +752,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-present-explicit-empty__files-0__pr-0",
@@ -472,7 +784,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-present-explicit-empty__files-0__pr-1",
@@ -491,7 +816,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-present-explicit-empty__files-1__pr-0",
@@ -510,7 +848,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-omitted__repo-present-explicit-empty__files-1__pr-1",
@@ -529,7 +880,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-absent-omitted__files-0__pr-0",
@@ -548,7 +912,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-absent-omitted__files-0__pr-1",
@@ -567,7 +944,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-absent-omitted__files-1__pr-0",
@@ -586,7 +976,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-absent-omitted__files-1__pr-1",
@@ -605,7 +1008,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-absent-present__files-0__pr-0",
@@ -624,7 +1040,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-absent-present__files-0__pr-1",
@@ -643,7 +1072,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-absent-present__files-1__pr-0",
@@ -662,7 +1104,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-absent-present__files-1__pr-1",
@@ -681,7 +1136,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-present-omitted__files-0__pr-0",
@@ -700,7 +1168,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-present-omitted__files-0__pr-1",
@@ -719,7 +1200,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-present-omitted__files-1__pr-0",
@@ -738,7 +1232,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-present-omitted__files-1__pr-1",
@@ -757,7 +1264,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-present-same__files-0__pr-0",
@@ -776,7 +1296,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-present-same__files-0__pr-1",
@@ -795,7 +1328,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-present-same__files-1__pr-0",
@@ -814,7 +1360,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-present-same__files-1__pr-1",
@@ -833,7 +1392,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-present-different__files-0__pr-0",
@@ -852,7 +1424,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-present-different__files-0__pr-1",
@@ -871,7 +1456,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-present-different__files-1__pr-0",
@@ -890,7 +1488,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-present-different__files-1__pr-1",
@@ -909,7 +1520,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "{other}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{other}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-absent-explicit-empty__files-0__pr-0",
@@ -928,7 +1552,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-absent-explicit-empty__files-0__pr-1",
@@ -947,7 +1584,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-absent-explicit-empty__files-1__pr-0",
@@ -966,7 +1616,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-absent-explicit-empty__files-1__pr-1",
@@ -985,7 +1648,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-present-explicit-empty__files-0__pr-0",
@@ -1004,7 +1680,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-present-explicit-empty__files-0__pr-1",
@@ -1023,7 +1712,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-present-explicit-empty__files-1__pr-0",
@@ -1042,7 +1744,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-present__repo-present-explicit-empty__files-1__pr-1",
@@ -1061,7 +1776,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-absent-omitted__files-0__pr-0",
@@ -1080,7 +1808,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-absent-omitted__files-0__pr-1",
@@ -1099,7 +1840,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-absent-omitted__files-1__pr-0",
@@ -1118,7 +1872,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "c.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-absent-omitted__files-1__pr-1",
@@ -1137,7 +1904,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-absent-present__files-0__pr-0",
@@ -1156,7 +1936,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-absent-present__files-0__pr-1",
@@ -1175,7 +1968,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-absent-present__files-1__pr-0",
@@ -1194,7 +2000,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-absent-present__files-1__pr-1",
@@ -1213,7 +2032,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-present-omitted__files-0__pr-0",
@@ -1232,7 +2064,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-present-omitted__files-0__pr-1",
@@ -1251,7 +2096,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-present-omitted__files-1__pr-0",
@@ -1270,7 +2128,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-present-omitted__files-1__pr-1",
@@ -1289,7 +2160,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-present-same__files-0__pr-0",
@@ -1308,7 +2192,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-present-same__files-0__pr-1",
@@ -1327,7 +2224,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-present-same__files-1__pr-0",
@@ -1346,7 +2256,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-present-same__files-1__pr-1",
@@ -1365,7 +2288,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-present-different__files-0__pr-0",
@@ -1384,7 +2320,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-present-different__files-0__pr-1",
@@ -1403,7 +2352,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-present-different__files-1__pr-0",
@@ -1422,7 +2384,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-present-different__files-1__pr-1",
@@ -1441,7 +2416,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "{other}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{other}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-absent-explicit-empty__files-0__pr-0",
@@ -1460,7 +2448,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-absent-explicit-empty__files-0__pr-1",
@@ -1479,7 +2480,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-absent-explicit-empty__files-1__pr-0",
@@ -1498,7 +2512,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "c.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-absent-explicit-empty__files-1__pr-1",
@@ -1517,7 +2544,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-present-explicit-empty__files-0__pr-0",
@@ -1536,7 +2576,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-present-explicit-empty__files-0__pr-1",
@@ -1555,7 +2608,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-present-explicit-empty__files-1__pr-0",
@@ -1574,7 +2640,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-omitted__repo-present-explicit-empty__files-1__pr-1",
@@ -1593,7 +2672,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-absent-omitted__files-0__pr-0",
@@ -1612,7 +2704,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-absent-omitted__files-0__pr-1",
@@ -1631,7 +2736,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-absent-omitted__files-1__pr-0",
@@ -1650,7 +2768,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "c.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-absent-omitted__files-1__pr-1",
@@ -1669,7 +2800,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-absent-present__files-0__pr-0",
@@ -1688,7 +2832,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-absent-present__files-0__pr-1",
@@ -1707,7 +2864,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-absent-present__files-1__pr-0",
@@ -1726,7 +2896,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-absent-present__files-1__pr-1",
@@ -1745,7 +2928,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-present-omitted__files-0__pr-0",
@@ -1764,7 +2960,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-present-omitted__files-0__pr-1",
@@ -1783,7 +2992,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-present-omitted__files-1__pr-0",
@@ -1802,7 +3024,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-present-omitted__files-1__pr-1",
@@ -1821,7 +3056,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-present-same__files-0__pr-0",
@@ -1840,7 +3088,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-present-same__files-0__pr-1",
@@ -1859,7 +3120,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-present-same__files-1__pr-0",
@@ -1878,7 +3152,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-present-same__files-1__pr-1",
@@ -1897,7 +3184,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-present-different__files-0__pr-0",
@@ -1916,7 +3216,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-present-different__files-0__pr-1",
@@ -1935,7 +3248,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-present-different__files-1__pr-0",
@@ -1954,7 +3280,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-present-different__files-1__pr-1",
@@ -1973,7 +3312,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "{other}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{other}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-absent-explicit-empty__files-0__pr-0",
@@ -1992,7 +3344,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-absent-explicit-empty__files-0__pr-1",
@@ -2011,7 +3376,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-absent-explicit-empty__files-1__pr-0",
@@ -2030,7 +3408,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "c.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-absent-explicit-empty__files-1__pr-1",
@@ -2049,7 +3440,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-present-explicit-empty__files-0__pr-0",
@@ -2068,7 +3472,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-present-explicit-empty__files-0__pr-1",
@@ -2087,7 +3504,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-present-explicit-empty__files-1__pr-0",
@@ -2106,7 +3536,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-same__repo-present-explicit-empty__files-1__pr-1",
@@ -2125,7 +3568,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-absent-omitted__files-0__pr-0",
@@ -2144,7 +3600,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-absent-omitted__files-0__pr-1",
@@ -2163,7 +3632,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-absent-omitted__files-1__pr-0",
@@ -2182,7 +3664,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-absent-omitted__files-1__pr-1",
@@ -2201,7 +3696,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1711",
+        "repo": "",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-absent-present__files-0__pr-0",
@@ -2220,7 +3728,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-absent-present__files-0__pr-1",
@@ -2239,7 +3760,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-absent-present__files-1__pr-0",
@@ -2258,7 +3792,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-absent-present__files-1__pr-1",
@@ -2277,7 +3824,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1711",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-present-omitted__files-0__pr-0",
@@ -2296,7 +3856,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-present-omitted__files-0__pr-1",
@@ -2315,7 +3888,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-present-omitted__files-1__pr-0",
@@ -2334,7 +3920,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-present-omitted__files-1__pr-1",
@@ -2353,7 +3952,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1711",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-present-same__files-0__pr-0",
@@ -2372,7 +3984,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-present-same__files-0__pr-1",
@@ -2391,7 +4016,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-present-same__files-1__pr-0",
@@ -2410,7 +4048,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-present-same__files-1__pr-1",
@@ -2429,7 +4080,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1711",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-present-different__files-0__pr-0",
@@ -2448,7 +4112,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-present-different__files-0__pr-1",
@@ -2467,7 +4144,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-present-different__files-1__pr-0",
@@ -2486,7 +4176,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-present-different__files-1__pr-1",
@@ -2505,7 +4208,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1711",
+        "repo": "{other}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{other}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-absent-explicit-empty__files-0__pr-0",
@@ -2524,7 +4240,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-absent-explicit-empty__files-0__pr-1",
@@ -2543,7 +4272,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-absent-explicit-empty__files-1__pr-0",
@@ -2562,7 +4304,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-absent-explicit-empty__files-1__pr-1",
@@ -2581,7 +4336,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1711",
+        "repo": "",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-present-explicit-empty__files-0__pr-0",
@@ -2600,7 +4368,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-present-explicit-empty__files-0__pr-1",
@@ -2619,7 +4400,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-present-explicit-empty__files-1__pr-0",
@@ -2638,7 +4432,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-different__repo-present-explicit-empty__files-1__pr-1",
@@ -2657,7 +4464,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "1711",
+        "repo": "",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-absent-omitted__files-0__pr-0",
@@ -2676,7 +4496,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-absent-omitted__files-0__pr-1",
@@ -2695,7 +4528,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-absent-omitted__files-1__pr-0",
@@ -2714,7 +4560,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "c.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-absent-omitted__files-1__pr-1",
@@ -2733,7 +4592,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-absent-present__files-0__pr-0",
@@ -2752,7 +4624,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-absent-present__files-0__pr-1",
@@ -2771,7 +4656,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-absent-present__files-1__pr-0",
@@ -2790,7 +4688,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-absent-present__files-1__pr-1",
@@ -2809,7 +4720,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-present-omitted__files-0__pr-0",
@@ -2828,7 +4752,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-present-omitted__files-0__pr-1",
@@ -2847,7 +4784,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-present-omitted__files-1__pr-0",
@@ -2866,7 +4816,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-present-omitted__files-1__pr-1",
@@ -2885,7 +4848,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-present-same__files-0__pr-0",
@@ -2904,7 +4880,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-present-same__files-0__pr-1",
@@ -2923,7 +4912,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-present-same__files-1__pr-0",
@@ -2942,7 +4944,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-present-same__files-1__pr-1",
@@ -2961,7 +4976,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-present-different__files-0__pr-0",
@@ -2980,7 +5008,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-present-different__files-0__pr-1",
@@ -2999,7 +5040,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-present-different__files-1__pr-0",
@@ -3018,7 +5072,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-present-different__files-1__pr-1",
@@ -3037,7 +5104,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "{other}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{other}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-absent-explicit-empty__files-0__pr-0",
@@ -3056,7 +5136,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-absent-explicit-empty__files-0__pr-1",
@@ -3075,7 +5168,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-absent-explicit-empty__files-1__pr-0",
@@ -3094,7 +5200,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "c.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-absent-explicit-empty__files-1__pr-1",
@@ -3113,7 +5232,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-present-explicit-empty__files-0__pr-0",
@@ -3132,7 +5264,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-present-explicit-empty__files-0__pr-1",
@@ -3151,7 +5296,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-present-explicit-empty__files-1__pr-0",
@@ -3170,7 +5328,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-absent-explicit-empty__repo-present-explicit-empty__files-1__pr-1",
@@ -3189,7 +5360,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-absent-omitted__files-0__pr-0",
@@ -3208,7 +5392,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-absent-omitted__files-0__pr-1",
@@ -3227,7 +5424,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-absent-omitted__files-1__pr-0",
@@ -3246,7 +5456,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-absent-omitted__files-1__pr-1",
@@ -3265,7 +5488,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-absent-present__files-0__pr-0",
@@ -3284,7 +5520,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-absent-present__files-0__pr-1",
@@ -3303,7 +5552,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-absent-present__files-1__pr-0",
@@ -3322,7 +5584,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-absent-present__files-1__pr-1",
@@ -3341,7 +5616,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-present-omitted__files-0__pr-0",
@@ -3360,7 +5648,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-present-omitted__files-0__pr-1",
@@ -3379,7 +5680,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-present-omitted__files-1__pr-0",
@@ -3398,7 +5712,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-present-omitted__files-1__pr-1",
@@ -3417,7 +5744,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-present-same__files-0__pr-0",
@@ -3436,7 +5776,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-present-same__files-0__pr-1",
@@ -3455,7 +5808,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-present-same__files-1__pr-0",
@@ -3474,7 +5840,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-present-same__files-1__pr-1",
@@ -3493,7 +5872,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "{repo}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{repo}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-present-different__files-0__pr-0",
@@ -3512,7 +5904,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-present-different__files-0__pr-1",
@@ -3531,7 +5936,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-present-different__files-1__pr-0",
@@ -3550,7 +5968,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-present-different__files-1__pr-1",
@@ -3569,7 +6000,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "{other}",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "{other}",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-absent-explicit-empty__files-0__pr-0",
@@ -3588,7 +6032,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-absent-explicit-empty__files-0__pr-1",
@@ -3607,7 +6064,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-absent-explicit-empty__files-1__pr-0",
@@ -3626,7 +6096,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-absent-explicit-empty__files-1__pr-1",
@@ -3645,7 +6128,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-present-explicit-empty__files-0__pr-0",
@@ -3664,7 +6160,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-present-explicit-empty__files-0__pr-1",
@@ -3683,7 +6192,20 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "-"
+    "dropped": "-",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-present-explicit-empty__files-1__pr-0",
@@ -3702,7 +6224,20 @@
       "overtaken": 1
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 1,
+      "expected": {
+        "issue": "1710",
+        "repo": "{repo}",
+        "files": "a.py,b.py",
+        "pr": "55",
+        "base": "base-2",
+        "diff": "diff-1",
+        "obs_repo": "{repo}",
+        "overtaken": 1
+      }
+    }
   },
   {
     "name": "issue-present-explicit-empty__repo-present-explicit-empty__files-1__pr-1",
@@ -3721,6 +6256,19 @@
       "overtaken": 0
     },
     "exit": 0,
-    "dropped": "a.py,b.py"
+    "dropped": "a.py,b.py",
+    "chosen": {
+      "exit": 0,
+      "expected": {
+        "issue": "",
+        "repo": "",
+        "files": "c.py",
+        "pr": "77",
+        "base": "new-base",
+        "diff": "new-diff",
+        "obs_repo": "",
+        "overtaken": 0
+      }
+    }
   }
 ]

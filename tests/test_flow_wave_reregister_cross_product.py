@@ -1,4 +1,4 @@
-"""#1762's 196 CURRENT outcomes; no chosen-future outcomes or product changes.
+"""#1762's 196 owner-ruled outcomes, retaining the measured pre-fix states for comparison.
 
 Seven states per identity include omitted and explicit-empty flags separately.
 Cross these with supplied/omitted files and complete PR observations. Every
@@ -59,7 +59,7 @@ def _flag(transition, name, places):
 
 @matrix.requires_tools
 @pytest.mark.parametrize("case", CASES, ids=lambda case: case["name"])
-def test_current_reregister_cross_product(tmp_path, cross_places, seeds, case):
+def test_chosen_reregister_cross_product(tmp_path, cross_places, seeds, case):
     old_issue = case["issue"].startswith("present/")
     old_repo = case["repo"].startswith("present/")
     registry = tmp_path / "reg/registry.json"
@@ -76,17 +76,23 @@ def test_current_reregister_cross_product(tmp_path, cross_places, seeds, case):
         flags.extend(["--files", "c.py"])
     if case["pr"]:
         flags.extend(["--pr", "77", "--base", "new-base", "--diff", "new-diff"])
+    original_bytes = registry.read_bytes()
     result = _run(tmp_path, "register", matrix.ROLE, "--wave", matrix.WAVE,
                   *flags, cwd=cross_places["plain"])
-    assert result.returncode == case["exit"], result.stdout + result.stderr
+    assert result.returncode == case["chosen"]["exit"], result.stdout + result.stderr
+    if case["chosen"]["exit"] == 1:
+        assert _verdict(result) == "refused"
+        assert registry.read_bytes() == original_bytes
+        return
     assert _verdict(result) == "updated"
     after = json.loads(registry.read_text())[matrix.WAVE]["roles"][matrix.ROLE]
-    expected = {key: matrix._fill(value, cross_places) for key, value in case["expected"].items()}
+    expected = {key: matrix._fill(value, cross_places) for key, value in case["chosen"]["expected"].items()}
     assert {key: after[key] for key in FIELDS} == expected
     assert _detail(result, "FLOW_WAVE_FILES") == (expected["files"] or "-")
-    assert _detail(result, "FLOW_WAVE_FILES_DROPPED") == case["dropped"]
+    dropped = "a.py,b.py" if case["files"] else "-"
+    assert _detail(result, "FLOW_WAVE_FILES_DROPPED") == dropped
     assert _detail(result, "FLOW_WAVE_FILES_ADDED") == ("c.py" if case["files"] else "-")
-    assert (" DROPPED " in result.stderr) == (case["dropped"] != "-")
+    assert (" DROPPED " in result.stderr) == (dropped != "-")
 
 
 def test_cross_product_fixture_has_every_input_and_both_current_move_outcomes():
@@ -96,7 +102,27 @@ def test_cross_product_fixture_has_every_input_and_both_current_move_outcomes():
     observed = {(c["issue"], c["repo"], c["files"], c["pr"]) for c in CASES}
     assert len(CASES) == len(observed) == 196
     assert observed == expected
+    assert sum(c["chosen"]["exit"] == 1 for c in CASES) == 99
     # Positive and negative populations for retention, not an all-preserve table.
     assert any(c["expected"]["files"] == "" for c in CASES)
     assert any(c["expected"]["files"] == "a.py,b.py" for c in CASES)
     assert {c["expected"]["overtaken"] for c in CASES} == {0, 1}
+
+
+@matrix.requires_tools
+def test_withdrawal_has_plain_caller_line_and_nested_roster_note(tmp_path, cross_places, seeds):
+    registry = tmp_path / "reg/registry.json"
+    registry.parent.mkdir()
+    registry.write_text(json.dumps(seeds[(True, True)]))
+    before = json.loads(registry.read_text())[matrix.WAVE]["roles"][matrix.ROLE]
+    assert before["pr"] == "55" and before["overtaken"] == 1
+    result = _run(tmp_path, "register", matrix.ROLE, "--wave", matrix.WAVE, "--clear-pr",
+                  cwd=cross_places["plain"])
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "merge observation withdrawn" in result.stderr
+    listed = _run(tmp_path, "list", "--wave", matrix.WAVE, "--json")
+    # list has a trailing verdict: its JSON object is the first document.
+    data, _ = json.JSONDecoder().raw_decode(listed.stdout)
+    assert "merge observation withdrawn" in data[matrix.ROLE]["work_note"]
+    human = _run(tmp_path, "list", "--wave", matrix.WAVE)
+    assert "merge observation withdrawn" in human.stdout
