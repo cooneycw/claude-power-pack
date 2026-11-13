@@ -56,6 +56,46 @@ branch failures alongside the count, nested-field and hostile-filename cases.
 Real-gate control batteries cover finish, enrolment-only and selection; the
 Python-only implementation does not replace those integration checks.
 
+## Exit-marker ownership (#1783)
+
+The EXIT trap belongs to the shell invocation that installed it. With
+`BASHPID` available, a copied trap in a forked child returns before emitting
+`FLOW_FINISH_GATE_EXIT`, writing the coordination status file or removing the
+owner's temporary files. Marker spelling, announced status, signal death and
+stderr ordering are unchanged.
+
+A process-group signal can arrive after the runner pipeline forks its
+`tee`-side child but before Bash resets the child's inherited traps and
+executes `tee`. Both shells then run the copied trap. An owned Linux ptrace
+probe held that exact boundary on the unmodified gate: SIGTERM, SIGINT and
+SIGHUP each produced two `128` markers in three of three trials. Diagnostic
+tracing identified two different `BASHPID` values while both shells still
+reported the same `$$` and `BASH_SUBSHELL=0`. The allowlisted and earlier
+inherited fixture environments both reproduced it; missing `TMPDIR` is not
+required. These experiments establish a mechanism matching the CI symptom;
+the historical CI execution itself was not traced.
+
+On Bash without `BASHPID`, including Bash 3.2, the ownership guard is
+explicitly unarmed and retains prior behavior: the duplicate remains possible.
+There is no external PID probe during teardown. The unavailable branch is
+tested by unsetting `BASHPID` on the available Bash; a real Bash 3.2 run is not
+claimed.
+
+Portable tests call the real initialized trap from its owner and a forked
+shell, checking marker/status writes and cleanup separately. The registered
+`controls/flow-finish-gate-owner` control pauses the actual pipeline fork;
+unsupported OS, unavailable `BASHPID` or denied ptrace reports named
+`UNAVAILABLE`, never a passing property. Its BAD input is the unauthorized
+child: one marker means the child was refused, while the historical anchor's
+two markers mean it was permitted. CI reports its own tracing capability.
+
+The strict CPP interruption test and interrupted-control reader reject extra
+marker lines. The flow command documents require a separate
+`FLOW_FINISH_GATE:` verdict, so the exit trailer alone does not authorize
+continuation. Skillc's pinned gate-output test also compares the complete
+line list. The two observed values were both `128`; a wrong status value was
+not demonstrated.
+
 ## CPP environment preservation (#1768)
 
 This check protects against accidental damage to an environment in use.
