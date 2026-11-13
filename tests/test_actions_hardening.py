@@ -318,13 +318,240 @@ def test_ignored_exit_fixture_is_valid_shell_and_masks_a_real_failure(tmp_path):
 
 # --- generated INFRASTRUCTURE workflows (issue #1712, seq 695) ---------------
 #
-# These were absent from SAMPLES above, which is how `actions/checkout@v4`, a
-# moving ref, stayed in `lib/cicd/infrastructure.py` under a test that forbids
-# moving refs. They join here for the pin. The other COMMON properties
-# (permissions, timeouts, checkout credentials, concurrency) are NOT asserted
-# for them yet: the infra generator does not have them, which is issue #1756.
+# Infrastructure has its own job/command population and approval model. Check
+# its applicable properties explicitly rather than inheriting application-only
+# secret-scan/deploy assumptions from COMMON (#1756).
 
 INFRA_TIERS = ("foundation", "platform", "app")
+INFRA_TOOLS = ("terraform", "pulumi", "bicep")
+INFRA_LIMIT = "# Timeout is a Woodpecker project setting; configure it before running infrastructure jobs."
+
+
+def infra_commands(tool: str, azure_location: str) -> tuple[str, str, str]:
+    """Independent expected command contract, including provider substitution."""
+    return {
+        "terraform": ("terraform init", "terraform plan -out=tfplan", "terraform apply tfplan"),
+        "pulumi": ("pip install -r requirements.txt", "pulumi preview", "pulumi up --yes"),
+        "bicep": ("az bicep install",
+                  f"az deployment sub what-if --location {azure_location} --template-file main.bicep",
+                  f"az deployment sub create --location {azure_location} --template-file main.bicep"),
+    }[tool]
+
+
+def assert_infra_property(document: dict[str, Any], provider: str, tool: str, prop: str) -> None:
+    assert provider in {"github-actions", "woodpecker"} and tool in INFRA_TOOLS
+    if provider == "github-actions":
+        jobs = document.get("jobs", {})
+        assert set(jobs) == {"plan", "apply"}, "infra plan/apply jobs must be examined"
+        if prop in {"permissions", "timeouts", "checkout_credentials"}:
+            assert_property(document, prop)
+            if prop == "permissions":
+                assert all(job.get("permissions") == {"contents": "read"} for job in jobs.values())
+            elif prop == "timeouts":
+                assert jobs["plan"]["timeout-minutes"] == "30"
+                assert jobs["apply"]["timeout-minutes"] == "120"
+            else:
+                for job in jobs.values():
+                    assert any(step.get("uses", "").startswith("actions/checkout@")
+                               for step in job.get("steps", []))
+            return
+        assert prop == "iac_commands", "unexamined infra property: " + prop
+        init, plan, apply = infra_commands(tool, "${{ vars.AZURE_LOCATION }}")
+        for phase, job in jobs.items():
+            commands = [step["run"] for step in job.get("steps", []) if "run" in step]
+            assert commands == ([init, plan] if phase == "plan" else [init, plan, apply])
+    else:
+        steps = document.get("steps", [])
+        assert isinstance(steps, list) and steps, "no infrastructure steps examined"
+        assert all(isinstance(step, dict) for step in steps)
+        if prop == "image_pinning":
+            for step in steps:
+                assert re.fullmatch(r"[^@\s]+@sha256:[0-9a-f]{64}", step.get("image", "")), step.get("image")
+            return
+        assert prop == "iac_commands", "unexamined infra property: " + prop
+        init, plan, apply = infra_commands(tool, '"$${AZURE_LOCATION:?set AZURE_LOCATION}"')
+        assert any(step.get("name", "").startswith("plan-") for step in steps)
+        for step in steps:
+            phase, separator, tier = step.get("name", "").partition("-")
+            assert separator and tier in INFRA_TIERS and phase in {"plan", "apply"}
+            assert step.get("commands") == [f"cd infra/{tier}", init, plan if phase == "plan" else apply]
+
+
+@pytest.mark.parametrize("tool", INFRA_TOOLS)
+@pytest.mark.parametrize("tier", INFRA_TIERS)
+@pytest.mark.parametrize("provider,prop", [
+    ("github-actions", "permissions"), ("github-actions", "timeouts"),
+    ("github-actions", "checkout_credentials"), ("github-actions", "iac_commands"),
+    ("woodpecker", "image_pinning"), ("woodpecker", "iac_commands"),
+])
+def test_generated_infra_hardening(tool: str, tier: str, provider: str, prop: str) -> None:
+    from lib.cicd.config import InfrastructureConfig
+    from lib.cicd.infrastructure import generate_infra_pipeline
+
+    files = generate_infra_pipeline(InfrastructureConfig(provider=tool), provider)
+    name = f".github/workflows/infra-{tier}.yml" if provider == "github-actions" else f".woodpecker/infra-{tier}.yml"
+    assert_infra_property(yaml.load(files[name], Loader=yaml.BaseLoader), provider, tool, prop)
+
+
+@pytest.mark.parametrize("tool", INFRA_TOOLS)
+def test_woodpecker_infra_states_its_timeout_limit(tool: str) -> None:
+    from lib.cicd.config import InfrastructureConfig
+    from lib.cicd.infrastructure import generate_infra_pipeline
+
+    files = generate_infra_pipeline(InfrastructureConfig(provider=tool), "woodpecker")
+    assert len(files) == 3
+    assert all(INFRA_LIMIT in text for text in files.values())
+
+
+@pytest.mark.parametrize("tool,field", [("terraform", "TERRAFORM_IMAGE"),
+                                      ("pulumi", "PULUMI_PYTHON_IMAGE"), ("bicep", "AZURE_CLI_IMAGE")])
+def test_infra_images_use_the_shared_release_index_pin(tool: str, field: str) -> None:
+    from lib.cicd.config import InfrastructureConfig
+    from lib.cicd.infrastructure import generate_infra_pipeline
+
+    files = generate_infra_pipeline(InfrastructureConfig(provider=tool), "woodpecker")
+    images = [step["image"] for text in files.values()
+              for step in yaml.load(text, Loader=yaml.BaseLoader)["steps"]]
+    assert images and set(images) == {getattr(action_pins, field)}
+    assert re.fullmatch(r"[^@\s]+:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}", images[0])
+
+
+INFRA_FIXTURES = FIXTURES / "infra"
+INFRA_BAD_CASES = json.loads((INFRA_FIXTURES / "cases.json").read_text())
+
+
+@pytest.mark.parametrize("case", INFRA_BAD_CASES, ids=[case["file"] for case in INFRA_BAD_CASES])
+def test_infra_bad_fixture_is_detected_and_repair_removes_detection(case):
+    good = yaml.load((INFRA_FIXTURES / case["good_file"]).read_text(), Loader=yaml.BaseLoader)
+    bad = yaml.load((INFRA_FIXTURES / case["file"]).read_text(), Loader=yaml.BaseLoader)
+    bad_parent, good_parent = bad, good
+    for key in case["path"][:-1]:
+        bad_parent, good_parent = bad_parent[key], good_parent[key]
+    key = case["path"][-1]
+    assert bad_parent[key] == case["bad_value"] and bad_parent[key] != good_parent[key]
+    with pytest.raises(AssertionError):
+        assert_infra_property(bad, case["provider"], case["tool"], case["property"])
+    fixed = copy.deepcopy(bad)
+    parent = fixed
+    for key in case["path"][:-1]:
+        parent = parent[key]
+    parent[case["path"][-1]] = good_parent[case["path"][-1]]
+    assert fixed == good, "repair must remove only the planted defect"
+    assert_infra_property(fixed, case["provider"], case["tool"], case["property"])
+
+
+@pytest.mark.parametrize("provider,prop", [
+    ("github-actions", "permissions"), ("github-actions", "timeouts"),
+    ("github-actions", "checkout_credentials"), ("woodpecker", "image_pinning"),
+    ("woodpecker", "iac_commands"),
+])
+def test_infra_assertions_refuse_an_empty_population(provider: str, prop: str) -> None:
+    document = {"jobs": {}} if provider == "github-actions" else {"steps": []}
+    assert not document.get("jobs", document.get("steps"))
+    with pytest.raises(AssertionError):
+        assert_infra_property(document, provider, "terraform", prop)
+
+
+@pytest.mark.parametrize("tool", ["none", "cloudformation"])
+@pytest.mark.parametrize("provider", ["github-actions", "woodpecker"])
+def test_unsupported_infra_tool_writes_nothing(tool: str, provider: str, tmp_path: Path) -> None:
+    from lib.cicd.config import InfrastructureConfig
+    from lib.cicd.infrastructure import generate_infra_pipeline
+
+    output = tmp_path / "output"
+    assert tool not in INFRA_TOOLS and not output.exists()
+    with pytest.raises(ValueError) as exc:
+        generate_infra_pipeline(InfrastructureConfig(provider=tool), provider, output)
+    assert "infrastructure.provider" in str(exc.value) and tool in str(exc.value)
+    assert all(value in str(exc.value) for value in INFRA_TOOLS)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("tool", ["none", "cloudformation"])
+@pytest.mark.parametrize("provider", ["github-actions", "woodpecker"])
+def test_cli_rejects_unsupported_infra_tool_without_writing(tool, provider, tmp_path, capsys):
+    from lib.cicd.cli import main
+
+    config = tmp_path / ".claude/cicd.yml"
+    config.parent.mkdir()
+    config.write_text(f"pipeline:\n  providers: [{provider}]\ninfrastructure:\n  provider: {tool}\n")
+    before = {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+    assert tool not in INFRA_TOOLS and len(before) == 1
+    assert main(["infra-pipeline", "--path", str(tmp_path), "--write"]) == 2
+    error = capsys.readouterr().err
+    assert "infrastructure.provider" in error and tool in error
+    assert all(value in error for value in INFRA_TOOLS)
+    assert {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()} == before
+
+
+def execute_infra_commands(tmp_path, commands, provider, location):
+    if shutil.which("bash") is None or shutil.which("sh") is None:
+        pytest.skip("infra command harness needs bash and sh")
+    directory = tmp_path / "bin"
+    directory.mkdir(exist_ok=True)
+    trace = tmp_path / "commands"
+    for name in ("terraform", "pulumi", "pip", "az"):
+        stub = directory / name
+        stub.write_text('#!/bin/sh\nprintf \'%s\\0\' "${0##*/}" "$@" >> "$INFRA_TRACE"\n'
+                        'printf \'\\n\' >> "$INFRA_TRACE"\n')
+        stub.chmod(0o755)
+    workspace = tmp_path / "workspace"
+    (workspace / "infra/app").mkdir(parents=True, exist_ok=True)
+    env = {**os.environ, "PATH": str(directory) + os.pathsep + os.environ.get("PATH", ""),
+           "INFRA_TRACE": str(trace)}
+    env.pop("AZURE_LOCATION", None)
+    if location is not None:
+        env["AZURE_LOCATION"] = location
+    else:
+        assert "AZURE_LOCATION" not in env
+    assert all(shutil.which(name, path=env["PATH"]) == str(directory / name)
+               for name in ("terraform", "pulumi", "pip", "az"))
+    script = "\n".join(commands)
+    if provider == "woodpecker":
+        script = script.replace("$$", "$")  # Woodpecker's documented transport escape.
+        cwd = workspace
+    else:
+        script = script.replace("${{ vars.AZURE_LOCATION }}", shlex.quote(location or ""))
+        cwd = workspace / "infra/app"
+    result = subprocess.run(["bash", "-e", "-c", script], env=env, cwd=cwd,
+                            capture_output=True, text=True, timeout=10)
+    calls = [[token.decode() for token in line.split(b"\0")[:-1]]
+             for line in trace.read_bytes().splitlines()] if trace.exists() else []
+    return result, calls
+
+
+@pytest.mark.parametrize("tool", INFRA_TOOLS)
+@pytest.mark.parametrize("provider", ["github-actions", "woodpecker"])
+@pytest.mark.parametrize("phase", ["plan", "apply"])
+def test_emitted_infra_commands_execute_the_selected_tool(tool, provider, phase, tmp_path):
+    from lib.cicd.config import InfrastructureConfig
+    from lib.cicd.infrastructure import generate_infra_pipeline
+
+    files = generate_infra_pipeline(InfrastructureConfig(provider=tool), provider)
+    if provider == "woodpecker":
+        document = yaml.load(files[".woodpecker/infra-app.yml"], Loader=yaml.BaseLoader)
+        step = next(step for step in document["steps"] if step["name"] == phase + "-app")
+        commands = step["commands"]
+    else:
+        document = yaml.load(files[".github/workflows/infra-app.yml"], Loader=yaml.BaseLoader)
+        commands = [step["run"] for step in document["jobs"][phase]["steps"] if "run" in step]
+    location = "fixture region"
+    result, calls = execute_infra_commands(tmp_path, commands, provider, location)
+    assert result.returncode == 0, result.stderr
+    expected = [shlex.split(command) for command in infra_commands(tool, shlex.quote(location))]
+    indexes = [0, 1] if phase == "plan" else ([0, 1, 2] if provider == "github-actions" else [0, 2])
+    assert calls == [expected[index] for index in indexes]
+
+
+def test_woodpecker_bicep_requires_runtime_location(tmp_path):
+    from lib.cicd.config import InfrastructureConfig
+    from lib.cicd.infrastructure import generate_infra_pipeline
+
+    text = generate_infra_pipeline(InfrastructureConfig(provider="bicep"), "woodpecker")[".woodpecker/infra-app.yml"]
+    step = yaml.load(text, Loader=yaml.BaseLoader)["steps"][0]
+    result, calls = execute_infra_commands(tmp_path, step["commands"], "woodpecker", None)
+    assert result.returncode != 0 and "AZURE_LOCATION" in result.stderr
+    assert calls == [["az", "bicep", "install"]]
 
 
 @pytest.mark.parametrize("tier", INFRA_TIERS)
