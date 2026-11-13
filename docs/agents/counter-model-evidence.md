@@ -165,7 +165,7 @@ and a named authority may raise it mid-run for that run.
   `unknown:` and fails. The unreadable-file diagnostic names the file. A
   readable schema-invalid historical record is not rejected merely by
   existing: it matters when selected for a branch. See the [enrolment state
-  table](../scripts/flow-finish-gate.md#counter-model-enrolment-decided-in-python-1765).
+  table](https://github.com/cooneycw/claude-power-pack/blob/main/docs/scripts/flow-finish-gate.md#counter-model-enrolment-decided-in-python-1765).
 - **Exactly three passes** keeps its earlier form: a reason and nothing more,
   and the line reads `receipt:`.
 - **No new status value, deliberately.** A repository whose CI pins an OLDER
