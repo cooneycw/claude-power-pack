@@ -1,7 +1,6 @@
 # Prepared CPP main provenance cases (#1754)
 
-These fixtures prepare a trust-boundary change awaiting the owner's ruling.
-They do not change product behavior. `cases.json` names a fetchable unmerged
+These fixtures exercise the generated-CI trust boundary approved for #1754. `cases.json` names a fetchable unmerged
 permissive checker (BAD), a main ancestor (GOOD), and missing/shallow main
 (UNKNOWN). The test constructs all commits and repositories itself, establishes
 non-ancestry and actual shallow-history preconditions, then executes each
@@ -19,5 +18,7 @@ new implementation or a checker approved for consumer use.
 
 Pre-fix result on unchanged product code: six failures (BAD and two UNKNOWN
 cases on both providers), four passes (main-ancestor positives and historical
-blind-anchor demonstrations). These are local test preparations; a registered
-instrument control and census wiring await the product ruling.
+blind-anchor demonstrations). After the fix these cases pass, while the historical anchor still executes
+unmerged code. The registered `controls/pinned-enrolment-main-provenance`
+battery uses a narrower constructed anchor that allows an arbitrary pin after reading main and
+preserves missing/shallow-main UNKNOWN handling.

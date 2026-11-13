@@ -1,4 +1,4 @@
-"""#1754 prepared trust-boundary cases; product policy awaits owner ruling.
+"""#1754 trust boundary: execute only CPP revisions retained by official main.
 
 Run the actual rendered command for each provider, with real Git and owned
 repositories. Only the official fetch URL is redirected. The frozen historical
@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -110,6 +111,20 @@ def _exercise(tmp_path, source, case, provider):
         + shlex.quote(public.as_uri()) + '\n args+=("$arg")\ndone\n'
         + ('[[ "$main_fetch" == 1 ]] && args+=("--depth=1")\n'
            if case["history"] == "shallow" else '')
+        + 'fault="${OWNED_GIT_FAULT:-}"; hit=0\n'
+        + '[[ "$fault" == init && " $* " == *" init "* ]] && hit=1\n'
+        + '[[ "$fault" == fetch-timeout && "$main_fetch" == 1 ]] && hit=1\n'
+        + '[[ "$fault" == history-probe && "$1" == -C && "$*" == *" --is-shallow-repository" ]] && hit=1\n'
+        + '[[ "$fault" == main-ref || "$fault" == invalid-main ]] && '
+        + '[[ "$*" == *" rev-parse --verify "* ]] && hit=1\n'
+        + '[[ "$fault" == history-read || "$fault" == history-empty ]] && '
+        + '[[ "$*" == *" rev-list "* ]] && hit=1\n'
+        + 'if [[ "$hit" == 1 ]]; then\n'
+        + ' printf "FAULT: %s\\n" "$fault" >> ' + shlex.quote(str(log)) + '\n'
+        + ' [[ "$fault" == invalid-main ]] && { echo invalid; exit 0; }\n'
+        + ' [[ "$fault" == history-empty ]] && exit 0\n'
+        + ' [[ "$fault" == fetch-timeout ]] && exit 124\n'
+        + ' exit 1\nfi\n'
         + 'exec ' + shlex.quote(shutil.which("git")) + ' "${args[@]}"\n'
     )
     proxy.chmod(0o755)
@@ -136,7 +151,7 @@ def _exercise(tmp_path, source, case, provider):
              "CPP_PR_HEAD_REPO": "o/r", "CPP_PR_BASE_REPO": "o/r",
              "CI_PIPELINE_EVENT": "pull_request", "CI_COMMIT_SOURCE_BRANCH": "owned-branch",
              "CI_COMMIT_PULL_REQUEST": "1", "CI_REPO": "o/r", "CI_FORGE_TYPE": "github",
-             "CI_FORGE_URL": "https://github.com"},
+             "CI_FORGE_URL": "https://github.com", "OWNED_GIT_FAULT": case.get("fault", "")},
         capture_output=True, text=True, timeout=20,
     )
     return result, log.read_text()
@@ -149,6 +164,21 @@ def test_emitted_job_requires_pin_retained_by_main(tmp_path, owned_source, case,
     result, calls = _exercise(tmp_path, owned_source, case, provider)
     assert "fetch" in calls
     assert result.returncode == case["exit"], result.stdout + result.stderr
+    diagnostics = [line for line in result.stdout.splitlines()
+                   if line.startswith("CPP_COUNTER_MODEL_CPP_REVISION:")]
+    assert len(diagnostics) == 1, result.stdout
+    assert diagnostics[0].startswith("CPP_COUNTER_MODEL_CPP_REVISION: " + case["expect"] + " pin=")
+    assert re.fullmatch(
+        r"CPP_COUNTER_MODEL_CPP_REVISION: (reachable|not-reachable|unknown) "
+        r"pin=[0-9a-f]{40} main=([0-9a-f]{40}|-)", diagnostics[0],
+    )
+    fetches = [line for line in calls.splitlines() if " fetch " in line]
+    assert len(fetches) == 1 and "refs/heads/main:refs/remotes/cpp-enrolment/main" in fetches[0]
+    assert "--depth" not in fetches[0]
+    if case["expect"] != "reachable":
+        assert " checkout " not in calls, "unapproved pin was checked out before proof"
+    else:
+        assert calls.index(" rev-list ") < calls.index(" checkout ")
     if case["expect"] == "reachable":
         assert "OWNED_CPP_CODE: main-ancestor" in result.stdout
         assert "CPP_COUNTER_MODEL_ENROLMENT: ok" in result.stdout
@@ -170,3 +200,24 @@ def test_historical_blind_anchor_still_executes_unmerged_checker(
     assert result.returncode == 0, result.stdout + result.stderr
     assert "OWNED_CPP_CODE: unmerged-feature" in result.stdout
     assert "CPP_COUNTER_MODEL_ENROLMENT: ok" in result.stdout
+
+
+@requires_tools
+@pytest.mark.parametrize("provider", ["github-actions", "woodpecker"])
+@pytest.mark.parametrize("fault", [
+    "init", "fetch-timeout", "history-probe", "main-ref", "invalid-main", "history-read", "history-empty",
+])
+def test_unreadable_main_proof_cannot_checkout_or_execute(tmp_path, owned_source, provider, fault):
+    assert fault in {"init", "fetch-timeout", "history-probe", "main-ref", "invalid-main",
+                     "history-read", "history-empty"}
+    case = {"pin": "ancestor", "history": "full", "fault": fault}
+    result, calls = _exercise(tmp_path, owned_source, case, provider)
+    assert "FAULT: " + fault in calls, "the declared failure must actually be exercised"
+    assert result.returncode == 5, result.stdout + result.stderr
+    diagnostic = next(line for line in result.stdout.splitlines()
+                      if line.startswith("CPP_COUNTER_MODEL_CPP_REVISION:"))
+    assert re.fullmatch(r"CPP_COUNTER_MODEL_CPP_REVISION: unknown pin=[0-9a-f]{40} main=([0-9a-f]{40}|-)",
+                        diagnostic)
+    assert "CPP_COUNTER_MODEL_ENROLMENT: unknown" in result.stdout
+    assert " checkout " not in calls
+    assert "OWNED_CPP_CODE:" not in result.stdout

@@ -1,0 +1,8 @@
+{
+  "name": "unknown-main-shallow",
+  "pin": "tip",
+  "history": "shallow",
+  "expect": "unknown",
+  "exit": 5,
+  "provider": "woodpecker"
+}

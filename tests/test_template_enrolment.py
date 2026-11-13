@@ -134,7 +134,7 @@ def test_real_trusted_checker_checks_consumer_ancestry(tmp_path, receipt):
 
     for repo in (cpp, project):
         repo.mkdir()
-        git_at(repo, "init", "-q", "-b", "owned-branch")
+        git_at(repo, "init", "-q", "-b", "main" if repo == cpp else "owned-branch")
     (cpp / "scripts").mkdir()
     for name in ("flow-finish-gate.sh", "counter-model-receipt.py", "gate-lib.sh", "coordination-admission.sh"):
         shutil.copy2(root / "scripts" / name, cpp / "scripts" / name)
