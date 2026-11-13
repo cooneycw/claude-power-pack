@@ -157,7 +157,7 @@ def test_real_trusted_checker_checks_consumer_ancestry(tmp_path, receipt):
         directory.mkdir(parents=True)
         (directory / "owned.json").write_text(json.dumps({
             "branch": "owned-branch", "head": head, "status": receipt, "scope": "diff-only",
-            "skip_reason": "codex-absent",
+            "skip_reason": "codex-absent", "passes": 1,
         }, indent=2) + "\n")
         git_at(project, "add", ".")
         git_at(project, "commit", "-qm", "receipt for ancestor")
