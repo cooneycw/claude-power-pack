@@ -11,9 +11,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from .actions import CHECKOUT
+from .actions import AZURE_CLI_IMAGE, CHECKOUT, PULUMI_PYTHON_IMAGE, TERRAFORM_IMAGE
 from .config import InfrastructureConfig
 from .models import CloudProvider, IaCProvider
+
+INFRA_PLAN_TIMEOUT_MINUTES = 30
+# An interrupted apply can leave a state lock and partially-created resources.
+# Allow normal cloud provisioning a loose window; catch hung jobs, not slow ones.
+INFRA_APPLY_TIMEOUT_MINUTES = 120
+_SUPPORTED_PIPELINE_TOOLS = ("terraform", "pulumi", "bicep")
 
 
 def scaffold_infrastructure(
@@ -84,6 +90,11 @@ def generate_infra_pipeline(
     if config is None:
         config = InfrastructureConfig()
 
+    if config.provider not in _SUPPORTED_PIPELINE_TOOLS:
+        raise ValueError(
+            f"infrastructure.provider '{config.provider}' is unsupported for pipeline generation; "
+            f"supported: {', '.join(_SUPPORTED_PIPELINE_TOOLS)}"
+        )
     iac = IaCProvider(config.provider)
 
     from .providers import PROVIDERS, normalize_providers, require_providers
@@ -565,6 +576,19 @@ az deployment sub create --location canadacentral --template-file infra/app/main
 # --- Pipeline generation ---
 
 
+def _infra_commands(iac: IaCProvider, azure_location: str) -> tuple[str, str, str]:
+    """Init/plan/apply shared by both providers; only expression syntax differs."""
+    return {
+        IaCProvider.TERRAFORM: ("terraform init", "terraform plan -out=tfplan", "terraform apply tfplan"),
+        IaCProvider.PULUMI: ("pip install -r requirements.txt", "pulumi preview", "pulumi up --yes"),
+        IaCProvider.BICEP: (
+            "az bicep install",
+            f"az deployment sub what-if --location {azure_location} --template-file main.bicep",
+            f"az deployment sub create --location {azure_location} --template-file main.bicep",
+        ),
+    }[iac]
+
+
 def _generate_gh_infra_pipeline(
     config: InfrastructureConfig,
     iac: IaCProvider,
@@ -572,23 +596,7 @@ def _generate_gh_infra_pipeline(
     """Generate GitHub Actions workflows for infrastructure tiers."""
     files: dict[str, str] = {}
 
-    plan_cmd = {
-        IaCProvider.TERRAFORM: "terraform plan -out=tfplan",
-        IaCProvider.PULUMI: "pulumi preview",
-        IaCProvider.BICEP: "az deployment sub what-if --location ${{ vars.AZURE_LOCATION }} --template-file main.bicep",
-    }.get(iac, "terraform plan -out=tfplan")
-
-    apply_cmd = {
-        IaCProvider.TERRAFORM: "terraform apply tfplan",
-        IaCProvider.PULUMI: "pulumi up --yes",
-        IaCProvider.BICEP: "az deployment sub create --location ${{ vars.AZURE_LOCATION }} --template-file main.bicep",
-    }.get(iac, "terraform apply tfplan")
-
-    init_cmd = {
-        IaCProvider.TERRAFORM: "terraform init",
-        IaCProvider.PULUMI: "pip install -r requirements.txt",
-        IaCProvider.BICEP: "az bicep install",
-    }.get(iac, "terraform init")
+    init_cmd, plan_cmd, apply_cmd = _infra_commands(iac, "${{ vars.AZURE_LOCATION }}")
 
     for tier_name, tier_cfg in config.tiers.items():
         lines: list[str] = []
@@ -606,13 +614,17 @@ def _generate_gh_infra_pipeline(
         lines.append("    branches: [main]")
         lines.append("  workflow_dispatch:")
         lines.append("")
+        lines.extend(["permissions:", "  contents: read", ""])
         lines.append("jobs:")
 
         # Plan job (always runs)
         lines.append("  plan:")
         lines.append("    runs-on: ubuntu-latest")
+        lines.append(f"    timeout-minutes: {INFRA_PLAN_TIMEOUT_MINUTES}")
+        lines.extend(["    permissions:", "      contents: read"])
         lines.append("    steps:")
         lines.append(f"      - uses: {CHECKOUT}")
+        lines.extend(["        with:", "          persist-credentials: false"])
         lines.append("      - name: Init")
         lines.append(f"        working-directory: infra/{tier_name}")
         lines.append(f"        run: {init_cmd}")
@@ -625,6 +637,8 @@ def _generate_gh_infra_pipeline(
         lines.append("  apply:")
         lines.append("    needs: plan")
         lines.append("    runs-on: ubuntu-latest")
+        lines.append(f"    timeout-minutes: {INFRA_APPLY_TIMEOUT_MINUTES}")
+        lines.extend(["    permissions:", "      contents: read"])
         lines.append("    if: github.ref == 'refs/heads/main' && github.event_name == 'push'")
 
         if tier_cfg.approval_required:
@@ -632,6 +646,7 @@ def _generate_gh_infra_pipeline(
 
         lines.append("    steps:")
         lines.append(f"      - uses: {CHECKOUT}")
+        lines.extend(["        with:", "          persist-credentials: false"])
         lines.append("      - name: Init")
         lines.append(f"        working-directory: infra/{tier_name}")
         lines.append(f"        run: {init_cmd}")
@@ -656,15 +671,18 @@ def _generate_woodpecker_infra_pipeline(
     files: dict[str, str] = {}
 
     image = {
-        IaCProvider.TERRAFORM: "hashicorp/terraform:latest",
-        IaCProvider.PULUMI: "pulumi/pulumi-python:latest",
-        IaCProvider.BICEP: "mcr.microsoft.com/azure-cli:latest",
-    }.get(iac, "hashicorp/terraform:latest")
+        IaCProvider.TERRAFORM: TERRAFORM_IMAGE,
+        IaCProvider.PULUMI: PULUMI_PYTHON_IMAGE,
+        IaCProvider.BICEP: AZURE_CLI_IMAGE,
+    }[iac]
+    # Woodpecker turns $$ into $ before the shell runs; require the runtime value.
+    init_cmd, plan_cmd, apply_cmd = _infra_commands(iac, '"$${AZURE_LOCATION:?set AZURE_LOCATION}"')
 
     for tier_name, tier_cfg in config.tiers.items():
         lines = [
             f"# Infrastructure: {tier_name} tier",
             "# Generated by Claude Power Pack /cicd:infra-pipeline",
+            "# Timeout is a Woodpecker project setting; configure it before running infrastructure jobs.",
             "",
             "when:",
             f"  path: 'infra/{tier_name}/**'",
@@ -676,8 +694,8 @@ def _generate_woodpecker_infra_pipeline(
             f"    image: {image}",
             "    commands:",
             f"      - cd infra/{tier_name}",
-            "      - terraform init",
-            "      - terraform plan -out=tfplan",
+            f"      - {init_cmd}",
+            f"      - {plan_cmd}",
             "",
         ]
 
@@ -687,8 +705,8 @@ def _generate_woodpecker_infra_pipeline(
                 f"    image: {image}",
                 "    commands:",
                 f"      - cd infra/{tier_name}",
-                "      - terraform init",
-                "      - terraform apply tfplan",
+                f"      - {init_cmd}",
+                f"      - {apply_cmd}",
                 "    when:",
                 "      branch: main",
                 "      event: push",

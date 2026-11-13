@@ -11,6 +11,20 @@
 
 ### Upgrading
 
+- Regenerate and review existing infrastructure pipelines by hand with
+  `/cicd:infra-pipeline` (#1756); nothing detects stale generated content or
+  tells existing consumers to regenerate. GitHub jobs now use contents-only
+  permissions, do not persist checkout credentials, and time out after 30
+  minutes for plan or 120 minutes for apply. The apply window is deliberately
+  loose: interruption can leave a state lock held and resources half-created.
+  Woodpecker deadlines remain a project setting. Its tool images move from
+  `:latest` to fixed release/index pins, so consumers stop following tool
+  releases automatically until they regenerate. Pulumi and Bicep now run their
+  own commands; Bicep requires the runtime `AZURE_LOCATION` environment value.
+- Infrastructure configs carrying `provider: none` or `provider: cloudformation`
+  now fail with a supported-tool diagnostic and write no pipeline files,
+  where they previously silently generated Terraform (#1756).
+
 - Regenerate committed Woodpecker pipelines with `/cicd:pipeline` to adopt the
   digest-pinned Trivy and clone-plugin images (#1787). Existing pipelines using
   `woodpeckerci/plugin-git:2` remain readable by required-check derivation and

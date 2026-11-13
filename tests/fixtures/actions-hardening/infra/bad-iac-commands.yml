@@ -1,0 +1,22 @@
+when:
+  path: infra/app/**
+  branch: main
+  event:
+  - push
+  - pull_request
+steps:
+- name: plan-app
+  image: pulumi/pulumi-python:3.276.0@sha256:addffc4b7f1af47ccad1475ae0ab1d10d939748c26e2389660072759130b3bce
+  commands:
+  - cd infra/app
+  - terraform init
+  - terraform plan -out=tfplan
+- name: apply-app
+  image: pulumi/pulumi-python:3.276.0@sha256:addffc4b7f1af47ccad1475ae0ab1d10d939748c26e2389660072759130b3bce
+  commands:
+  - cd infra/app
+  - pip install -r requirements.txt
+  - pulumi up --yes
+  when:
+    branch: main
+    event: push
