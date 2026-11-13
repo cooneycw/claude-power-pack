@@ -36,6 +36,14 @@
   Internal backend harnesses must set `CPP_FLOW_CI_WORKER=1` with the selector;
   public callers use `--fallback-provider-probes` for explicit probing.
 
+- Wave re-registration now keeps omitted issue/repo values and refuses an
+  identity move that would implicitly discard an active lane or merge
+  observation (#1762). Exit 1 now includes this refusal: read the diagnostic;
+  `--force` only overrides ownership. Restate `--files` and the full observation,
+  clear explicitly with empty `--files` / `--clear-pr`, or consent with
+  `--allow-work-reset`. Caller and roster show a plain work-change note. Deploy
+  only when no running CPP wave depends on the earlier reset behavior.
+
 - From a merged CPP checkout, re-run `/cpp:init`, regenerate both application
   pipelines and review the pin and job diff to adopt main-retention checks
   (#1754). Existing workflows gain no check until regenerated. CI now fetches

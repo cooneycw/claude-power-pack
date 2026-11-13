@@ -151,15 +151,15 @@ register) rather than as a sentence in a message - the roster checks declared
 file lanes for overlap, and the reference wave's every real collision was
 file-level while the orchestrator held the paths in prose.
 
-Say `--repo <path>` together with `--files` (#800): overlap detection compares
-same-repo pairs, and a re-register REWRITES `--repo` but PRESERVES `--files`, so
-one passing only `--files` keeps the lane and loses the key making it
-comparable. The roster reports such a role as UNKNOWN, not clean
-(`FLOW_WAVE_OVERLAP_UNSCOPED`); read that line before treating a quiet roster as
-clear. EXCEPTION (#1222): changing `--issue` or `--repo` between two non-empty
-values is a move to other work. Unless that call supplies them, the file lane
-(reported: `FLOW_WAVE_FILES_DROPPED`, stderr) and the `--pr`/`--base`/`--diff`
-observation (not reported) reset. Omitting or first adding either is no move.
+Omitted `--issue` and `--repo` keep their stored values; explicit empty values
+clear them. A changed supplied identity, including empty-to-named, is a move.
+An active lane or merge observation cannot disappear implicitly: restate the
+complete `--files` / `--pr --base --diff`, use empty `--files` / `--clear-pr`,
+or consent with `--allow-work-reset`. Otherwise `register` refuses (exit 1),
+leaving the registry unchanged; `--force` only overrides role ownership.
+Read each role's plain `work_note` in `list` (nested in `--json`). Unchanged
+re-briefs retain it. Unscoped lanes read UNKNOWN; supply `--repo` initially.
+`--files` replaces the lane.
 
 ## Setup: the delivery lane (consume #676, do not reimplement)
 

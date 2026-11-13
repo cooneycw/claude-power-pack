@@ -2492,11 +2492,12 @@ class TestUnscopedLaneIsReportedUnknown:
         assert _detail(scoped, "FLOW_WAVE_OVERLAP_UNSCOPED") == "0"
         assert "UNKNOWN: overlap NOT computed" not in scoped.stdout
 
-        # Direction 2 - worker-B re-registers passing ONLY --files, the lane
-        # extension. `files` survives; `repo` is rewritten to empty.
+        # Direction 2 - worker-B explicitly clears its repo while restating the
+        # full lane. Omission now retains repo; this still probes UNSCOPED.
         _run(
             tmp_path, "register", "worker-B", "--wave", "cpp",
             "--socket", "uds:/tmp/b.sock", "--files", "core/x.py,core/tests/test_x.py,core/new.py",
+            "--repo", "",
             pid=OTHER_PID, session=OTHER_SESSION,
         )
         assert _registry_json(tmp_path)["cpp"]["roles"]["worker-B"]["repo"] == ""
@@ -2521,11 +2522,11 @@ class TestUnscopedLaneIsReportedUnknown:
         self._overlapping_pair(tmp_path)
         p = _run(
             tmp_path, "register", "worker-B", "--wave", "cpp",
-            "--socket", "uds:/tmp/b.sock", "--files", "core/x.py",
+            "--socket", "uds:/tmp/b.sock", "--files", "core/x.py", "--repo", "",
             pid=OTHER_PID, session=OTHER_SESSION,
         )
         assert "overlap detection is UNSCOPED for it" in p.stderr
-        assert "--repo is REWRITTEN by every re-register" in p.stderr
+        assert "omitted --issue and --repo are kept" in p.stderr
         assert _detail(p, "FLOW_WAVE_LANE_SCOPED") == "no"
         assert _verdict(p) == "updated"
         assert p.returncode == 0
@@ -4127,13 +4128,14 @@ def test_reregistering_onto_another_issue_leaves_no_field_naming_the_first(tmp_p
     """
     _register_lane_a(tmp_path)
     _run(tmp_path, "register", "w", "--wave", "zz", "--repo", "/tmp",
-         "--issue", "1189", "--branch", "issue-1189-b")
+         "--issue", "1189", "--branch", "issue-1189-b", "--allow-work-reset")
     e = _entry(tmp_path, "zz", "w")
     assert e["issue"] == "1189" and e["branch"] == "issue-1189-b", e
     for key in ("pr", "base", "diff", "obs_repo", "files"):
         assert e.get(key, "") == "", (key, e)
     assert e.get("overtaken", 0) == 0, e
-    flat = json.dumps(e)
+    # The plain roster note deliberately describes the withdrawn lane.
+    flat = json.dumps({key: value for key, value in e.items() if key != "work_note"})
     for a_value in ("1085", "1202", "baseA", "diffA", "0008-a.md"):
         assert a_value not in flat, (a_value, e)
 
@@ -4765,7 +4767,7 @@ def test_the_same_issue_number_in_another_repo_resets_the_lane(tmp_path: Path) -
     _run(tmp_path, "register", "w", *_COMMON_1266, "--repo", str(repo_a),
          "--files", "src/a.py", "--pr", "7", "--base", "b", "--diff", "d")
     assert _entry(tmp_path, "zz", "w")["files"] == "src/a.py", "precondition"
-    _run(tmp_path, "register", "w", *_COMMON_1266, "--repo", str(repo_b))
+    _run(tmp_path, "register", "w", *_COMMON_1266, "--repo", str(repo_b), "--allow-work-reset")
     e = _entry(tmp_path, "zz", "w")
     assert e["repo"] == str(repo_b.resolve()), e
     assert (e["files"], e["pr"]) == ("", ""), e
