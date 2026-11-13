@@ -28,6 +28,7 @@
 #: NEGATIVE-CONTROL: controls/flow-finish-gate-derivation
 #: NEGATIVE-CONTROL: controls/flow-finish-gate-resume
 #: NEGATIVE-CONTROL: controls/flow-finish-gate-interrupted
+#: NEGATIVE-CONTROL: controls/flow-finish-gate-owner
 #
 # Usage:
 #   flow-finish-gate.sh                  # run the 'finish' quality-gate plan
@@ -150,8 +151,23 @@ if [[ "${CPP_KYLE_FULL_SUITE_ACTIVE:-}" == "1" && -n "${CPP_FLOW_FINISH_GATE_STA
     _gate_status_file="$CPP_FLOW_FINISH_GATE_STATUS_FILE"
 fi
 unset CPP_FLOW_FINISH_GATE_STATUS_FILE
+# A signal can reach a pipeline child after fork but before Bash resets its
+# inherited EXIT trap. Only this invocation owns the marker and cleanup.
+# Bash 3.2 has no BASHPID: leave the guard explicitly unarmed there, retaining
+# the prior behavior (including the possible duplicate) without a teardown fork.
+_gate_owner_guard_armed=0
+_gate_owner_pid=""
+if [[ -n "${BASHPID:-}" ]]; then
+    _gate_owner_pid="$BASHPID"
+    _gate_owner_guard_armed=1
+fi
 # shellcheck disable=SC2317  # invoked only from the EXIT trap below
 _gate_on_exit() {
+    if [[ "$_gate_owner_guard_armed" == 1 ]]; then
+        [[ "${BASHPID:-}" == "$_gate_owner_pid" ]] || return 0
+    else
+        : # BASHPID unavailable: the ownership guard is intentionally unarmed.
+    fi
     # $1 = `$?` and $2 = `$BASH_COMMAND` as the EXIT trap saw them.
     #
     # AN EXIT NOBODY ANNOUNCED REPORTS 128, NEVER A STALE STATUS (issue #1705).
