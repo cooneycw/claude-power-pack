@@ -282,5 +282,12 @@
     "state": "unknown",
     "gate": 1,
     "enrolment": 1
+  },
+  {
+    "name": "zero-passes",
+    "passes": 0,
+    "state": "unknown",
+    "gate": 1,
+    "enrolment": 1
   }
 ]
