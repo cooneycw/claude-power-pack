@@ -4,12 +4,29 @@
 
 ### Fixed
 
+- Historical negative-control provenance now checks retention by a named main
+  reference as well as artifact bytes (#1797). A matching side-branch-only
+  anchor is `OFF_MAIN`; missing main or shallow history stays `UNCOMPARED` and
+  fails strict verification. PR CI explicitly fetches main before verifying.
+  The branch-protection control now uses its actual pre-fix main artifact,
+  removing its dependency on the squash-merged feature branch. Calls without
+  `--verify-provenance` retain their previous output and exit behavior.
+
 - With `BASHPID` available, the finish gate's exit marker, coordination status
   and temporary-file cleanup belong only to the invocation that installed the
   trap (#1783). A signal reaching a pipeline child before exec no longer
   duplicates the marker. Bash 3.2 retains its previous unguarded behavior.
 
 ### Upgrading
+
+- With `--verify-provenance`, non-strict negative-control runs still exit 0 on
+  unknown or off-main provenance, but now print the named failure summary
+  instead of `negative-controls: ok`; add `--strict` when that must block work.
+  Repositories whose origin default branch is not `main` now report unknown
+  retention (`UNCOMPARED`) and fail strict verification. This policy currently
+  supports main only: omit the optional flag to retain discrimination-only
+  checks, or keep verification failing until default-branch support is added;
+  do not rename an unrelated branch to pretend it is main (#1797).
 
 - The finish gate's counter-model line now reports `escalated: N passes,
   ruled by WHO (FILE)` for a ruled review above three passes (#1765). It now

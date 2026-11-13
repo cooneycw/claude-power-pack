@@ -530,6 +530,10 @@ class Result:
     #: Registered, and never reached the comparison: its bytes already disagree
     #: with the recorded digest (MISMATCH, which fails by itself).
     historical_unexamined: int = 0
+    #: Separate from byte comparison: the commit must be retained by main.
+    historical_on_main: int = 0
+    historical_off_main: int = 0
+    historical_retention_unknown: int = 0
 
 
 def _source_stamp(root: Path) -> str:
@@ -1544,6 +1548,7 @@ def _verify_historical_anchors(res: Result, control_dir: Path, root: Path) -> No
         if kind != "historical":
             continue
         res.historical_registered += 1
+        res.historical_retention_unknown += 1
         label = f"anchor {anchor.get('path', '?')} (historical {anchor.get('sha', '?')})"
         defect = _historical_defect(anchor)
         anchor_path = control_dir / str(anchor.get("path", ""))
@@ -1559,6 +1564,15 @@ def _verify_historical_anchors(res: Result, control_dir: Path, root: Path) -> No
         _HISTORICAL_COMPARED.pop(id(anchor), None)
         word = _provenance(anchor, anchor_path, root, True)
         words.append(word)
+        retention, why = _HISTORICAL_RETENTION.get(id(anchor), (UNCOMPARED, ""))
+        if retention == "ok":
+            res.historical_on_main += 1
+            res.historical_retention_unknown -= 1
+        elif retention == OFF_MAIN:
+            res.historical_off_main += 1
+            res.historical_retention_unknown -= 1
+        if why:
+            res.details.append(f"{label}: {why}")
         if _HISTORICAL_COMPARED.pop(id(anchor), False):
             res.historical_compared += 1
         elif word == "MISMATCH":
@@ -1567,7 +1581,7 @@ def _verify_historical_anchors(res: Result, control_dir: Path, root: Path) -> No
             # Anything else from a well-formed historical anchor is could-not-look,
             # whatever word came back: it was asked to be compared and was not.
             res.historical_uncompared += 1
-            if word != UNCOMPARED:
+            if word not in (UNCOMPARED, OFF_MAIN):
                 words[-1] = UNCOMPARED
             res.details.append(
                 f"{label} could not be compared with the commit it names: "
@@ -1575,7 +1589,9 @@ def _verify_historical_anchors(res: Result, control_dir: Path, root: Path) -> No
             )
     if "MISMATCH" in words:
         res.provenance = "MISMATCH"
-    elif UNCOMPARED in words and res.provenance != "MISMATCH":
+    elif OFF_MAIN in words and res.provenance != "MISMATCH":
+        res.provenance = OFF_MAIN
+    elif UNCOMPARED in words and res.provenance not in ("MISMATCH", OFF_MAIN):
         res.provenance = UNCOMPARED
 
 
@@ -2727,6 +2743,8 @@ def _aggregate_provenance(values: list[str]) -> str:
         return "unverified"
     if "MISMATCH" in values:
         return "MISMATCH"
+    if OFF_MAIN in values:
+        return OFF_MAIN
     if UNCOMPARED in values:
         return UNCOMPARED
     return "ok" if all(value == "ok" for value in values) else "unverified"
@@ -2743,11 +2761,67 @@ def _aggregate_provenance(values: list[str]) -> str:
 #:
 #: NEGATIVE-CONTROL: controls/check-negative-controls-provenance
 UNCOMPARED = "UNCOMPARED"
+OFF_MAIN = "OFF_MAIN"
 
 #: id(anchor) -> True for an anchor whose bytes were actually compared with git
 #: in this run. `_provenance` returns one word; this carries the one extra fact
 #: the count line needs without changing what that function returns.
 _HISTORICAL_COMPARED: dict[int, bool] = {}
+_HISTORICAL_RETENTION: dict[int, tuple[str, str]] = {}
+_MAIN_ANCESTORS: dict[tuple[Path, str], frozenset[str]] = {}
+
+
+def _main_ancestry(anchor: dict[str, str], root: Path) -> tuple[str, str]:
+    """Prove retention by an explicit main ref; never infer it from HEAD.
+
+    The verdict describes the available main snapshot, not an unseen remote.
+    A shallow boundary or missing reference cannot establish this policy.
+    """
+    try:
+        def git(*args: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(["git", "-C", str(root), *args], capture_output=True,
+                                  text=True, timeout=30, check=False)
+
+        shallow = git("rev-parse", "--is-shallow-repository")
+        if shallow.returncode != 0 or shallow.stdout.strip() not in {"true", "false"}:
+            return UNCOMPARED, "main ancestry is unknown: repository history could not be read"
+        if shallow.stdout.strip() == "true":
+            return UNCOMPARED, "main ancestry is unknown in a shallow clone; fetch full main history"
+        default = git("symbolic-ref", "--quiet", "refs/remotes/origin/HEAD")
+        if default.returncode == 0 and default.stdout.strip() != "refs/remotes/origin/main":
+            return UNCOMPARED, "main ancestry is unknown: origin's default branch is not main"
+        if default.returncode not in (0, 1):
+            return UNCOMPARED, "main ancestry is unknown: origin's default reference could not be read"
+        for ref in ("refs/remotes/origin/main", "refs/heads/main"):
+            present = git("show-ref", "--verify", "--quiet", ref)
+            if present.returncode == 1:
+                continue
+            if present.returncode != 0:
+                return UNCOMPARED, f"main ancestry is unknown: {ref} could not be read"
+            tip = git("rev-parse", "--verify", ref + "^{commit}")
+            if tip.returncode != 0 or not tip.stdout.strip():
+                return UNCOMPARED, f"main ancestry is unknown: {ref} does not resolve to a commit"
+            main_sha = tip.stdout.strip()
+            # Enumerating complete main history also answers for an absent
+            # side-branch object. Requiring that object would defeat a main-only clone.
+            cache_key = (root.resolve(), main_sha)
+            ancestors = _MAIN_ANCESTORS.get(cache_key)
+            if ancestors is None:
+                history = git("rev-list", main_sha)
+                ancestors = frozenset(history.stdout.splitlines())
+                if history.returncode != 0 or main_sha not in ancestors:
+                    return UNCOMPARED, f"main ancestry is unknown: could not enumerate {ref} at {main_sha}"
+                _MAIN_ANCESTORS[cache_key] = ancestors
+            matches = [sha for sha in ancestors if sha.startswith(anchor["sha"])]
+            if len(matches) == 1:
+                return "ok", ""
+            if not matches:
+                return OFF_MAIN, (f"{anchor['sha']} is not an ancestor of {ref} at {main_sha}; "
+                                  "fetch current main or register an artifact retained by main")
+            return UNCOMPARED, f"main ancestry is unknown: ambiguous commit prefix in {ref}"
+        return UNCOMPARED, "main ancestry is unknown: no main reference; fetch origin/main (HEAD is not main)"
+    except (OSError, subprocess.SubprocessError):
+        return UNCOMPARED, "main ancestry is unknown: git could not complete the comparison"
 
 
 def _uncompared_reason(anchor: dict[str, str], root: Path) -> str:
@@ -2769,12 +2843,13 @@ def _uncompared_reason(anchor: dict[str, str], root: Path) -> str:
 
 
 def _provenance(anchor: dict[str, str], anchor_path: Path, root: Path, verify: bool) -> str:
-    """`ok` only after a byte comparison against the recorded sha; else `unverified`.
+    """`ok` after byte comparison and historical main retention; else a named state.
 
     Never `ok` on a digest the manifest supplies about itself alone - that would
     only prove the file has not changed since someone wrote the digest down, not
     that it is the historical artifact it claims to be.
     """
+    _HISTORICAL_RETENTION.pop(id(anchor), None)
     digest = hashlib.sha256(anchor_path.read_bytes()).hexdigest()
     if digest != anchor.get("sha256", ""):
         return "MISMATCH"
@@ -2840,27 +2915,36 @@ def _provenance(anchor: dict[str, str], anchor_path: Path, root: Path, verify: b
     #: instead of MISMATCH. Establishing existence separately lets the byte
     #: comparison include empty content, which is the only shape that is right
     #: in both directions.
+    if historical:
+        _HISTORICAL_RETENTION[id(anchor)] = _main_ancestry(anchor, root)
+    absent_word = (OFF_MAIN if _HISTORICAL_RETENTION.get(id(anchor), (None, ""))[0] == OFF_MAIN
+                   else could_not_look)
     try:
         probe = subprocess.run(
             ["git", "-C", str(root), "cat-file", "-e", f"{anchor['sha']}:{anchor['origin']}"],
             capture_output=True, timeout=30, check=False,
         )
         if probe.returncode != 0:
-            return could_not_look
+            return absent_word
         out = subprocess.run(
             ["git", "-C", str(root), "show", f"{anchor['sha']}:{anchor['origin']}"],
             capture_output=True, timeout=30, check=False,
         )
     except (OSError, subprocess.SubprocessError):  # pragma: no cover - defensive
-        return could_not_look
+        return absent_word
     if out.returncode != 0:
-        return could_not_look
+        return absent_word
     if historical:
         _HISTORICAL_COMPARED[id(anchor)] = True
-    return "ok" if hashlib.sha256(out.stdout).hexdigest() == digest else "MISMATCH"
+    if hashlib.sha256(out.stdout).hexdigest() != digest:
+        return "MISMATCH"
+    if historical:
+        return _HISTORICAL_RETENTION[id(anchor)][0]
+    return "ok"
 
 
 def main(argv: list[str] | None = None) -> int:
+    _MAIN_ANCESTORS.clear()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--strict", action="store_true", help="exit non-zero on anything that is not PASS")
@@ -2881,7 +2965,8 @@ def main(argv: list[str] | None = None) -> int:
         help="with --strict: do not fail on UNAVAILABLE (a gate whose own tool is absent); "
              "report it as unexamined instead",
     )
-    parser.add_argument("--verify-provenance", action="store_true", help="byte-compare anchors against git history")
+    parser.add_argument("--verify-provenance", action="store_true",
+                        help="compare anchor bytes and verify historical retention by main")
     parser.add_argument("--quiet", action="store_true", help="contract lines only")
     #: A NARROWING SELECTOR, added for issue #970's mutation probe, which needs to
     #: ask "did THIS control notice" rather than "did the register notice". Running
@@ -3041,8 +3126,8 @@ def main(argv: list[str] | None = None) -> int:
     # `unverified` MUST NOT FAIL, and keeping that distinction is the whole
     # reason this is safe to switch on: it is the ordinary state of a synthetic
     # anchor, of a run without `--verify-provenance`, and of the CI image, which
-    # has no git. Only MISMATCH - the recorded digest disagreeing with the bytes
-    # actually committed - is a claim that something is wrong.
+    # has no git. MISMATCH identifies disagreement with committed bytes;
+    # OFF_MAIN identifies an artifact not retained by complete named main history.
     #
     # UNCOMPARED FAILS UNDER `--strict` (issue #1732): the caller asked for
     # historical anchors to be compared and one could not be. Without `--strict`
@@ -3053,7 +3138,9 @@ def main(argv: list[str] | None = None) -> int:
     # Whether its anchor is the artifact the manifest names is a different
     # question with a different answer, and it is asked of every control.
     def _provenance_failure(r: Result) -> bool:
-        return r.provenance == "MISMATCH" or (args.strict and r.provenance == UNCOMPARED)
+        # Non-strict remains advisory (exit 0), but must not print an `ok`
+        # summary for a provenance request that could not be established.
+        return r.provenance in ("MISMATCH", OFF_MAIN, UNCOMPARED)
 
     failing = [
         r for r in results
@@ -3064,6 +3151,10 @@ def main(argv: list[str] | None = None) -> int:
         # State what the flag established, as two populations: a reader must be
         # able to tell "compared every one" from "compared none" on one line.
         registered = sum(r.historical_registered for r in results)
+        print("NEGATIVE_CONTROL_PROVENANCE_RETENTION: "
+              f"on_main={sum(r.historical_on_main for r in results)} "
+              f"off_main={sum(r.historical_off_main for r in results)} "
+              f"unknown={sum(r.historical_retention_unknown for r in results)}")
         compared = sum(r.historical_compared for r in results)
         uncompared = sum(r.historical_uncompared for r in results)
         unexamined = sum(r.historical_unexamined for r in results)
@@ -3091,7 +3182,9 @@ def main(argv: list[str] | None = None) -> int:
                     axes.append("UNTRACKED")
                 if res.provenance == "MISMATCH":
                     axes.append("PROVENANCE:MISMATCH")
-                if args.strict and res.provenance == UNCOMPARED:
+                if res.provenance == OFF_MAIN:
+                    axes.append("PROVENANCE:OFF_MAIN")
+                if res.provenance == UNCOMPARED:
                     axes.append("PROVENANCE:UNCOMPARED")
                 print(f"negative-controls: {res.gate} -> {'/'.join(axes) or res.verdict}")
                 for line in res.details:
