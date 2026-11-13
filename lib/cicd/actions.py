@@ -20,6 +20,14 @@ TRIVY_IMAGE = 'aquasec/trivy:0.66.0@sha256:086971aaf400beebd94e8300fd8ea62377441
 GIT_CLONE_IMAGE = (
     'woodpeckerci/plugin-git:2.12.1@sha256:b8d2401997be68ec25d62bd753fe5d30236e029fe007a5e823177e0e485ae205'
 )
+# Infrastructure tool release indexes resolved on 2026-11-13 (#1756).
+TERRAFORM_IMAGE = 'hashicorp/terraform:1.17.2@sha256:6e9c1e647c31a960dc9b59e13272f9111d90010c10b717f77ffb324767660475'
+PULUMI_PYTHON_IMAGE = (
+    'pulumi/pulumi-python:3.276.0@sha256:addffc4b7f1af47ccad1475ae0ab1d10d939748c26e2389660072759130b3bce'
+)
+AZURE_CLI_IMAGE = (
+    'mcr.microsoft.com/azure-cli:2.92.0@sha256:a4e2660b4099b76f02001a9316a0eb0dc56e330b5f7d1d1312c932200645bf26'
+)
 
 
 def workflow_permissions_and_concurrency() -> list[str]:

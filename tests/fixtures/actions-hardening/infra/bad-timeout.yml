@@ -1,0 +1,51 @@
+name: 'Infra: App'
+'on':
+  push:
+    paths:
+    - infra/app/**
+    branches:
+    - main
+  pull_request:
+    paths:
+    - infra/app/**
+    branches:
+    - main
+  workflow_dispatch: ''
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      with:
+        persist-credentials: 'false'
+    - name: Init
+      working-directory: infra/app
+      run: terraform init
+    - name: Plan
+      working-directory: infra/app
+      run: terraform plan -out=tfplan
+    permissions:
+      contents: read
+    timeout-minutes: '30'
+  apply:
+    needs: plan
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      with:
+        persist-credentials: 'false'
+    - name: Init
+      working-directory: infra/app
+      run: terraform init
+    - name: Plan
+      working-directory: infra/app
+      run: terraform plan -out=tfplan
+    - name: Apply
+      working-directory: infra/app
+      run: terraform apply tfplan
+    permissions:
+      contents: read
+    timeout-minutes: '0'
+permissions:
+  contents: read
