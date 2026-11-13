@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- With `BASHPID` available, the finish gate's exit marker, coordination status
+  and temporary-file cleanup belong only to the invocation that installed the
+  trap (#1783). A signal reaching a pipeline child before exec no longer
+  duplicates the marker. Bash 3.2 retains its previous unguarded behavior.
+
 ### Upgrading
 
 - Regenerate committed Woodpecker pipelines with `/cicd:pipeline` to adopt the

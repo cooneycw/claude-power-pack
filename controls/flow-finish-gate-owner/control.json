@@ -1,0 +1,48 @@
+{
+  "gate": "scripts/flow-finish-gate.sh",
+  "invocation": [
+    "sh",
+    "controls/flow-finish-gate-owner/run-case.sh",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "good_signal": "^FLOW_FINISH_GATE_OWNER_CONTROL: (owner-only|child-permitted)$",
+  "detect_signal": "^FLOW_FINISH_GATE_OWNER_CONTROL: child-refused$",
+  "unavailable_signal": "^FLOW_FINISH_GATE_OWNER_CONTROL: unavailable - ",
+  "ci_deps_provided_by_invocation": [
+    "uv"
+  ],
+  "limits": "Linux ptrace of owned descendants pauses the actual tee-side child after fork and before Bash resets its inherited EXIT trap. One group signal is queued after the synthetic runner reports ready; the gate must die by that signal. Known BAD is an unauthorized child emitter: one 128 marker means child-refused (BAD/detected), two means child-permitted (GOOD/missed). Thus the property is red before the fix and green after. An announced owner usage exit is the positive control. Missing BASHPID, unsupported OS or denied ptrace is explicitly UNAVAILABLE with a reason; CI capability is measured by its own run. This is not a soak, a real suite, a process-parent security boundary or a claim that Bash 3.2 is fixed. Portable real-trap tests independently cover stdout/status-file silence and absence of child cleanup. The historical anchor lacks ownership suppression and permits the copied child trap.",
+  "cases": [
+    {
+      "name": "bad-fork-sigterm",
+      "input": "cases/bad-fork-sigterm",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-fork-sigint",
+      "input": "cases/bad-fork-sigint",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-fork-sighup",
+      "input": "cases/bad-fork-sighup",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-owner-usage",
+      "input": "cases/good-owner-usage",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "e252dd53",
+      "origin": "scripts/flow-finish-gate.sh",
+      "path": "anchors/e252dd53-pre-owner-guard.sh",
+      "sha256": "c5c7c6773d2592b80020b226058f42a8a6655fc76dd8b9c66050069070e8dff9"
+    }
+  ]
+}
