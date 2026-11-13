@@ -57,6 +57,59 @@ with tempfile.TemporaryDirectory() as directory:
     (binaries / "git").write_text("#!/bin/bash\nexit 128\n")
     (binaries / "git").chmod(0o755)
     mode = case["mode"]
+    venv = cpp / ".venv"
+    if mode in (
+        "existing-runtime", "virtualenv-runtime", "mismatched-environment", "broken-environment",
+        "invalid-config-version", "disagreeing-version",
+        "malformed-matching-version", "malformed-mismatch-optin",
+        "constant-interpreter", "contradictory-config", "contradictory-config-optin",
+    ):
+        (venv / "bin").mkdir(parents=True)
+        version = "3.12.3" if mode in (
+            "mismatched-environment", "malformed-mismatch-optin", "contradictory-config-optin",
+        ) else "3.11.9"
+        cfg_version = version + ".final.0" if mode == "virtualenv-runtime" else version
+        if mode == "invalid-config-version":
+            cfg_version = "unknown"
+        elif mode == "disagreeing-version":
+            cfg_version = "3.12.3.final.0"
+        elif mode in ("malformed-matching-version", "malformed-mismatch-optin"):
+            cfg_version = ".".join(version.split(".")[:2]) + ".garbage"
+        (venv / "pyvenv.cfg").write_text(f"version_info = {cfg_version}\n")
+        if mode in ("contradictory-config", "contradictory-config-optin"):
+            second = "3.11.9" if mode == "contradictory-config-optin" else "3.12.3"
+            (venv / "pyvenv.cfg").write_text(f"version = {version}\nversion_info = {second}\n")
+            assert version != second and len((venv / "pyvenv.cfg").read_text().splitlines()) == 2
+        interpreter = venv / "bin/python"
+        if mode in ("broken-environment", "constant-interpreter"):
+            interpreter.write_text(
+                "#!/bin/bash\n" + ("exit 7\n" if mode == "broken-environment" else f"echo {version}\n")
+            )
+        else:
+            # A deliberate protocol double evaluates the supplied Python probe,
+            # with fixture-owned version/executable facts. It is not a real venv.
+            interpreter.write_text(
+                f"#!{sys.executable}\nimport sys\n"
+                f"sys.version_info = {tuple(map(int, version.split('.'))) + ('final', 0)!r}\n"
+                f"sys.executable = {str(interpreter)!r}\n"
+                "if '-c' in sys.argv:\n"
+                "    index = sys.argv.index('-c')\n"
+                "    code = sys.argv[index + 1]\n"
+                "    sys.argv = ['-c', *sys.argv[index + 2:]]\n"
+                "    exec(code)\n"
+                f"else:\n    print({version!r})\n"
+            )
+        interpreter.chmod(0o755)
+        assert interpreter.is_file() and cfg_version in (venv / "pyvenv.cfg").read_text()
+        probe = subprocess.run([str(interpreter)], capture_output=True, text=True)
+        assert (probe.returncode != 0) if mode == "broken-environment" else probe.stdout.strip() == version
+        if mode == "invalid-config-version":
+            assert cfg_version == "unknown"
+        elif mode == "disagreeing-version":
+            assert cfg_version.startswith("3.12.") and probe.stdout.startswith("3.11.")
+        elif mode in ("malformed-matching-version", "malformed-mismatch-optin"):
+            assert cfg_version.endswith(".garbage") and probe.stdout.strip() == version
+        before = {str(p.relative_to(venv)): p.read_bytes() for p in venv.rglob("*") if p.is_file()}
     trace = owned / "uv.argv"
     download = owned / "would-download"
     payload = json.dumps(
@@ -100,10 +153,23 @@ fi
         make.chmod(0o755)
         assert shutil.which("make", path=str(binaries)) == str(make)
     env = dict(
-        os.environ, PATH=str(binaries), HOME=str(owned / "home"), FLOW_GATE_CPP_DIR=str(cpp), FLOW_GATE_RERUN="0"
+        os.environ, PATH=str(binaries), HOME=str(owned / "home"), FLOW_GATE_CPP_DIR=str(cpp), FLOW_GATE_RERUN="0",
+        FLOW_GATE_REBUILD_CPP_VENV="0",
     )
+    if mode in ("malformed-mismatch-optin", "contradictory-config-optin"):
+        env["FLOW_GATE_REBUILD_CPP_VENV"] = "1"
     result = subprocess.run(["bash", str(helper)], cwd=target, env=env, capture_output=True, text=True, timeout=30)
     text = result.stdout + result.stderr
+    if mode in (
+        "mismatched-environment", "broken-environment", "invalid-config-version", "disagreeing-version",
+        "malformed-matching-version", "malformed-mismatch-optin",
+        "constant-interpreter", "contradictory-config", "contradictory-config-optin",
+    ) and result.returncode == 1:
+        reason = "mismatch" if mode == "mismatched-environment" else "unverified"
+        assert f"cpp-runtime-environment-{reason}" in text, text
+        assert "3.11" in text and ("3.12" in text if reason == "mismatch" else True)
+        assert not trace.exists(), "an existing unsafe environment must be refused before invoking uv"
+        assert before == {str(p.relative_to(venv)): p.read_bytes() for p in venv.rglob("*") if p.is_file()}
     if result.returncode == 0 and "FLOW_FINISH_GATE: ok" in text:
         verdict = "ready"
     elif result.returncode == 1 and "FLOW_FINISH_GATE: fail" in text:

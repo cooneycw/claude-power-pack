@@ -595,7 +595,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config) -> None:  # no
 # and `uv.lock`, with its own 3.11 environment built once per session. It is a
 # copy of the WORKING TREE, not of HEAD, so it still tests what is being edited.
 
-_OWNED_CPP_PARTS = ("pyproject.toml", "uv.lock", "lib", "scripts")
+_OWNED_CPP_PARTS = ("pyproject.toml", ".python-version", "uv.lock", "lib", "scripts")
 
 
 def venv_fingerprint(venv: Path) -> tuple[str, tuple[tuple[str, int], ...]] | None:
