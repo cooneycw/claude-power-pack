@@ -172,10 +172,44 @@ def test_every_lane_answered_is_approved(repo: Path) -> None:
 
 
 @pytest.mark.parametrize("answer", ["will test", "Will Test - how", "will refuse", "not applicable",
-                                    "not covered", "**will test**", "`not covered`"])
+                                    "not covered", "**will test**", "`not covered`",
+                                    "will test - via X", "not applicable: reason",
+                                    "`will refuse`", "_not covered_", "will test, via X",
+                                    "will test (Claude install)"])
 def test_each_of_the_four_answers_counts(repo: Path, answer: str) -> None:
     begin(repo, PLAN + FULL_TABLE.replace("| Checkout | will test |", f"| Checkout | {answer} |"))
     assert run(repo, "approve", "42").returncode == 0
+
+
+@pytest.mark.parametrize("answer", ["not applicablewhatever", "will testing", "will tested",
+                                    "not covered2", "needs a decision", "will_test"])
+def test_an_answer_that_runs_past_its_phrase_is_refused(repo: Path, answer: str) -> None:
+    """Issue #1822: a bare prefix match took `not applicablewhatever` as an
+    answer. The phrase must end at the cell's end, whitespace or punctuation."""
+    begin(repo, PLAN + FULL_TABLE.replace("| Checkout | will test |", f"| Checkout | {answer} |"))
+    done = run(repo, "approve", "42")
+    assert done.returncode == 1, done.stdout + done.stderr
+    assert "leaves these listed lanes unanswered: Checkout." in done.stdout
+    assert written(repo) == (False, False)
+
+
+@pytest.mark.parametrize("cell,expected", [
+    ("will test", "will test"), ("Will Test - via X", "will test"), ("**will test**", "will test"),
+    ("`will test`", "will test"), ("will test; how", "will test"),
+    ("will testing", None), ("will tested", None), ("will test2", None),
+    ("will refuse", "will refuse"), ("not applicable: reason", "not applicable"),
+    ("needs a decision", None), ("", None),
+])
+def test_lane_answer_matches_whole_phrases_only(cell: str, expected: str | None) -> None:
+    assert _load_helper().lane_answer(cell) == expected
+
+
+def test_will_test_lanes_takes_only_whole_phrase_answers() -> None:
+    """The close-time reader (`will_test_lanes`) had the same prefix match (issue #1822)."""
+    section = (PLAN + "\n### Lanes for this change\n\n| Lane | Answer |\n|---|---|\n"
+               "| Checkout | will test - via a linked worktree |\n| Harness | will testing |\n"
+               "| Project state | `will test` |\n")
+    assert _load_helper().will_test_lanes(section) == ["Checkout", "Project state"]
 
 
 def test_a_lane_the_project_does_not_list_is_ignored(repo: Path) -> None:

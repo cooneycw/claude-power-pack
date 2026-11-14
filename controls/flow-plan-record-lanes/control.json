@@ -14,7 +14,9 @@
     "FOUR BAD CASES, because the check has four ways to be owed: no table at",
     "all, a listed lane with no row, a row whose answer is not one of the four,",
     "and a lane file that exists but lists nothing (which must not read as a",
-    "project with no lanes)."
+    "project with no lanes).",
+    "",
+    "A FIFTH BAD CASE (issue #1822): an answer that runs past its phrase into other letters, which a bare prefix match accepted."
   ],
   "gate": "scripts/flow-plan-record.py",
   "invocation": [
@@ -46,6 +48,12 @@
       "input": "cases/bad-answer-is-not-one-of-the-four",
       "expect": "BAD",
       "why": "Every lane has a row, and one answer is `tbd`. If it scores GOOD a row counts as an answer whatever it says."
+    },
+    {
+      "name": "bad-answer-runs-past-the-phrase",
+      "input": "cases/bad-answer-runs-past-the-phrase",
+      "expect": "BAD",
+      "why": "Every lane has a row, and one answer is `not applicablewhatever` (issue #1822). If it scores GOOD the check matches a prefix with no word boundary, so any text that starts with an answer counts as one."
     },
     {
       "name": "bad-lane-file-lists-nothing",
