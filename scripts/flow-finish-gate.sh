@@ -389,6 +389,20 @@ if coordination_admission_on && [[ "$MODE" == "gate" && "${CPP_KYLE_FULL_SUITE_A
         if [[ "$_coordination_origin" =~ ([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/?$ ]]; then
             _coordination_repo="${BASH_REMATCH[1]}/${BASH_REMATCH[2]%.git}"
         fi
+        # The host the PR lookup asks (issue #1831, counter-model review): `-R
+        # owner/repo` alone asks gh's DEFAULT host, so an enterprise checkout
+        # would be answered by a same-named repository elsewhere. Only the host
+        # is taken - never userinfo, which can carry a credential - and only from
+        # an scp-like (`user@host:owner/repo`) or URL (`scheme://[user@]host/`)
+        # origin. A URL naming a PORT gets no host either (pass 2): `-R host/...`
+        # cannot carry one, and the default port may serve a different server.
+        # No host, no lookup.
+        _coordination_host=""
+        if [[ "$_coordination_origin" =~ ^[A-Za-z0-9._-]+@([A-Za-z0-9.-]+):[^/] ]]; then
+            _coordination_host="${BASH_REMATCH[1]}"
+        elif [[ "$_coordination_origin" =~ ^[A-Za-z][A-Za-z0-9+.-]*://([^/@]*@)?([A-Za-z0-9.-]+)/ ]]; then
+            _coordination_host="${BASH_REMATCH[2]}"
+        fi
         if [[ -z "$_coordination_repo" ]]; then
             _coordination_common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
             [[ -z "$_coordination_common" ]] || _coordination_repo="$(basename -- "$(dirname -- "$_coordination_common")")"
@@ -429,9 +443,33 @@ if coordination_admission_on && [[ "$MODE" == "gate" && "${CPP_KYLE_FULL_SUITE_A
             _coordination_identity+=(--issue "${BASH_REMATCH[1]}")
         fi
         # The PR lookup is the one network call; it is bounded and optional.
-        if [[ -n "$_coordination_branch" ]] && command -v gh >/dev/null 2>&1 \
-            && command -v timeout >/dev/null 2>&1; then
-            _coordination_pr="$(timeout 15 gh pr view "$_coordination_branch" --json number --jq .number 2>/dev/null)"
+        # It asks for PRs whose HEAD BRANCH is this one (issue #1831): `gh pr
+        # view <branch>` reads an all-digit branch such as `123` as PR #123.
+        # A number is passed only when exactly one open PR answers, its head is
+        # this branch, and it is not from a fork; anything else is left out.
+        if [[ -n "$_coordination_branch" && -n "$_coordination_host" && "$_coordination_repo" == */* ]] \
+            && command -v gh >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1; then
+            # Output is read only when the bounded call SUCCEEDED (pass 2): a gh
+            # that printed one row and then failed, or was cut off by the
+            # timeout, has not answered "exactly one".
+            _coordination_prs="$(timeout 15 gh pr list -R "$_coordination_host/$_coordination_repo" \
+                --head "$_coordination_branch" --state open \
+                --json number,headRefName,isCrossRepository \
+                --jq '.[] | "\(.number)\t\(.isCrossRepository)\t\(.headRefName)"' 2>/dev/null)" \
+                || _coordination_prs=""
+            _coordination_pr=""
+            if [[ -n "$_coordination_prs" && "$_coordination_prs" != *$'\n'* ]]; then
+                # Split by expansion, never a whitespace-IFS read (#698/#700):
+                # a tab IFS collapses empty fields and shifts the rest.
+                _coordination_pr_number="${_coordination_prs%%$'\t'*}"
+                _coordination_pr_rest="${_coordination_prs#*$'\t'}"
+                _coordination_pr_fork="${_coordination_pr_rest%%$'\t'*}"
+                _coordination_pr_head="${_coordination_pr_rest#*$'\t'}"
+                if [[ "$_coordination_pr_fork" == "false" \
+                    && "$_coordination_pr_head" == "$_coordination_branch" ]]; then
+                    _coordination_pr="$_coordination_pr_number"
+                fi
+            fi
             [[ ! "$_coordination_pr" =~ ^[1-9][0-9]{0,8}$ ]] \
                 || _coordination_identity+=(--pr "$_coordination_pr")
         fi
