@@ -489,18 +489,18 @@ class TestCommandTrustBoundary:
         )
         typecheck = (
             'if grep -q "^typecheck:" Makefile 2>/dev/null; then make typecheck; '
-            f"else python3 {scoped} uv run --extra dev mypy; fi",
+            f'else "$CPP_RUNNER_PYTHON" {scoped} uv run --extra dev mypy; fi',
             '! grep -q "^typecheck:" Makefile 2>/dev/null '
             '&& ! grep -q "mypy" pyproject.toml 2>/dev/null',
         )
-        scan = "! python3 -c 'import lib.security' 2>/dev/null"
+        scan = "! \"$CPP_RUNNER_PYTHON\" -c 'import lib.security' 2>/dev/null"
 
         expected = {
             "finish": {
                 "lint": lint,
                 "test": test,
                 "typecheck": typecheck,
-                "security_scan": ("python3 -m lib.security gate flow_finish", scan),
+                "security_scan": ('"$CPP_RUNNER_PYTHON" -m lib.security gate flow_finish', scan),
                 # `make verify` (#1147). A bare Makefile target with no
                 # interpolation and no `uv run` fallback - `verify` is an
                 # aggregate with no tool equivalent, so a repo without the
@@ -517,7 +517,7 @@ class TestCommandTrustBoundary:
             "check": {"lint": lint, "test": test, "typecheck": typecheck},
             "deploy": {
                 "bootstrap_check": (
-                    "python3 -m lib.cicd.bootstrap check",
+                    '"$CPP_RUNNER_PYTHON" -m lib.cicd.bootstrap check',
                     "! [ -f .claude/bootstrap.yaml ] && ! [ -f pyproject.toml ] "
                     "&& ! [ -f requirements.txt ] && ! [ -f setup.py ]",
                 ),
@@ -535,7 +535,7 @@ class TestCommandTrustBoundary:
                 # command is byte-identical; had it changed, that would be the
                 # security downgrade this rename exists to avoid.
                 "deploy_security_scan": (
-                    "python3 -m lib.security gate flow_deploy",
+                    '"$CPP_RUNNER_PYTHON" -m lib.security gate flow_deploy',
                     scan,
                 ),
                 "deploy": ("make deploy", None),

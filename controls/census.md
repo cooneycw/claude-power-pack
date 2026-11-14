@@ -145,7 +145,7 @@ another repo (the escalation clause); a row can be both.
 | 44 | `gitleaks` with `.gitleaks.toml` | findings or none | CI `secret-scan` (git history); `make secret-scan` (`--no-git`, working tree only - a different input population); the `lib.security` full and deep scans via their adapter. NOT the lifecycle gate: `lib.security gate` runs the quick scan, which never invokes gitleaks (#935) | G |
 | 46 | `install-drift.sh` | `INSTALL_DRIFT` | `/cpp:update`, `/cpp:status`, the SessionStart message | G |
 | 47 | `drift-detect.sh` | drift / none | `make drift-check`; the deploy path | G |
-| 48 | `bootstrap-check.sh` (`lib.cicd` bootstrap) | blocking checks exit 0 | the deploy path | G |
+| 48 | `bootstrap-check.sh` (`lib.cicd` bootstrap) | blocking checks exit 0; `controls/bootstrap-wrapper` checks unmet/satisfied blocking dependencies with the real wrapper/checker and names missing imports/PyYAML unavailable | `make bootstrap-check` invokes the wrapper; the runner deploy plan calls the Python module directly | G |
 | 49 | `mcp-drift.py` | orphaned infrastructure found / none | teardown | G |
 | 50 | `branch-protection.sh check` | live protection matches posture, including app bindings (`controls/branch-protection-app-identity`, historical name-only anchor) and explicit declaration app intent before apply (`controls/branch-protection-app-declaration`, historical ambiguous-PUT anchor) | whether protection is re-applied (ADR 0004) | G |
 | 51 | `commands-mirror-sync.sh` | mirror drift | refresh of an out-of-repo command mirror | G |

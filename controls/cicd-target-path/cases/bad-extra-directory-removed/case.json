@@ -1,0 +1,8 @@
+{
+  "guard": "topology",
+  "environment": {
+    "PATH": "@CPP_BIN@:@CALLER@:@OTHER@",
+    "CPP_RUNNER_TARGET_PATH": "@OTHER@",
+    "CPP_RUNNER_TARGET_PATH_PRESENT": "x"
+  }
+}

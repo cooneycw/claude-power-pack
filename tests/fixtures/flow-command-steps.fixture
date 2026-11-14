@@ -1712,7 +1712,22 @@
    "slug": "exit-rule-0013",
    "needle": "Exit 5 is the same kind of clean STOP (issue #888):",
    "kind": "text"
+  },
+  {
+   "slug": "bash-0195-caller-path",
+   "needle": "PYTHONPATH=\"$CPP_DIR:$PYTHONPATH\" env -u UV_PROJECT_ENVIRONMENT \"CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}\" \"CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}\" \"CPP_RUNNER_TARGET_PATH=${PATH-}\" \"CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}\" uv run --python 3.11 --no-python-downloads --project \"$CPP_DIR\" python -m lib.cicd verify --baseline --summary",
+   "kind": "bash-line",
+   "count": 1
+  },
+  {
+   "slug": "bash-0201-caller-path",
+   "needle": "PYTHONPATH=\"$CPP_DIR:$PYTHONPATH\" env -u UV_PROJECT_ENVIRONMENT \"CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}\" \"CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}\" \"CPP_RUNNER_TARGET_PATH=${PATH-}\" \"CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}\" uv run --python 3.11 --no-python-downloads --project \"$CPP_DIR\" python -m lib.cicd verify",
+   "kind": "bash-line",
+   "count": 1
   }
  ],
- "retirements": {}
+ "retirements": {
+  "bash-0195": "Owner-approved #1801 PATH handoff replaces this exact launcher with bash-0195-caller-path; original baseline retained.",
+  "bash-0201": "Owner-approved #1801 PATH handoff replaces this exact launcher with bash-0201-caller-path; original baseline retained."
+ }
 }

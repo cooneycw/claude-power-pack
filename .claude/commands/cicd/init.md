@@ -5,7 +5,7 @@ allowed-tools: Bash(python3:*), Bash(PYTHONPATH=*), Bash(ls:*), Bash(test:*), Ba
 
 # /cicd:init - Framework Detection & Makefile Setup
 
-Detect your project's framework and package manager, then generate or validate a Makefile for CPP `/flow` integration.
+Detect framework/package manager; generate or validate a Makefile for CPP `/flow`.
 
 ---
 
@@ -52,7 +52,7 @@ If framework is "Unknown", ask the user which framework to use via AskUserQuesti
 ```bash
 if [ -f "Makefile" ]; then
   echo "Existing Makefile found - running validation..."
-  PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd check
+  PYTHONPATH="$CPP_DIR:$PYTHONPATH" env "CPP_RUNNER_TARGET_PATH=${PATH-}" "CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" uv run --project "$CPP_DIR" python -m lib.cicd check
 else
   echo "No Makefile found - will generate one."
 fi

@@ -71,8 +71,16 @@ def _overrun_block(driver: str) -> str:
 
 
 def _env(home: Path) -> dict[str, str]:
+    # Preserve the caller's resolved Python for the real helper's shebang,
+    # without making CPP's development environment the fixture's toolchain.
+    cpp_bin = (REPO / ".venv/bin").resolve()
+    caller_path = os.pathsep.join(entry for entry in os.environ.get("PATH", "").split(os.pathsep)
+                                  if entry and Path(entry).resolve() != cpp_bin)
+    python = shutil.which("python3", path=caller_path)
+    assert python is not None, "the real plan helper requires caller python3"
+    isolated_path = os.pathsep.join((str(Path(python).parent), ISOLATED_PATH))
     # negative-fixture: allow PATH is isolation, not an absence
-    return {**os.environ, "HOME": str(home), "PATH": ISOLATED_PATH,
+    return {**os.environ, "HOME": str(home), "PATH": isolated_path,
             "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
             "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"}
 
@@ -266,3 +274,29 @@ def test_the_step7_backstop_finds_origin_master_without_origin_head(tmp_path: Pa
     _overrun_commit(work, env)
     r = _run(["bash", "-c", _backstop_block()], work, env)
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_real_plan_helper_works_with_python_only_in_an_owned_directory(tmp_path: Path, monkeypatch) -> None:
+    """CI's Python need not share a directory with git or the shell tools."""
+    import sys
+
+    tools = tmp_path / "shell-tools"
+    python_bin = tmp_path / "caller-python"
+    tools.mkdir()
+    python_bin.mkdir()
+    for name in ("git", "bash", "env", "cat", "mkdir", "rm", "wc", "sed"):
+        resolved = shutil.which(name)
+        assert resolved is not None, f"required fixture tool is absent: {name}"
+        (tools / name).symlink_to(resolved)
+    (python_bin / "python3").symlink_to(Path(sys.executable).resolve())
+    assert shutil.which("python3", path=str(tools)) is None, "construct the CI-shaped absence"
+    monkeypatch.setenv("PATH", os.pathsep.join((str(REPO / ".venv/bin"), str(python_bin), str(tools))))
+    monkeypatch.setattr(__import__(__name__, fromlist=["ISOLATED_PATH"]), "ISOLATED_PATH", str(tools))
+    fixture = tmp_path / "fixture"
+    fixture.mkdir()
+    work, env = _resolver_shaped_worktree(fixture)
+    assert all(Path(entry).is_relative_to(tmp_path) for entry in env["PATH"].split(os.pathsep))
+    assert shutil.which("python3", path=env["PATH"]) == str(python_bin / "python3")
+    _overrun_commit(work, env)
+    done = _run(["bash", "-c", _backstop_block()], work, env)
+    assert done.returncode == 0, done.stdout + done.stderr

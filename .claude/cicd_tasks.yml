@@ -42,10 +42,10 @@ steps:
     # cwd. The old `${HOME}/Projects/claude-power-pack/lib` prefix was both wrong
     # for `-m lib.<pkg>` (that needs the parent of lib/) and broke under a
     # sandbox or alternate checkout (issue #534).
-    command: python3 -m lib.security gate flow_finish
+    command: '"$CPP_RUNNER_PYTHON" -m lib.security gate flow_finish'
     description: Run security quick scan
     timeout: 120
-    skip_if: "! python3 -c 'import lib.security' 2>/dev/null"
+    skip_if: "! \"$CPP_RUNNER_PYTHON\" -c 'import lib.security' 2>/dev/null"
 
   verify:
     # THE FINISH PLAN BELOW MUST REFERENCE THIS, not merely define it (issue
@@ -66,13 +66,13 @@ steps:
     skip_if: '! grep -q "^verify:" Makefile 2>/dev/null'
 
   deploy_security_scan:
-    command: python3 -m lib.security gate flow_deploy
+    command: '"$CPP_RUNNER_PYTHON" -m lib.security gate flow_deploy'
     description: Run security scan before deploy
     timeout: 120
-    skip_if: "! python3 -c 'import lib.security' 2>/dev/null"
+    skip_if: "! \"$CPP_RUNNER_PYTHON\" -c 'import lib.security' 2>/dev/null"
 
   bootstrap_check:
-    command: python3 -m lib.cicd.bootstrap check
+    command: '"$CPP_RUNNER_PYTHON" -m lib.cicd.bootstrap check'
     description: Check admin-only bootstrap dependencies are satisfied
     timeout: 30
     skip_if: '! [ -f .claude/bootstrap.yaml ]'

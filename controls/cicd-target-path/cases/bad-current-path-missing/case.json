@@ -1,0 +1,7 @@
+{
+  "guard": "current",
+  "environment": {
+    "CPP_RUNNER_TARGET_PATH": "",
+    "CPP_RUNNER_TARGET_PATH_PRESENT": "x"
+  }
+}

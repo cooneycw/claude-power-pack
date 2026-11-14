@@ -1,0 +1,102 @@
+"""Own the CPP layout and run the real wrapper/checker; unavailable is not clean."""
+import json
+import os
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+case = json.loads((Path(sys.argv[1]) / "input.json").read_text())
+gate = Path(sys.argv[2]).resolve()
+python = shutil.which("python3")
+if shutil.which("bash") is None or python is None:
+    print("BOOTSTRAP_WRAPPER_CONTROL: unavailable - bash or python3 absent")
+    raise SystemExit(3)
+with tempfile.TemporaryDirectory(prefix="bootstrap-control-") as raw:
+    top = Path(raw)
+    cpp, caller, tools = top / "cpp", top / "caller", top / "bin"
+    for path in (cpp / "scripts", cpp / ".claude", caller, tools):
+        path.mkdir(parents=True, exist_ok=True)
+    assert cpp not in caller.parents and caller != cpp
+    wrapper = cpp / "scripts/bootstrap-check.sh"
+    shutil.copy2(gate, wrapper)
+    if not case.get("missing_module"):
+        package = cpp / "lib/cicd"
+        package.mkdir(parents=True)
+        for name in ("__init__.py", "bootstrap.py"):
+            shutil.copy2(ROOT / "lib/cicd" / name, package / name)
+    else:
+        assert not (cpp / "lib").exists(), "construct missing engine before running it"
+    (cpp / ".claude/bootstrap.yaml").write_text(json.dumps({
+        "version": "1", "dependencies": {"owned": {
+            "description": "owned blocking fixture", "check_command": case["check_command"],
+            "remediation": "satisfy the owned fixture",
+        }},
+    }))
+    launcher = tools / "python3"
+    launcher.write_text("#!/bin/sh\nexec " + shlex.quote(python)
+                        + (" -S" if case.get("without_site") else "") + ' "$@"\n')
+    launcher.chmod(0o755)
+    env = dict(os.environ, PATH=str(tools) + os.pathsep + os.environ["PATH"])
+    env.pop("PYTHONPATH", None)
+    ready = subprocess.run([str(launcher), "-c", "import yaml; print(yaml.__file__)"], cwd=caller, env=env,
+                           capture_output=True, text=True, timeout=20)
+    if case.get("without_site"):
+        assert ready.returncode != 0 and "No module named 'yaml'" in ready.stderr, "construct actual PyYAML absence"
+        # Continue: the candidate must really run, even for a known-unavailable input.
+    elif ready.returncode != 0:
+        print("BOOTSTRAP_WRAPPER_CONTROL: unavailable - selected python3 cannot import PyYAML")
+        raise SystemExit(3)
+    if case.get("installed_lib"):
+        # Own the interpreter site-packages; never write into CPP's environment.
+        owned_venv = top / "venv"
+        made = subprocess.run([python, "-m", "venv", "--without-pip", str(owned_venv)],
+                              capture_output=True, text=True, timeout=20)
+        if made.returncode != 0:
+            print("BOOTSTRAP_WRAPPER_CONTROL: unavailable - cannot create owned interpreter")
+            raise SystemExit(3)
+        site = next(owned_venv.glob("lib/python*/site-packages"))
+        # Retain the actual PyYAML already measured above, not a substitute.
+        (site / "real-pyyaml.pth").write_text(str(Path(ready.stdout.strip()).parent.parent) + "\n")
+        (site / "lib/cicd").mkdir(parents=True)
+        (site / "lib/__init__.py").write_text("")
+        (site / "lib/cicd/__init__.py").write_text("")
+        (site / "lib/cicd/bootstrap.py").write_text('print("installed checker substituted")\n')
+        assert (site / "lib/__init__.py").is_file(), "construct installed regular lib"
+        assert (site / "lib/cicd/bootstrap.py").is_file(), "construct installed substitute checker"
+        launcher.write_text("#!/bin/sh\nexec " + shlex.quote(str(owned_venv / "bin/python")) + ' "$@"\n')
+        available = subprocess.run([str(launcher), "-c", "import yaml"], cwd=caller, env=env,
+                                   capture_output=True, text=True, timeout=20)
+        assert available.returncode == 0, "owned interpreter must have real PyYAML: " + available.stderr
+    if case.get("caller_shadow") in {"regular-lib", "pythonpath-lib"}:
+        (caller / "lib").mkdir()
+        (caller / "lib/__init__.py").write_text("# Caller-owned regular package.\n")
+        assert (caller / "lib/__init__.py").is_file(), "construct regular lib shadow"
+    if case.get("caller_shadow") == "pythonpath-lib":
+        (caller / "lib/cicd").mkdir()
+        (caller / "lib/cicd/__init__.py").write_text("")
+        (caller / "lib/cicd/bootstrap.py").write_text('print("caller checker")\n')
+        env["PYTHONPATH"] = str(caller)
+        assert (caller / "lib/cicd/bootstrap.py").is_file(), "construct substitute checker"
+    elif case.get("caller_shadow") == "yaml-module":
+        (caller / "yaml.py").write_text('raise ImportError("caller yaml")\n')
+        assert (caller / "yaml.py").is_file(), "construct dependency shadow"
+    done = subprocess.run(["bash", str(wrapper)], cwd=caller, env=env,
+                          capture_output=True, text=True, timeout=20)
+    missing_file = (case.get("missing_module") and done.returncode == 2
+                    and "can't open file" in done.stderr
+                    and str(cpp / "lib/cicd/bootstrap.py") in done.stderr)
+    if missing_file or "ModuleNotFoundError" in done.stderr or "ImportError" in done.stderr:
+        print("BOOTSTRAP_WRAPPER_CONTROL: unknown - unavailable wrapper cannot import its checker or dependency")
+        raise SystemExit(3)
+    if done.returncode == 1 and "bootstrap prerequisite(s) not satisfied" in done.stdout:
+        print("BOOTSTRAP_WRAPPER_CONTROL: finding - real checker blocked an unmet prerequisite")
+        raise SystemExit(1)
+    if done.returncode == 0:
+        print("BOOTSTRAP_WRAPPER_CONTROL: clean - wrapper accepted")
+        raise SystemExit(0)
+    print("BOOTSTRAP_WRAPPER_CONTROL: unavailable - wrapper did not produce a prerequisite verdict")
+    raise SystemExit(3)
