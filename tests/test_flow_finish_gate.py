@@ -174,6 +174,80 @@ def test_no_gate_knob_in_the_suites_environment_reaches_the_gate(
     assert _gate_env(FLOW_GATE_RERUN="0")["FLOW_GATE_RERUN"] == "0"
 
 
+#: The shell's own names, and the one gate-lib.sh hands back to its caller: read
+#: by the gate, never configured by the environment.
+_SHELL_NAMES = frozenset({"_", "BASHPID", "BASH_COMMAND", "BASH_REMATCH", "BASH_SOURCE",
+                          "BASH_VERSION", "PIPESTATUS", "PWD", "RANDOM", "GATE_VALUE"})
+#: What `_GATE_KNOBS` holds that no `$NAME` in the gate's own files reads: the
+#: two the gate only forwards (see the list's comment) and `_run`'s admission
+#: signal, which the fixture turns into a flag file before the gate starts.
+_KNOBS_NOT_READ_BY_NAME = frozenset({"CPP_GATE_RERUN_FAILED", "CPP_GATE_TEST_TIMEOUT",
+                                     "CPP_KYLE_COORDINATION_ADMISSION"})
+_GATE_SOURCES = ("flow-finish-gate.sh", "coordination-admission.sh", "gate-lib.sh")
+
+
+def _environment_reads(text: str) -> set[str]:
+    """Upper-case names a bash file reads before (or without) assigning them.
+
+    What it sees: `$NAME` and `${NAME...}` in non-comment lines, against
+    line-start assignments, `read NAME` and `for NAME in`. What it cannot see: a
+    name read through indirection (`${!x}`), by a child process, or assigned
+    first inside a function defined earlier than it is called. So its answer is
+    "the names these files read by name", not "everything the gate obeys".
+    """
+    first_ref: dict[str, int] = {}
+    first_set: dict[str, int] = {}
+    for number, line in enumerate(text.splitlines()):
+        if line.lstrip().startswith("#"):
+            continue
+        for name in re.findall(r"(?<!\\)\$\{?([A-Z_][A-Z0-9_]*)", line):
+            first_ref.setdefault(name, number)
+        start = re.match(r"\s*(?:local\s+|export\s+|declare\s+-\w+\s+)?([A-Z_][A-Z0-9_]*)\+?=", line)
+        names = [start.group(1)] if start else []
+        names += re.findall(r"\b(?:read\s+(?:-\w+\s+)*|for\s+)([A-Z_][A-Z0-9_]*)", line)
+        for name in names:
+            first_set.setdefault(name, number)
+    return {name for name, at in first_ref.items() if at <= first_set.get(name, 10**9)}
+
+
+def test_the_environment_reader_finds_a_new_knob_and_ignores_an_internal_name() -> None:
+    """The derivation's own known-bad and known-good input (issue #1828): a
+    knob read with a default is found; a name assigned before it is read is not."""
+    sample = ('# ${IN_A_COMMENT:-x}\n'
+              'INTERNAL=1\n'
+              'echo "$INTERNAL ${A_NEW_KNOB:-} \\$ESCAPED"\n'
+              'SELF="${SELF:-default}"\n')
+    assert _environment_reads(sample) == {"A_NEW_KNOB", "SELF"}
+
+
+def test_every_name_the_gate_reads_from_the_environment_is_a_listed_knob() -> None:
+    """`_GATE_KNOBS` was hand-written, and nothing failed when the gate grew a
+    variable it lacked (issue #1828, Nit Store 6819640932). Derived instead from
+    the three files the gate runs, by name; see `_environment_reads` for what
+    that cannot see.
+
+    Red case: delete CPP_KYLE_LOCK_WAIT_SECONDS from `_GATE_KNOBS` and this fails
+    naming it.
+    """
+    scripts = ROOT / "scripts"
+    read = set().union(*(_environment_reads((scripts / f).read_text()) for f in _GATE_SOURCES))
+    assert "CPP_KYLE_LOCK_WAIT_SECONDS" in read, "precondition: the reader sees a known knob"
+    unlisted = sorted(read - _SHELL_NAMES - set(_GATE_KNOBS) - set(_BASE_ENV_ALLOWLIST))
+    assert unlisted == [], f"read by the gate but missing from _GATE_KNOBS: {unlisted}"
+    stale = sorted(set(_GATE_KNOBS) - read - _KNOBS_NOT_READ_BY_NAME)
+    assert stale == [], f"listed in _GATE_KNOBS but read by no gate file: {stale}"
+
+
+#: A fake kyle-lock's argv walk past the lease identity flags the gate passes
+#: before `--` (issue #1828). Anything else there is not ours: exit 92.
+_SKIP_TO_COMMAND = (
+    'while [[ $# -gt 0 && "$1" != -- ]]; do\n'
+    '  case "$1" in --issue|--pr|--purpose) [[ $# -ge 2 ]] || exit 92; shift 2 ;; *) exit 92 ;; esac\n'
+    'done\n'
+    '[[ "${1-}" == -- ]] || exit 92\nshift\n'
+)
+
+
 def _make_stub(
     bindir: Path, name: str, exit_code: int = 0, stdout: str = ""
 ) -> Path:
@@ -3279,8 +3353,8 @@ def test_coordination_supervises_full_gate_once_only_when_enabled(tmp_path: Path
     supervisor.write_text(
         "#!/usr/bin/env bash\n"
         'printf "%s\\n" "$*" >> "$(dirname "$0")/supervisor.log"\n'
-        '[[ "$1" == run && "$2" == full-suite && "$3" == --wait && "$4" == 3600 && "$5" == -- ]] || exit 92\n'
-        'shift 5\nexec "$@"\n'
+        '[[ "$1" == run && "$2" == full-suite && "$3" == --wait && "$4" == 3600 ]] || exit 92\n'
+        'shift 4\n' + _SKIP_TO_COMMAND + 'exec "$@"\n'
     )
     supervisor.chmod(0o755)
     (tmp_path / "Makefile").write_text("lint:\ntest:\ntypecheck:\nverify:\n")
@@ -3312,6 +3386,12 @@ def test_coordination_refusal_starts_no_gate_work(tmp_path: Path, supervisor_exi
     assert not (bindir / "make.log").exists()
     if supervisor_exit == 75:
         assert "FLOW_FINISH_GATE: fail (coordination unavailable: exit 75; " in proc.stdout
+    elif supervisor_exit in (10, 11):
+        # kyle-lock's --wait expiry returns the LAST answer's code (#1828).
+        state = "queued" if supervisor_exit == 10 else "frozen"
+        assert ("FLOW_FINISH_GATE: fail (coordination not granted: no grant within 3600s, "
+                f"last state {state} (kyle-lock exit {supervisor_exit}), no gate work started)") in proc.stdout
+        assert "supervisor exited" not in proc.stdout
     else:
         assert f"FLOW_FINISH_GATE: fail (coordination supervisor exited {supervisor_exit} " in proc.stdout
     assert "FLOW_FINISH_GATE: ok" not in proc.stdout
@@ -3319,6 +3399,85 @@ def test_coordination_refusal_starts_no_gate_work(tmp_path: Path, supervisor_exi
     assert exit_lines == ["FLOW_FINISH_GATE_EXIT=1"], proc.stdout
     assert proc.stdout.splitlines()[-1] == "FLOW_FINISH_GATE_EXIT=1"
 
+
+
+def _recording_authority(path: Path) -> Path:
+    """A fake kyle-lock that writes its argv, one per line, then runs the gate."""
+    argv = path.parent / "authority.argv"
+    path.write_text(
+        "#!/usr/bin/env bash\n"
+        f'printf "%s\\n" "$@" > "{argv}"\n'
+        '[[ "$1 $2 $3" == "run full-suite --wait" ]] || exit 92\n'
+        "shift 4\n" + _SKIP_TO_COMMAND + 'exec "$@"\n'
+    )
+    path.chmod(0o755)
+    return argv
+
+
+def _git(repo: Path, *args: str) -> str:
+    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True,
+                          text=True, timeout=30).stdout.strip()
+
+
+@requires_git
+@requires_bash
+@pytest.mark.parametrize("layout", ["issue-branch", "plain-branch-no-origin", "detached", "outside-git"])
+def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
+    """Issue #1828 A1: the lease names repo, branch and sha, plus --issue and
+    --pr where they can be derived, and leaves out what cannot be. On the
+    pre-fix gate there is no --purpose at all, so every layout fails."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    gh_log = bindir / "gh.log"
+    gh_answer = {"issue-branch": "123", "plain-branch-no-origin": "not-a-number"}.get(layout, "999")
+    gh = bindir / "gh"
+    gh.write_text(f'#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "{gh_log}"\necho {gh_answer}\n')
+    gh.chmod(0o755)
+    work = tmp_path / ("plain" if layout == "outside-git" else "widget-checkout")
+    work.mkdir()
+    (work / "Makefile").write_text("lint:\ntest:\ntypecheck:\nverify:\n")
+    sha = ""
+    if layout != "outside-git":
+        _git(work, "init", "-q", "-b", "main")
+        _git(work, "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+             "commit", "-q", "--allow-empty", "-m", "base")
+        sha = _git(work, "rev-parse", "--short", "HEAD")
+        if layout != "plain-branch-no-origin":
+            _git(work, "remote", "add", "origin", "git@github.com:acme/widget.git")
+        _git(work, "checkout", "-q", "-b",
+             "issue-77-widget" if layout == "issue-branch" else "feature-x")
+        if layout == "detached":
+            _git(work, "checkout", "-q", "--detach")
+    else:
+        probe = subprocess.run(["git", "-C", str(work), "rev-parse", "--git-dir"],
+                               capture_output=True, text=True, timeout=30, check=False)
+        assert probe.returncode != 0, "precondition: this layout is outside every git repository"
+    supervisor = tmp_path / "authority"
+    argv_file = _recording_authority(supervisor)
+    proc, _ = _run(tmp_path, cpp_dir="", make_exit=0, cwd=work, extra_env={
+        "CPP_KYLE_COORDINATION_ADMISSION": "1", "CPP_KYLE_LOCK_BIN": str(supervisor)})
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    argv = argv_file.read_text().splitlines()
+    options = argv[: argv.index("--")]
+    pairs = dict(zip(options[4::2], options[5::2]))
+    purpose = {
+        "issue-branch": f"cpp finish gate: acme/widget issue-77-widget {sha}",
+        "plain-branch-no-origin": f"cpp finish gate: widget-checkout feature-x {sha}",
+        "detached": f"cpp finish gate: acme/widget {sha}",
+        "outside-git": "cpp finish gate:",
+    }[layout]
+    assert pairs.get("--purpose") == purpose, options
+    if layout == "issue-branch":
+        assert pairs.get("--issue") == "77" and pairs.get("--pr") == "123", options
+    else:
+        assert "--issue" not in pairs, options
+        assert "--pr" not in pairs, options  # never a guessed or non-numeric PR
+    # The PR lookup runs only for a named branch, and asks about THAT branch.
+    if layout in ("issue-branch", "plain-branch-no-origin"):
+        branch = "issue-77-widget" if layout == "issue-branch" else "feature-x"
+        assert gh_log.read_text().splitlines() == [f"pr view {branch} --json number --jq .number"]
+    else:
+        assert not gh_log.exists()
 
 def _bounded_authority(path: Path, state: str) -> None:
     """A fake kyle-lock that behaves like the real one around --wait (#1678).
@@ -3331,7 +3490,7 @@ def _bounded_authority(path: Path, state: str) -> None:
         '[[ "$1" == run && "$2" == full-suite ]] || exit 92\n'
         "shift 2\nwait=\n"
         'if [[ "$1" == --wait ]]; then wait="$2"; shift 2; fi\n'
-        '[[ "$1" == -- ]] || exit 92\nshift\n'
+        + _SKIP_TO_COMMAND
         + ('exec "$@"\n' if state == "held" else
            '[[ -n "$wait" ]] || exec sleep 600\n'
            'sleep "$wait"\n'
@@ -3459,7 +3618,7 @@ def test_coordination_writers_outliving_the_parent_cannot_recreate_its_files(tmp
         "#!/usr/bin/env bash\n"
         f'touch "{started}"\n'
         f'while [[ ! -e "{go}" ]]; do sleep 0.05; done\n'
-        'shift 5\n"$@"\n'
+        'shift 4\n' + _SKIP_TO_COMMAND + '"$@"\n'
         f'touch "{done}"\n'
     )
     supervisor.chmod(0o755)
@@ -3508,8 +3667,8 @@ def test_coordination_passes_the_gate_verdict_only_when_the_supervisor_agrees(
     supervisor = tmp_path / "supervisor"
     supervisor.write_text(
         "#!/usr/bin/env bash\n"
-        '[[ "$1 $2 $3 $5" == "run full-suite --wait --" ]] || exit 92\n'
-        f'shift 5\n"$@"\nrc=$?\n{supervisor_tail}\n'
+        '[[ "$1 $2 $3" == "run full-suite --wait" ]] || exit 92\n'
+        'shift 4\n' + _SKIP_TO_COMMAND + f'"$@"\nrc=$?\n{supervisor_tail}\n'
     )
     supervisor.chmod(0o755)
     (tmp_path / "Makefile").write_text("lint:\ntest:\ntypecheck:\nverify:\n")
@@ -3568,7 +3727,7 @@ def test_coordination_continuation_keeps_one_lease_and_hides_authority_credentia
         "#!/usr/bin/env bash\n"
         'printf "%s\\n" "$*" >> "$(dirname "$0")/supervisor.log"\n'
         '[[ "$KYLE_LOCK_TOKEN" == synthetic-supervisor-only ]] || exit 93\n'
-        'shift 5\nexec "$@"\n'
+        'shift 4\n' + _SKIP_TO_COMMAND + 'exec "$@"\n'
     )
     supervisor.chmod(0o755)
     make = bindir / "make"

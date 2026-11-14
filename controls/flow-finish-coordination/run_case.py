@@ -28,7 +28,11 @@ with tempfile.TemporaryDirectory(prefix="cpp-coordination-control-") as tmp:
         'printf "called\\n" >> "$CPP_CONTROL_CALLS"\n'
         'shift 2\nwait=\n'
         'if [[ "$1" == --wait ]]; then wait="$2"; shift 2; fi\n'
-        '[[ "$1" == -- ]] || exit 92\nshift\n'
+        # The lease identity flags the gate passes before `--` (issue #1828).
+        'while [[ $# -gt 0 && "$1" != -- ]]; do\n'
+        '  case "$1" in --issue|--pr|--purpose) shift 2 ;; *) exit 92 ;; esac\n'
+        'done\n'
+        '[[ "${1-}" == -- ]] || exit 92\nshift\n'
         # An unavailable authority never answers on its own (issue #1678): only
         # a caller that bounded the wait gets control back, at the bound.
         + {"held": 'exec "$@"\n', "refused": 'exit 75\n', "garbage": 'exit 75\n',

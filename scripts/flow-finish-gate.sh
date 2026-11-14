@@ -373,6 +373,43 @@ if coordination_admission_on && [[ "$MODE" == "gate" && "${CPP_KYLE_FULL_SUITE_A
         echo "FLOW_FINISH_GATE: fail (coordination wait bound invalid: CPP_KYLE_LOCK_WAIT_SECONDS must be a positive whole number of seconds)"
         gate_exit fail
     fi
+    # THE LEASE SAYS WHAT IT IS FOR (issue #1828). Every host-side CPP gate
+    # runs under one shared service principal, so without these a queued or
+    # stuck gate shows in `kyle-lock status full-suite` as issue null, pr null,
+    # purpose "" - indistinguishable from every other. Each part is DERIVED or
+    # left out, never guessed: --issue and --pr are integers to the client, so
+    # only an all-digit value is passed. The repository is the last two path
+    # segments of origin's URL (never the whole URL, which can carry a
+    # credential), else the checkout's own directory name.
+    _coordination_identity=()
+    _coordination_purpose="cpp finish gate:"
+    if git rev-parse --git-dir >/dev/null 2>&1; then
+        _coordination_repo=""
+        _coordination_origin="$(git remote get-url origin 2>/dev/null)"
+        if [[ "$_coordination_origin" =~ ([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/?$ ]]; then
+            _coordination_repo="${BASH_REMATCH[1]}/${BASH_REMATCH[2]%.git}"
+        fi
+        if [[ -z "$_coordination_repo" ]]; then
+            _coordination_common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+            [[ -z "$_coordination_common" ]] || _coordination_repo="$(basename -- "$(dirname -- "$_coordination_common")")"
+        fi
+        _coordination_branch="$(git symbolic-ref --short -q HEAD 2>/dev/null)"
+        _coordination_sha="$(git rev-parse --short HEAD 2>/dev/null)"
+        for _coordination_part in "$_coordination_repo" "$_coordination_branch" "$_coordination_sha"; do
+            [[ -z "$_coordination_part" ]] || _coordination_purpose+=" $_coordination_part"
+        done
+        if [[ "$_coordination_branch" =~ ^issue-([0-9]{1,9})(-|$) ]]; then
+            _coordination_identity+=(--issue "${BASH_REMATCH[1]}")
+        fi
+        # The PR lookup is the one network call; it is bounded and optional.
+        if [[ -n "$_coordination_branch" ]] && command -v gh >/dev/null 2>&1 \
+            && command -v timeout >/dev/null 2>&1; then
+            _coordination_pr="$(timeout 15 gh pr view "$_coordination_branch" --json number --jq .number 2>/dev/null)"
+            [[ ! "$_coordination_pr" =~ ^[1-9][0-9]{0,8}$ ]] \
+                || _coordination_identity+=(--pr "$_coordination_pr")
+        fi
+    fi
+    _coordination_identity+=(--purpose "$_coordination_purpose")
     # The authority configuration belongs to the supervisor. Test commands
     # must not inherit its credentials.
     #
@@ -382,7 +419,7 @@ if coordination_admission_on && [[ "$MODE" == "gate" && "${CPP_KYLE_FULL_SUITE_A
     # its verdict line is held back from stdout: only a matching pair is the
     # gate's verdict, so a lease lost after a green gate prints one fail, never
     # an ok followed by a fail. This process writes the one exit line.
-    "$_coordination_bin" run full-suite --wait "$_coordination_wait" -- env \
+    "$_coordination_bin" run full-suite --wait "$_coordination_wait" "${_coordination_identity[@]}" -- env \
         -u KYLE_LOCK_URL -u KYLE_LOCK_TOKEN -u KYLE_LOCK_TOKEN_FILE \
         CPP_KYLE_FULL_SUITE_ACTIVE=1 CPP_FLOW_FINISH_GATE_STATUS_FILE="$_coordination_status" \
         bash "${BASH_SOURCE[0]}" "${COORDINATION_ORIGINAL_ARGS[@]}" \
@@ -422,6 +459,16 @@ if coordination_admission_on && [[ "$MODE" == "gate" && "${CPP_KYLE_FULL_SUITE_A
             _coordination_code="${BASH_REMATCH[1]}"
         fi
         echo "FLOW_FINISH_GATE: fail (coordination unavailable: $_coordination_code; no grant within ${_coordination_wait}s, no gate work started)"
+        gate_exit fail
+    fi
+    # kyle-lock's `run` returns its LAST answer's code when --wait expires
+    # (issue #1828, measured on Kyle prod 2026-11-13: a --wait 60 left queued
+    # exits 10). So a real queue timeout is 10 (queued, or blocked) or 11
+    # (frozen), not 75. With no recorded status no gate work started; say so.
+    if [[ "$_coordination_rc" == 10 || "$_coordination_rc" == 11 ]]; then
+        _coordination_state="queued"
+        [[ "$_coordination_rc" == 10 ]] || _coordination_state="frozen"
+        echo "FLOW_FINISH_GATE: fail (coordination not granted: no grant within ${_coordination_wait}s, last state $_coordination_state (kyle-lock exit $_coordination_rc), no gate work started)"
         gate_exit fail
     fi
     echo "FLOW_FINISH_GATE: fail (coordination supervisor exited $_coordination_rc and the gate recorded no status)"
