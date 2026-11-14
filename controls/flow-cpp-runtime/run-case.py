@@ -63,6 +63,7 @@ with tempfile.TemporaryDirectory() as directory:
         "invalid-config-version", "disagreeing-version",
         "malformed-matching-version", "malformed-mismatch-optin",
         "constant-interpreter", "contradictory-config", "contradictory-config-optin",
+        "major-minor-runtime", "major-minor-disagreeing", "major-minor-contradictory",
     ):
         (venv / "bin").mkdir(parents=True)
         version = "3.12.3" if mode in (
@@ -75,7 +76,14 @@ with tempfile.TemporaryDirectory() as directory:
             cfg_version = "3.12.3.final.0"
         elif mode in ("malformed-matching-version", "malformed-mismatch-optin"):
             cfg_version = ".".join(version.split(".")[:2]) + ".garbage"
+        elif mode == "major-minor-runtime":
+            cfg_version = "3.11"
+        elif mode == "major-minor-disagreeing":
+            cfg_version = "3.12"
         (venv / "pyvenv.cfg").write_text(f"version_info = {cfg_version}\n")
+        if mode == "major-minor-contradictory":
+            cfg_version = "3.11"
+            (venv / "pyvenv.cfg").write_text("version = 3.11\nversion_info = 3.12.3\n")
         if mode in ("contradictory-config", "contradictory-config-optin"):
             second = "3.11.9" if mode == "contradictory-config-optin" else "3.12.3"
             (venv / "pyvenv.cfg").write_text(f"version = {version}\nversion_info = {second}\n")
@@ -109,6 +117,12 @@ with tempfile.TemporaryDirectory() as directory:
             assert cfg_version.startswith("3.12.") and probe.stdout.startswith("3.11.")
         elif mode in ("malformed-matching-version", "malformed-mismatch-optin"):
             assert cfg_version.endswith(".garbage") and probe.stdout.strip() == version
+        elif mode == "major-minor-runtime":
+            assert cfg_version == "3.11" and probe.stdout.strip().startswith("3.11.")
+        elif mode == "major-minor-disagreeing":
+            assert cfg_version == "3.12" and probe.stdout.strip().startswith("3.11.")
+        elif mode == "major-minor-contradictory":
+            assert (venv / "pyvenv.cfg").read_text() == "version = 3.11\nversion_info = 3.12.3\n"
         before = {str(p.relative_to(venv)): p.read_bytes() for p in venv.rglob("*") if p.is_file()}
     trace = owned / "uv.argv"
     download = owned / "would-download"
@@ -164,6 +178,7 @@ fi
         "mismatched-environment", "broken-environment", "invalid-config-version", "disagreeing-version",
         "malformed-matching-version", "malformed-mismatch-optin",
         "constant-interpreter", "contradictory-config", "contradictory-config-optin",
+        "major-minor-disagreeing", "major-minor-contradictory",
     ) and result.returncode == 1:
         reason = "mismatch" if mode == "mismatched-environment" else "unverified"
         assert f"cpp-runtime-environment-{reason}" in text, text
