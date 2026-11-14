@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- The bootstrap shell wrapper loads CPP's checker from an external working
+  directory (#1803). It still uses ambient `python3` and checks its own CPP
+  checkout's bootstrap configuration. Python starts in CPP, preventing caller
+  packages from shadowing the checker or its dependencies, and ignores inherited
+  Python search paths that could substitute another checker.
 - Runner PATH handoffs refuse marked absence to prevent default-directory
   lookup; explicit empty PATH stays present and empty. The launch inventory
   binds metadata to the actual module command, including shell separators
