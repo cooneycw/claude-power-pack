@@ -1,0 +1,70 @@
+{
+  "branch": "issue-1810-driver-parity",
+  "counts": {
+    "accepted": 8,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "extra_passes_reason": "cr-orch approved final full pass3 via mailbox25869 after accepting pass1/2 findings and ruling closed grammar A-G. Pass3 requested changes for alias-fallback substitution masking and glob test operands; both accepted. Later master-approved delta-only pass4 at1bd18ba5 is documented separately because its captured patch frame has one extra trailing newline and the unmodified writer refuses exact equality.",
+  "head": "b1cce978b9919783f5a111bd905cd3662fd9175f",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/14/rollout-2026-11-14T00-30-53-01a1d776-dad5-7e22-8290-2e8db27a00da.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 8953453,
+        "path": "2026/11/14/rollout-2026-11-14T00-30-53-01a1d776-dad5-7e22-8290-2e8db27a00da.jsonl",
+        "sha256": "2f16d33a4a34d5b0bf36cc937a0817380f48d3cfe6d6fe964ac3052363ede249"
+      }
+    ],
+    "thread_id": "01a1d776-dad5-7e22-8290-2e8db27a00da"
+  },
+  "issue": "1810",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 3,
+  "recorded_at": "2026-11-14T03:58:18Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 11
+  },
+  "reviewed_artifact": {
+    "base_sha": "65921ba3d229a12c885f631beb34b969c1c0743c",
+    "merge_base": "65921ba3d229a12c885f631beb34b969c1c0743c",
+    "method": "runtime-head",
+    "patch_sha256": "5721e921c8af061e21ff3d0b3bb2f0a21c0ef124ca34532a54516a58dfeb1b6b",
+    "report_record": 70,
+    "target_head": "b1cce978b9919783f5a111bd905cd3662fd9175f"
+  },
+  "reviewer": "codex/gpt-6.1-terra",
+  "reviewer_evidence": {
+    "exec_log": "pass3.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.1-terra"
+    ],
+    "rollout": "2026/11/14/rollout-2026-11-14T03-50-05-01a1d82d-3af7-7d40-8b74-d710ca8eaabd.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 60724,
+        "path": "pass3.jsonl",
+        "sha256": "01e4e9fe51730e4158855e540c46ac498d1138c4c73b03553e36ce2836ac0853"
+      },
+      {
+        "bytes": 2029617,
+        "path": "2026/11/14/rollout-2026-11-14T03-50-05-01a1d82d-3af7-7d40-8b74-d710ca8eaabd.jsonl",
+        "sha256": "36d1dfccd1ad6a712682af730f1ad5b35ba62e3f33cde60320e10f12cec2424f"
+      }
+    ],
+    "thread_id": "01a1d82d-3af7-7d40-8b74-d710ca8eaabd"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}

@@ -224,7 +224,7 @@ tracked at [#1278](https://github.com/cooneycw/claude-power-pack/issues/1278).
 
 ### v11.1.0 (2026-11-14)
 
-Sixteen merged PRs cover runner PATH isolation, receipt and CI
+Nineteen merged PRs cover runner PATH isolation, receipt and CI
 acceptance hardening, generated pipeline fixes, and bootstrap isolation. See
 [CHANGELOG.md](CHANGELOG.md) for the per-consumer Upgrading section.
 
@@ -239,6 +239,9 @@ acceptance hardening, generated pipeline fixes, and bootstrap isolation. See
   runtimes and corrected IaC commands.
 - **Bootstrap and tests:** checking from external directories excludes caller
   package/search-path shadowing; standalone test controls isolate host admission.
+- **Delegated drivers:** answer every listed lane before approval and retain
+  plan/as-read/close evidence under `docs/flow-runs/`. A new driver-parity gate
+  checks static helper and plan-record membership with explicit exemptions.
 
 ### v11.0.0 (2026-11-12)
 

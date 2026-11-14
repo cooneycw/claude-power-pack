@@ -139,7 +139,8 @@ Its blind anchor - "the project has a lane file" - misses both bad cases.
 and be undatable, the stamp, and root resolution.
 
 **The table's presence and completeness are machine-checked; its truth is
-not.** In `/flow:auto`, `flow-plan-record.py approve` refuses a plan record
+not.** In `/flow:auto` and the delegated drivers (`/codex:auto`, `/qwen:auto`,
+`/gemma:auto`), `flow-plan-record.py approve` refuses a plan record
 that has no `### Lanes for this change` table, or that leaves a listed lane
 without one of the four answers, and names the missing lanes (issue #1731;
 committed cases in `controls/flow-plan-record-lanes`). A lane file that exists
@@ -167,7 +168,9 @@ lane `will test` and test none of them. Two readers check that:
    not is not approvable.
 2. The counter-model review. `/codex:code_review` hands the reviewer the lane
    file and asks it to report a listed lane the plan does not answer, and a
-   lane marked `will test` that no test in the diff exercises.
+   lane marked `will test` that no test in the diff exercises. The delegated
+   drivers' Step 5 gives the same question to their Claude reviewer, preserving
+   the independent review direction instead of asking Codex to review itself.
 
 **The second reader is a model, so its red case is an observation, not a
 repeatable check.** `tests/fixtures/lanes/` holds an example lane list, a plan that omits a listed
@@ -181,7 +184,25 @@ question from `/codex:code_review`, and read whether the omitted lane is
 reported for the first and not for the second. One run does not
 establish that the next run answers the same way.
 
-**Not covered.** The delegated-driver review surfaces (`/codex:auto`,
-`/qwen:auto`, `/gemma:auto`) carry their own review text and do not ask the
-lane question. A lane file whose list is incomplete produces a table that
-looks complete.
+**Delegated approval and close have recorded-path coverage (#1809).** The
+three `controls/delegated-*-plan-lanes` registrations exercise each rendered
+Step 3's helper call in an owned linked worktree. An approved plan omitting
+a listed lane is refused and names it; the complete plan and a project with
+no lane file pass. Each historical Step 3 anchor continues for both plans,
+showing the old omission. Close tests run the declared `compliance` invocation
+with missing and present demonstrated rows. The shared core's vendoring check
+keeps these calls in all three commands. The pre-review and final product
+checks load one definition excluding only this issue's three flow-run evidence
+paths and its counter-model receipt names. Metadata-only and product-revert
+cases refuse, including receipt-only diffs; another issue's records and
+receipts remain product. This also closes the earlier receipt-only finish gap. The helper and record formats are
+the existing `/flow:auto` ones; no second lane parser is introduced.
+
+**Not covered.** Recorded deterministic checkpoint calls and source-bound
+ordering checks do not prove that a live delegated implementation session or
+its Claude reviewer follows the document. The Codex model observations above
+are observations of that question on those fixtures, not of all three Claude
+review surfaces. A lane file whose list is incomplete still produces a table
+that looks complete. These delegated command families are deliberately not
+generated as Codex skills; the Codex install exercises the standalone helper
+in the existing `flow-auto` bundle, not nonexistent delegated mirrors.

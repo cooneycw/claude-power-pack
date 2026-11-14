@@ -4,8 +4,17 @@
 
 ## [11.1.0] - 2026-11-14
 
+### Added
+
+- A driver-parity gate derives helper and plan-record verb membership across
+  flow and delegated drivers, checks the generated flow-auto mirror, and records
+  explicit equivalents and exemptions. Static membership does not establish
+  execution order or semantic equivalence (#1816).
+
 ### Fixed
 
+- CPP's documented lanes now include toolchain version, clone shape, run
+  location, gate target and wave role state, with scoped coverage claims (#1814).
 - Wave ruling validation now recognizes colon `RATIFY:` and `OVERRULE:`
   spellings and requires an issue and reason, while retaining unpunctuated
   syntax (#1790).
@@ -27,6 +36,9 @@
   explicit consent before dropping active work during an identity move (#1805).
 - Standalone nested finish-gate controls and tests isolate host coordination
   admission without changing operational coordination policy (#1808).
+- Delegated Codex, Qwen and Gemma drivers now record approved plans, refuse
+  omitted project lanes before delegation, ask the lane review question, and
+  report close-time lane evidence using the existing flow plan helper (#1809).
 
 - The bootstrap shell wrapper loads CPP's checker from an external working
   directory (#1803). It still uses ambient `python3` and checks its own CPP
@@ -68,6 +80,13 @@
   duplicates the marker. Bash 3.2 retains its previous unguarded behavior.
 
 ### Upgrading
+
+- Delegated Codex, Qwen and Gemma runs now require every listed project lane
+  to be answered before approval and write issue plan, as-read and demonstrated
+  records under `docs/flow-runs/` (#1809, PR #1815). Answer those lanes in the
+  approved plan, allow the evidence files in the worktree, and report lane
+  evidence at close. Plans with unanswered lanes stop before delegation; this
+  is a required caller action, not only a documentation update.
 
 - Update the CPP gate/verify launchers and regenerate task manifests to adopt
   the PATH handoff (#1801). Target bare `python`, `python3` and console tools

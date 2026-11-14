@@ -71,14 +71,45 @@ def _overrun_block(driver: str) -> str:
 
 
 def _env(home: Path) -> dict[str, str]:
+    # Preserve the caller's resolved Python for the real helper's shebang,
+    # without making CPP's development environment the fixture's toolchain.
+    cpp_bin = (REPO / ".venv/bin").resolve()
+    caller_path = os.pathsep.join(entry for entry in os.environ.get("PATH", "").split(os.pathsep)
+                                  if entry and Path(entry).resolve() != cpp_bin)
+    python = shutil.which("python3", path=caller_path)
+    assert python is not None, "the real plan helper requires caller python3"
+    isolated_path = os.pathsep.join((str(Path(python).parent), ISOLATED_PATH))
     # negative-fixture: allow PATH is isolation, not an absence
-    return {**os.environ, "HOME": str(home), "PATH": ISOLATED_PATH,
+    return {**os.environ, "HOME": str(home), "PATH": isolated_path,
             "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
             "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"}
 
 
 def _run(cmd: list[str], cwd: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True)
+
+
+def _prepare_plan_helper(work: Path, env: dict[str, str]) -> None:
+    """Step 7 now includes real compliance in the same shell as its backstop."""
+    installed = Path(env["HOME"]) / ".claude/scripts/flow-plan-record.py"
+    installed.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(REPO / "scripts/flow-plan-record.py", installed)
+    env["CLAUDE_CODE_SESSION_ID"] = "overrun-plan-fixture"
+    git_dir = Path(_run(["git", "rev-parse", "--absolute-git-dir"], work, env).stdout.strip())
+    body = git_dir / "owned-issue-body"
+    body.write_text("Owned issue about overrun.txt.\n")
+    for args in (["reconcile", "42"], ["read-issue", "42", "--body-file", str(body)], ["begin-run", "42"]):
+        done = _run([str(installed), *args], work, env)
+        assert done.returncode == 0, done.stdout + done.stderr
+    with (work / "docs/flow-runs/issue-42.md").open("a") as record:
+        record.write("- Approval: granted\n\n## Section C - the approved plan\n"
+                     "1. `overrun.txt` - the product change\nScope: one file\nRisks: none\n")
+    approved = _run([str(installed), "approve", "42"], work, env)
+    assert approved.returncode == 0, approved.stdout + approved.stderr
+    shared = next(block for block in re.findall(r"```bash\n(.*?)```", CORE.read_text(), re.S)
+                  if "# Write one evidence definition" in block)
+    ready = _run(["bash", "-c", shared], work, env)
+    assert ready.returncode == 0, ready.stdout + ready.stderr
 
 
 def _resolver_shaped_worktree(tmp_path: Path) -> tuple[Path, dict[str, str]]:
@@ -105,6 +136,7 @@ def _resolver_shaped_worktree(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     _run(["git", "config", f"branch.{branch}.merge", f"refs/heads/{branch}"], wt, env)
     # Precondition of the negative case: @{u} must NOT resolve here.
     assert _run(["git", "rev-parse", "--verify", "-q", "@{u}"], wt, env).returncode != 0
+    _prepare_plan_helper(wt, env)
     return wt, env
 
 
@@ -238,6 +270,33 @@ def test_the_step7_backstop_finds_origin_master_without_origin_head(tmp_path: Pa
     _run(["git", "push", "-q", "origin", "master"], work, env)
     _run(["git", "checkout", "-q", "-b", "issue-1-x"], work, env)
     assert _run(["git", "symbolic-ref", "refs/remotes/origin/HEAD"], work, env).returncode != 0
+    _prepare_plan_helper(work, env)
     _overrun_commit(work, env)
     r = _run(["bash", "-c", _backstop_block()], work, env)
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_real_plan_helper_works_with_python_only_in_an_owned_directory(tmp_path: Path, monkeypatch) -> None:
+    """CI's Python need not share a directory with git or the shell tools."""
+    import sys
+
+    tools = tmp_path / "shell-tools"
+    python_bin = tmp_path / "caller-python"
+    tools.mkdir()
+    python_bin.mkdir()
+    for name in ("git", "bash", "env", "cat", "mkdir", "rm", "wc", "sed"):
+        resolved = shutil.which(name)
+        assert resolved is not None, f"required fixture tool is absent: {name}"
+        (tools / name).symlink_to(resolved)
+    (python_bin / "python3").symlink_to(Path(sys.executable).resolve())
+    assert shutil.which("python3", path=str(tools)) is None, "construct the CI-shaped absence"
+    monkeypatch.setenv("PATH", os.pathsep.join((str(REPO / ".venv/bin"), str(python_bin), str(tools))))
+    monkeypatch.setattr(__import__(__name__, fromlist=["ISOLATED_PATH"]), "ISOLATED_PATH", str(tools))
+    fixture = tmp_path / "fixture"
+    fixture.mkdir()
+    work, env = _resolver_shaped_worktree(fixture)
+    assert all(Path(entry).is_relative_to(tmp_path) for entry in env["PATH"].split(os.pathsep))
+    assert shutil.which("python3", path=env["PATH"]) == str(python_bin / "python3")
+    _overrun_commit(work, env)
+    done = _run(["bash", "-c", _backstop_block()], work, env)
+    assert done.returncode == 0, done.stdout + done.stderr

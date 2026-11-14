@@ -156,3 +156,5 @@ legitimately about something other than one script is declared on the marker bel
 - `hooks` - the harness hook scripts, grouped. [reference](scripts/hooks.md)
 - `tools-check` - the `make tools-check` target and the external-tool set `make verify` needs. [reference](scripts/tools-check.md)
 - Persistent-context checks and knowledge graduation. [reference](scripts/persistent-context-checks.md)
+
+- `check-driver-parity` - derives flow:auto helper/plan-record-verb membership across delegated drivers and the generated flow-auto mirror (#1810). [reference](scripts/check-driver-parity.md)

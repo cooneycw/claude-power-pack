@@ -1,0 +1,596 @@
+{
+  "schema": 1,
+  "entries": [
+    {
+      "gate": "check-ignored-additions.sh",
+      "driver": "codex",
+      "disposition": "exempt",
+      "reason": "Known gap: the precommit steps do not check ignored additions.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "codex-skill-resync.sh",
+      "driver": "codex",
+      "disposition": "exempt",
+      "reason": "Meta-only: delegated drivers refuse command and skill edits and route them to flow:auto.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/877"
+    },
+    {
+      "gate": "counter-model-receipt.py",
+      "driver": "codex",
+      "disposition": "run",
+      "reason": "The driver invokes this helper or required plan-record verb.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1810"
+    },
+    {
+      "gate": "flow-ci-status.sh",
+      "driver": "codex",
+      "disposition": "equivalent",
+      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 7.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1810",
+      "citations": [
+        {
+          "file": ".claude/commands/codex/auto.md",
+          "line": 992,
+          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
+        },
+        {
+          "file": ".claude/commands/flow/auto.md",
+          "line": 1048,
+          "text": "   ~/.claude/scripts/flow-ci-status.sh <pr-head-sha> --path /path/to/worktree --strict-event --wait 1800"
+        }
+      ]
+    },
+    {
+      "gate": "flow-finish-gate.sh",
+      "driver": "codex",
+      "disposition": "exempt",
+      "reason": "Known gap: calling lib.cicd directly does not cover the audited finish wrapper.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "flow-live-driver-guard.sh",
+      "driver": "codex",
+      "disposition": "exempt",
+      "reason": "Known gap: the resolver guards resume only, not every pre-edit transition.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "flow-plan-record.py reconcile",
+      "driver": "codex",
+      "disposition": "run",
+      "reason": "Required plan-record verb provided by the #1809 dependency.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1809"
+    },
+    {
+      "gate": "flow-plan-record.py read-issue",
+      "driver": "codex",
+      "disposition": "run",
+      "reason": "Required plan-record verb provided by the #1809 dependency.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1809"
+    },
+    {
+      "gate": "flow-plan-record.py begin-run",
+      "driver": "codex",
+      "disposition": "run",
+      "reason": "Required plan-record verb provided by the #1809 dependency.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1809"
+    },
+    {
+      "gate": "flow-plan-record.py declare-salvage",
+      "driver": "codex",
+      "disposition": "exempt",
+      "reason": "Known gap: delegated drivers do not invoke plan-record declare-salvage.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "flow-plan-record.py drift",
+      "driver": "codex",
+      "disposition": "exempt",
+      "reason": "Known gap: delegated drivers do not invoke plan-record drift.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "flow-plan-record.py head-check",
+      "driver": "codex",
+      "disposition": "exempt",
+      "reason": "Known gap: delegated drivers do not invoke plan-record head-check.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "flow-plan-record.py approve",
+      "driver": "codex",
+      "disposition": "run",
+      "reason": "The driver invokes this helper or required plan-record verb.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1809"
+    },
+    {
+      "gate": "flow-plan-record.py compliance",
+      "driver": "codex",
+      "disposition": "run",
+      "reason": "The driver invokes this helper or required plan-record verb.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1809"
+    },
+    {
+      "gate": "flow-stale-check.sh",
+      "driver": "codex",
+      "disposition": "exempt",
+      "reason": "Known gap: the empty-diff merge-base check does not check stale-base collisions.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "flow-start-resolve.sh",
+      "driver": "codex",
+      "disposition": "run",
+      "reason": "The driver invokes this helper or required plan-record verb.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1810"
+    },
+    {
+      "gate": "flow-worktree-claim.sh",
+      "driver": "codex",
+      "disposition": "exempt",
+      "reason": "Known gap: the initial claim does not cover the explicit pre-edit check and release lifecycle.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "flow-worktree-guard.sh",
+      "driver": "codex",
+      "disposition": "exempt",
+      "reason": "Known gap: a delegated sandbox does not check for edits leaked into main.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "friction-log.sh",
+      "driver": "codex",
+      "disposition": "exempt",
+      "reason": "Known gap: these driver steps do not invoke always-on friction capture.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "gh-pr-merge.sh",
+      "driver": "codex",
+      "disposition": "equivalent",
+      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 7.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1810",
+      "citations": [
+        {
+          "file": ".claude/commands/codex/auto.md",
+          "line": 992,
+          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
+        },
+        {
+          "file": ".claude/commands/flow/auto.md",
+          "line": 1068,
+          "text": "   ~/.claude/scripts/gh-pr-merge.sh 78 issue-42-fix-login"
+        }
+      ]
+    },
+    {
+      "gate": "nit-store-resolve.sh",
+      "driver": "codex",
+      "disposition": "exempt",
+      "reason": "Known gap: review findings do not provide the Nit Store resolver step.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "speckit-context.py",
+      "driver": "codex",
+      "disposition": "exempt",
+      "reason": "Known gap: implementation-only scope does not replace recorded task-context checks.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "worktree-remove.sh",
+      "driver": "codex",
+      "disposition": "equivalent",
+      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 7.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1810",
+      "citations": [
+        {
+          "file": ".claude/commands/codex/auto.md",
+          "line": 992,
+          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
+        },
+        {
+          "file": ".claude/commands/flow/auto.md",
+          "line": 1192,
+          "text": "   ~/.claude/scripts/worktree-remove.sh /path/to/worktree --force --delete-branch"
+        }
+      ]
+    },
+    {
+      "gate": "check-ignored-additions.sh",
+      "driver": "qwen",
+      "disposition": "exempt",
+      "reason": "Known gap: the precommit steps do not check ignored additions.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "codex-skill-resync.sh",
+      "driver": "qwen",
+      "disposition": "exempt",
+      "reason": "Meta-only: delegated drivers refuse command and skill edits and route them to flow:auto.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/877"
+    },
+    {
+      "gate": "counter-model-receipt.py",
+      "driver": "qwen",
+      "disposition": "run",
+      "reason": "The driver invokes this helper or required plan-record verb.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1810"
+    },
+    {
+      "gate": "flow-ci-status.sh",
+      "driver": "qwen",
+      "disposition": "equivalent",
+      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 7.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1810",
+      "citations": [
+        {
+          "file": ".claude/commands/qwen/auto.md",
+          "line": 1121,
+          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
+        },
+        {
+          "file": ".claude/commands/flow/auto.md",
+          "line": 1048,
+          "text": "   ~/.claude/scripts/flow-ci-status.sh <pr-head-sha> --path /path/to/worktree --strict-event --wait 1800"
+        }
+      ]
+    },
+    {
+      "gate": "flow-finish-gate.sh",
+      "driver": "qwen",
+      "disposition": "exempt",
+      "reason": "Known gap: calling lib.cicd directly does not cover the audited finish wrapper.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "flow-live-driver-guard.sh",
+      "driver": "qwen",
+      "disposition": "exempt",
+      "reason": "Known gap: the resolver guards resume only, not every pre-edit transition.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "flow-plan-record.py reconcile",
+      "driver": "qwen",
+      "disposition": "run",
+      "reason": "Required plan-record verb provided by the #1809 dependency.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1809"
+    },
+    {
+      "gate": "flow-plan-record.py read-issue",
+      "driver": "qwen",
+      "disposition": "run",
+      "reason": "Required plan-record verb provided by the #1809 dependency.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1809"
+    },
+    {
+      "gate": "flow-plan-record.py begin-run",
+      "driver": "qwen",
+      "disposition": "run",
+      "reason": "Required plan-record verb provided by the #1809 dependency.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1809"
+    },
+    {
+      "gate": "flow-plan-record.py declare-salvage",
+      "driver": "qwen",
+      "disposition": "exempt",
+      "reason": "Known gap: delegated drivers do not invoke plan-record declare-salvage.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "flow-plan-record.py drift",
+      "driver": "qwen",
+      "disposition": "exempt",
+      "reason": "Known gap: delegated drivers do not invoke plan-record drift.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "flow-plan-record.py head-check",
+      "driver": "qwen",
+      "disposition": "exempt",
+      "reason": "Known gap: delegated drivers do not invoke plan-record head-check.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "flow-plan-record.py approve",
+      "driver": "qwen",
+      "disposition": "run",
+      "reason": "The driver invokes this helper or required plan-record verb.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1809"
+    },
+    {
+      "gate": "flow-plan-record.py compliance",
+      "driver": "qwen",
+      "disposition": "run",
+      "reason": "The driver invokes this helper or required plan-record verb.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1809"
+    },
+    {
+      "gate": "flow-stale-check.sh",
+      "driver": "qwen",
+      "disposition": "exempt",
+      "reason": "Known gap: the empty-diff merge-base check does not check stale-base collisions.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "flow-start-resolve.sh",
+      "driver": "qwen",
+      "disposition": "run",
+      "reason": "The driver invokes this helper or required plan-record verb.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1810"
+    },
+    {
+      "gate": "flow-worktree-claim.sh",
+      "driver": "qwen",
+      "disposition": "exempt",
+      "reason": "Known gap: the initial claim does not cover the explicit pre-edit check and release lifecycle.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "flow-worktree-guard.sh",
+      "driver": "qwen",
+      "disposition": "exempt",
+      "reason": "Known gap: a delegated sandbox does not check for edits leaked into main.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "friction-log.sh",
+      "driver": "qwen",
+      "disposition": "exempt",
+      "reason": "Known gap: these driver steps do not invoke always-on friction capture.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "gh-pr-merge.sh",
+      "driver": "qwen",
+      "disposition": "equivalent",
+      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 7.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1810",
+      "citations": [
+        {
+          "file": ".claude/commands/qwen/auto.md",
+          "line": 1121,
+          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
+        },
+        {
+          "file": ".claude/commands/flow/auto.md",
+          "line": 1068,
+          "text": "   ~/.claude/scripts/gh-pr-merge.sh 78 issue-42-fix-login"
+        }
+      ]
+    },
+    {
+      "gate": "nit-store-resolve.sh",
+      "driver": "qwen",
+      "disposition": "exempt",
+      "reason": "Known gap: review findings do not provide the Nit Store resolver step.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "speckit-context.py",
+      "driver": "qwen",
+      "disposition": "exempt",
+      "reason": "Known gap: implementation-only scope does not replace recorded task-context checks.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "worktree-remove.sh",
+      "driver": "qwen",
+      "disposition": "equivalent",
+      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 7.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1810",
+      "citations": [
+        {
+          "file": ".claude/commands/qwen/auto.md",
+          "line": 1121,
+          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
+        },
+        {
+          "file": ".claude/commands/flow/auto.md",
+          "line": 1192,
+          "text": "   ~/.claude/scripts/worktree-remove.sh /path/to/worktree --force --delete-branch"
+        }
+      ]
+    },
+    {
+      "gate": "check-ignored-additions.sh",
+      "driver": "gemma",
+      "disposition": "exempt",
+      "reason": "Known gap: the precommit steps do not check ignored additions.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "codex-skill-resync.sh",
+      "driver": "gemma",
+      "disposition": "exempt",
+      "reason": "Meta-only: delegated drivers refuse command and skill edits and route them to flow:auto.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/877"
+    },
+    {
+      "gate": "counter-model-receipt.py",
+      "driver": "gemma",
+      "disposition": "run",
+      "reason": "The driver invokes this helper or required plan-record verb.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1810"
+    },
+    {
+      "gate": "flow-ci-status.sh",
+      "driver": "gemma",
+      "disposition": "equivalent",
+      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 7.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1810",
+      "citations": [
+        {
+          "file": ".claude/commands/gemma/auto.md",
+          "line": 1164,
+          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
+        },
+        {
+          "file": ".claude/commands/flow/auto.md",
+          "line": 1048,
+          "text": "   ~/.claude/scripts/flow-ci-status.sh <pr-head-sha> --path /path/to/worktree --strict-event --wait 1800"
+        }
+      ]
+    },
+    {
+      "gate": "flow-finish-gate.sh",
+      "driver": "gemma",
+      "disposition": "exempt",
+      "reason": "Known gap: calling lib.cicd directly does not cover the audited finish wrapper.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "flow-live-driver-guard.sh",
+      "driver": "gemma",
+      "disposition": "exempt",
+      "reason": "Known gap: the resolver guards resume only, not every pre-edit transition.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "flow-plan-record.py reconcile",
+      "driver": "gemma",
+      "disposition": "run",
+      "reason": "Required plan-record verb provided by the #1809 dependency.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1809"
+    },
+    {
+      "gate": "flow-plan-record.py read-issue",
+      "driver": "gemma",
+      "disposition": "run",
+      "reason": "Required plan-record verb provided by the #1809 dependency.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1809"
+    },
+    {
+      "gate": "flow-plan-record.py begin-run",
+      "driver": "gemma",
+      "disposition": "run",
+      "reason": "Required plan-record verb provided by the #1809 dependency.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1809"
+    },
+    {
+      "gate": "flow-plan-record.py declare-salvage",
+      "driver": "gemma",
+      "disposition": "exempt",
+      "reason": "Known gap: delegated drivers do not invoke plan-record declare-salvage.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "flow-plan-record.py drift",
+      "driver": "gemma",
+      "disposition": "exempt",
+      "reason": "Known gap: delegated drivers do not invoke plan-record drift.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "flow-plan-record.py head-check",
+      "driver": "gemma",
+      "disposition": "exempt",
+      "reason": "Known gap: delegated drivers do not invoke plan-record head-check.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "flow-plan-record.py approve",
+      "driver": "gemma",
+      "disposition": "run",
+      "reason": "The driver invokes this helper or required plan-record verb.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1809"
+    },
+    {
+      "gate": "flow-plan-record.py compliance",
+      "driver": "gemma",
+      "disposition": "run",
+      "reason": "The driver invokes this helper or required plan-record verb.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1809"
+    },
+    {
+      "gate": "flow-stale-check.sh",
+      "driver": "gemma",
+      "disposition": "exempt",
+      "reason": "Known gap: the empty-diff merge-base check does not check stale-base collisions.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "flow-start-resolve.sh",
+      "driver": "gemma",
+      "disposition": "run",
+      "reason": "The driver invokes this helper or required plan-record verb.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1810"
+    },
+    {
+      "gate": "flow-worktree-claim.sh",
+      "driver": "gemma",
+      "disposition": "exempt",
+      "reason": "Known gap: the initial claim does not cover the explicit pre-edit check and release lifecycle.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "flow-worktree-guard.sh",
+      "driver": "gemma",
+      "disposition": "exempt",
+      "reason": "Known gap: a delegated sandbox does not check for edits leaked into main.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "friction-log.sh",
+      "driver": "gemma",
+      "disposition": "exempt",
+      "reason": "Known gap: these driver steps do not invoke always-on friction capture.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "gh-pr-merge.sh",
+      "driver": "gemma",
+      "disposition": "equivalent",
+      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 7.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1810",
+      "citations": [
+        {
+          "file": ".claude/commands/gemma/auto.md",
+          "line": 1164,
+          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
+        },
+        {
+          "file": ".claude/commands/flow/auto.md",
+          "line": 1068,
+          "text": "   ~/.claude/scripts/gh-pr-merge.sh 78 issue-42-fix-login"
+        }
+      ]
+    },
+    {
+      "gate": "nit-store-resolve.sh",
+      "driver": "gemma",
+      "disposition": "exempt",
+      "reason": "Known gap: review findings do not provide the Nit Store resolver step.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "speckit-context.py",
+      "driver": "gemma",
+      "disposition": "exempt",
+      "reason": "Known gap: implementation-only scope does not replace recorded task-context checks.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
+    },
+    {
+      "gate": "worktree-remove.sh",
+      "driver": "gemma",
+      "disposition": "equivalent",
+      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 7.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1810",
+      "citations": [
+        {
+          "file": ".claude/commands/gemma/auto.md",
+          "line": 1164,
+          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
+        },
+        {
+          "file": ".claude/commands/flow/auto.md",
+          "line": 1192,
+          "text": "   ~/.claude/scripts/worktree-remove.sh /path/to/worktree --force --delete-branch"
+        }
+      ]
+    }
+  ]
+}

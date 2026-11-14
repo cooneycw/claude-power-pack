@@ -17,7 +17,7 @@
        claude-md-links-check claude-md-behavior-check skills-check \
        install-drift-check install-drift-list \
        tools-version-check toolchain-provenance checkout-readers \
-       delegated-core-check delegated-core-write \
+       delegated-core-check delegated-core-write driver-parity-check \
        version-consistency-check unicode-dashes-check co-authored-by-trailer-check \
        md-relative-links-check host-account-paths-check \
        qa-regression-demo \
@@ -401,7 +401,7 @@ verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-impor
 	host-surface-observe \
 	claude-md-budget-check agents-md-budget-check command-docs-budget-check \
 	claude-md-links-check claude-md-behavior-check \
-	project-next-check delegated-core-check codex-skills-check \
+	project-next-check delegated-core-check driver-parity-check codex-skills-check \
 	scripts-inventory-check instrument-census-check verify-coverage-check \
 	control-ci-deps-check ci-coverage-check \
 	consolidation-ledger-check host-surface-check cpp-host-writes-check cpp-init-promises-check cpp-init-cicd-args-check \
@@ -654,6 +654,10 @@ mutation-probe:
 ## verify-coverage: gate delegated-core-check - the vendored delegated-driver core still matches its template; ci: runs delegated-core-check
 delegated-core-check:
 	@python3 scripts/delegated-core-vendor.py check
+
+## verify-coverage: gate driver-parity-check - derives flow:auto helper/plan-record-verb membership and checks all delegated drivers plus the real generated flow-auto mirror; ci: runs driver-parity-check
+driver-parity-check: codex-skills
+	@python3 scripts/check-driver-parity.py
 
 ## verify-coverage: utility delegated-core-write - renders the delegated-driver core; it issues no verdict
 delegated-core-write:
