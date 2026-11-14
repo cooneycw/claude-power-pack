@@ -5,7 +5,7 @@ allowed-tools: Bash(python3:*), Bash(PYTHONPATH=*), Bash(curl:*), Bash(ss:*), Ba
 
 # /cicd:health - Health Checks
 
-Run health checks against configured endpoints and processes.
+Check configured endpoints and processes.
 
 ---
 
@@ -57,7 +57,7 @@ If `.claude/cicd.yml` exists but has no `health:` section, the CLI will report "
 ## Step 3: Run Health Checks
 
 ```bash
-PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd health
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" env "CPP_RUNNER_TARGET_PATH=${PATH-}" "CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" uv run --project "$CPP_DIR" python -m lib.cicd health
 ```
 
 ---

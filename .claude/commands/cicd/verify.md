@@ -9,9 +9,7 @@ Validate the *deployment*, not just the code. Capture a baseline of health
 checks and smoke tests **before** a deploy, re-run them **after**, diff the two,
 and emit one actionable verdict: **PROCEED**, **REVIEW**, or **ROLLBACK**.
 
-This is the piece `/cicd:health` and `/cicd:smoke` do not cover: they report the
-current state in isolation. `/cicd:verify` answers the deploy-confidence
-question - *did this deploy make things worse than they were 60 seconds ago?*
+Unlike `/cicd:health` and `/cicd:smoke`, this compares before/after observations.
 
 ---
 
@@ -79,7 +77,7 @@ fi
 **Before deploying**, snapshot the currently-running system:
 
 ```bash
-PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify --baseline
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" env "CPP_RUNNER_TARGET_PATH=${PATH-}" "CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" uv run --project "$CPP_DIR" python -m lib.cicd verify --baseline
 ```
 
 This runs every health check and smoke test once and writes the result to
@@ -96,7 +94,7 @@ baseline is the "before" picture the post-deploy run is compared against.
 **After `make deploy`**, re-run the probes and diff against the baseline:
 
 ```bash
-PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" env "CPP_RUNNER_TARGET_PATH=${PATH-}" "CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" uv run --project "$CPP_DIR" python -m lib.cicd verify
 ```
 
 Add `--summary` for a one-line verdict, or `--json` for machine-readable output.
@@ -109,7 +107,7 @@ configure `health.deploy_verification.release_probe` (below) and pass
 `--release <id>`:
 
 ```bash
-PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify --release "$(git rev-parse --short HEAD)"
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" env "CPP_RUNNER_TARGET_PATH=${PATH-}" "CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" uv run --project "$CPP_DIR" python -m lib.cicd verify --release "$(git rev-parse --short HEAD)"
 ```
 
 This is opt-in: without `--release`, the verdict is unchanged from before

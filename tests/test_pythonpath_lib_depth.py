@@ -264,10 +264,11 @@ def test_no_bare_assignment_feeds_a_following_invocation(path: Path):
 
 
 def test_positive_control_the_correct_form_is_still_present():
-    """The correct #430 form must still exist verbatim in its template file -
+    """The correct #430 form with the #1801 handoff must exist verbatim -
     if this stops matching, cicd/verify.md was edited or removed."""
     verify_text = (ROOT / ".claude" / "commands" / "cicd" / "verify.md").read_text(encoding="utf-8")
     assert (
-        'PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify'
+        'PYTHONPATH="$CPP_DIR:$PYTHONPATH" env "CPP_RUNNER_TARGET_PATH=${PATH-}" '
+        '"CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" uv run --project "$CPP_DIR" python -m lib.cicd verify'
         in verify_text
     )
