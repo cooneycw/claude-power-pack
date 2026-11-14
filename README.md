@@ -1,6 +1,6 @@
 # Claude Power Pack
 
-**v11.0.0** - Lanes named at plan approval and at close, a word budget on every command document, generated Codex skills built on install, and corrected outputs across the gate, merge and wave helpers for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and Codex.
+**v11.1.0** - Caller PATH preserved across CPP runner handoffs, explicit CI and receipt acceptance boundaries, hardened generated pipelines, and isolated bootstrap checking for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and Codex.
 
 ## What It Does
 
@@ -221,6 +221,24 @@ real annotated tag at [`626a96d9`](https://github.com/cooneycw/claude-power-pack
 It can be fetched with `git fetch origin tag v10.1.0`. No GitHub Release has
 been published. Further release/tag decisions remain the operator checkpoint
 tracked at [#1278](https://github.com/cooneycw/claude-power-pack/issues/1278).
+
+### v11.1.0 (2026-11-14)
+
+Sixteen merged PRs cover runner PATH isolation, receipt and CI
+acceptance hardening, generated pipeline fixes, and bootstrap isolation. See
+[CHANGELOG.md](CHANGELOG.md) for the per-consumer Upgrading section.
+
+- **Runner ownership:** target commands use caller PATH; CPP-owned helper
+  commands use the reserved `CPP_RUNNER_PYTHON`. Update the CPP pin before
+  migrating hand-written helpers, and install target tools and dependencies.
+- **Caller actions:** adopt the documented CI status exit codes, receipt
+  independence and enrolment checks, main-retention evidence, wave work-reset
+  consent, and existing CPP environment protection.
+- **Generated pipelines:** regenerate and review application and infrastructure
+  jobs to adopt official-main pin verification, immutable images, bounded
+  runtimes and corrected IaC commands.
+- **Bootstrap and tests:** checking from external directories excludes caller
+  package/search-path shadowing; standalone test controls isolate host admission.
 
 ### v11.0.0 (2026-11-12)
 

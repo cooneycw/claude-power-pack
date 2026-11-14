@@ -178,4 +178,4 @@ arguments, or logs.
 
 ## Version
 
-Current version: 11.0.0
+Current version: 11.1.0

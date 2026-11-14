@@ -2,7 +2,31 @@
 
 ## [Unreleased]
 
+## [11.1.0] - 2026-11-14
+
 ### Fixed
+
+- Wave ruling validation now recognizes colon `RATIFY:` and `OVERRULE:`
+  spellings and requires an issue and reason, while retaining unpunctuated
+  syntax (#1790).
+- Nested uv test environments strip both supported working-directory variable
+  spellings, preventing tests from selecting their surrounding checkout (#1791).
+- Generated Woodpecker secret scans pin the gitleaks image by digest (#1792).
+- Finish-gate startup preserves existing CPP environments and refuses mismatched
+  or unverified interpreter evidence instead of silently replacing them (#1793).
+- Counter-model receipts reject independence claims based only on one leading
+  `claude-` spelling difference, without rewriting measured identities (#1794).
+- Generated Woodpecker clone and Trivy images use immutable digests while
+  existing `woodpeckerci/plugin-git:2` configurations remain readable (#1795).
+- Generated infrastructure workflows restrict GitHub permissions, avoid stored
+  checkout credentials, bound runtimes and pin tool images. Pulumi and Bicep
+  use their own commands; unsupported providers fail before output (#1798).
+- Counter-model enrolment is decided in Python with explicit pass-count,
+  escalation-ruling and malformed-receipt checks (#1799).
+- Wave re-registration preserves omitted issue/repository identity and requires
+  explicit consent before dropping active work during an identity move (#1805).
+- Standalone nested finish-gate controls and tests isolate host coordination
+  admission without changing operational coordination policy (#1808).
 
 - The bootstrap shell wrapper loads CPP's checker from an external working
   directory (#1803). It still uses ambient `python3` and checks its own CPP
