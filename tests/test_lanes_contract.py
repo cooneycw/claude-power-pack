@@ -417,7 +417,7 @@ def test_a_driver_offers_exactly_the_answers_the_helper_accepts(surface: Path) -
 def test_a_driver_says_a_lane_needing_a_decision_goes_to_the_owner_first() -> None:
     for surface in DRIVER_SURFACES:
         text = normalized(read(surface))
-        assert "A lane that needs a decision is put to the owner before approval, never written." in text, surface
+        assert "Settle a lane needing a decision with the owner before approval." in text, surface
 
 
 def test_eli5_offers_exactly_the_answers_the_helper_accepts() -> None:

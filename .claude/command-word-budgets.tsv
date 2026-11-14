@@ -20,6 +20,10 @@
 # definition, lane review and close-time reporting. The three auto caps grow
 # only to the compact procedure counts below; rationale lives in the linked
 # delegated-plan-lanes reference. Other caps stay unchanged.
+# #1822 offers the helper's four lane answers (adds `will refuse`) and moves an
+# open lane to an owner decision before approval: +8 words in the shared core.
+# gemma/auto.md and qwen/auto.md grow by exactly that 8, after trimming the
+# paragraph; codex/auto.md absorbs it within its cap. Other caps unchanged.
 464	browser/help.md
 1077	browser/session.md
 425	cicd/check.md
@@ -70,7 +74,7 @@
 450	flow/status.md
 386	flow/sync.md
 11837	flow/wave.md
-10471	gemma/auto.md
+10479	gemma/auto.md
 1779	gemma/exec.md
 1859	gemma/help.md
 1831	gemma/status.md
@@ -92,7 +96,7 @@
 2443	project/next.md
 499	qa/help.md
 1279	qa/test.md
-9862	qwen/auto.md
+9870	qwen/auto.md
 1554	qwen/exec.md
 1521	qwen/help.md
 1243	qwen/status.md

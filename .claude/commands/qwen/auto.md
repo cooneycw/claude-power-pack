@@ -267,10 +267,10 @@ mis-route is paid before the gate is ever reached.
    - Specific instructions: "Implement the changes described in the issue. Follow existing code conventions. Create or modify only the files necessary."
    - If `.claude/lanes.md` exists, present its lane list and a
      `### Lanes for this change` table answering every lane: `will test`,
-     `will refuse`, `not applicable`, or `not covered`, with how/why. A lane
-     that needs a decision is put to the owner before approval, never written.
+     `will refuse`, `not applicable`, or `not covered`, with how/why. Settle a
+     lane needing a decision with the owner before approval.
      No lane file means no table/question; unreadable/malformed is not absent.
-     Reuse `project_lanes` / `lanes_refusal`, no second parser. Preserve the
+     Reuse `project_lanes`/`lanes_refusal`; no second parser. Preserve the
      visible reasoned `Lanes: none - <reason>` waiver for nonbehavioural work.
    - Present Base SHA, necessity, Section B evidence (or none), numbered
      per-file changes, scope and risks for the approved record.
