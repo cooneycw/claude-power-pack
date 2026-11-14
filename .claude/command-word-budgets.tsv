@@ -24,6 +24,9 @@
 # open lane to an owner decision before approval: +8 words in the shared core.
 # gemma/auto.md and qwen/auto.md grow by exactly that 8, after trimming the
 # paragraph; codex/auto.md absorbs it within its cap. Other caps unchanged.
+# #1821 tells a delegated run to write lane rows below this run's marker line,
+# as the compliance note prints it: +7 words in the shared core after trimming
+# the paragraph. The three auto caps grow by exactly 7. Other caps unchanged.
 464	browser/help.md
 1077	browser/session.md
 425	cicd/check.md
@@ -41,7 +44,7 @@
 242	claude-md/help.md
 1396	claude-md/lint.md
 1613	codex/ask.md
-8654	codex/auto.md
+8661	codex/auto.md
 6359	codex/code_review.md
 1134	codex/exec.md
 640	codex/help.md
@@ -74,7 +77,7 @@
 450	flow/status.md
 386	flow/sync.md
 11837	flow/wave.md
-10479	gemma/auto.md
+10486	gemma/auto.md
 1779	gemma/exec.md
 1859	gemma/help.md
 1831	gemma/status.md
@@ -96,7 +99,7 @@
 2443	project/next.md
 499	qa/help.md
 1279	qa/test.md
-9870	qwen/auto.md
+9877	qwen/auto.md
 1554	qwen/exec.md
 1521	qwen/help.md
 1243	qwen/status.md
