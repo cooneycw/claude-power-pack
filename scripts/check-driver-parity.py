@@ -65,19 +65,35 @@ def compound_shell(text: str) -> bool:
     return False
 
 
-def command(text: str, aliases: dict[str, str]) -> tuple[str, str] | None:
+def command(text: str, aliases: dict[str, tuple[str, str] | None]) -> tuple[str, str, str] | None:
     """A documented command position; never execute or expand shell input."""
     stripped = text.strip()
     if not stripped or stripped.startswith("#"):
         return None
-    plausible = re.match(r"(?:[\w]+=[^ ]|(?:bash|sh|python3?)\s|[\"']?(?:[~$./]|scripts/)|echo\s|printf\s)", stripped)
-    if plausible and re.search(r"scripts/[\w-]+\.(?:py|sh)", stripped) and compound_shell(stripped):
+    helper_text = bool(re.search(r"scripts/[\w-]+\.(?:py|sh)", stripped))
+    substitution = re.match(r"(?:export\s+)?([A-Za-z_]\w*)=", stripped)
+    if substitution and ("$(" in stripped or "`" in stripped):
+        aliases.pop(substitution[1], None)
+        if helper_text:
+            raise Unknown("helper inside an unsupported command substitution")
+        return None
+    # Existence probes and literal fallback assignments do not invoke helpers.
+    # Only a complete test/condition is ignored, never a trailing then-command.
+    metadata_text = stripped.replace("[[", "[").replace("]]", "]")
+    metadata = re.fullmatch(r"(?:if\s+)?!?\s*\[[^\[\]\n]*\](?:\s*&&\s*\[[^\[\]\n]*\])*(?:\s*;\s*then)?", metadata_text)
+    if metadata and "$(" not in stripped:
+        return None
+    if stripped.startswith("if "):
+        stripped = re.sub(r";\s*then\s*$", "", stripped[3:]).strip()
+        if stripped.startswith("! "):
+            stripped = stripped[2:].strip()
+    if helper_text and compound_shell(stripped):
+        # Known fallback resolution lines only assign an alternate spelling of
+        # a path. Their eventual invocation must still resolve a known alias.
+        if "$(" not in stripped and re.match(r"^\[[^\[\]]*\]\s*\|\|\s*(?:[A-Za-z_]\w*=|\{\s*echo )", stripped):
+            return None
         raise Unknown("compound helper command requires explicit inventory parsing")
     if stripped.startswith(("echo ", "printf ")):
-        return None
-    # Only parse plausible command/assignment positions. Shell block delimiters,
-    # prose and conditions are not commands merely because they name a helper.
-    if not re.match(r"(?:[\w]+=[^ ]|(?:bash|sh|python3?)\s|[\"']?(?:[~$./]|scripts/))", stripped):
         return None
     try:
         words = shlex.split(stripped, comments=True)
@@ -85,31 +101,71 @@ def command(text: str, aliases: dict[str, str]) -> tuple[str, str] | None:
         raise Unknown("unparseable documented shell command") from exc
     if not words:
         return None
+    if words[0] in {"unset", "read", "local", "declare", "typeset"}:
+        for word in words[1:]:
+            key = word.split("=", 1)[0]
+            if key in aliases:
+                if words[0] == "unset":
+                    aliases[key] = None
+                else:
+                    aliases.pop(key)
+        return None
+    if words[0] in {"export", "readonly"}:
+        words.pop(0)
+    environment = bool(words and words[0] == "env")
+    if environment:
+        words.pop(0)
+        if words and words[0].startswith("-"):
+            raise Unknown("unsupported env options in documented command")
+    assignments = []
     while words and re.match(r"^[A-Za-z_]\w*=", words[0]):
-        key, value = words.pop(0).split("=", 1)
-        match = HELPER.search(value)
-        if match:
-            aliases[key] = match.group(1)
-    if words and words[0] in {"bash", "sh", "python", "python3"}:
+        assignments.append(words.pop(0).split("=", 1))
+    if not words:
+        if not environment:
+            for key, value in assignments:
+                match = HELPER.search(value)
+                if match:
+                    aliases[key] = (match.group(1), value)
+                elif "$" in value or "`" in value:
+                    aliases.pop(key, None)
+                else:
+                    aliases[key] = None
+        return None
+    if words[0] in {"bash", "sh", "python", "python3"}:
         words.pop(0)
     if not words:
         return None
     token = words.pop(0)
     match = HELPER.search(token)
-    name = (
-        match.group(1) if match else aliases.get(token.removeprefix("$").strip("{}")) if token.startswith("$") else None
-    )
-    if not name:
-        if re.search(r"scripts/[\w-]+\.(?:py|sh)", token):
-            raise Unknown("unparseable helper command token")
+    if match:
+        name, address = match.group(1), token
+    elif token.startswith("$"):
+        key = token.removeprefix("$").strip("{}")
+        if any(assigned == key for assigned, _ in assignments):
+            raise Unknown("ambiguous command alias and environment assignment")
+        if key not in aliases:
+            raise Unknown(f"unresolved documented command alias {key}")
+        alias = aliases[key]
+        if alias is None:
+            return None
+        name, address = alias
+    else:
+        if helper_text:
+            raise Unknown("helper in unsupported documented command position")
         return None
-    return name, words[0] if words else ""
+    return name, words[0] if words else "", address
 
 
-def inventory(text: str) -> dict[str, list[int]]:
+def inventory(
+    text: str,
+    *,
+    bundled_exempt: set[str] | None = None,
+    bundled_helpers: set[str] | None = None,
+    bundled_gates: set[str] | None = None,
+) -> dict[str, list[int]]:
     """Derive calls inside Instructions, retaining their physical source lines."""
     found: dict[str, list[int]] = {}
-    aliases: dict[str, str] = {}
+    aliases: dict[str, tuple[str, str] | None] = {}
     active = False
     fence: tuple[str, str, bool] | None = None
     excluded_heading: int | None = None
@@ -121,10 +177,17 @@ def inventory(text: str) -> dict[str, list[int]]:
     def add(value: str, line: int) -> None:
         result = command(value, aliases)
         if result:
-            name, verb = result
+            name, verb, address = result
             if name == "flow-plan-record.py" and not re.fullmatch(r"[a-z][a-z0-9-]*", verb):
                 raise Unknown("plan-record invocation has no unambiguous verb")
             key = f"{name} {verb}" if name == "flow-plan-record.py" else name
+            if bundled_exempt is not None:
+                bundled = re.fullmatch(r"\$\{CPP_SKILL_DIR(?::-[^}]*)?\}/scripts/[\w-]+\.(?:py|sh)", address)
+                checkout_only = name in bundled_exempt and address == "scripts/" + name
+                if (bundled or checkout_only) and bundled_gates is not None:
+                    bundled_gates.add(key)
+                if bundled and bundled_helpers is not None:
+                    bundled_helpers.add(name)
             found.setdefault(key, []).append(line)
 
     for number, line in enumerate(text.splitlines(), 1):
@@ -140,7 +203,11 @@ def inventory(text: str) -> dict[str, list[int]]:
                 fence = None
             continue
         if fence is not None:
-            if not active or fence[1] not in {"bash", "sh", "shell"} or fence[2]:
+            if not active or fence[2]:
+                continue
+            if fence[1] not in {"bash", "sh", "shell"}:
+                if re.search(r"scripts/[\w-]+\.(?:py|sh)", line):
+                    raise Unknown("helper reference in unsupported fenced language")
                 continue
             if heredoc:
                 if stripped == heredoc:
@@ -169,11 +236,18 @@ def inventory(text: str) -> dict[str, list[int]]:
         elif stripped:
             excluded_next = bool(NONRUN.match(stripped.replace("*", "")))
         if active and excluded_heading is None and not excluded_next:
-            for inline in re.findall(r"(?<!`)`([^`]+)`(?!`)", line):
-                # A path alone is a prose citation. Commands with arguments, or
-                # a path explicitly introduced by Run/Invoke, are instructions.
-                if " " in inline or re.search(r"\b(?:run|invoke)\s+`", line, re.I):
-                    add(inline, number)
+            for span in re.finditer(r"(?<!`)`([^`]+)`(?!`)", line):
+                before = line[: span.start()]
+                imperative = re.search(
+                    r"\b(?:run|invoke|execute|call)(?:\s+(?:it|this|helper|exactly|bare|now|both|then|the))*\s+$",
+                    before,
+                    re.I,
+                )
+                conditional = re.match(r"^\s*-?\s*If\b", before, re.I) and "," in before
+                # Argument-bearing citations and exit-127 fallback references
+                # remain prose, not primary commands in the generated skill.
+                if imperative or conditional:
+                    add(span[1], number)
     if fence is not None or continuation or heredoc:
         raise Unknown("unclosed fenced command block")
     if not active:
@@ -263,7 +337,7 @@ def policies(root: Path, gates: set[str]) -> dict[tuple[str, str], dict]:
     return result
 
 
-def unpackaged(root: Path) -> None:
+def unpackaged(root: Path) -> set[str]:
     try:
         declared = ast.parse(read(root / "scripts/delegated-core-vendor.py"))
         drivers = next(
@@ -284,10 +358,23 @@ def unpackaged(root: Path) -> None:
                 if isinstance(node, ast.Assign) and len(node.targets) == 1
                 else None
             )
-            if isinstance(target, ast.Name) and target.id in {"FAMILIES", "UNPACKAGED_FAMILIES"}:
+            if isinstance(target, ast.Name) and target.id in {
+                "FAMILIES",
+                "UNPACKAGED_FAMILIES",
+                "CPP_CHECKOUT_RELATIVE_REFS",
+            }:
                 values[target.id] = ast.literal_eval(node.value)
         if not set(DRIVERS) <= set(values["UNPACKAGED_FAMILIES"]) or set(DRIVERS) & set(values["FAMILIES"]):
             raise Unknown("delegated mirror packaging policy changed; review surfaces")
+        exceptions = values["CPP_CHECKOUT_RELATIVE_REFS"]
+        if not isinstance(exceptions, (list, tuple)) or any(
+            not isinstance(entry, (list, tuple))
+            or len(entry) != 4
+            or any(not isinstance(field, str) for field in entry)
+            for entry in exceptions
+        ):
+            raise Unknown("cannot establish checkout-only helper exceptions")
+        return {entry[1] for entry in exceptions if entry[0] == "flow/auto.md"}
     except (SyntaxError, ValueError, TypeError, KeyError, StopIteration) as exc:
         raise Unknown("cannot establish delegated mirror packaging policy") from exc
 
@@ -298,7 +385,7 @@ def evaluate(root: Path, generated: Path) -> tuple[list[str], int]:
     if len(derived) < FLOOR or not {f"flow-plan-record.py {v}" for v in VERBS} <= set(derived):
         raise Unknown(f"implausible inventory: {len(derived)} items (floor {FLOOR})")
     table = policies(root, set(derived))
-    unpackaged(root)
+    bundled_exempt = unpackaged(root)
     missing = []
     for driver in DRIVERS:
         actual = inventory(read(root / f".claude/commands/{driver}/auto.md"))
@@ -311,17 +398,29 @@ def evaluate(root: Path, generated: Path) -> tuple[list[str], int]:
             raise Unknown(f"unexpected packaged delegated mirror: {driver}")
     skill = generated / "flow-auto"
     primary = skill / "SKILL.md"
-    read(primary)  # A reference without its skill entry point is not packaged.
+    entrypoint = read(primary)
     reference = skill / "reference.md"
-    rendered = inventory(read(reference if reference.exists() else primary))
+    if reference.exists():
+        if not re.search(r"Read\s+`reference\.md`\s+in this skill directory for the complete", entrypoint):
+            raise Invalid("generated entry point does not direct the reader to its procedure")
+        body = read(reference)
+    else:
+        body = entrypoint
+    bundled_helpers: set[str] = set()
+    bundled_gates: set[str] = set()
+    rendered = inventory(
+        body, bundled_exempt=bundled_exempt, bundled_helpers=bundled_helpers, bundled_gates=bundled_gates
+    )
+    if set(rendered) - bundled_gates:
+        raise Invalid(
+            "generated helper/verb has no invoked skill-bundled primary address: "
+            + ", ".join(sorted(set(rendered) - bundled_gates))
+        )
     for gate in sorted(gates - set(rendered)):
         missing.append(f"driver=generated-flow-auto gate={gate}")
-    # Require the helpers actually addressed through the skill's bundled path.
-    for match in re.finditer(
-        r"\$\{CPP_SKILL_DIR[^}]*\}/scripts/([\w-]+\.(?:py|sh))", read(reference if reference.exists() else primary)
-    ):
-        if not (skill / "scripts" / match.group(1)).is_file():
-            raise Unknown(f"missing bundled helper {match.group(1)}")
+    for name in sorted(bundled_helpers):
+        if not (skill / "scripts" / name).is_file():
+            raise Unknown(f"missing bundled helper {name}")
     return missing, len(gates)
 
 

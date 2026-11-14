@@ -12,7 +12,7 @@ it does not attest generation or helper bundling. `tests/test_driver_parity.py`
 separately builds and reads the real flow-auto Codex mirror. The stub generator
 and driver declaration files state only the packaging population for fixtures.
 
-Eleven BAD and three GOOD cases run through the real checker. The constructed
+Sixteen BAD and three GOOD cases run through the real checker. The constructed
 anchor checks a fixed helper list, omits all plan-record verbs and trusts waiver
 metadata. It misses all BAD cases and agrees on the GOOD cases. Its provenance
 is constructed, never historical. UNKNOWN/crash output is not a detection.
@@ -26,3 +26,9 @@ not a second current policy and is not synchronized with the live table when
 upstream driver lines move. Its citations bind to this owned snapshot. The
 GOOD control cases validate that internal relationship, while the repository
 parity test independently validates the live policy against live sources.
+
+Review counterexamples also pin if/env command positions, alias reassignment,
+a split mirror with an unrelated entry point, and installed-only path rewrites.
+Bundling is checked per helper/verb membership: an invoked bundled primary
+address must remain and resolve. Documented plugin/checkout fallback resolution
+may coexist with that primary address; its phase or runtime choice is not proved.

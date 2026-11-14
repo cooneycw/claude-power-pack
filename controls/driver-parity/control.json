@@ -93,6 +93,36 @@
       "input": "cases/good-invented-gate-run",
       "expect": "GOOD",
       "why": "Committed owned invented-run source/policy fixture."
+    },
+    {
+      "name": "bad-env-command",
+      "input": "cases/bad-env-command",
+      "expect": "BAD",
+      "why": "Review counterexample: unsupported-env must not produce a false green."
+    },
+    {
+      "name": "bad-if-command",
+      "input": "cases/bad-if-command",
+      "expect": "BAD",
+      "why": "Review counterexample: unsupported-if must not produce a false green."
+    },
+    {
+      "name": "bad-mirror-entry-point",
+      "input": "cases/bad-mirror-entry-point",
+      "expect": "BAD",
+      "why": "Review counterexample: mirror-entry-point must not produce a false green."
+    },
+    {
+      "name": "bad-mirror-installed-paths",
+      "input": "cases/bad-mirror-installed-paths",
+      "expect": "BAD",
+      "why": "Review counterexample: mirror-installed-paths must not produce a false green."
+    },
+    {
+      "name": "bad-reassigned-alias",
+      "input": "cases/bad-reassigned-alias",
+      "expect": "BAD",
+      "why": "Review counterexample: reassigned-alias must not produce a false green."
     }
   ],
   "anchors": [

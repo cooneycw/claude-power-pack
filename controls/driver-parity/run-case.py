@@ -19,13 +19,42 @@ def append(path: Path, text: str) -> None:
     path.write_text(path.read_text() + "\n```bash\n" + text + "\n```\n")
 
 
+def append_mirror(root: Path, call: str) -> None:
+    mirror = root / "codex/skills/flow-auto/SKILL.md"
+    append(mirror, call.replace("~/.claude/scripts/", "${CPP_SKILL_DIR:-/dev/null}/scripts/"))
+    helper = call.split("scripts/", 1)[1].split()[0]
+    (mirror.parent / "scripts" / helper).write_text("# Owned fixture, never executed.\n")
+
+
 def materialize(root: Path, mode: str) -> None:
     shutil.copytree(Path(__file__).parent / "base-tree", root, dirs_exist_ok=True)
     flow = root / ".claude/commands/flow/auto.md"
     mirror = root / "codex/skills/flow-auto/SKILL.md"
     policy = root / "docs/agents/driver-parity.json"
     data = json.loads(policy.read_text())
-    if mode in {"main-gap", "wrong-verb"}:
+    if mode in {"unsupported-if", "unsupported-env"}:
+        assert EXTRA not in flow.read_text()
+        call = f"if {CALL}; then\n    :\nfi" if mode == "unsupported-if" else f"env MODE=1 {CALL}"
+        append(flow, call)
+        append_mirror(root, CALL)
+        assert all(CALL not in (root / f".claude/commands/{d}/auto.md").read_text() for d in DRIVERS)
+    elif mode == "reassigned-alias":
+        path = root / ".claude/commands/codex/auto.md"
+        call = "~/.claude/scripts/flow-plan-record.py approve 42"
+        assert call in path.read_text()
+        path.write_text(
+            path.read_text().replace(call, 'REC=~/.claude/scripts/flow-plan-record.py\nREC=echo\n"$REC" approve 42')
+        )
+        assert call not in path.read_text()
+    elif mode == "mirror-entry-point":
+        (mirror.parent / "reference.md").write_text(mirror.read_text())
+        mirror.write_text("# An unrelated entry point.\n")
+    elif mode == "mirror-installed-paths":
+        prefix = "${CPP_SKILL_DIR:-/dev/null}/scripts/"
+        assert prefix in mirror.read_text()
+        mirror.write_text(mirror.read_text().replace(prefix, "~/.claude/scripts/"))
+        assert prefix not in mirror.read_text()
+    elif mode in {"main-gap", "wrong-verb"}:
         for driver in DRIVERS:
             path = root / f".claude/commands/{driver}/auto.md"
             text = path.read_text()
@@ -59,7 +88,7 @@ def materialize(root: Path, mode: str) -> None:
         assert EXTRA not in flow.read_text()
         append(flow, CALL)
         if mode != "mirror-missing":
-            append(mirror, CALL)
+            append_mirror(root, CALL)
         for driver in DRIVERS:
             path = root / f".claude/commands/{driver}/auto.md"
             run = mode in {"invented-run", "mirror-missing"} or (mode == "one-missing" and driver != "qwen")

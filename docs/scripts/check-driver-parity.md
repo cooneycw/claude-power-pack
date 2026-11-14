@@ -20,3 +20,8 @@ coverage and invalid/stale policy. Its constructed fixed-list anchor misses
 those defects; it is not historical source. Control mirrors are fixtures;
 `tests/test_driver_parity.py` separately builds and reads the actual generator
 output. The pre-#1809 source is deliberately red for 15 required verb pairs.
+
+Split mirrors must direct the reader from SKILL.md to reference.md. Every
+rendered helper/verb retains an invoked bundled primary address and its helper
+file; the generator's explicit CPP-checkout exceptions remain exceptions.
+Fallback path/phase behavior is not inferred from this membership check.

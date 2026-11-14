@@ -210,7 +210,7 @@ def test_a_future_plan_record_verb_is_a_new_parity_item(tmp_path: Path) -> None:
     gate = "flow-plan-record.py future-parity-verb"
     call = "~/.claude/scripts/" + gate + " 42"
     fixtures.append(root / parity.FLOW, call)
-    fixtures.append(root / "codex/skills/flow-auto/SKILL.md", call)
+    fixtures.append_mirror(root, call)
     assert gate in parity.inventory((root / parity.FLOW).read_text())
     missing, count = parity.evaluate(root, root / "codex/skills")
     assert count == 24
@@ -218,3 +218,40 @@ def test_a_future_plan_record_verb_is_a_new_parity_item(tmp_path: Path) -> None:
     for driver in parity.DRIVERS:
         fixtures.append(root / f".claude/commands/{driver}/auto.md", call)
     assert not parity.evaluate(root, root / "codex/skills")[0]
+
+
+@pytest.mark.parametrize("change", ["entry-point", "installed-paths"])
+def test_real_generated_procedure_cannot_lose_its_entry_point_or_bundled_bindings(
+    generated: Path, tmp_path: Path, change: str
+) -> None:
+    import re
+    import shutil
+
+    owned = tmp_path / "generated"
+    shutil.copytree(generated / "flow-auto", owned / "flow-auto")
+    skill = owned / "flow-auto"
+    if change == "entry-point":
+        assert (skill / "reference.md").is_file()
+        (skill / "SKILL.md").write_text("# Unrelated entry point\n")
+    else:
+        reference = skill / "reference.md"
+        text, replacements = re.subn(
+            r'"?\$\{CPP_SKILL_DIR:-/dev/null\}"?/scripts/', "~/.claude/scripts/", reference.read_text()
+        )
+        assert replacements > 0
+        reference.write_text(text)
+    with pytest.raises(parity.Invalid):
+        parity.evaluate(ROOT, owned)
+
+
+@pytest.mark.parametrize(
+    "shell",
+    [
+        'if [ "$(scripts/new.sh check)" ]; then',
+        "time scripts/new.sh check",
+        "OUT=$(scripts/new.sh check)",
+    ],
+)
+def test_other_unsupported_helper_positions_are_unknown(shell: str) -> None:
+    with pytest.raises(parity.Unknown):
+        parity.inventory("## Instructions\n```bash\n" + shell + "\n```\n")
