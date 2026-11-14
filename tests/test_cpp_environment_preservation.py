@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -102,7 +103,7 @@ def test_mismatched_environment_is_refused_without_mutation(tmp_path, mode, rebu
     or shutil.which("git") is None or shutil.which("make") is None,
     reason="requires uv, bash, git and make",
 )
-@pytest.mark.parametrize("dev", [False, True, None, "stdlib", "virtualenv", "equivalent-fields"])
+@pytest.mark.parametrize("dev", [False, True, None, "stdlib", "virtualenv", "equivalent-fields", "uv-major-minor"])
 def test_fresh_pin_and_matching_environment_are_preserved(tmp_path, dev):
     from tests.conftest import find_python, uv_child_env
 
@@ -122,12 +123,23 @@ def test_fresh_pin_and_matching_environment_are_preserved(tmp_path, dev):
             env=env, capture_output=True, text=True, timeout=60,
         )
         assert sync.returncode == 0, sync.stderr
-        if dev in ("stdlib", "virtualenv", "equivalent-fields"):
+        if dev in ("stdlib", "virtualenv", "equivalent-fields", "uv-major-minor"):
             cfg = venv / "pyvenv.cfg"
             content = cfg.read_text()
             line = next(line for line in content.splitlines() if line.startswith("version_info = "))
-            version = line.split(" = ")[1]
-            spelling = f"version = {version}" if dev == "stdlib" else f"version_info = {version}.final.0"
+            # The interpreter, not the cfg line: uv may record only X.Y (#1824).
+            version = subprocess.check_output(
+                [str(venv / "bin/python"), "-c", "import sys; print('.'.join(map(str, sys.version_info[:3])))"],
+                text=True,
+            ).strip()
+            assert version.count(".") == 2, version
+            if dev == "uv-major-minor":
+                # uv built against its minor-version Python link records X.Y only (#1824).
+                spelling = "version_info = " + ".".join(version.split(".")[:2])
+            elif dev == "stdlib":
+                spelling = f"version = {version}"
+            else:
+                spelling = f"version_info = {version}.final.0"
             cfg.write_text(content.replace(line, spelling))
             if dev == "equivalent-fields":
                 cfg.write_text(cfg.read_text() + f"version = {version}\n")
@@ -152,7 +164,8 @@ def test_fresh_pin_and_matching_environment_are_preserved(tmp_path, dev):
     or shutil.which("git") is None or shutil.which("make") is None,
     reason="requires uv, bash, git and make",
 )
-@pytest.mark.parametrize("broken", ["constant", "contradictory", "contradictory-optin", "wrong-executable"])
+@pytest.mark.parametrize("broken", ["constant", "contradictory", "contradictory-optin", "wrong-executable",
+                                    "major-minor-disagreeing"])
 def test_unverified_environment_is_refused_before_uv(tmp_path, broken):
     import shlex
 
@@ -180,10 +193,18 @@ def test_unverified_environment_is_refused_before_uv(tmp_path, broken):
         interpreter.write_text("#!/bin/sh\n" + command + "\n")
         interpreter.chmod(0o755)
         assert not interpreter.is_symlink() and interpreter.read_text().startswith("#!/bin/sh")
+    elif broken == "major-minor-disagreeing":
+        # A bare X.Y is minor evidence only (#1824): it must still disagree visibly.
+        cfg = venv / "pyvenv.cfg"
+        content = cfg.read_text()
+        line = next(line for line in content.splitlines() if line.startswith("version_info = "))
+        cfg.write_text(content.replace(line, "version_info = 3.12"))
+        assert "version_info = 3.12\n" in cfg.read_text() and version.startswith("3.11.")
     else:
         cfg = venv / "pyvenv.cfg"
         cfg.write_text(cfg.read_text() + "version = 3.12.3\n")
-        assert "version_info = 3.11." in cfg.read_text() and "version = 3.12.3" in cfg.read_text()
+        text = cfg.read_text()
+        assert re.search(r"^version_info = 3\.11(\.|$)", text, re.M) and "version = 3.12.3" in text
     if broken == "contradictory-optin":
         env["FLOW_GATE_REBUILD_CPP_VENV"] = "1"
     before = fingerprint(venv)
