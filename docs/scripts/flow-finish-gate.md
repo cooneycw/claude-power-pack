@@ -276,18 +276,24 @@ showed in `kyle-lock status full-suite` as `issue: null, pr: null, purpose: ""`,
 indistinguishable from every other. The gate passes
 `--purpose "cpp finish gate: <owner/repo> <branch> <short-sha>"`, plus
 `--issue N` when the branch is `issue-<N>-...` and `--pr N` when a
-`timeout 15 gh pr view <branch>` answers a number. Each part is derived or left
+`timeout 15 gh pr view <branch>` answers a number. Without `timeout` on PATH no lookup is made
+and `--pr` is omitted. Each part is derived or left
 out, never guessed: the repository is the last two path segments of origin's
 URL (never the whole URL, which can carry a credential), else the checkout's
-directory name; a detached HEAD has no branch, no issue and no PR lookup;
+directory name. Kyle refuses a purpose over 300 characters, so a long
+branch is shortened (with `...`) before repository or sha; a detached HEAD has no branch, no issue and no PR lookup;
 outside a git checkout the purpose is just `cpp finish gate:`.
 
 `kyle-lock run` returns its LAST answer's code when `--wait` expires (measured
 on Kyle prod, 2026-11-13: a `--wait 60` left queued exits 10). So a real queue
 timeout ended in the generic `coordination supervisor exited 10 and the gate
-recorded no status`. Exit 10 (queued or blocked) and 11 (frozen) with no
-recorded status now print
-`FLOW_FINISH_GATE: fail (coordination not granted: no grant within <N>s, last state queued|frozen (kyle-lock exit <code>), no gate work started)`.
+recorded no status`. Exit 10 or 11 with no recorded status now prints
+`FLOW_FINISH_GATE: fail (coordination not granted: no grant within <N>s, last state <state> (kyle-lock exit <code>), no gate work started)`.
+The state is read from the JSON answer kyle-lock printed last, because the
+code alone cannot name it: the client's `STATE_EXIT` maps both `queued` and
+`blocked` to 10 (`frozen` is 11), and a blocked answer returns at once rather
+than at the bound. With no answer the line says `queued or blocked` for 10 and
+`frozen` for 11. "Within" names the bound, an upper limit, not a measured wait.
 The verdict and exit code are unchanged: fail, 1. A live Kyle authority is not
 exercised by the tests; the fake `kyle-lock` mirrors the client's own argparse
 (`--issue`/`--pr` are integers) and exit codes.

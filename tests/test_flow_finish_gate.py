@@ -3393,7 +3393,9 @@ def test_coordination_refusal_starts_no_gate_work(tmp_path: Path, supervisor_exi
         assert "FLOW_FINISH_GATE: fail (coordination unavailable: exit 75; " in proc.stdout
     elif supervisor_exit in (10, 11):
         # kyle-lock's --wait expiry returns the LAST answer's code (#1828).
-        state = "queued" if supervisor_exit == 10 else "frozen"
+        # With no answer printed, the code names only what it can: 10 is
+        # queued OR blocked in kyle-lock's STATE_EXIT, 11 is frozen.
+        state = "queued or blocked" if supervisor_exit == 10 else "frozen"
         assert ("FLOW_FINISH_GATE: fail (coordination not granted: no grant within 3600s, "
                 f"last state {state} (kyle-lock exit {supervisor_exit}), no gate work started)") in proc.stdout
         assert "supervisor exited" not in proc.stdout
@@ -3423,23 +3425,25 @@ def _recording_authority(path: Path) -> Path:
     return argv
 
 
-def _git(repo: Path, *args: str) -> str:
-    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True,
-                          text=True, timeout=30).stdout.strip()
-
-
 @requires_git
 @requires_bash
 @pytest.mark.parametrize("layout", ["issue-branch", "plain-branch-no-origin", "detached", "outside-git",
-                                    "long-branch"])
+                                    "long-branch", "no-timeout"])
 def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
     """Issue #1828 A1: the lease names repo, branch and sha, plus --issue and
     --pr where they can be derived, and leaves out what cannot be. On the
     pre-fix gate there is no --purpose at all, so every layout fails."""
+    # The gate looks a PR up only through `timeout` (counter-model review, pass
+    # 2), so a layout that expects the lookup needs the real binary; the
+    # no-timeout layout takes it off PATH and expects no lookup at all.
+    lookup_layouts = ("issue-branch", "plain-branch-no-origin", "long-branch")
+    if layout in lookup_layouts and shutil.which("timeout") is None:
+        pytest.skip("the PR lookup runs under timeout, which this host lacks")
     bindir = tmp_path / "bin"
     bindir.mkdir()
     gh_log = bindir / "gh.log"
-    gh_answer = {"issue-branch": "123", "plain-branch-no-origin": "not-a-number", "long-branch": ""}.get(layout, "999")
+    gh_answer = {"issue-branch": "123", "plain-branch-no-origin": "not-a-number", "long-branch": "",
+                 "no-timeout": "123"}.get(layout, "999")
     gh = bindir / "gh"
     gh.write_text(f'#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "{gh_log}"\necho {gh_answer}\n')
     gh.chmod(0o755)
@@ -3454,7 +3458,8 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
         sha = _git(work, "rev-parse", "--short", "HEAD")
         if layout != "plain-branch-no-origin":
             _git(work, "remote", "add", "origin", "git@github.com:acme/widget.git")
-        branch = {"issue-branch": "issue-77-widget", "long-branch": _LONG_BRANCH}.get(layout, "feature-x")
+        branch = {"issue-branch": "issue-77-widget", "long-branch": _LONG_BRANCH,
+                  "no-timeout": "issue-77-widget"}.get(layout, "feature-x")
         _git(work, "checkout", "-q", "-b", branch)
         if layout == "detached":
             _git(work, "checkout", "-q", "--detach")
@@ -3464,8 +3469,13 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
         assert probe.returncode != 0, "precondition: this layout is outside every git repository"
     supervisor = tmp_path / "authority"
     argv_file = _recording_authority(supervisor)
-    proc, _ = _run(tmp_path, cpp_dir="", make_exit=0, cwd=work, extra_env={
-        "CPP_KYLE_COORDINATION_ADMISSION": "1", "CPP_KYLE_LOCK_BIN": str(supervisor)})
+    extra = {"CPP_KYLE_COORDINATION_ADMISSION": "1", "CPP_KYLE_LOCK_BIN": str(supervisor)}
+    if layout == "no-timeout":
+        extra["PATH"] = _path_without(tmp_path, "timeout")
+        probe = subprocess.run(["bash", "-c", "command -v timeout"], env={"PATH": extra["PATH"]},
+                               capture_output=True, text=True, timeout=30, check=False)
+        assert probe.returncode != 0, "precondition: timeout is off this PATH"
+    proc, _ = _run(tmp_path, cpp_dir="", make_exit=0, cwd=work, extra_env=extra)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     argv = argv_file.read_text().splitlines()
     options = argv[: argv.index("--")]
@@ -3478,10 +3488,14 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
         # Kyle refuses a purpose over 300 characters (counter-model review):
         # the branch gives way, repository and sha stay.
         "long-branch": f"cpp finish gate: acme/widget {_LONG_BRANCH[:267 - len(sha)]}... {sha}",
+        "no-timeout": f"cpp finish gate: acme/widget issue-77-widget {sha}",
     }[layout]
     assert len(purpose) <= 300 and pairs.get("--purpose") == purpose, options
     if layout == "issue-branch":
         assert pairs.get("--issue") == "77" and pairs.get("--pr") == "123", options
+    elif layout == "no-timeout":
+        # No bounded lookup is possible, so none is made; the rest stays.
+        assert pairs.get("--issue") == "77" and "--pr" not in pairs, options
     else:
         assert "--issue" not in pairs, options
         assert "--pr" not in pairs, options  # never a guessed or non-numeric PR
@@ -3490,6 +3504,47 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
         assert gh_log.read_text().splitlines() == [f"pr view {branch} --json number --jq .number"]
     else:
         assert not gh_log.exists()
+
+
+@requires_git
+@requires_bash
+@pytest.mark.parametrize(("supervisor_exit", "state"), [(10, "blocked"), (10, "queued"), (11, "frozen")])
+def test_coordination_not_granted_names_the_state_the_authority_answered(
+    tmp_path: Path, supervisor_exit: int, state: str,
+):
+    """Exit 10 is queued OR blocked (counter-model review, pass 2): the state
+    comes from the answer kyle-lock printed last. Red case: a gate that names
+    the state from the exit code says `queued` for the blocked answer."""
+    supervisor = tmp_path / "authority"
+    supervisor.write_text(
+        "#!/usr/bin/env bash\n"
+        f"printf '{{\"state\": \"{state}\", \"request_id\": 7}}\\n'\n"
+        f"exit {supervisor_exit}\n"
+    )
+    supervisor.chmod(0o755)
+    (tmp_path / "Makefile").write_text("lint:\ntest:\ntypecheck:\nverify:\n")
+    proc, bindir = _run(tmp_path, cpp_dir="", make_exit=0, extra_env={
+        "CPP_KYLE_COORDINATION_ADMISSION": "1", "CPP_KYLE_LOCK_BIN": str(supervisor)})
+    assert proc.returncode == 1, proc.stdout
+    assert not (bindir / "make.log").exists()
+    assert ("FLOW_FINISH_GATE: fail (coordination not granted: no grant within 3600s, "
+            f"last state {state} (kyle-lock exit {supervisor_exit}), no gate work started)") in proc.stdout
+
+
+def _path_without(tmp_path: Path, name: str) -> str:
+    """This PATH, with one command removed: a directory of links to every
+    executable on PATH except ``name``, so absence is real, not stubbed."""
+    shadow = tmp_path / f"path-without-{name}"
+    shadow.mkdir()
+    for directory in os.environ["PATH"].split(os.pathsep):
+        folder = Path(directory)
+        if not folder.is_dir():
+            continue
+        for entry in folder.iterdir():
+            link = shadow / entry.name
+            if entry.name != name and not link.exists() and os.access(entry, os.X_OK):
+                link.symlink_to(entry)
+    return str(shadow)
 
 def _bounded_authority(path: Path, state: str) -> None:
     """A fake kyle-lock that behaves like the real one around --wait (#1678).

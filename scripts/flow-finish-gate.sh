@@ -474,11 +474,18 @@ if coordination_admission_on && [[ "$MODE" == "gate" && "${CPP_KYLE_FULL_SUITE_A
     fi
     # kyle-lock's `run` returns its LAST answer's code when --wait expires
     # (issue #1828, measured on Kyle prod 2026-11-13: a --wait 60 left queued
-    # exits 10). So a real queue timeout is 10 (queued, or blocked) or 11
-    # (frozen), not 75. With no recorded status no gate work started; say so.
+    # exits 10). So a real queue timeout is 10 or 11, not 75. The code alone
+    # does not name the state: kyle-lock's STATE_EXIT maps BOTH queued and
+    # blocked to 10 (frozen is 11), and a blocked answer returns at once rather
+    # than at the bound. So the state comes from the answer it printed last;
+    # only without one does the code speak, and then only as far as it can.
+    # "Within" is the bound, an upper limit, not a measured wait.
     if [[ "$_coordination_rc" == 10 || "$_coordination_rc" == 11 ]]; then
-        _coordination_state="queued"
+        _coordination_state="queued or blocked"
         [[ "$_coordination_rc" == 10 ]] || _coordination_state="frozen"
+        if [[ "$_coordination_last" =~ \"state\"[[:space:]]*:[[:space:]]*\"([A-Za-z0-9_.-]{1,64})\" ]]; then
+            _coordination_state="${BASH_REMATCH[1]}"
+        fi
         echo "FLOW_FINISH_GATE: fail (coordination not granted: no grant within ${_coordination_wait}s, last state $_coordination_state (kyle-lock exit $_coordination_rc), no gate work started)"
         gate_exit fail
     fi
