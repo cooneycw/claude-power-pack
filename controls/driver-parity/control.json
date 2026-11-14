@@ -1,0 +1,108 @@
+{
+  "gate": "scripts/check-driver-parity.py",
+  "invocation": [
+    "python3",
+    "controls/driver-parity/run-case.py",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^DRIVER_PARITY: fail\\b",
+  "limits": "Static helper/plan-record-verb membership and policy validity only; not flags, ordering, live execution, or semantic verification of approved equivalents. Control mirrors are owned source fixtures, not evidence that the actual generator ran; tests/test_driver_parity.py builds the real flow-auto mirror. The three delegated Codex mirrors intentionally do not exist. The constructed anchor uses a fixed legacy helper list and trusts waiver metadata.",
+  "cases": [
+    {
+      "name": "bad-assignment-only",
+      "input": "cases/bad-assignment-only",
+      "expect": "BAD",
+      "why": "Committed owned assignment-only source/policy fixture."
+    },
+    {
+      "name": "bad-empty-reason",
+      "input": "cases/bad-empty-reason",
+      "expect": "BAD",
+      "why": "Committed owned empty-reason source/policy fixture."
+    },
+    {
+      "name": "bad-exemption-without-issue",
+      "input": "cases/bad-exemption-without-issue",
+      "expect": "BAD",
+      "why": "Committed owned missing-issue source/policy fixture."
+    },
+    {
+      "name": "bad-invented-gate",
+      "input": "cases/bad-invented-gate",
+      "expect": "BAD",
+      "why": "Committed owned invented-missing source/policy fixture."
+    },
+    {
+      "name": "bad-main-verb-gap",
+      "input": "cases/bad-main-verb-gap",
+      "expect": "BAD",
+      "why": "Committed owned main-gap source/policy fixture."
+    },
+    {
+      "name": "bad-mirror-missing-gate",
+      "input": "cases/bad-mirror-missing-gate",
+      "expect": "BAD",
+      "why": "Committed owned mirror-missing source/policy fixture."
+    },
+    {
+      "name": "bad-one-driver-missing-gate",
+      "input": "cases/bad-one-driver-missing-gate",
+      "expect": "BAD",
+      "why": "Committed owned one-missing source/policy fixture."
+    },
+    {
+      "name": "bad-prose-only",
+      "input": "cases/bad-prose-only",
+      "expect": "BAD",
+      "why": "Committed owned prose-only source/policy fixture."
+    },
+    {
+      "name": "bad-stale-citation",
+      "input": "cases/bad-stale-citation",
+      "expect": "BAD",
+      "why": "Committed owned stale-citation source/policy fixture."
+    },
+    {
+      "name": "bad-stale-entry",
+      "input": "cases/bad-stale-entry",
+      "expect": "BAD",
+      "why": "Committed owned stale-entry source/policy fixture."
+    },
+    {
+      "name": "bad-wrong-plan-verb",
+      "input": "cases/bad-wrong-plan-verb",
+      "expect": "BAD",
+      "why": "Committed owned wrong-verb source/policy fixture."
+    },
+    {
+      "name": "good-current-membership",
+      "input": "cases/good-current-membership",
+      "expect": "GOOD",
+      "why": "Committed owned baseline source/policy fixture."
+    },
+    {
+      "name": "good-invented-gate-exempt",
+      "input": "cases/good-invented-gate-exempt",
+      "expect": "GOOD",
+      "why": "Committed owned invented-exempt source/policy fixture."
+    },
+    {
+      "name": "good-invented-gate-run",
+      "input": "cases/good-invented-gate-run",
+      "expect": "GOOD",
+      "why": "Committed owned invented-run source/policy fixture."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/check-driver-parity.py",
+      "path": "anchors/constructed-fixed-helper-list.py",
+      "sha256": "abf4c4eabf13c32075be2eee8cb3eb95187e49caf08ccee25c3ad70437250bea",
+      "why": "Constructed fixed helper list misses invented calls and plan-record verbs, and trusts unvalidated waiver metadata. Never historical provenance."
+    }
+  ]
+}

@@ -225,6 +225,13 @@ steps:
     commands:
       - python3 scripts/delegated-core-vendor.py check
 
+  # Static cross-driver parity; generated flow-auto is the only packaged mirror.
+  driver-parity-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [codex-skills-generate]
+    commands:
+      - python3 scripts/check-driver-parity.py
+
   # docs/scripts.md population gate (issue #1013). The inventory of `scripts/`
   # was hand-maintained and derived from nothing, so a script could be added and
   # its entry never written - 17 of 68 were in that state - while six test

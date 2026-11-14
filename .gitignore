@@ -379,3 +379,7 @@ woodpecker/wp-cli-env.sh
 
 # Constructed fail-closed model-independence cases (#1747).
 !tests/fixtures/counter_model/claude_independence.json
+
+# Explicit driver-parity decisions (#1810); gap tracker #1811 remains open.
+!docs/agents/driver-parity.json
+!controls/driver-parity/base-tree/docs/agents/driver-parity.json
