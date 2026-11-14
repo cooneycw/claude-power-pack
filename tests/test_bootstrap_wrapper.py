@@ -30,7 +30,7 @@ def _test_python_env(tmp_path):
     return env
 
 
-@pytest.mark.parametrize("shadow", ["none", "regular-lib", "yaml-module"])
+@pytest.mark.parametrize("shadow", ["none", "regular-lib", "yaml-module", "pythonpath-lib"])
 def test_real_wrapper_lists_cpp_from_outside_and_ignores_caller_lure(tmp_path, shadow):
     assert importlib.util.find_spec("yaml") is not None, "the selected test interpreter must have real PyYAML"
     external = tmp_path / "caller"
@@ -44,10 +44,16 @@ def test_real_wrapper_lists_cpp_from_outside_and_ignores_caller_lure(tmp_path, s
     ready = subprocess.run(["python3", "-c", "import yaml"], cwd=external,
                            env=env, capture_output=True, text=True, timeout=20)
     assert ready.returncode == 0, ready.stderr
-    if shadow == "regular-lib":
+    if shadow in {"regular-lib", "pythonpath-lib"}:
         (external / "lib").mkdir()
         (external / "lib/__init__.py").write_text("# Caller-owned regular package.\n")
         assert (external / "lib/__init__.py").is_file(), "construct a regular package that shadows CPP"
+    if shadow == "pythonpath-lib":
+        (external / "lib/cicd").mkdir()
+        (external / "lib/cicd/__init__.py").write_text("")
+        (external / "lib/cicd/bootstrap.py").write_text('print("caller checker")\n')
+        env["PYTHONPATH"] = str(external)
+        assert (external / "lib/cicd/bootstrap.py").is_file(), "construct a substitute checker"
     elif shadow == "yaml-module":
         (external / "yaml.py").write_text('raise ImportError("caller yaml")\n')
         assert (external / "yaml.py").is_file(), "construct a caller-owned dependency shadow"
@@ -68,6 +74,8 @@ def test_real_wrapper_lists_cpp_from_outside_and_ignores_caller_lure(tmp_path, s
     ("good-caller-regular-lib", 0, "clean -", False),
     ("bad-caller-yaml-module", 1, "finding -", False),
     ("good-caller-yaml-module", 0, "clean -", False),
+    ("bad-caller-pythonpath-lib", 1, "finding -", False),
+    ("good-caller-pythonpath-lib", 0, "clean -", False),
     ("unknown-module-unimportable", 3, "unknown - unavailable", False),
     ("unknown-pyyaml-missing", 3, "unknown - unavailable", False),
     ("bad-blocking-unmet", 0, "clean -", True),

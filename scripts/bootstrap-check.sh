@@ -54,7 +54,7 @@ case "${1:-}" in
     --list)
         (
             cd "$REPO_ROOT"
-            PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:$PYTHONPATH}" \
+            PYTHONPATH="$REPO_ROOT" \
                 python3 -m lib.cicd.bootstrap list --project-root "$REPO_ROOT"
         )
         exit $?
@@ -62,7 +62,7 @@ case "${1:-}" in
     ""|--check)
         (
             cd "$REPO_ROOT"
-            PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:$PYTHONPATH}" \
+            PYTHONPATH="$REPO_ROOT" \
                 python3 -m lib.cicd.bootstrap check --project-root "$REPO_ROOT"
         )
         exit $?

@@ -52,10 +52,16 @@ with tempfile.TemporaryDirectory(prefix="bootstrap-control-") as raw:
         raise SystemExit(3)
     if case.get("without_site"):
         raise AssertionError("without-site fixture unexpectedly imports PyYAML")
-    if case.get("caller_shadow") == "regular-lib":
+    if case.get("caller_shadow") in {"regular-lib", "pythonpath-lib"}:
         (caller / "lib").mkdir()
         (caller / "lib/__init__.py").write_text("# Caller-owned regular package.\n")
         assert (caller / "lib/__init__.py").is_file(), "construct regular lib shadow"
+    if case.get("caller_shadow") == "pythonpath-lib":
+        (caller / "lib/cicd").mkdir()
+        (caller / "lib/cicd/__init__.py").write_text("")
+        (caller / "lib/cicd/bootstrap.py").write_text('print("caller checker")\n')
+        env["PYTHONPATH"] = str(caller)
+        assert (caller / "lib/cicd/bootstrap.py").is_file(), "construct substitute checker"
     elif case.get("caller_shadow") == "yaml-module":
         (caller / "yaml.py").write_text('raise ImportError("caller yaml")\n')
         assert (caller / "yaml.py").is_file(), "construct dependency shadow"
