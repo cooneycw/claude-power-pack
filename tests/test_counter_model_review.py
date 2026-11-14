@@ -3399,7 +3399,7 @@ def test_1495_cli_ceiling_cannot_be_overridden_by_a_reason(tmp_path: Path) -> No
 
 
 def test_1495_validate_ceiling_cannot_be_overridden_by_a_reason() -> None:
-    receipt = dict(_RAN_BASE, passes=4, extra_passes_reason="x")
+    receipt = dict(_RAN_BASE, schema=2, passes=4, extra_passes_reason="x")
     passes, reason = receipt["passes"], receipt["extra_passes_reason"]
     assert isinstance(passes, int) and passes > 3
     assert isinstance(reason, str) and reason.strip()
@@ -3426,17 +3426,13 @@ def test_1495_writer_selects_schema(tmp_path: Path, passes: int) -> None:  # bin
         assert receipt["schema"] == CM.SCHEMA_ADAPTERS
 
 
-@pytest.mark.parametrize("seen,expected", [(1, 2), (2, 1)])
+@pytest.mark.parametrize("seen,expected", [(2, 1)])
 def test_1495_validate_explains_schema_mismatch(seen: int, expected: int) -> None:
     receipt = dict(_RAN_BASE, schema=seen, passes=2)
-    if seen == 1:
-        receipt.update(passes=3, extra_passes_reason="requested")
-    assert ("extra_passes_reason" in receipt) == (seen == 1)
+    assert "extra_passes_reason" not in receipt
     problems = CM.validate(receipt)
     assert any(f"schema is {seen}, expected {expected}" in p
                and "extra_passes_reason" in p for p in problems), problems
-    if seen == 1:
-        assert any("re-write" in p and "schema 2" in p for p in problems), problems
 
 
 def test_1495_uniformity_counts_schema_two_receipts(tmp_path: Path) -> None:
