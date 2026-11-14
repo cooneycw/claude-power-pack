@@ -113,15 +113,53 @@ def file_command_pieces(line: str) -> list[str]:
     return pieces
 
 
-def launch_statements(text: str) -> list[tuple[int, str]]:
+def launch_statements(text: str) -> list[tuple[int, str, str]]:
     result = []
     for number, line in statements(text):
         # Keep the existing module scanner unchanged. File launches need a
         # per-command decision so a recognized sibling cannot hide an opaque one.
         has_file = (FILE_MATCH.search(line) or OPAQUE_FILE_INVOKER.search(line)
                     or UNSUPPORTED_FILE_INVOKER.search(line))
-        result.extend((number, piece) for piece in (file_command_pieces(line) if has_file else [line]))
+        pieces = file_command_pieces(line) if has_file else [line]
+        offset = 0
+        for piece in pieces:
+            index = line.index(piece, offset)
+            result.append((number, piece, line[:index]))
+            offset = index + len(piece)
     return result
+
+
+
+PATH_CHANGE = re.compile(
+    r"(?<![\w])PATH\s*\+?="
+    r"|\b(?:export|declare|readonly)\s+(?:-[A-Za-z]+\s+)*PATH\b")
+
+
+def earlier_command_block(path: Path, text: str, number: int) -> str:
+    """Refuse prior PATH changes without trying to prove shell state restoration."""
+    prior = text.splitlines()[:number - 1]
+    if path.suffix in {".sh", ".bash"}:
+        return "\n".join(prior)
+    if path.suffix != ".md":
+        return ""
+    fence = ""
+    shell = False
+    block: list[str] = []
+    for line in prior:
+        delimiter = re.match(r"^\s*(`{3,}|~{3,})", line)
+        if delimiter:
+            marker = delimiter.group(1)
+            if not fence:
+                fence = marker
+                language = line[delimiter.end():].strip().split()
+                shell = bool(language and language[0] in {"sh", "bash", "shell"})
+                block = []
+            elif marker[0] == fence[0] and len(marker) >= len(fence):
+                fence = ""
+                block = []
+        elif fence:
+            block.append(line)
+    return "\n".join(block) if shell else ""
 
 
 def inventory(root: Path) -> list[dict[str, object]]:
@@ -131,10 +169,10 @@ def inventory(root: Path) -> list[dict[str, object]]:
     if extra.is_file():
         populations.append(extra)
     for path in populations:
-        if not path.is_file() or path.suffix not in {".md", ".sh", ".py"} or "__pycache__" in path.parts:
+        if not path.is_file() or path.suffix not in {".md", ".sh", ".bash", ".py"} or "__pycache__" in path.parts:
             continue
         text = path.read_text()
-        for number, line in launch_statements(text):
+        for number, line, earlier_piece in launch_statements(text):
             if DYNAMIC_MODULE.search(line):
                 rows.append({"path": str(path.relative_to(root)), "line": number,
                              "command": "(constructed module)", "category": "unknown", "handoff": False,
@@ -250,6 +288,11 @@ def inventory(root: Path) -> list[dict[str, object]]:
                 reason = "reference to module/import root, no dispatched subcommand"
             elif command not in OTHER:
                 error = "unknown subcommand needs execution/query classification"
+            prior = earlier_command_block(path, text, number) + "\n" + earlier_piece + line[:found.start()]
+            if command is not None and path.suffix != ".py" and PATH_CHANGE.search(prior):
+                category = "unknown"
+                reason = "preceding PATH mutation makes caller PATH policy unsupported"
+                error = "preceding PATH assignment/export needs explicit policy review"
             rows.append({"path": str(path.relative_to(root)), "line": number,
                          "command": ((module or "") + " " + (command or "(reference)")).strip(),
                          "category": category, "handoff": handed, "reason": reason, "error": error})
@@ -514,3 +557,46 @@ def test_module_bootstrap_path_assignment_is_not_caller_path(tmp_path: Path, pre
     source.write_text(prefix + 'python3 -m lib.cicd.bootstrap check\n')
     rows = inventory(tmp_path)
     assert len(rows) == 1 and rows[0]["error"], rows
+
+
+@pytest.mark.parametrize("name", [
+    "bad-persistent-file-path.md", "bad-persistent-file-export.md",
+    "bad-persistent-file-append.md", "bad-persistent-module-path.md",
+])
+def test_persistent_path_changes_refuse_later_launches(tmp_path: Path, name: str) -> None:
+    source = tmp_path / ".claude/commands/owned.md"
+    source.parent.mkdir(parents=True)
+    source.write_text((ROOT / "tests/fixtures/cicd_launch_handoff" / name).read_text())
+    rows = inventory(tmp_path)
+    assert rows and any(row["error"] for row in rows), rows
+
+
+@pytest.mark.parametrize("name,suffix", [
+    ("good-path-before-reference.md", ".md"), ("good-python-path-text.py", ".py"),
+])
+def test_path_refusal_exempts_references_and_python_source(tmp_path: Path, name: str, suffix: str) -> None:
+    source = tmp_path / ("scripts/owned" + suffix)
+    source.parent.mkdir(parents=True)
+    source.write_text((ROOT / "tests/fixtures/cicd_launch_handoff" / name).read_text())
+    rows = inventory(tmp_path)
+    assert len(rows) == 1 and not rows[0]["error"], rows
+
+
+@pytest.mark.parametrize("assignment", ["export PATH", "declare -x PATH", "readonly -x PATH", "PATH+=:/x"])
+@pytest.mark.parametrize("suffix", [".md", ".sh", ".bash"])
+def test_prior_shell_path_declarations_are_unsupported(tmp_path: Path, assignment: str, suffix: str) -> None:
+    source = tmp_path / ("scripts/owned" + suffix)
+    source.parent.mkdir(parents=True)
+    body = assignment + "\npython3 lib/cicd/bootstrap.py check\n"
+    source.write_text("```bash\n" + body + "```\n" if suffix == ".md" else body)
+    rows = inventory(tmp_path)
+    assert len(rows) == 1 and rows[0]["error"], rows
+
+
+def test_prior_path_in_another_markdown_fence_is_unrelated(tmp_path: Path) -> None:
+    source = tmp_path / ".claude/commands/owned.md"
+    source.parent.mkdir(parents=True)
+    source.write_text('```sh\nPATH=/tmp/prepend:$PATH\n```\n'
+                      '```sh\npython3 lib/cicd/bootstrap.py check\n```\n')
+    rows = inventory(tmp_path)
+    assert len(rows) == 1 and not rows[0]["error"], rows

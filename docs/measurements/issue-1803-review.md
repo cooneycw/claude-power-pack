@@ -64,3 +64,45 @@ records the ruling, rather than asserting that the receipt authenticates it.
 
 No full suite, finish gate, PR, or merge was run here. The branch receipt is a
 record of review and artifact binding, not a substitute for those checks.
+
+## Post-main launch-inventory extension
+
+After merging main's #1801 launch inventory, its module-only scanner could not
+see #1803's direct checker-file launch. The scanner now recognizes that form;
+the inventory keeps both bootstrap rows and every other row unchanged. A
+committed extra-file-launch BAD case is invisible to the frozen main scanner
+but visible to the extension, and recording the extra row repairs equality.
+
+Two additional semantic Terra reviews ran, scoped to scanner deltas rather
+than repeating the original wrapper review:
+
+- Pass five reviewed `5609227b..64d56d1c` and found two HIGH false negatives:
+  an unsupported second launch was hidden by a recognized sibling, and an
+  inline PATH assignment was credited as retaining caller PATH. Both findings
+  were accepted. Committed BAD cases failed on `64d56d1c` and passed after
+  per-command scanning and PATH-prefix refusal. The same small PATH-prefix
+  refusal also fixes module-form bootstrap checks, with red-first cases.
+- Pass six reviewed `64d56d1c..d56b9dc0` and found a MEDIUM false negative:
+  `PATH=/tmp/prepend:$PATH; python3 lib/cicd/bootstrap.py check` lost its
+  persistent assignment during command splitting. The finding was accepted.
+  This reviewer could not run commands because `bwrap` was unavailable and
+  additional file reads were blocked; it reviewed the supplied canonical patch.
+
+The coordinator relayed master's approval for pass five in message 25886 and
+pass six in 25928, with escalation through `cr-orch`. The sixth-pass reason was
+"pass 5 found same-line launch suppression and PATH-prefix misclassification".
+Master then ruled in message 25936 to close the class by conservative refusal,
+with **no seventh model pass**; the coordinator reviews the final delta itself.
+Message 25938 limits prior PATH state to shell text and dispatching rows:
+module/import-root references and Python source contribute no shell PATH state.
+
+The final rule refuses a dispatched launch after any PATH assignment, append,
+export, or declaration earlier in its shell script or Markdown shell fence.
+It does not try to prove that later shell code restores PATH. Four committed
+BAD cases (assignment, export, append, and a module-form launch in a fence)
+failed on `d56b9dc0` and pass after this change. GOOD cases preserve a reference
+row after PATH text and a Python docstring containing PATH and launch text.
+The actual repository inventory remains byte-for-byte unchanged. These delta
+reviews do not replace or extend the original four-pass clean wrapper receipt;
+neither delta report claimed a clean result. The final refusal is coordinator
+reviewed under the explicit no-seventh-pass ruling.
