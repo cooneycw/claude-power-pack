@@ -5,7 +5,7 @@ allowed-tools: Bash(python3:*), Bash(PYTHONPATH=*), Bash(ls:*), Bash(test:*), Ba
 
 # /cicd:check - Makefile Validation
 
-Validate your project's Makefile against Claude Power Pack standards.
+Validate Makefiles against CPP standards.
 
 ---
 
@@ -48,7 +48,7 @@ fi
 If `.claude/cicd.yml` exists, it overrides default required/recommended targets:
 
 ```bash
-PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd check
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" env "CPP_RUNNER_TARGET_PATH=${PATH-}" "CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" uv run --project "$CPP_DIR" python -m lib.cicd check
 ```
 
 ---

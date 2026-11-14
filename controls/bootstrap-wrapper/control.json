@@ -1,0 +1,90 @@
+{
+  "gate": "scripts/bootstrap-check.sh",
+  "invocation": [
+    "uv",
+    "run",
+    "--isolated",
+    "--frozen",
+    "--no-dev",
+    "python",
+    "controls/bootstrap-wrapper/run-case.py",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "good_signal": "^BOOTSTRAP_WRAPPER_CONTROL: clean - wrapper accepted",
+  "detect_signal": "^BOOTSTRAP_WRAPPER_CONTROL: finding - ",
+  "unavailable_signal": "^BOOTSTRAP_WRAPPER_CONTROL: unavailable - ",
+  "limits": "Runs candidate wrapper bytes from an owned CPP layout, copying the current real lib.cicd.bootstrap and package initializers unchanged. JSON is valid YAML, decoded by real PyYAML; the subject is the unchanged CPP checker, never a fake parser or checker. Substitute checker modules are deliberate lures that must not be executed. Only owned exit-0/exit-1 commands run. The wrapper owns the target; invocation cwd is a separate owned directory. A module import failure or an interpreter without PyYAML is unavailable, not unmet or clean. The control invocation requires real uv and uses uv run --isolated --frozen --no-dev to supply CPP runtime dependencies from uv.lock in a disposable environment, without syncing the project .venv. A cold uv cache needs network to obtain the locked packages and possibly a compatible Python; a populated cache can run offline. The wrapper itself still uses ambient python3: only the control subprocess gets the isolated interpreter on PATH. Missing PyYAML remains a real -S case. The pinned CI image has not been executed locally. The blind anchor routes check to list and therefore returns success without executing the blocker. Caller-shadow pairs add a regular lib package or raising yaml module outside CPP after the real PyYAML readiness check; the wrapper must still report the owned prerequisite verdict. The caller-PYTHONPATH pair supplies a regular lib.cicd.bootstrap that accepts every check; the real wrapper must ignore that search path and still evaluate its own blocker. The installed-lib pair creates a disposable no-pip venv with a regular lib package in its owned site-packages and real PyYAML via a .pth to the already measured runtime. It never writes to the project venv. The wrapper executes its exact checker file; missing files remain UNKNOWN. The missing-PyYAML input asserts actual -S import failure and then executes the candidate wrapper; an accepting candidate is observed as GOOD, which fails that case's expected UNKNOWN instead of being hidden by readiness.",
+  "cases": [
+    {
+      "name": "bad-blocking-unmet",
+      "input": "cases/bad-blocking-unmet",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-blocking-satisfied",
+      "input": "cases/good-blocking-satisfied",
+      "expect": "GOOD"
+    },
+    {
+      "name": "unknown-module-unimportable",
+      "input": "cases/unknown-module-unimportable",
+      "expect": "UNKNOWN"
+    },
+    {
+      "name": "unknown-pyyaml-missing",
+      "input": "cases/unknown-pyyaml-missing",
+      "expect": "UNKNOWN"
+    },
+    {
+      "name": "bad-caller-regular-lib",
+      "input": "cases/bad-caller-regular-lib",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-caller-regular-lib",
+      "input": "cases/good-caller-regular-lib",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-caller-yaml-module",
+      "input": "cases/bad-caller-yaml-module",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-caller-yaml-module",
+      "input": "cases/good-caller-yaml-module",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-caller-pythonpath-lib",
+      "input": "cases/bad-caller-pythonpath-lib",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-caller-pythonpath-lib",
+      "input": "cases/good-caller-pythonpath-lib",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-installed-lib",
+      "input": "cases/bad-installed-lib",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-installed-lib",
+      "input": "cases/good-installed-lib",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "path": "anchors/blind-list-instead-check.sh",
+      "sha256": "5710b7297492526471e8540a183887a4d2d97c707e184f42897921ae6c7d325e",
+      "why": "Keeps the corrected import root and CPP Python cwd but substitutes bootstrap list for bootstrap check. Every blocking case returns success because its command is never examined, including caller-shadow cases, while import failures remain unexaminable. This is the blind alternative to a working deploy prerequisite verdict, not a historical source claim."
+    }
+  ],
+  "unknown_signal": "^BOOTSTRAP_WRAPPER_CONTROL: unknown - unavailable "
+}
