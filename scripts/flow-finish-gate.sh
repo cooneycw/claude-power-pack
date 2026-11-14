@@ -459,8 +459,12 @@ if coordination_admission_on && [[ "$MODE" == "gate" && "${CPP_KYLE_FULL_SUITE_A
                 || _coordination_prs=""
             _coordination_pr=""
             if [[ -n "$_coordination_prs" && "$_coordination_prs" != *$'\n'* ]]; then
-                IFS=$'\t' read -r _coordination_pr_number _coordination_pr_fork _coordination_pr_head \
-                    <<< "$_coordination_prs"
+                # Split by expansion, never a whitespace-IFS read (#698/#700):
+                # a tab IFS collapses empty fields and shifts the rest.
+                _coordination_pr_number="${_coordination_prs%%$'\t'*}"
+                _coordination_pr_rest="${_coordination_prs#*$'\t'}"
+                _coordination_pr_fork="${_coordination_pr_rest%%$'\t'*}"
+                _coordination_pr_head="${_coordination_pr_rest#*$'\t'}"
                 if [[ "$_coordination_pr_fork" == "false" \
                     && "$_coordination_pr_head" == "$_coordination_branch" ]]; then
                     _coordination_pr="$_coordination_pr_number"
