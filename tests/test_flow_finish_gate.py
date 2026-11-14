@@ -3540,9 +3540,21 @@ def test_coordination_metadata_never_acquires(tmp_path: Path, mode: str):
 @requires_bash
 def test_coordination_missing_supervisor_refuses_before_work(tmp_path: Path):
     (tmp_path / "Makefile").write_text("lint:\ntest:\ntypecheck:\nverify:\n")
+    flag = tmp_path / "admission"
+    flag.write_text("on\n")
+    assert flag.read_bytes() == b"on\n"
+    missing_lock = tmp_path / "absent"
+    assert not missing_lock.exists()
+    path = os.pathsep.join(
+        part for part in os.environ["PATH"].split(os.pathsep)
+        if not (Path(part) / "kyle-lock").exists()
+    )
+    assert shutil.which("kyle-lock", path=path) is None
     proc, bindir = _run(tmp_path, cpp_dir="", make_exit=0, extra_env={
-        "CPP_KYLE_COORDINATION_ADMISSION": "1", "CPP_KYLE_LOCK_BIN": str(tmp_path / "absent")})
-    assert proc.returncode != 0
+        "CPP_COORDINATION_ADMISSION_FILE": str(flag),
+        "CPP_KYLE_LOCK_BIN": str(missing_lock), "PATH": path})
+    assert proc.returncode != 0, proc.stdout
+    assert "kyle-lock is unavailable" in proc.stdout, proc.stdout
     assert not (bindir / "make.log").exists()
 
 

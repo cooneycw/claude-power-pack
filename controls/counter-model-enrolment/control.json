@@ -3,7 +3,7 @@
   "invocation": [
     "bash",
     "-c",
-    "W=$(mktemp -d) || exit 9; cp -R \"$1\"/. \"$W\"/ || exit 9; cd \"$W\" || exit 9; bash ./setup.sh >/dev/null 2>&1 || exit 9; CPP=\"${2%/*}\"; CPP=\"${CPP%/*}\"; ARGS=\"\"; [ -f args.txt ] && ARGS=$(cat args.txt); FLOW_GATE_CPP_DIR=\"\" CM_RECEIPT_HELPER=\"$CPP/scripts/counter-model-receipt.py\" bash \"$2\" $ARGS; rc=$?; rm -rf \"$W\"; exit $rc",
+    "W=$(mktemp -d) || exit 9; cp -R \"$1\"/. \"$W\"/ || exit 9; cd \"$W\" || exit 9; bash ./setup.sh >/dev/null 2>&1 || exit 9; CPP=\"${2%/*}\"; CPP=\"${CPP%/*}\"; ARGS=\"\"; [ -f args.txt ] && ARGS=$(cat args.txt); [ ! -e \"$W/no-coordination-admission\" ] || exit 9; CPP_COORDINATION_ADMISSION_FILE=\"$W/no-coordination-admission\" FLOW_GATE_CPP_DIR=\"\" CM_RECEIPT_HELPER=\"$CPP/scripts/counter-model-receipt.py\" bash \"$2\" $ARGS; rc=$?; rm -rf \"$W\"; exit $rc",
     "--",
     "{case}",
     "{gate}"
