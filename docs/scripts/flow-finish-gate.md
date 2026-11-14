@@ -280,7 +280,7 @@ indistinguishable from every other. The gate passes
 exactly one PR whose head is this branch and which is not from a fork (#1831:
 `gh pr view <branch>` read an all-digit branch such as `123` as PR #123, so the
 lease named an unrelated PR; zero, two or more matches, another head branch or
-a fork's PR now leave `--pr` out; the host is origin's, never its userinfo, and an origin with no host, such as a path, makes no lookup). Without `timeout` on PATH no lookup is made
+a fork's PR now leave `--pr` out; the host is origin's, never its userinfo, and an origin with no host, such as a path, or one naming a port makes no lookup; output is read only when the lookup succeeded). Without `timeout` on PATH no lookup is made
 and `--pr` is omitted. Each part is derived or left
 out, never guessed: the repository is the last two path segments of origin's
 URL (never the whole URL, which can carry a credential), else the checkout's

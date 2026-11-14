@@ -3454,7 +3454,8 @@ def test_the_pr_lookup_jq_prints_one_tab_separated_line_per_pr() -> None:
                                     "long-branch", "no-timeout", "unicode-long-branch-C",
                                     "unicode-long-branch-C.UTF-8", "digit-branch", "two-matches",
                                     "head-mismatch", "fork-match", "enterprise-origin",
-                                    "token-in-origin", "path-origin"])
+                                    "token-in-origin", "path-origin", "port-origin",
+                                    "lookup-fails"])
 def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
     """Issue #1828 A1: the lease names repo, branch and sha, plus --issue and
     --pr where they can be derived, and leaves out what cannot be. On the
@@ -3466,7 +3467,8 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
     # alone would ask gh's default host about a repository it cannot name.
     lookup_layouts = ("issue-branch", "long-branch", "unicode-long-branch-C",
                       "unicode-long-branch-C.UTF-8", "digit-branch", "two-matches",
-                      "head-mismatch", "fork-match", "enterprise-origin", "token-in-origin")
+                      "head-mismatch", "fork-match", "enterprise-origin", "token-in-origin",
+                      "lookup-fails")
     if layout in lookup_layouts and shutil.which("timeout") is None:
         pytest.skip("the PR lookup runs under timeout, which this host lacks")
     bindir = tmp_path / "bin"
@@ -3486,7 +3488,9 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
                    "fork-match": "5\ttrue\tfeature-x",
                    "enterprise-origin": "41\tfalse\tfeature-x",
                    "token-in-origin": "42\tfalse\tfeature-x",
-                   "path-origin": "43\tfalse\tfeature-x"}.get(layout, "")
+                   "path-origin": "43\tfalse\tfeature-x",
+                   "port-origin": "44\tfalse\tfeature-x",
+                   "lookup-fails": "45\tfalse\tfeature-x"}.get(layout, "")
     if layout == "digit-branch":
         view_answer = "123"   # gh resolves `pr view 123` as PR #123, not branch 123
     gh = bindir / "gh"
@@ -3496,7 +3500,9 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
         'case "$1 $2" in\n'
         f'  "pr view") echo {view_answer} ;;\n'
         f"  \"pr list\") printf '%b' '{list_answer}' ;;\n"
-        "esac\n")
+        "esac\n"
+        # One valid row, then failure: an answer that did not complete (pass 2).
+        + ("exit 1\n" if layout == "lookup-fails" else ""))
     gh.chmod(0o755)
     work = tmp_path / ("plain" if layout == "outside-git" else "widget-checkout")
     work.mkdir()
@@ -3511,7 +3517,10 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
                   # A credential in origin's URL must never reach gh's argv.
                   "token-in-origin": "https://x-access-token:SECRETVALUE@github.com/acme/widget",
                   # A path origin has no host to ask.
-                  "path-origin": "/srv/git/acme/widget.git"}.get(layout, "git@github.com:acme/widget.git")
+                  "path-origin": "/srv/git/acme/widget.git",
+                  # `-R host/...` cannot carry a port, so none is asked.
+                  "port-origin": "https://ghe.example.com:8443/acme/widget.git"}.get(
+                      layout, "git@github.com:acme/widget.git")
         if layout != "plain-branch-no-origin":
             _git(work, "remote", "add", "origin", origin)
         branch = {"issue-branch": "issue-77-widget", "long-branch": _LONG_BRANCH,
@@ -3562,6 +3571,8 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
         "enterprise-origin": f"cpp finish gate: acme/widget feature-x {sha}",
         "token-in-origin": f"cpp finish gate: acme/widget feature-x {sha}",
         "path-origin": f"cpp finish gate: acme/widget feature-x {sha}",
+        "port-origin": f"cpp finish gate: acme/widget feature-x {sha}",
+        "lookup-fails": f"cpp finish gate: acme/widget feature-x {sha}",
     }[layout]
     assert len(purpose) <= 300 and pairs.get("--purpose") == purpose, options
     if layout == "issue-branch":
