@@ -15,8 +15,10 @@ def lanes_marker_text(text: str, repo) -> str:
     rows count only below the line naming the run and plan approval stamped.
     No stamp (a helper older than #1821) leaves no line: nothing reads one."""
     import json
+    # The runner's sanitized `env`, like every other step: an inherited GIT_DIR
+    # would otherwise override -C and read another checkout's stamp.
     gd = subprocess.run(["git", "-C", str(repo), "rev-parse", "--absolute-git-dir"],
-                        capture_output=True, text=True).stdout.strip()
+                        capture_output=True, text=True, env=env).stdout.strip()
     stamp = Path(gd) / "flow-plan-lanes-42"
     marker = ""
     if gd and stamp.is_file():

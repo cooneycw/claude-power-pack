@@ -1269,3 +1269,20 @@ def test_an_unexpected_failure_in_the_lane_check_is_not_checked_never_shown(
     at_close = helper.lanes_at_close("42")
     assert at_close.state == "not-checked", at_close
     assert helper.lanes_clause(at_close) == ", LANES NOT CHECKED"
+
+
+
+def test_the_verdict_control_runner_ignores_a_foreign_git_dir(tmp_path: Path) -> None:
+    """Counter-model review of #1821, pass 4: the runner's marker lookup must use
+    its own sanitized environment, as every other step does."""
+    import sys
+    foreign = tmp_path / "foreign"
+    subprocess.run(["git", "init", "-q", str(foreign)], check=True)
+    assert (foreign / ".git").is_dir(), "precondition: an unrelated repository"
+    control = ROOT / "controls" / "flow-plan-record-lanes-verdict"
+    done = subprocess.run([sys.executable, str(control / "run-case.py"),
+                           str(control / "cases" / "good-every-lane-demonstrated"), str(HELPER)],
+                          capture_output=True, text=True,
+                          env={**os.environ, "GIT_DIR": str(foreign / ".git")})
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "LANES NOT" not in done.stdout
