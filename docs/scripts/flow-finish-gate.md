@@ -275,8 +275,12 @@ gate shares one service principal, so before this a queued or stuck gate
 showed in `kyle-lock status full-suite` as `issue: null, pr: null, purpose: ""`,
 indistinguishable from every other. The gate passes
 `--purpose "cpp finish gate: <owner/repo> <branch> <short-sha>"`, plus
-`--issue N` when the branch is `issue-<N>-...` and `--pr N` when a
-`timeout 15 gh pr view <branch>` answers a number. Without `timeout` on PATH no lookup is made
+`--issue N` when the branch is `issue-<N>-...` and `--pr N` when
+`timeout 15 gh pr list [-R <owner/repo>] --head <branch> --state open` answers
+exactly one PR whose head is this branch and which is not from a fork (#1831:
+`gh pr view <branch>` read an all-digit branch such as `123` as PR #123, so the
+lease named an unrelated PR; zero, two or more matches, another head branch or
+a fork's PR now leave `--pr` out). Without `timeout` on PATH no lookup is made
 and `--pr` is omitted. Each part is derived or left
 out, never guessed: the repository is the last two path segments of origin's
 URL (never the whole URL, which can carry a credential), else the checkout's

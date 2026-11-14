@@ -29,6 +29,7 @@ checkout resolution.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -3429,11 +3430,30 @@ def _recording_authority(path: Path) -> Path:
     return argv
 
 
+#: The gate's own --jq expression for the PR lookup, read from the gate so the
+#: argv assertion and the jq test below both follow what the gate runs (#1831).
+_PR_LIST_MATCH = re.search(r"gh pr list.*?--jq '([^']*)'",
+                           (ROOT / "scripts" / "flow-finish-gate.sh").read_text(), re.S)
+_PR_LIST_JQ = _PR_LIST_MATCH.group(1) if _PR_LIST_MATCH else "<the gate makes no pr list lookup>"
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="requires jq")
+def test_the_pr_lookup_jq_prints_one_tab_separated_line_per_pr() -> None:
+    """The fake gh above answers what this expression prints; here the real
+    expression runs on gh-shaped JSON, so the stand-in cannot drift from it."""
+    prs = [{"number": 5, "isCrossRepository": False, "headRefName": "123"},
+           {"number": 6, "isCrossRepository": True, "headRefName": "a b"}]
+    done = subprocess.run(["jq", "-r", _PR_LIST_JQ], input=json.dumps(prs), capture_output=True,
+                          text=True, timeout=30, check=True)
+    assert done.stdout.splitlines() == ["5\tfalse\t123", "6\ttrue\ta b"]
+
+
 @requires_git
 @requires_bash
 @pytest.mark.parametrize("layout", ["issue-branch", "plain-branch-no-origin", "detached", "outside-git",
                                     "long-branch", "no-timeout", "unicode-long-branch-C",
-                                    "unicode-long-branch-C.UTF-8"])
+                                    "unicode-long-branch-C.UTF-8", "digit-branch", "two-matches",
+                                    "head-mismatch", "fork-match"])
 def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
     """Issue #1828 A1: the lease names repo, branch and sha, plus --issue and
     --pr where they can be derived, and leaves out what cannot be. On the
@@ -3442,16 +3462,35 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
     # 2), so a layout that expects the lookup needs the real binary; the
     # no-timeout layout takes it off PATH and expects no lookup at all.
     lookup_layouts = ("issue-branch", "plain-branch-no-origin", "long-branch",
-                      "unicode-long-branch-C", "unicode-long-branch-C.UTF-8")
+                      "unicode-long-branch-C", "unicode-long-branch-C.UTF-8", "digit-branch",
+                      "two-matches", "head-mismatch", "fork-match")
     if layout in lookup_layouts and shutil.which("timeout") is None:
         pytest.skip("the PR lookup runs under timeout, which this host lacks")
     bindir = tmp_path / "bin"
     bindir.mkdir()
     gh_log = bindir / "gh.log"
-    gh_answer = {"issue-branch": "123", "plain-branch-no-origin": "not-a-number", "long-branch": "",
-                 "no-timeout": "123"}.get(layout, "")
+    # The fake answers `pr view` and `pr list` differently (issue #1831): `pr
+    # view <branch>` reads an all-digit branch as a PR NUMBER, so a gate still
+    # asking it would pass the view answer. `pr list` answers what the gate's
+    # --jq prints: one `number<TAB>isCrossRepository<TAB>headRefName` line per PR.
+    view_answer = "999"
+    list_answer = {"issue-branch": "123\tfalse\tissue-77-widget",
+                   "plain-branch-no-origin": "not-a-number\tfalse\tfeature-x",
+                   "no-timeout": "123\tfalse\tissue-77-widget",
+                   "digit-branch": "",
+                   "two-matches": "5\tfalse\tfeature-x\n6\tfalse\tfeature-x",
+                   "head-mismatch": "5\tfalse\tfeature-x-other",
+                   "fork-match": "5\ttrue\tfeature-x"}.get(layout, "")
+    if layout == "digit-branch":
+        view_answer = "123"   # gh resolves `pr view 123` as PR #123, not branch 123
     gh = bindir / "gh"
-    gh.write_text(f'#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "{gh_log}"\necho {gh_answer}\n')
+    gh.write_text(
+        "#!/usr/bin/env bash\n"
+        f'printf "%s\\n" "$*" >> "{gh_log}"\n'
+        'case "$1 $2" in\n'
+        f'  "pr view") echo {view_answer} ;;\n'
+        f"  \"pr list\") printf '%b' '{list_answer}' ;;\n"
+        "esac\n")
     gh.chmod(0o755)
     work = tmp_path / ("plain" if layout == "outside-git" else "widget-checkout")
     work.mkdir()
@@ -3466,7 +3505,8 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
             _git(work, "remote", "add", "origin", "git@github.com:acme/widget.git")
         branch = {"issue-branch": "issue-77-widget", "long-branch": _LONG_BRANCH,
                   "no-timeout": "issue-77-widget", "unicode-long-branch-C": _UNICODE_BRANCH,
-                  "unicode-long-branch-C.UTF-8": _UNICODE_BRANCH}.get(layout, "feature-x")
+                  "unicode-long-branch-C.UTF-8": _UNICODE_BRANCH,
+                  "digit-branch": "123"}.get(layout, "feature-x")
         _git(work, "checkout", "-q", "-b", branch)
         if layout == "detached":
             _git(work, "checkout", "-q", "--detach")
@@ -3504,6 +3544,10 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
         # non-ASCII branch too long to fit is left out, in either locale.
         "unicode-long-branch-C": f"cpp finish gate: acme/widget {sha}",
         "unicode-long-branch-C.UTF-8": f"cpp finish gate: acme/widget {sha}",
+        "digit-branch": f"cpp finish gate: acme/widget 123 {sha}",
+        "two-matches": f"cpp finish gate: acme/widget feature-x {sha}",
+        "head-mismatch": f"cpp finish gate: acme/widget feature-x {sha}",
+        "fork-match": f"cpp finish gate: acme/widget feature-x {sha}",
     }[layout]
     assert len(purpose) <= 300 and pairs.get("--purpose") == purpose, options
     if layout == "issue-branch":
@@ -3514,9 +3558,13 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
     else:
         assert "--issue" not in pairs, options
         assert "--pr" not in pairs, options  # never a guessed or non-numeric PR
-    # The PR lookup runs only for a named branch, and asks about THAT branch.
+    # The PR lookup runs only for a named branch, and asks for PRs whose HEAD is
+    # THAT branch, in this repository when origin names it (#1831).
     if layout in lookup_layouts:
-        assert gh_log.read_text().splitlines() == [f"pr view {branch} --json number --jq .number"]
+        repo_arg = "" if layout == "plain-branch-no-origin" else "-R acme/widget "
+        assert gh_log.read_text().splitlines() == [
+            f"pr list {repo_arg}--head {branch} --state open "
+            f"--json number,headRefName,isCrossRepository --jq {_PR_LIST_JQ}"]
     else:
         assert not gh_log.exists()
 

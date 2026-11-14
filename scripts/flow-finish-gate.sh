@@ -429,9 +429,27 @@ if coordination_admission_on && [[ "$MODE" == "gate" && "${CPP_KYLE_FULL_SUITE_A
             _coordination_identity+=(--issue "${BASH_REMATCH[1]}")
         fi
         # The PR lookup is the one network call; it is bounded and optional.
+        # It asks for PRs whose HEAD BRANCH is this one (issue #1831): `gh pr
+        # view <branch>` reads an all-digit branch such as `123` as PR #123.
+        # A number is passed only when exactly one open PR answers, its head is
+        # this branch, and it is not from a fork; anything else is left out.
         if [[ -n "$_coordination_branch" ]] && command -v gh >/dev/null 2>&1 \
             && command -v timeout >/dev/null 2>&1; then
-            _coordination_pr="$(timeout 15 gh pr view "$_coordination_branch" --json number --jq .number 2>/dev/null)"
+            _coordination_repo_arg=()
+            [[ "$_coordination_repo" != */* ]] || _coordination_repo_arg=(-R "$_coordination_repo")
+            _coordination_prs="$(timeout 15 gh pr list "${_coordination_repo_arg[@]}" \
+                --head "$_coordination_branch" --state open \
+                --json number,headRefName,isCrossRepository \
+                --jq '.[] | "\(.number)\t\(.isCrossRepository)\t\(.headRefName)"' 2>/dev/null)"
+            _coordination_pr=""
+            if [[ -n "$_coordination_prs" && "$_coordination_prs" != *$'\n'* ]]; then
+                IFS=$'\t' read -r _coordination_pr_number _coordination_pr_fork _coordination_pr_head \
+                    <<< "$_coordination_prs"
+                if [[ "$_coordination_pr_fork" == "false" \
+                    && "$_coordination_pr_head" == "$_coordination_branch" ]]; then
+                    _coordination_pr="$_coordination_pr_number"
+                fi
+            fi
             [[ ! "$_coordination_pr" =~ ^[1-9][0-9]{0,8}$ ]] \
                 || _coordination_identity+=(--pr "$_coordination_pr")
         fi

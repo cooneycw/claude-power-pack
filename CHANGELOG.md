@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- The finish gate's Kyle lease no longer names an unrelated PR for an
+  all-digit branch (#1831). It looks the PR up by head branch
+  (`gh pr list --head`) and passes `--pr` only when exactly one open,
+  same-repository PR on that branch answers; `gh pr view 123` had read branch
+  `123` as PR #123. The gate's verdict was never affected.
 - The close-time lane check now takes what a run owes from its approval, not
   from the lane file at close, and counts only demonstration rows below this
   run's own `<!-- lanes-demonstrated run=... plan=... -->` line, which the
