@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Delegated Codex, Qwen and Gemma drivers now record approved plans, refuse
+  omitted project lanes before delegation, ask the lane review question, and
+  report close-time lane evidence using the existing flow plan helper (#1809).
+
 - The bootstrap shell wrapper loads CPP's checker from an external working
   directory (#1803). It still uses ambient `python3` and checks its own CPP
   checkout's bootstrap configuration. Python starts in CPP, preventing caller
