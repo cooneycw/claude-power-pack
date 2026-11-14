@@ -163,3 +163,25 @@ def test_both_product_guards_load_one_shared_evidence_definition():
     assert core.count(":(top,exclude,glob)docs/measurements/counter-model/*-issue-$1.json") == 1
     assert core.count('source "$EVIDENCE_LIBRARY"') == 2
     assert core.count('"${DELEGATED_PRODUCT_PATHS[@]}"') == 3
+
+
+
+@pytest.mark.parametrize("driver", ["codex", "qwen", "gemma"])
+def test_a_foreign_git_dir_in_the_callers_environment_does_not_reach_the_marker_lookup(driver, tmp_path):
+    """Counter-model review of #1821, pass 4: the marker lookup ran git with the
+    caller's environment, where an inherited GIT_DIR overrides `-C` and reads
+    another checkout's stamp. A good case stays good with one set."""
+    import os
+    import shutil as _shutil
+    if _shutil.which("git") is None:
+        pytest.skip("requires git")
+    foreign = tmp_path / "foreign"
+    subprocess.run(["git", "init", "-q", str(foreign)], check=True)
+    assert (foreign / ".git").is_dir(), "precondition: an unrelated repository"
+    case = ROOT / f"controls/delegated-{driver}-plan-lanes/cases/close-every-lane-demonstrated"
+    done = subprocess.run([sys.executable, str(RUNNER), driver, str(case),
+                           str(ROOT / "scripts/flow-plan-record.py"), "compliance"],
+                          capture_output=True, text=True, timeout=45,
+                          env={**os.environ, "GIT_DIR": str(foreign / ".git")})
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "PLAN_COMPLIANCE: agreement" in done.stdout and "LANES NOT" not in done.stdout

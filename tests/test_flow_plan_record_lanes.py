@@ -172,10 +172,44 @@ def test_every_lane_answered_is_approved(repo: Path) -> None:
 
 
 @pytest.mark.parametrize("answer", ["will test", "Will Test - how", "will refuse", "not applicable",
-                                    "not covered", "**will test**", "`not covered`"])
+                                    "not covered", "**will test**", "`not covered`",
+                                    "will test - via X", "not applicable: reason",
+                                    "`will refuse`", "_not covered_", "will test, via X",
+                                    "will test (Claude install)"])
 def test_each_of_the_four_answers_counts(repo: Path, answer: str) -> None:
     begin(repo, PLAN + FULL_TABLE.replace("| Checkout | will test |", f"| Checkout | {answer} |"))
     assert run(repo, "approve", "42").returncode == 0
+
+
+@pytest.mark.parametrize("answer", ["not applicablewhatever", "will testing", "will tested",
+                                    "not covered2", "needs a decision", "will_test"])
+def test_an_answer_that_runs_past_its_phrase_is_refused(repo: Path, answer: str) -> None:
+    """Issue #1822: a bare prefix match took `not applicablewhatever` as an
+    answer. The phrase must end at the cell's end, whitespace or punctuation."""
+    begin(repo, PLAN + FULL_TABLE.replace("| Checkout | will test |", f"| Checkout | {answer} |"))
+    done = run(repo, "approve", "42")
+    assert done.returncode == 1, done.stdout + done.stderr
+    assert "leaves these listed lanes unanswered: Checkout." in done.stdout
+    assert written(repo) == (False, False)
+
+
+@pytest.mark.parametrize("cell,expected", [
+    ("will test", "will test"), ("Will Test - via X", "will test"), ("**will test**", "will test"),
+    ("`will test`", "will test"), ("will test; how", "will test"),
+    ("will testing", None), ("will tested", None), ("will test2", None),
+    ("will refuse", "will refuse"), ("not applicable: reason", "not applicable"),
+    ("needs a decision", None), ("", None),
+])
+def test_lane_answer_matches_whole_phrases_only(cell: str, expected: str | None) -> None:
+    assert _load_helper().lane_answer(cell) == expected
+
+
+def test_will_test_lanes_takes_only_whole_phrase_answers() -> None:
+    """The close-time reader (`will_test_lanes`) had the same prefix match (issue #1822)."""
+    section = (PLAN + "\n### Lanes for this change\n\n| Lane | Answer |\n|---|---|\n"
+               "| Checkout | will test - via a linked worktree |\n| Harness | will testing |\n"
+               "| Project state | `will test` |\n")
+    assert _load_helper().will_test_lanes(section) == ["Checkout", "Project state"]
 
 
 def test_a_lane_the_project_does_not_list_is_ignored(repo: Path) -> None:
@@ -461,6 +495,18 @@ def test_a_backtick_line_that_cannot_open_a_fence_does_not_unquote_what_follows(
 # (a fenced heading, an indented heading, a numbered plan line with a pipe).
 # So nothing is left out, and these tests hold the digest still.
 
+def bind(repo: Path, body: str) -> str:
+    """`body` under THIS run's line, as the stderr note says to write it (#1821):
+    rows count only below the line naming the run and the plan its approval
+    stamped. Read from that stamp, so it is the line the helper itself wants."""
+    import json
+
+    gd = Path(git(repo, "rev-parse", "--absolute-git-dir").strip())
+    stamp = json.loads((gd / "flow-plan-lanes-42").read_text())
+    return (f"<!-- lanes-demonstrated run={stamp['run_id']} plan={stamp['plan_digest']} -->\n\n"
+            + body)
+
+
 DEMONSTRATED = """# Lanes demonstrated - issue #42
 
 | Lane | What happened |
@@ -569,18 +615,18 @@ def test_no_demonstrated_file_is_reported_with_the_lanes_owed(repo: Path) -> Non
 def test_a_will_test_lane_with_no_row_is_named(repo: Path) -> None:
     approved(repo)
     quiet = compliance(repo)
-    (repo / SIBLING).write_text(DEMONSTRATED.replace("| Harness | tested through a symlink |\n", ""))
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED.replace("| Harness | tested through a symlink |\n", "")))
     partial = compliance(repo)
     assert f"has no row in {SIBLING} - Harness" in partial.stderr
     assert "- Checkout" not in partial.stderr
     assert partial.stdout.replace("\n", "") != "" and partial.returncode == quiet.returncode
-    (repo / SIBLING).write_text(DEMONSTRATED.replace("tested through a symlink", " "))
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED.replace("tested through a symlink", " ")))
     assert f"has no row in {SIBLING} - Harness" in compliance(repo).stderr, "an empty cell is no row"
 
 
 def test_every_will_test_lane_demonstrated_draws_no_note(repo: Path) -> None:
     approved(repo)
-    (repo / SIBLING).write_text(DEMONSTRATED)
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED))
     assert "lanes-demonstrated" not in compliance(repo).stderr
 
 
@@ -603,7 +649,7 @@ def test_an_unreadable_demonstrated_file_is_unreadable_not_missing(repo: Path, k
 
 def test_rows_quoted_in_a_code_fence_are_not_rows(repo: Path) -> None:
     approved(repo)
-    (repo / SIBLING).write_text("# Example\n\n```\n" + DEMONSTRATED + "```\n")
+    (repo / SIBLING).write_text(bind(repo, "# Example\n\n```\n" + DEMONSTRATED + "```\n"))
     assert f"has no row in {SIBLING} - Checkout" in compliance(repo).stderr
 
 
@@ -670,12 +716,12 @@ def test_a_will_test_lane_with_nothing_shown_is_on_the_verdict_line(repo: Path, 
 @pytest.mark.parametrize("word", WORDS)
 def test_only_the_lanes_still_missing_are_named_and_a_full_file_clears_the_line(repo: Path, word: str) -> None:
     approved(repo)
-    (repo / SIBLING).write_text(DEMONSTRATED.replace("| Harness | tested through a symlink |\n", ""))
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED.replace("| Harness | tested through a symlink |\n", "")))
     assert verdict(compliance_as(repo, word)).startswith(
         f"PLAN_COMPLIANCE: {word}, LANES NOT DEMONSTRATED (1)")
-    (repo / SIBLING).write_text(DEMONSTRATED.replace("tested through a symlink", " "))
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED.replace("tested through a symlink", " ")))
     assert ", LANES NOT DEMONSTRATED (1)" in verdict(compliance_as(repo, word)), "an empty cell is no row"
-    (repo / SIBLING).write_text(DEMONSTRATED)
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED))
     assert "LANES" not in verdict(compliance_as(repo, word))
 
 
@@ -711,19 +757,18 @@ def _damage_lane_file(repo: Path, how: str) -> None:
         raise AssertionError(how)
 
 
-def test_a_lane_file_that_cannot_be_read_at_close_is_not_checked_on_the_line(repo: Path) -> None:
-    """At approval an unusable lane file refuses. At close the plan is already
-    approved, so the answer is on the line: could not check - not silence, and
-    not the clean line a project without lanes gets."""
+@pytest.mark.parametrize("how", ["absent", "unusable"])
+def test_a_lane_file_damaged_after_approval_changes_nothing_owed(repo: Path, how: str) -> None:
+    """At approval an unusable lane file refuses. After approval the plan's
+    obligations are already stamped (#1821), so what the lane file has become
+    is not read: shown lanes stay shown, and missing ones stay missing."""
     approved(repo)
-    (repo / SIBLING).write_text(DEMONSTRATED)
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED))
     assert "LANES" not in verdict(compliance_as(repo, "divergence")), "precondition: clean before the damage"
-    _damage_lane_file(repo, "unusable")
-    done = compliance_as(repo, "divergence")
-    assert verdict(done).startswith("PLAN_COMPLIANCE: divergence, LANES NOT CHECKED - ")
-    assert ".claude/lanes.md is not a regular file, so the lanes this plan said it would test" in done.stderr
-    assert [ln.rsplit(" - ", 1)[1] for ln in done.stderr.splitlines() if "was not checked - " in ln] == [
-        "Checkout", "Harness"]
+    _damage_lane_file(repo, how)
+    assert "LANES" not in verdict(compliance_as(repo, "divergence"))
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED.replace("| Harness | tested through a symlink |\n", "")))
+    assert ", LANES NOT DEMONSTRATED (1)" in verdict(compliance_as(repo, "divergence"))
 
 
 BYTE_IDENTICAL = {
@@ -743,7 +788,7 @@ def test_where_nothing_is_owed_a_file_at_the_demonstrated_path_is_still_a_touche
     lanes, section, _unused = BYTE_IDENTICAL[case]
     r = make_repo(tmp_path / "wt", lanes=lanes)
     approved(r, section)
-    (r / SIBLING).write_text(DEMONSTRATED)
+    (r / SIBLING).write_text(bind(r, DEMONSTRATED))
     base = git(r, "rev-parse", "main").strip()
     if word == "agreement":
         (r / "src").mkdir()
@@ -782,7 +827,7 @@ def test_writing_the_demonstrated_file_does_not_itself_make_a_divergence(repo: P
     approved(repo)
     assert verdict(compliance_as(repo, "agreement")).startswith(
         "PLAN_COMPLIANCE: agreement, LANES NOT DEMONSTRATED (2) - "), "precondition"
-    (repo / SIBLING).write_text(DEMONSTRATED)
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED))
     if committed:
         git(repo, "add", "-A")
         git(repo, "commit", "-qm", "work and lanes")
@@ -848,9 +893,9 @@ def test_the_clause_is_the_same_from_a_plain_repository_and_a_linked_worktree(
     r = make_checkout(tmp_path, shape)
     approved(r)
     assert verdict(compliance_as(r, word)).startswith(f"PLAN_COMPLIANCE: {word}, LANES NOT DEMONSTRATED (2)")
-    (r / SIBLING).write_text(DEMONSTRATED.replace("| Harness | tested through a symlink |\n", ""))
+    (r / SIBLING).write_text(bind(r, DEMONSTRATED.replace("| Harness | tested through a symlink |\n", "")))
     assert verdict(compliance_as(r, word)).startswith(f"PLAN_COMPLIANCE: {word}, LANES NOT DEMONSTRATED (1)")
-    (r / SIBLING).write_text(DEMONSTRATED)
+    (r / SIBLING).write_text(bind(r, DEMONSTRATED))
     done = compliance_as(r, word)
     assert "LANES" not in verdict(done) and str(SIBLING) not in done.stdout
     (r / SIBLING).unlink()
@@ -858,15 +903,36 @@ def test_the_clause_is_the_same_from_a_plain_repository_and_a_linked_worktree(
     assert verdict(compliance_as(r, word)).startswith(f"PLAN_COMPLIANCE: {word}, LANES NOT CHECKED")
 
 
-def test_from_a_linked_worktree_the_lane_file_read_is_the_worktrees_own(tmp_path: Path) -> None:
-    """The lane file is read from the checkout the run is in, not from the main
-    checkout it is linked to: remove it in the worktree and nothing is owed
-    there, whatever the main checkout still holds."""
-    r = make_checkout(tmp_path, "linked worktree")
+@pytest.mark.parametrize("shape", ["plain repository", "linked worktree"])
+def test_deleting_the_lane_file_after_approval_does_not_cancel_what_was_owed(
+        tmp_path: Path, shape: str) -> None:
+    """Re-specified by #1821. Until then this test REQUIRED the opposite: remove
+    the lane file after approval and the line went silent, so deleting one
+    file erased every promise the approved plan made. What is owed is now
+    decided at approval and stamped; the lane file's state at close is not
+    consulted at all."""
+    r = make_checkout(tmp_path, shape)
     approved(r)
     assert ", LANES NOT DEMONSTRATED (2)" in verdict(compliance_as(r, "divergence"))
     (r / ".claude" / "lanes.md").unlink()
+    assert not (r / ".claude" / "lanes.md").exists(), "precondition: the lane file is gone"
+    done = compliance_as(r, "divergence")
+    assert ", LANES NOT DEMONSTRATED (2)" in verdict(done)
+    assert [ln.rsplit(" - ", 1)[1] for ln in done.stderr.splitlines() if "has no row in" in ln] == [
+        "Checkout", "Harness"]
+    (r / SIBLING).write_text(bind(r, DEMONSTRATED))
+    assert "LANES" not in verdict(compliance_as(r, "divergence")), "and evidence still clears it"
+
+
+def test_from_a_linked_worktree_the_lane_file_read_at_approval_is_the_worktrees_own(
+        tmp_path: Path) -> None:
+    """Adoption is read from the checkout the run is in, at approval: with the
+    worktree's lane file removed BEFORE approval nothing is owed there,
+    whatever the main checkout still holds."""
+    r = make_checkout(tmp_path, "linked worktree")
+    (r / ".claude" / "lanes.md").unlink()
     assert (tmp_path / "main" / ".claude" / "lanes.md").is_file(), "precondition: main still has one"
+    approved(r)
     assert "LANES" not in verdict(compliance_as(r, "divergence"))
 
 
@@ -886,7 +952,7 @@ def test_a_lane_named_with_delimiters_cannot_change_the_shape_of_the_line(tmp_pa
     marker = f"has no row in {SIBLING} - "
     assert [ln.split(marker, 1)[1] for ln in done.stderr.splitlines() if marker in ln] == [
         HOSTILE_LANE, "Harness"]
-    (r / SIBLING).write_text(DEMONSTRATED.replace("| Checkout |", f"| {HOSTILE_LANE} |"))
+    (r / SIBLING).write_text(bind(r, DEMONSTRATED.replace("| Checkout |", f"| {HOSTILE_LANE} |")))
     assert "LANES" not in verdict(compliance_as(r, "divergence")), "the name still matches its own row"
 
 
@@ -924,48 +990,49 @@ def _load_helper():
 LANE_FILE_STATES = ("absent", "present", "unusable")
 PLAN_STATES = {"table": PLAN + FULL_TABLE, "waived": WAIVED, "no-table": PLAN}
 SHOWN_STATES = ("present", "missing", "unreadable")
+#: Approval with a lane file refuses a plan with no table, so that pairing
+#: cannot reach close and is not a combination.
+COMBINATIONS = [(approval, close, plan, shown)
+                for approval in ("absent", "present") for close in LANE_FILE_STATES
+                for plan in sorted(PLAN_STATES) for shown in SHOWN_STATES
+                if not (approval == "present" and plan == "no-table")]
 
 
-def _expected_state(lane_file: str, plan: str, shown: str) -> str:
-    if lane_file == "absent":
+def _expected_state(at_approval: str, plan: str, shown: str) -> str:
+    """The lane file's state at CLOSE is not an argument: since #1821 it decides nothing."""
+    if at_approval == "absent" or plan != "table":
         return "nothing-owed"
-    if plan != "table":
-        return "nothing-owed"       # the plan owes nothing, whatever the lane file's state
-    if lane_file == "unusable":
-        return "not-checked"
     return {"present": "all-shown", "missing": "missing", "unreadable": "not-checked"}[shown]
 
 
-@pytest.mark.parametrize("shown", SHOWN_STATES)
-@pytest.mark.parametrize("plan", sorted(PLAN_STATES))
-@pytest.mark.parametrize("lane_file", LANE_FILE_STATES)
+@pytest.mark.parametrize(("at_approval", "at_close", "plan", "shown"), COMBINATIONS)
 def test_every_combination_lands_in_exactly_one_of_the_four_states(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lane_file: str, plan: str, shown: str) -> None:
-    """Lane file x plan table x demonstrated file: 27 combinations, each in one
-    named state, and the line and the note both follow from that state alone."""
-    # Approved with no lane file (approval then accepts any of the three plans),
-    # and the lane file put into its state afterwards.
-    r = make_repo(tmp_path / "wt", lanes=None)
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        at_approval: str, at_close: str, plan: str, shown: str) -> None:
+    """Lane file at approval x lane file at close x plan table x demonstrated
+    file, each in one named state, and the line and the note both follow from
+    that state alone."""
+    r = make_repo(tmp_path / "wt", lanes=LANES if at_approval == "present" else None)
     approved(r, PLAN_STATES[plan])
-    _damage_lane_file(r, lane_file)
+    _damage_lane_file(r, at_close)
     if shown == "present":
-        (r / SIBLING).write_text(DEMONSTRATED)
+        (r / SIBLING).write_text(bind(r, DEMONSTRATED))
     elif shown == "unreadable":
         (r / SIBLING).mkdir()
     helper = _load_helper()
     monkeypatch.chdir(r)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-lanes")
-    at_close = helper.lanes_at_close("42")
-    assert at_close.state in helper.LANES_AT_CLOSE_STATES
+    at_close_state = helper.lanes_at_close("42")
+    assert at_close_state.state in helper.LANES_AT_CLOSE_STATES
     assert len(helper.LANES_AT_CLOSE_STATES) == 4
-    assert at_close.state == _expected_state(lane_file, plan, shown)
-    clause, note = helper.lanes_clause(at_close), helper.lanes_note(at_close)
-    quiet = at_close.state in ("nothing-owed", "all-shown")
+    assert at_close_state.state == _expected_state(at_approval, plan, shown)
+    clause, note = helper.lanes_clause(at_close_state), helper.lanes_note(at_close_state)
+    quiet = at_close_state.state in ("nothing-owed", "all-shown")
     assert (clause == "") is quiet and (note == []) is quiet, "the line and the note disagree"
     assert quiet or CLAUSE_SHAPE.fullmatch(clause), clause
     named = [ln.rsplit(" - ", 1)[1] for ln in note if "has no row in" in ln]
-    if at_close.state == "missing":
-        assert clause == f", LANES NOT DEMONSTRATED ({len(named)})" and named == list(at_close.lanes)
+    if at_close_state.state == "missing":
+        assert clause == f", LANES NOT DEMONSTRATED ({len(named)})" and named == list(at_close_state.lanes)
         assert len(named) >= 1
     else:
         assert named == []
@@ -986,7 +1053,7 @@ def test_a_plan_that_owes_nothing_is_untouched_by_an_unusable_lane_file(
     approved(r, sections[plan])
     _damage_lane_file(r, "unusable")
     if shown == "present":
-        (r / SIBLING).write_text(DEMONSTRATED)
+        (r / SIBLING).write_text(bind(r, DEMONSTRATED))
     elif shown == "unreadable":
         (r / SIBLING).mkdir()
     base = git(r, "rev-parse", "main").strip()
@@ -999,7 +1066,7 @@ def test_a_plan_that_owes_nothing_is_untouched_by_an_unusable_lane_file(
 
 
 def test_the_combination_table_reaches_all_four_states() -> None:
-    reached = {_expected_state(a, b, c) for a in LANE_FILE_STATES for b in PLAN_STATES for c in SHOWN_STATES}
+    reached = {_expected_state(a, p, sh) for a, _c, p, sh in COMBINATIONS}
     assert reached == {"nothing-owed", "all-shown", "missing", "not-checked"}
 
 
@@ -1020,3 +1087,236 @@ def test_a_lane_name_with_something_appended_is_unanswered_and_the_refusal_says_
     done = run(repo, "approve", "42")
     assert done.returncode == 1 and "unanswered: Checkout." in done.stdout
     assert "first cell is the lane's name exactly as .claude/lanes.md lists it" in done.stdout
+
+
+# --- evidence and obligations belong to the approval (#1821) -----------------
+#
+# Two false greens, both reproduced in review of d90712ee: run 2 of an issue
+# was satisfied by run 1's unchanged rows, and deleting the lane file after
+# approval erased the obligation (now pinned above). Each case below reports
+# the wrong verdict on the helper before #1821.
+
+def stamp_path(repo: Path) -> Path:
+    return Path(git(repo, "rev-parse", "--absolute-git-dir").strip()) / "flow-plan-lanes-42"
+
+
+def start_a_second_run(repo: Path, section: str = PLAN + FULL_TABLE) -> None:
+    """A fresh worktree picking the issue up again: the committed record and
+    demonstrated file travel with the branch; the per-worktree run state does
+    not. Removing that state here is what a new checkout of the branch has."""
+    gd = Path(git(repo, "rev-parse", "--absolute-git-dir").strip())
+    for leftover in gd.glob("flow-plan-*42*"):
+        leftover.unlink()
+    assert not stamp_path(repo).exists(), "precondition: no run state is carried over"
+    for args in (("reconcile", "42"), ("begin-run", "42")):
+        done = run(repo, *args)
+        assert done.returncode == 0, done.stdout + done.stderr
+    with (repo / "docs" / "flow-runs" / "issue-42.md").open("a") as fh:
+        fh.write(section)
+    done = run(repo, "approve", "42")
+    assert done.returncode == 0, done.stdout + done.stderr
+
+
+def test_a_previous_runs_unchanged_evidence_does_not_satisfy_a_new_run(repo: Path) -> None:
+    approved(repo)
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED))
+    assert "LANES" not in verdict(compliance_as(repo, "divergence")), "precondition: run 1 is clean"
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run 1 evidence")
+    start_a_second_run(repo)
+    record = (repo / "docs" / "flow-runs" / "issue-42.md").read_text()
+    assert record.count("<!-- flow-run n=") == 2, "precondition: two runs in the record"
+    done = compliance_as(repo, "divergence")
+    assert ", LANES NOT DEMONSTRATED (2)" in verdict(done), "run 1's rows were taken for run 2's"
+    assert f"{SIBLING} has no rows for this run" in done.stderr
+    with (repo / SIBLING).open("a") as fh:
+        fh.write("\n" + bind(repo, DEMONSTRATED.replace("| Harness | tested through a symlink |\n", "")))
+    assert ", LANES NOT DEMONSTRATED (1)" in verdict(compliance_as(repo, "divergence")), \
+        "run 2's own section counts; run 1's row for Harness above it does not"
+    with (repo / SIBLING).open("a") as fh:
+        fh.write("| Harness | run 2 tested through a symlink |\n")
+    assert "LANES" not in verdict(compliance_as(repo, "divergence"))
+
+
+def test_identical_rows_under_another_runs_line_do_not_count_and_under_this_runs_do(repo: Path) -> None:
+    """Counter-model review, pass 2: text cannot say who wrote a row. The same
+    rows count under this run's line and not under anyone else's."""
+    approved(repo)
+    foreign = "<!-- lanes-demonstrated run=" + "0" * 32 + " plan=" + "0" * 64 + " -->\n\n"
+    (repo / SIBLING).write_text(foreign + DEMONSTRATED)
+    assert ", LANES NOT DEMONSTRATED (2)" in verdict(compliance_as(repo, "divergence"))
+    (repo / SIBLING).write_text(foreign + DEMONSTRATED + "\n" + bind(repo, DEMONSTRATED))
+    assert "LANES" not in verdict(compliance_as(repo, "divergence"))
+    (repo / SIBLING).write_text(bind(repo, "| Lane | What happened |\n|---|---|\n| Checkout | x |\n")
+                                + "\n" + foreign + DEMONSTRATED)
+    assert ", LANES NOT DEMONSTRATED (1)" in verdict(compliance_as(repo, "divergence")), \
+        "the next run's line ends this run's section"
+
+
+def test_this_runs_line_inside_a_code_fence_opens_nothing(repo: Path) -> None:
+    approved(repo)
+    (repo / SIBLING).write_text("```\n" + bind(repo, "") + "```\n\n" + DEMONSTRATED)
+    assert ", LANES NOT DEMONSTRATED (2)" in verdict(compliance_as(repo, "divergence"))
+
+
+def test_re_approving_a_changed_plan_makes_earlier_evidence_stale(repo: Path) -> None:
+    """Rows name the plan their run approved. Re-approving the SAME section
+    keeps them; re-approving after the section changed does not."""
+    record = approved(repo)
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED))
+    assert "LANES" not in verdict(compliance_as(repo, "divergence")), "precondition"
+    assert run(repo, "approve", "42").returncode == 0
+    assert "LANES" not in verdict(compliance_as(repo, "divergence")), "the same plan, re-approved"
+    with record.open("a") as fh:
+        fh.write("Risks: one more, added before re-approval\n")
+    assert run(repo, "approve", "42").returncode == 0
+    done = compliance_as(repo, "divergence")
+    assert ", LANES NOT DEMONSTRATED (2)" in verdict(done)
+    assert f"{SIBLING} has no rows for this run" in done.stderr
+
+
+def test_a_project_without_lanes_at_approval_stays_silent_when_a_lane_file_appears(tmp_path: Path) -> None:
+    r = make_repo(tmp_path / "wt", lanes=None)
+    approved(r)
+    _damage_lane_file(r, "present")
+    new = compliance_as(r, "divergence")
+    old = compliance_as(r, "divergence", helper=PRE_1767)
+    strip = lambda s: re.sub(r"FLOW_PLAN_RECORD_SELF: .*\n", "", s)   # noqa: E731
+    assert "LANES" not in new.stdout
+    assert strip(new.stdout) == strip(old.stdout)
+    assert "demonstrated" not in new.stderr
+    assert "demonstrated" in old.stderr, "precondition: the older helper read the lane file at close"
+
+
+@pytest.mark.parametrize("section", [PLAN + FULL_TABLE, WAIVED], ids=["will-test", "waived"])
+def test_with_no_lane_stamp_a_plan_that_owes_lanes_is_not_checked(repo: Path, section: str) -> None:
+    """Approved by a helper older than #1821: nothing says what that approval
+    owed or which rows predate it, so a plan with `will test` lanes is NOT
+    CHECKED, never silent; a plan that owes nothing is left as it was."""
+    begin(repo, section, helper=BEFORE)
+    assert run(repo, "approve", "42", helper=BEFORE).returncode == 0
+    assert not stamp_path(repo).exists(), "precondition: the old helper writes no stamp"
+    (repo / SIBLING).write_text(DEMONSTRATED)
+    done = compliance_as(repo, "divergence")
+    if section == WAIVED:
+        assert "LANES" not in verdict(done)
+        return
+    assert ", LANES NOT CHECKED - " in verdict(done)
+    assert "re-run `flow-plan-record.py approve 42`" in done.stderr
+    assert [ln.rsplit(" - ", 1)[1] for ln in done.stderr.splitlines() if "was not checked - " in ln] == [
+        "Checkout", "Harness"]
+
+
+@pytest.mark.parametrize("damage", ["not json", "wrong shape", "directory"])
+def test_a_damaged_lane_stamp_is_not_checked_never_nothing_owed(repo: Path, damage: str) -> None:
+    approved(repo)
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED))
+    path = stamp_path(repo)
+    assert path.is_file(), "precondition: approval wrote a stamp"
+    if damage == "not json":
+        path.write_text("{")
+    elif damage == "wrong shape":
+        path.write_text('{"version": 1, "run_id": 7}\n')
+    else:
+        path.unlink()
+        path.mkdir()
+    done = compliance_as(repo, "divergence")
+    assert ", LANES NOT CHECKED - " in verdict(done)
+    assert "lane stamp" in done.stderr
+
+
+def test_a_stamp_from_another_run_is_not_this_runs(repo: Path) -> None:
+    approved(repo)
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED))
+    path = stamp_path(repo)
+    path.write_text(path.read_text().replace('"run_id": "', '"run_id": "0'))
+    assert ", LANES NOT CHECKED - " in verdict(compliance_as(repo, "divergence"))
+
+
+def test_a_plan_changed_after_approval_is_not_checked_against_its_stamp(repo: Path) -> None:
+    record = approved(repo)
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED))
+    with record.open("a") as fh:
+        fh.write("\n  2. `src/other.py` - slipped in\n")
+    done = compliance_as(repo, "divergence")
+    assert ", LANES NOT CHECKED - " in verdict(done)
+    assert "is not the plan its approval stamped" in done.stderr
+
+
+def test_another_runs_evidence_merged_in_after_approval_does_not_count(repo: Path) -> None:
+    """Counter-model review of #1821: run A of this issue merged its evidence
+    upstream; run B, approved before that, merges main afterwards. A's rows
+    are new to B's tree but are A's - not under B's line - so they do not
+    answer for B, whatever main later does to them."""
+    main = git(repo, "rev-parse", "main").strip()
+    git(repo, "checkout", "-q", "-b", "run-a", main)
+    (repo / SIBLING).parent.mkdir(parents=True, exist_ok=True)
+    (repo / SIBLING).write_text(DEMONSTRATED)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run A's evidence, merged upstream")
+    git(repo, "update-ref", "refs/remotes/origin/main", "run-a")
+    git(repo, "checkout", "-q", "issue-42-a-fixture")
+    approved(repo)
+    assert not (repo / SIBLING).exists(), "precondition: run B approved before A's evidence arrived"
+    git(repo, "merge", "-q", "--no-edit", "origin/main")
+    assert (repo / SIBLING).read_text() == DEMONSTRATED, "precondition: A's rows are now in B's tree"
+    done = run(repo, "compliance", "42")
+    assert ", LANES NOT DEMONSTRATED (2)" in verdict(done), done.stdout + done.stderr
+    assert f"{SIBLING} has no rows for this run" in done.stderr
+    with (repo / SIBLING).open("a") as fh:
+        fh.write("\n" + bind(repo, DEMONSTRATED))
+    assert ", LANES NOT" not in verdict(run(repo, "compliance", "42")), "B's own rows count"
+
+
+@pytest.mark.parametrize("project", ["waived plan", "no lane file"])
+def test_a_damaged_lane_stamp_says_nothing_where_nothing_is_owed(tmp_path: Path, project: str) -> None:
+    """Counter-model review of #1821: a stamp that cannot be read is NOT CHECKED
+    only where the plan owes lanes; a plan owing nothing stays silent."""
+    r = make_repo(tmp_path / "wt", lanes=None if project == "no lane file" else LANES)
+    approved(r, PLAN if project == "no lane file" else WAIVED)
+    stamp_path(r).write_text("{")
+    new = compliance_as(r, "divergence")
+    old = compliance_as(r, "divergence", helper=PRE_1767)
+    strip = lambda s: re.sub(r"FLOW_PLAN_RECORD_SELF: .*\n", "", s)   # noqa: E731
+    assert "LANES" not in new.stdout
+    assert strip(new.stdout) == strip(old.stdout) and new.stderr == old.stderr
+
+
+@pytest.mark.parametrize("where", ["bound_rows", "read_lanes_stamp", "read_text_file"])
+def test_an_unexpected_failure_in_the_lane_check_is_not_checked_never_shown(
+        repo: Path, monkeypatch: pytest.MonkeyPatch, where: str) -> None:
+    """Counter-model review, pass 3: a duplicated handler returned `all-shown`
+    for any exception, so a crash read as every lane demonstrated. Fault
+    injection: with a lane genuinely missing, a failure anywhere in the check
+    is NOT CHECKED - never shown, never silent."""
+    approved(repo)
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED.replace("| Harness | tested through a symlink |\n", "")))
+    helper = _load_helper()
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-lanes")
+    assert helper.lanes_at_close("42").state == "missing", "precondition: a lane is genuinely missing"
+
+    def boom(*_a, **_k):
+        raise RuntimeError("injected")
+
+    monkeypatch.setattr(helper, where, boom)
+    at_close = helper.lanes_at_close("42")
+    assert at_close.state == "not-checked", at_close
+    assert helper.lanes_clause(at_close) == ", LANES NOT CHECKED"
+
+
+
+def test_the_verdict_control_runner_ignores_a_foreign_git_dir(tmp_path: Path) -> None:
+    """Counter-model review of #1821, pass 4: the runner's marker lookup must use
+    its own sanitized environment, as every other step does."""
+    import sys
+    foreign = tmp_path / "foreign"
+    subprocess.run(["git", "init", "-q", str(foreign)], check=True)
+    assert (foreign / ".git").is_dir(), "precondition: an unrelated repository"
+    control = ROOT / "controls" / "flow-plan-record-lanes-verdict"
+    done = subprocess.run([sys.executable, str(control / "run-case.py"),
+                           str(control / "cases" / "good-every-lane-demonstrated"), str(HELPER)],
+                          capture_output=True, text=True,
+                          env={**os.environ, "GIT_DIR": str(foreign / ".git")})
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "LANES NOT" not in done.stdout

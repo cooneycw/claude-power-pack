@@ -29,7 +29,22 @@ LANE_FILE = Path(".claude/lanes.md")
 REVIEW_COMMAND = Path(".claude/commands/codex/code_review.md")
 FIXTURES = REPO / "tests" / "fixtures" / "lanes"
 
-ANSWERS = ("will test", "will refuse", "not applicable", "not covered")
+
+
+def _load_helper_answers() -> tuple[str, ...]:
+    """The helper's own vocabulary: the contract below compares every surface to
+    THIS, never to a second copy kept here (issue #1822)."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "flow_plan_record_answers", REPO / "scripts" / "flow-plan-record.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return tuple(module.LANE_ANSWERS)
+
+
+ANSWERS = _load_helper_answers()
 
 # surface -> the link text that must resolve to the canonical reference
 ROUTED_SURFACES = {
@@ -360,3 +375,70 @@ def test_the_example_plans_do_not_give_the_answer_away() -> None:
         body = (FIXTURES / name).read_text(encoding="utf-8").lower()
         for tell in ("bad case", "good case", "omits", "does not answer"):
             assert tell not in body, f"{name} tells the reviewer the verdict ({tell!r})"
+
+
+# --- one vocabulary: what the surfaces offer is what the helper accepts -------
+#
+# Issue #1822: the delegated drivers offered `needs a decision` (which the
+# helper refuses) and left out `will refuse` (which it accepts). Every surface
+# that LISTS the answers to a planner is compared here, as a set, to the
+# helper's `LANE_ANSWERS`. `/flow:auto` lists none; it routes through
+# `/flow:eli5`, which is checked.
+
+DRIVER_SURFACES = (
+    Path("templates/delegated-driver-core.md"),
+    Path(".claude/commands/codex/auto.md"),
+    Path(".claude/commands/qwen/auto.md"),
+    Path(".claude/commands/gemma/auto.md"),
+)
+ELI5 = Path(".claude/commands/flow/eli5.md")
+DRIVER_OFFER = re.compile(r"`### Lanes for this change` table answering every lane: (.*?), with how/why")
+ELI5_OFFER = re.compile(r"Section C answers EVERY listed lane - (.*?) - per ")
+
+
+def offered_by_driver(text: str) -> set[str]:
+    match = DRIVER_OFFER.search(normalized(text))
+    assert match, "the driver no longer states the lane answers in the sentence this check reads"
+    return set(re.findall(r"`([^`]+)`", match.group(1)))
+
+
+def offered_by_eli5(text: str) -> set[str]:
+    match = ELI5_OFFER.search(normalized(text))
+    assert match, "/flow:eli5 no longer states the lane answers in the sentence this check reads"
+    return {part.strip() for part in re.split(r",| or ", match.group(1)) if part.strip()}
+
+
+@pytest.mark.parametrize("surface", DRIVER_SURFACES, ids=str)
+def test_a_driver_offers_exactly_the_answers_the_helper_accepts(surface: Path) -> None:
+    assert offered_by_driver(read(surface)) == set(ANSWERS), (
+        f"{surface} offers lane answers that differ from LANE_ANSWERS in scripts/flow-plan-record.py")
+
+
+def test_a_driver_says_a_lane_needing_a_decision_goes_to_the_owner_first() -> None:
+    for surface in DRIVER_SURFACES:
+        text = normalized(read(surface))
+        assert "Settle a lane needing a decision with the owner before approval." in text, surface
+
+
+def test_eli5_offers_exactly_the_answers_the_helper_accepts() -> None:
+    assert offered_by_eli5(read(ELI5)) == set(ANSWERS)
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda t: t.replace("`not covered`, with how/why", "`not covered`, or `needs a decision`, with how/why"),
+    lambda t: t.replace("`will refuse`, ", ""),
+], ids=["offers-an-answer-the-helper-refuses", "drops-an-answer-the-helper-accepts"])
+def test_a_driver_offering_a_different_list_is_reported(mutate) -> None:
+    """Red cases: the shape of #1822 itself, and its mirror image."""
+    original = read(Path(".claude/commands/codex/auto.md"))
+    mutated = mutate(original)
+    assert mutated != original, "the mutation no longer applies - the red case tests nothing"
+    assert offered_by_driver(mutated) != set(ANSWERS)
+
+
+def test_eli5_offering_a_different_list_is_reported() -> None:
+    original = read(ELI5)
+    mutated = original.replace("will test, will refuse, not applicable or",
+                               "will test, not applicable, needs a decision or")
+    assert mutated != original
+    assert offered_by_eli5(mutated) != set(ANSWERS)

@@ -430,4 +430,21 @@ for byte what it was. Where a lane result is owed, the demonstrated file is not 
 touched file: counted, it turned `agreement` into `divergence` for every run that wrote it. Headings, tables and the waiver line are read outside code fences
 only: a quoted example is not the thing itself.
 
+**What is owed is decided at approval (issue #1821).** `approve` stamps, in
+this worktree's git directory beside the baseline, which run and which approved
+section it speaks for, whether the project had a lane file, and the lanes
+answered `will test`. `compliance` reads that stamp and never the lane file's
+state at close: deleting the lane file after approval used to erase every
+promise the plan made. And because the demonstrated file is one per issue, an
+earlier run's rows used to satisfy a new run. Rows now count only below this
+run's own line, `<!-- lanes-demonstrated run=<run id> plan=<approved-section
+digest> -->`, up to the next such line; the stderr note prints the exact line.
+A first cut compared row text with what was there at approval and upstream;
+counter-model review showed text cannot say which run wrote a row (another
+run's identical rows, merged in from main, read exactly like this run's), so
+the run names itself instead. A run with no stamp (one approved by an older
+helper), a stamp that cannot be read, or a section that changed after approval
+reads `, LANES NOT CHECKED` where `will test` lanes are owed, and is unchanged
+where nothing is.
+
 Not checked: whether an answer is true.
