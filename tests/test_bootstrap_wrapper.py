@@ -30,7 +30,8 @@ def _test_python_env(tmp_path):
     return env
 
 
-def test_real_wrapper_lists_cpp_from_outside_and_ignores_caller_lure(tmp_path):
+@pytest.mark.parametrize("shadow", ["none", "regular-lib", "yaml-module"])
+def test_real_wrapper_lists_cpp_from_outside_and_ignores_caller_lure(tmp_path, shadow):
     assert importlib.util.find_spec("yaml") is not None, "the selected test interpreter must have real PyYAML"
     external = tmp_path / "caller"
     external.mkdir()
@@ -43,6 +44,13 @@ def test_real_wrapper_lists_cpp_from_outside_and_ignores_caller_lure(tmp_path):
     ready = subprocess.run(["python3", "-c", "import yaml"], cwd=external,
                            env=env, capture_output=True, text=True, timeout=20)
     assert ready.returncode == 0, ready.stderr
+    if shadow == "regular-lib":
+        (external / "lib").mkdir()
+        (external / "lib/__init__.py").write_text("# Caller-owned regular package.\n")
+        assert (external / "lib/__init__.py").is_file(), "construct a regular package that shadows CPP"
+    elif shadow == "yaml-module":
+        (external / "yaml.py").write_text('raise ImportError("caller yaml")\n')
+        assert (external / "yaml.py").is_file(), "construct a caller-owned dependency shadow"
     inside = subprocess.run(["bash", str(WRAPPER), "--list"], cwd=ROOT,
                             env=env, capture_output=True, text=True, timeout=20)
     assert inside.returncode == 0 and "jq:" in inside.stdout, inside.stdout + inside.stderr
