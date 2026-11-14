@@ -18,6 +18,15 @@
   another run's rows merged in from main, no longer satisfy a new run. A run
   approved by an older helper that owes `will test` lanes reads `LANES NOT
   CHECKED` until it is re-approved. Whether a row is true is still not checked.
+- A lane demonstration row now counts only when it states `passed` or
+  `refused as expected` and names its evidence (#1823). Rows are
+  `| <lane> | <result> | <evidence> |`, the result one of `passed`, `failed`,
+  `not run` or `refused as expected`; `TODO`, `failed`, `not run` or a bare
+  `passed` no longer read as demonstrated, and the note names each such lane
+  with why. Lanes answered `will refuse` now owe their evidence at close too.
+  `flow-plan-record.py approve` refuses a `will test` row that names none of
+  its lane's values from `.claude/lanes.md`: a plan now says which checkouts,
+  harnesses or environments it tests. The verdict line's shape is unchanged.
 
 ## [11.1.1] - 2026-11-14
 

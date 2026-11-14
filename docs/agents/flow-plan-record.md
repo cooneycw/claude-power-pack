@@ -407,7 +407,8 @@ readers are held together by a test that runs both over every state.
 **Nothing in the record is outside the stability digest.** What a run
 demonstrated in each lane it said it would test is written at Step 6 to a file
 of its own, `docs/flow-runs/issue-<N>.lanes-demonstrated.md`: a table, one row
-per lane, saying what happened. It is not part of the plan record, so the
+per lane, saying what happened - since #1823 a result (`passed`, `failed`, `not
+run` or `refused as expected`) and its evidence. It is not part of the plan record, so the
 digest code is unchanged from before this check and no part of an approved
 record may change afterwards. A first design kept those rows inside the record
 and left them out of the digest; three review passes each found another way to
@@ -448,3 +449,17 @@ reads `, LANES NOT CHECKED` where `will test` lanes are owed, and is unchanged
 where nothing is.
 
 Not checked: whether an answer is true.
+
+**What counts as demonstrated (issue #1823).** Until #1823 a row counted when
+its second cell said anything, so `TODO` and `failed` each read as a
+demonstration, and a promised refusal owed nothing at close. A row now counts
+only when its result is `passed` or `refused as expected` and something names
+the test or observation; every other owed lane is counted on the verdict line
+and named on stderr with why. The lanes owed are those answered `will test` or
+`will refuse` (stamp version 2; a version-1 stamp from the #1821 helper keeps
+the `will test` lanes it recorded). The verdict line's shape is unchanged.
+`approve` also refuses a `will test` row that names none of its lane's values
+from the lane file's `Values` column - spelled as listed, with emphasis, case,
+spacing and any parenthetical aside ignored - because a lane is several routes
+and a test of one is not a test of all. The values are not required in every
+combination, and a lane that lists no values is not checked for them.

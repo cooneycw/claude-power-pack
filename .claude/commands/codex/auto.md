@@ -258,7 +258,8 @@ mis-route is paid before the gate is ever reached.
    - Specific instructions: "Implement the changes described in the issue. Follow existing code conventions. Create or modify only the files necessary."
    - If `.claude/lanes.md` exists, present its lane list and a
      `### Lanes for this change` table answering every lane: `will test`,
-     `will refuse`, `not applicable`, or `not covered`, with how/why. Settle a
+     `will refuse`, `not applicable`, or `not covered`, with how/why; a
+     `will test` row names the lane-file values it tests. Settle a
      lane needing a decision with the owner before approval.
      No lane file means no table/question; unreadable/malformed is not absent.
      Reuse `project_lanes`/`lanes_refusal`; no second parser. Preserve the
@@ -1062,9 +1063,10 @@ echo "DELEGATED_PRODUCT_CHANGE: ok - final product changes exist"
 ```
 
 **Record actual lane evidence and relay compliance before the closing reference.**
-For each `will test` lane, write a nonempty evidence row in the separate
-`docs/flow-runs/issue-42.lanes-demonstrated.md` table (`Lane` / `What was
-demonstrated`), under this run's `<!-- lanes-demonstrated run=... plan=... -->`
+For each `will test` or `will refuse` lane, write a row in the separate
+`docs/flow-runs/issue-42.lanes-demonstrated.md` table (`Lane` / `Result`
+`passed`, `failed`, `not run` or `refused as expected` / `Evidence`; only a
+referenced pass or refusal counts), under this run's `<!-- lanes-demonstrated run=... plan=... -->`
 line exactly as the compliance stderr note prints it; rows under another run's
 line do not count (#1821). No project lane file AT APPROVAL, or no `will test`,
 means no file/question owed; a lane file deleted since does not cancel it. Never fill rows merely because a test was promised.

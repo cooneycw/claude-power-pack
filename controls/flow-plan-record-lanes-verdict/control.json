@@ -23,7 +23,7 @@
   "detect_signal": "^PLAN_COMPLIANCE: (agreement|divergence|unknown), LANES NOT (DEMONSTRATED \\([1-9][0-9]*\\)|CHECKED)( |$)",
   "good_signal": "^PLAN_COMPLIANCE: (agreement|divergence) - ",
   "unavailable_signal": "^FLOW_PLAN_RECORD_LANES_VERDICT_CONTROL: unavailable",
-  "limits": "Covers the clause for a missing demonstrated file, a will-test lane with no row, a demonstrated file that exists and cannot be read, rows left unchanged from before this run's approval, and a lane file deleted after approval (#1821), against a run with every lane shown and a project with no lane file. It does not cover the `unknown` verdict word, an unusable lane file at close, a waived plan, or the full combination table - those are pinned by tests/test_flow_plan_record_lanes.py. The exit code scored here is the runner's reading of the verdict line, not the gate's: the gate's own exit code never changes for a lane. It says nothing about whether a demonstrated row is TRUE.",
+  "limits": "Covers the clause for a missing demonstrated file, a will-test lane with no row, a demonstrated file that exists and cannot be read, rows left unchanged from before this run's approval, and a lane file deleted after approval (#1821), against a run with every lane shown and a project with no lane file. It does not cover the `unknown` verdict word, an unusable lane file at close, a waived plan, or the full combination table - those are pinned by tests/test_flow_plan_record_lanes.py. The exit code scored here is the runner's reading of the verdict line, not the gate's: the gate's own exit code never changes for a lane. It says nothing about whether a demonstrated row is TRUE. Since #1823 it also covers a row whose result is no state (`TODO`), a `passed` row with no reference, and a `will refuse` lane with and without its refusal shown; `failed`, `not run`, two-column rows and a version-1 stamp are pinned by the tests.",
   "cases": [
     {
       "name": "bad-no-demonstrated-file",
@@ -56,6 +56,24 @@
       "why": "Two will-test lanes, nothing demonstrated, and the lane file deleted after the plan was approved (#1821). If it scores GOOD, deleting one file has erased every promise the approved plan made."
     },
     {
+      "name": "bad-result-state-todo",
+      "input": "cases/bad-result-state-todo",
+      "expect": "BAD",
+      "why": "A will-test lane whose row says `TODO` (#1823). Before #1823 any non-empty cell counted; if it scores GOOD, a placeholder is being read as a demonstration again."
+    },
+    {
+      "name": "bad-passed-no-reference",
+      "input": "cases/bad-passed-no-reference",
+      "expect": "BAD",
+      "why": "A will-test lane whose row says `passed` and names no test or observation (#1823). If it scores GOOD, a bare claim is being read as evidence."
+    },
+    {
+      "name": "bad-will-refuse-no-evidence",
+      "input": "cases/bad-will-refuse-no-evidence",
+      "expect": "BAD",
+      "why": "The plan promised a refusal (`will refuse`) and nothing shows it (#1823). If it scores GOOD, a promised refusal owes nothing at close again."
+    },
+    {
       "name": "good-every-lane-demonstrated",
       "input": "cases/good-every-lane-demonstrated",
       "expect": "GOOD",
@@ -66,6 +84,12 @@
       "input": "cases/good-no-lane-file",
       "expect": "GOOD",
       "why": "A project that has not adopted lanes: the line is what it always was. This is every repository but one today."
+    },
+    {
+      "name": "good-will-refuse-refused-as-expected",
+      "input": "cases/good-will-refuse-refused-as-expected",
+      "expect": "GOOD",
+      "why": "The same will-refuse plan with its refusal shown as `refused as expected` and a reference. If it scores BAD, a promised refusal can never be satisfied."
     }
   ],
   "anchors": [
