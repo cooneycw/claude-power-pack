@@ -1,6 +1,6 @@
 # Claude Power Pack
 
-**v11.1.0** - Caller PATH preserved across CPP runner handoffs, explicit CI and receipt acceptance boundaries, hardened generated pipelines, and isolated bootstrap checking for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and Codex.
+**v11.1.0** - Delegated-driver lane checks (`/codex:auto`, `/qwen:auto`, `/gemma:auto`), driver parity, caller PATH isolation, and hardened CI and bootstrap boundaries for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and Codex.
 
 ## What It Does
 
