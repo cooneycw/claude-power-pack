@@ -10,6 +10,14 @@
   hands them, or its issue, to the next session that registers under the
   role. Supplied values still win and a supplied observation starts its count
   at zero; `repo` and role grants are kept, as `release` keeps them.
+- The close-time lane check now takes what a run owes from its approval, not
+  from the lane file at close, and counts only demonstration rows below this
+  run's own `<!-- lanes-demonstrated run=... plan=... -->` line, which the
+  compliance note prints (#1821). Deleting `.claude/lanes.md` after approval
+  no longer silences `LANES NOT DEMONSTRATED`, and an earlier run's rows, or
+  another run's rows merged in from main, no longer satisfy a new run. A run
+  approved by an older helper that owes `will test` lanes reads `LANES NOT
+  CHECKED` until it is re-approved. Whether a row is true is still not checked.
 
 ## [11.1.1] - 2026-11-14
 

@@ -1,0 +1,75 @@
+{
+  "branch": "issue-1821-close-time-lane-check-tie-obligations-and-evidence",
+  "counts": {
+    "accepted": 6,
+    "deferred": 0,
+    "rejected": 2
+  },
+  "escalation": {
+    "raised_cap": 5,
+    "reference": "https://github.com/cooneycw/claude-power-pack/issues/1821#issuecomment-6881497110",
+    "ruled_by": "owner (cooneycw), in-session"
+  },
+  "extra_passes_reason": "each of passes 1-4 found a defect accepted and fixed (HIGH foreign evidence; MEDIUM content cannot establish run ownership; HIGH duplicated except returned all-shown; MEDIUM runner env); pass 5 found none",
+  "head": "d723ba82580caaa170358e5d18661fd6e4dde33e",
+  "implementer": "claude/claude-opus-5-5",
+  "implementer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "be9c6273-9aee-4aa6-b5bb-9c62fec522ab",
+    "sources": [
+      {
+        "bytes": 3563924,
+        "path": "-home-user-Projects/be9c6273-9aee-4aa6-b5bb-9c62fec522ab.jsonl",
+        "sha256": "a4d5de4068797d2fa80fc0a419b04bef3773930c57b409dcb9700451abf01904"
+      }
+    ],
+    "transcript": "-home-user-Projects/be9c6273-9aee-4aa6-b5bb-9c62fec522ab.jsonl"
+  },
+  "issue": "1821",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 5,
+  "recorded_at": "2026-11-14T17:31:52Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 5
+  },
+  "reviewed_artifact": {
+    "base_sha": "d90712eed2523fc2128674a54ffa7923f8bf2c54",
+    "merge_base": "d90712eed2523fc2128674a54ffa7923f8bf2c54",
+    "method": "runtime-head",
+    "patch_sha256": "1739a8b67d536fd14df56530165782e7e79efc6046e81f7d9d8765397ba718c4",
+    "report_record": 89,
+    "target_head": "d723ba82580caaa170358e5d18661fd6e4dde33e"
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "exec_log": "codex-review-stream.hIxskm",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/14/rollout-2026-11-14T12-28-44-01a1db1a-bab4-7143-90e5-177f29f391d1.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 270089,
+        "path": "codex-review-stream.hIxskm",
+        "sha256": "8c6c4fb9f94ac8d7fc388d22c8454f26ad0c17883aa00699b9128603d8521149"
+      },
+      {
+        "bytes": 870791,
+        "path": "2026/11/14/rollout-2026-11-14T12-28-44-01a1db1a-bab4-7143-90e5-177f29f391d1.jsonl",
+        "sha256": "a296922018c10842fed2201e1b86d55ee3f45854fc91ecbffa5261e4bd345382"
+      }
+    ],
+    "thread_id": "01a1db1a-bab4-7143-90e5-177f29f391d1"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}

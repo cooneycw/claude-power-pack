@@ -23,7 +23,7 @@
   "detect_signal": "^PLAN_COMPLIANCE: (agreement|divergence|unknown), LANES NOT (DEMONSTRATED \\([1-9][0-9]*\\)|CHECKED)( |$)",
   "good_signal": "^PLAN_COMPLIANCE: (agreement|divergence) - ",
   "unavailable_signal": "^FLOW_PLAN_RECORD_LANES_VERDICT_CONTROL: unavailable",
-  "limits": "Covers the clause for a missing demonstrated file, a will-test lane with no row, and a demonstrated file that exists and cannot be read, against a run with every lane shown and a project with no lane file. It does not cover the `unknown` verdict word, an unusable lane file at close, a waived plan, or the full combination table - those are pinned by tests/test_flow_plan_record_lanes.py. The exit code scored here is the runner's reading of the verdict line, not the gate's: the gate's own exit code never changes for a lane. It says nothing about whether a demonstrated row is TRUE.",
+  "limits": "Covers the clause for a missing demonstrated file, a will-test lane with no row, a demonstrated file that exists and cannot be read, rows left unchanged from before this run's approval, and a lane file deleted after approval (#1821), against a run with every lane shown and a project with no lane file. It does not cover the `unknown` verdict word, an unusable lane file at close, a waived plan, or the full combination table - those are pinned by tests/test_flow_plan_record_lanes.py. The exit code scored here is the runner's reading of the verdict line, not the gate's: the gate's own exit code never changes for a lane. It says nothing about whether a demonstrated row is TRUE.",
   "cases": [
     {
       "name": "bad-no-demonstrated-file",
@@ -42,6 +42,18 @@
       "input": "cases/bad-demonstrated-file-unreadable",
       "expect": "BAD",
       "why": "The demonstrated path is a directory. The line must say NOT CHECKED; if it scores GOOD an unreadable answer is being read as a clean one."
+    },
+    {
+      "name": "bad-previous-run-evidence",
+      "input": "cases/bad-previous-run-evidence",
+      "expect": "BAD",
+      "why": "Every will-test lane has a row, but every row was already there before this run's plan was approved and is unchanged: an earlier run's evidence (#1821). If it scores GOOD, run 1's rows are satisfying run 2 again."
+    },
+    {
+      "name": "bad-lane-file-deleted-after-approval",
+      "input": "cases/bad-lane-file-deleted-after-approval",
+      "expect": "BAD",
+      "why": "Two will-test lanes, nothing demonstrated, and the lane file deleted after the plan was approved (#1821). If it scores GOOD, deleting one file has erased every promise the approved plan made."
     },
     {
       "name": "good-every-lane-demonstrated",
