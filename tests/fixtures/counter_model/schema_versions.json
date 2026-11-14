@@ -36,5 +36,7 @@
   {"name": "current-invalid-ruling-raised_cap-11", "update": {"schema": 2, "passes": 5, "extra_passes_reason": "Requested.", "escalation": {"ruled_by": "Fixture authority", "reference": "Synthetic control, not historical authority.", "raised_cap": 11}}, "omit": [], "error": "outer bound"},
   {"name": "current-ruling-without-extra-pass", "update": {"schema": 2, "passes": 3, "extra_passes_reason": "Requested.", "escalation": {"ruled_by": "Fixture authority", "reference": "Synthetic control, not historical authority.", "raised_cap": 5}}, "omit": [], "error": "only for passes beyond 3"},
   {"name": "unknown-version", "update": {"schema": 99, "passes": 3, "extra_passes_reason": "Requested."}, "omit": [], "error": "schema"},
-  {"name": "boolean-version", "update": {"schema": true, "passes": 2}, "omit": [], "error": "schema"}
+  {"name": "boolean-version", "update": {"schema": true, "passes": 2}, "omit": [], "error": "schema"},
+  {"name": "legacy-escalation-field-refused", "update": {"schema": 1, "passes": 5, "extra_passes_reason": "Requested.", "escalation": {"ruled_by": "Fixture authority", "reference": "Synthetic fixture only.", "raised_cap": 5}}, "omit": [], "error": "'escalation' requires a current schema"},
+  {"name": "legacy-reason-500", "update": {"schema": 1, "passes": 500, "extra_passes_reason": "Historical shape only, not quota permission."}, "omit": [], "error": null}
 ]

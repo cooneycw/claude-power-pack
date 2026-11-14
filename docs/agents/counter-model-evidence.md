@@ -125,6 +125,17 @@ gate independently still requires a recorded escalation above three passes,
 including when the selected receipt declares schema 1. No historical count,
 timestamp, or authority is backfilled by validation (#1818).
 
+The two readers deliberately answer different questions. `validate` refuses
+an `escalation` block on schema 1 because that field belongs to newer
+versions. Enrolment checks recorded ruling fields independently of full
+schema validation, retaining its existing policy: a well-formed ruling can
+satisfy enrolment even on a schema-1 record whose full shape is invalid.
+An enrolment result is neither a whole-schema validation nor authentication
+of the named authority. Tests exercise both answers on the same record.
+No shape-only count ceiling is added to schema 1: its actual historical
+contract had none. Even a very large count with a reason can validate as
+historical shape; that result still grants no quota permission.
+
 ## Pair roles independently
 
 For example, a native Codex TUI implementation reviewed by Claude needs no

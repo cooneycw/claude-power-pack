@@ -79,8 +79,19 @@ def test_scalar_extra_pass_writer_still_emits_schema_two() -> None:
     assert CM.validate(receipt) == []
 
 
+def test_unknown_schema_diagnostic_does_not_deny_the_historical_reason_contract() -> None:
+    receipt = _receipt(next(case for case in CASES if case["name"] == "legacy-reason-9"))
+    assert CM.validate(receipt) == []
+    receipt["schema"] = 99
+    assert receipt["schema"] not in range(1, 6)
+    problems = CM.validate(receipt)
+    assert any("expected 2" in problem and "historical schema 1" in problem for problem in problems), problems
+    assert not any("schema 1 does not describe" in problem for problem in problems)
+
+
 @pytest.mark.skipif(shutil.which("git") is None, reason="enrolment reads a real Git history")
-def test_legacy_shape_acceptance_does_not_authorize_an_unruled_current_gate(tmp_path: Path) -> None:
+@pytest.mark.parametrize("with_ruling", [False, True])
+def test_legacy_shape_and_current_enrolment_have_independent_contracts(tmp_path: Path, with_ruling: bool) -> None:
     def git(*args: str) -> str:
         return subprocess.check_output(["git", *args], cwd=tmp_path, text=True).strip()
 
@@ -90,9 +101,18 @@ def test_legacy_shape_acceptance_does_not_authorize_an_unruled_current_gate(tmp_
     receipt = _receipt(next(case for case in CASES if case["name"] == "legacy-reason-9"))
     receipt.update(branch="fixture", head=git("rev-parse", "HEAD"), scope="full")
     assert "escalation" not in receipt and receipt["passes"] > 3
+    if with_ruling:
+        receipt["escalation"] = dict(ruled_by="Fixture authority", reference="Synthetic fixture only.", raised_cap=9)
+        assert any("requires a current schema" in problem for problem in CM.validate(receipt))
+    else:
+        assert CM.validate(receipt) == []
     receipts = tmp_path / "docs/measurements/counter-model"
     receipts.mkdir(parents=True)
     (receipts / "legacy.json").write_text(json.dumps(receipt))
     answer = CM.evaluate_enrolment(tmp_path, "fixture", "enrolment")
-    assert answer.state == "unknown"
-    assert "no recorded ruling" in answer.line
+    if with_ruling:
+        assert answer.state == "escalated"
+        assert "9 passes, ruled by Fixture authority" in answer.line
+    else:
+        assert answer.state == "unknown"
+        assert "no recorded ruling" in answer.line

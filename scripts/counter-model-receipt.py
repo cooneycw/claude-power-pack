@@ -2384,9 +2384,8 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
         why = (
             "this receipt carries an 'implementers' set, which requires schema 4"
             if has_implementer_set else
-            "this receipt carries 'extra_passes_reason', which schema 1 does not "
-            "describe; re-write this receipt with the current counter-model-receipt.py "
-            "to pick up schema 2"
+            "this receipt carries 'extra_passes_reason'; scalar records use schema 2 "
+            "or historical schema 1, not the declared version"
             if has_extra_reason else
             "this receipt has no 'extra_passes_reason', so it should declare schema 1"
         )
@@ -3538,6 +3537,11 @@ def evaluate_enrolment(root: Path, branch: str | None, mode: str) -> EnrolmentAn
         if type(passes) is not int or passes < 1:
             return EnrolmentAnswer("unknown", f"unknown: receipt {filename} has no positive integer pass count")
         if passes > PASSES_HARD_CEILING:
+            # Enrolment checks the recorded ruling independently of full
+            # receipt shape validation, including the schema version. A
+            # schema-1 escalation can satisfy this policy while validate()
+            # rejects its newer field. This is no full-schema or authority-
+            # authentication claim; malformed ruling fields still refuse.
             problems = escalation_problems(passes, receipt.get("escalation"))
             reason = receipt.get("extra_passes_reason")
             if not isinstance(reason, str) or not reason.strip():

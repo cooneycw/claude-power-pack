@@ -65,3 +65,27 @@ consumer had retained the earlier schema-1 extra-pass records.
 
 Pending: full finish gate and outside-model review. No completion, merge,
 or release claim is made here.
+
+## Outside-model review follow-up
+
+The first Claude review approved `8cf481d6` with an accepted, documented
+shape-only unbounded-count risk, one low finding and one diagnostic nit:
+[review](https://github.com/cooneycw/claude-power-pack/pull/1819#pullrequestreview-5904469133).
+No historical-maximum ceiling is added: that would change the actual old
+contract. A synthetic 500-pass case explicitly retains this shape-only
+boundary; it establishes neither provenance nor quota permission.
+
+The added schema-1 escalation fixture rejects the permissive mutation that
+the first review found undetected. Running only that case against the
+mutated validator produced its intended assertion failure; the candidate
+passes it. A real Git test now feeds the same record to both readers:
+shape validation refuses schema-1 escalation, while the unchanged enrolment
+policy accepts a well-formed recorded ruling independently of full shape.
+The rationale and limits are documented at the implementation and maintained
+contract. The gate does not authenticate the named authority.
+
+The stale schema-mismatch diagnostic is corrected. Its regression test failed
+on `8cf481d6` before the text fix (1 failure, 44 passes), and all 45 schema
+cases pass after it. Lint also passes. The delta returns to master for recheck
+before the authorized full finish gate. Actual runtime evidence is still
+required for the derived review receipt; a relay is not substituted for it.
