@@ -87,6 +87,43 @@ def statements(text: str) -> list[tuple[int, str]]:
     return result
 
 
+
+def file_command_pieces(line: str) -> list[str]:
+    """Split file-launch commands at unquoted shell separators, preserving quotes."""
+    pieces = []
+    start = 0
+    quote = ""
+    escaped = False
+    for index, char in enumerate(line):
+        if escaped:
+            escaped = False
+        elif char == "\\" and quote != "'":
+            escaped = True
+        elif quote:
+            if char == quote:
+                quote = ""
+        elif char in "\"'":
+            quote = char
+        elif char in ";&|\n":
+            if line[start:index].strip():
+                pieces.append(line[start:index])
+            start = index + 1
+    if line[start:].strip():
+        pieces.append(line[start:])
+    return pieces
+
+
+def launch_statements(text: str) -> list[tuple[int, str]]:
+    result = []
+    for number, line in statements(text):
+        # Keep the existing module scanner unchanged. File launches need a
+        # per-command decision so a recognized sibling cannot hide an opaque one.
+        has_file = (FILE_MATCH.search(line) or OPAQUE_FILE_INVOKER.search(line)
+                    or UNSUPPORTED_FILE_INVOKER.search(line))
+        result.extend((number, piece) for piece in (file_command_pieces(line) if has_file else [line]))
+    return result
+
+
 def inventory(root: Path) -> list[dict[str, object]]:
     rows = []
     populations = [path for folder in SCAN_ROOTS for path in sorted((root / folder).rglob("*"))]
@@ -97,7 +134,7 @@ def inventory(root: Path) -> list[dict[str, object]]:
         if not path.is_file() or path.suffix not in {".md", ".sh", ".py"} or "__pycache__" in path.parts:
             continue
         text = path.read_text()
-        for number, line in statements(text):
+        for number, line in launch_statements(text):
             if DYNAMIC_MODULE.search(line):
                 rows.append({"path": str(path.relative_to(root)), "line": number,
                              "command": "(constructed module)", "category": "unknown", "handoff": False,
@@ -147,7 +184,8 @@ def inventory(root: Path) -> list[dict[str, object]]:
                 command = "dispatcher"
             lexer = shlex.shlex(statement, posix=True, punctuation_chars=";&|")
             lexer.whitespace_split = True
-            tokens = list(lexer) if "uv run" in statement else []
+            needs_tokens = "uv run" in statement or file_token is not None or module == ".bootstrap"
+            tokens = list(lexer) if needs_tokens else []
             # A preceding command's env is unrelated to this module launch.
             # Bind the matched module to its own shell simple-command segment.
             module_tokens = [i for i, token in enumerate(tokens)
@@ -186,6 +224,11 @@ def inventory(root: Path) -> list[dict[str, object]]:
                     reason = "standalone original-PATH wrapper, no CPP uv activation"
                     if uv:
                         error = "bootstrap activation needs explicit policy review"
+                    else:
+                        terminal = file_token if file_token is not None else "lib.cicd.bootstrap"
+                        prefix = tokens[:tokens.index(terminal)]
+                        if any(token.startswith("PATH=") for token in prefix):
+                            error = "bootstrap PATH assignment needs explicit policy review"
                 elif module == ".bootstrap" and command == "list":
                     reason = "lists configuration only"
                 else:
@@ -337,7 +380,6 @@ def test_direct_file_bootstrap_uses_existing_classification(
     'python3 -X dev "$ROOT/lib/cicd/bootstrap.py" check',
     '"$P" "$ROOT/lib/cicd/bootstrap.py" check',
     'uv run python "$ROOT/lib/cicd/bootstrap.py" check',
-    'python3 -m lib.cicd.bootstrap list; python3 "$ROOT/lib/cicd/bootstrap.py" check',
 ])
 def test_unclassified_or_activated_file_launch_is_not_clean(tmp_path: Path, line: str) -> None:
     source = tmp_path / ".claude/commands/owned.md"
@@ -425,3 +467,50 @@ def test_environment_wrappers_cannot_strip_or_replace_captured_policy(tmp_path: 
     source.write_text((fixture / "good.md").read_text())
     good = inventory(tmp_path)
     assert len(good) == 1 and not good[0]["error"]
+
+
+@pytest.mark.parametrize("name", ["bad-hidden-second-file.md", "bad-file-path-prefix.md"])
+def test_reviewed_direct_file_false_negatives_are_rejected(tmp_path: Path, name: str) -> None:
+    source = tmp_path / ".claude/commands/owned.md"
+    source.parent.mkdir(parents=True)
+    source.write_text((ROOT / "tests/fixtures/cicd_launch_handoff" / name).read_text())
+    rows = inventory(tmp_path)
+    assert rows and any(row["error"] for row in rows), rows
+
+
+@pytest.mark.parametrize("separator", [";", "&&", "||", "|", "\n"])
+@pytest.mark.parametrize("second", ['"$P"', 'python3 -X dev'])
+def test_second_unsupported_file_launch_is_never_hidden(tmp_path: Path, separator: str, second: str) -> None:
+    source = tmp_path / ".claude/commands/owned.md"
+    source.parent.mkdir(parents=True)
+    source.write_text('python3 lib/cicd/bootstrap.py list ' + separator + ' ' + second
+                      + ' lib/cicd/bootstrap.py check\n')
+    rows = inventory(tmp_path)
+    assert len(rows) == 2 and rows[1]["error"], rows
+
+
+@pytest.mark.parametrize("prefix", ['PATH="/x:$PATH" ', 'env PATH="/x:$PATH" '])
+def test_file_bootstrap_path_assignment_is_not_caller_path(tmp_path: Path, prefix: str) -> None:
+    source = tmp_path / ".claude/commands/owned.md"
+    source.parent.mkdir(parents=True)
+    source.write_text(prefix + 'python3 lib/cicd/bootstrap.py check\n')
+    rows = inventory(tmp_path)
+    assert len(rows) == 1 and rows[0]["error"], rows
+
+
+def test_separate_known_file_launches_and_quoted_separators_are_classified(tmp_path: Path) -> None:
+    source = tmp_path / ".claude/commands/owned.md"
+    source.parent.mkdir(parents=True)
+    source.write_text('python3 -m lib.cicd.bootstrap list; '
+                      'python3 "/tmp/quoted;&|path/lib/cicd/bootstrap.py" check\n')
+    rows = inventory(tmp_path)
+    assert len(rows) == 2 and all(not row["error"] for row in rows), rows
+
+
+@pytest.mark.parametrize("prefix", ['PATH="/x:$PATH" ', 'env PATH="/x:$PATH" '])
+def test_module_bootstrap_path_assignment_is_not_caller_path(tmp_path: Path, prefix: str) -> None:
+    source = tmp_path / ".claude/commands/owned.md"
+    source.parent.mkdir(parents=True)
+    source.write_text(prefix + 'python3 -m lib.cicd.bootstrap check\n')
+    rows = inventory(tmp_path)
+    assert len(rows) == 1 and rows[0]["error"], rows
