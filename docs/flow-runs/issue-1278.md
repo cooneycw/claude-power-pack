@@ -85,3 +85,34 @@ The last milestone is PR #1541 at b318a14b; the current base is cacc4564. The co
 4. `README.md` - line-3 banner, milestone explanation and new v10.1.0 notes, including consumer actions and no tag/GitHub release.
 5. `CLAUDE.md` - update the current-version line to 10.1.0.
 Scope: five release files, approximately 200 lines, plus this append-only run/snapshot and a genuine review receipt. Risks: omitted actions, stale issue claims, version drift and accidental evergreen closure. Mitigations: complete ledger, live tracker verification, version-consistency check and Refs-only PR. No material concern with this documentation/version-only approach. The operator explicitly supersedes the normal major rule for this release: "CPP didn't augment anything new. if anything, v10.1". Refs #1278 only; no tag or GitHub release.
+
+<!-- flow-run n=4 id=3df88c65dfbc4108924163495e93e4bb -->
+## Run 4
+
+- Run-id:            3df88c65dfbc4108924163495e93e4bb
+- Run-start:         880a784c8688599c19f666721dd5a47c059e44dd
+- Issue:             #1278
+- Base SHA:          880a784c
+- Necessity verdict: Still needed
+- Approval:          granted
+- Approver:          owner (the user of this interactive session, "approve", 2026-11-14); version 12.0.0 ruled by the owner earlier in the session
+- Recorded at:       2026-11-14T21:55:00Z
+
+### Section B evidence
+Enumeration d90712ee (v11.1.1)..880a784c: #1826 (#1824/#1825, patch), #1827 (#1804, patch), #1829 (#1822, major), #1832 (#1821, major), #1833 (#1823, major), #1834 (#1828, minor), #1836 (#1831, patch). 3 major, 1 minor, 3 patch. Missing changelog entries: #1826, #1829, #1834; #1832's entry duplicated. Duplicate/superseding issues: none (the old #1278 branch, PR #1603, merged and not picked up). Consumers: kyle has .claude/lanes.md on main (acts; kyle#2348); skillc has none (no action); kyle-candidate follows kyle.
+
+### Section C - the approved plan
+1. `CHANGELOG.md` - [12.0.0] - 2026-11-14 with why-major opening, Breaking (#1822, #1821, #1823), Upgrading per consumer, Added (#1828), Fixed (#1804, #1824/#1825, #1831); remove the duplicate #1821 entry; fresh empty Unreleased
+2. `pyproject.toml` - version 12.0.0
+3. `uv.lock` - re-lock; only CPP's own version changes
+4. `README.md` - line-3 banner v12.0.0 naming the lane-result contract; new v12.0.0 notes section
+5. `CLAUDE.md` - Current version: 12.0.0
+
+After merge, not file changes: annotated tag v12.0.0 on the merge commit after main CI is green; GitHub release with Breaking and Upgrading; #1278 comment and current-state line; kyle#2348 re-pin request.
+
+Scope: 5 files, about 120 changelog and notes lines and 1 line per version site.
+Risks: a missed version site (grep 11.1.1 afterwards); the re-lock picking up unrelated dependency changes (diff must be only CPP's version). No material concern found.
+
+Lanes: none - a release records version numbers and notes only; no behaviour changes in any listed lane
+
+Reader: kyle (re-pin) reads the version and changelog; the kyle#2348 comment hands it the Upgrading section.

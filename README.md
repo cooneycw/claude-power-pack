@@ -1,6 +1,6 @@
 # Claude Power Pack
 
-**v11.1.1** - Historical counter-model receipt compatibility, with current writer and enrolment policies preserved, for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and Codex.
+**v12.0.0** - Lane results become stated outcomes with evidence, and plans name the values they test, for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and Codex.
 
 ## What It Does
 
@@ -221,6 +221,28 @@ real annotated tag at [`626a96d9`](https://github.com/cooneycw/claude-power-pack
 It can be fetched with `git fetch origin tag v10.1.0`. No GitHub Release has
 been published. Further release/tag decisions remain the operator checkpoint
 tracked at [#1278](https://github.com/cooneycw/claude-power-pack/issues/1278).
+
+### v12.0.0 (2026-11-14)
+
+Seven merged PRs. A major version because three change what the plan record
+accepts where a project has adopted a lane file; a project with none sees no
+lane change. See [CHANGELOG.md](CHANGELOG.md) for Breaking and the
+per-consumer Upgrading section.
+
+- **Lane results (#1823):** a result row is `| <lane> | <result> | <evidence> |`;
+  only `passed` or `refused as expected` with evidence counts, and
+  `will refuse` lanes owe a result too.
+- **Named values (#1823):** a `will test` row names the lane-file values it
+  tests, or approval refuses it.
+- **Owed at approval (#1821):** what a run owes is stamped when it is
+  approved, and only rows under the run's own marker line count; a run
+  approved by an older helper is re-approved.
+- **One answer vocabulary (#1822):** lane answers match as whole phrases, and
+  the delegated drivers offer exactly the four the helper accepts.
+- **Kyle lease (#1828, #1831):** the finish gate's lease names its repository,
+  branch, issue and PR, and a queue timeout is reported as one.
+- **Fixes:** released wave roles start empty (#1804); a `major.minor`
+  `pyvenv.cfg` is accepted (#1824).
 
 ### v11.1.1 (2026-11-14)
 
