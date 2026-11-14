@@ -258,8 +258,8 @@ still needs agreement from the authority that already holds it.
 
 CPP-owned, OUTSIDE the vendored core. When the project has `.claude/lanes.md`,
 Section C answers EVERY listed lane - will test, will refuse, not applicable or
-not covered - per [the lanes reference](../../../docs/agents/lanes.md). No lane
-file, no lane rows. Lane file or not, Section C names each reader of a changed
+not covered - per [the lanes reference](../../../docs/agents/lanes.md); will
+test names its values. No lane file, no rows. Lane file or not, Section C names each reader of a changed
 output in a `Reader:` row
 ([readers](../../../docs/agents/changed-output-readers.md)).
 

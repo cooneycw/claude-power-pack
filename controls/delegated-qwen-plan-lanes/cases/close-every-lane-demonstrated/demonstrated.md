@@ -1,6 +1,6 @@
 {{LANES_MARKER}}
 
-| Lane | What was demonstrated |
-|---|---|
-| Checkout | real linked worktree approval |
-| Harness | standalone installed helper invoked |
+| Lane | Result | Evidence |
+|---|---|---|
+| Checkout | passed | real linked worktree approval |
+| Harness | passed | standalone installed helper invoked |

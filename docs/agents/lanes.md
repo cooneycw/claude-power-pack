@@ -64,10 +64,15 @@ EVERY listed lane with one of:
 
 | Answer | Meaning |
 |---|---|
-| will test | Exercised in this change; name how |
+| will test | Exercised in this change; name the values tested, as the lane file spells them, the ones not tested, and how |
 | will refuse | The behaviour says clearly that it is unsupported there |
 | not applicable | One line of reason |
 | not covered | A known gap, stated before the work starts |
+
+A `will test` row names its values because a lane is several routes: a test
+of a linked worktree is not a test of the main checkout. Name the combinations
+that matter (Codex in a linked worktree, say); every combination of every value
+is not required.
 
 The approver reads "not covered" as a decision to make, while it is cheap to
 change. In `/flow:auto` the table goes in the plan record under a
@@ -87,8 +92,21 @@ the judgement is the one the readers reference states.
 
 In `/flow:auto`, what happened goes in a file of its own at Step 6,
 `docs/flow-runs/issue-<N>.lanes-demonstrated.md`: a table with one row per
-lane answered `will test`. It is deliberately not part of the plan record,
-which must not change after approval.
+lane answered `will test` or `will refuse`. It is deliberately not part of the
+plan record, which must not change after approval.
+
+Each row states a result and where it came from (issue #1823):
+
+| Lane | Result | Evidence |
+|---|---|---|
+| Checkout | passed | `tests/test_x.py::test_linked_worktree` (linked worktree; main checkout not run) |
+| Harness | refused as expected | `tests/test_x.py::test_codex_install_refused` |
+
+The result is one of `passed`, `failed`, `not run` or `refused as expected`.
+Only `passed` or `refused as expected` with a reference counts as demonstrated;
+`failed` and `not run` are reported as what they are. The reference may follow
+the result in the same cell (`passed - tests/test_x.py`). A lane written twice
+keeps its last row.
 
 What a run owes is fixed when its plan is approved (issue #1821): deleting
 `.claude/lanes.md` afterwards owes nothing less, and adding one to a project
@@ -154,7 +172,7 @@ committed cases in `controls/flow-plan-record-lanes`). A lane file that exists
 and cannot be read refuses too, as unknown. The one-line form above
 (`Lanes: none - <reason>`) is accepted with a reason and announced on stderr;
 nothing judges the reason. At close, `compliance` puts each lane answered
-`will test` that has no row in
+`will test` or `will refuse` that is not demonstrated in
 `docs/flow-runs/issue-<N>.lanes-demonstrated.md` on its verdict line, directly
 after the verdict word, as a state and a count: `PLAN_COMPLIANCE: agreement,
 LANES NOT DEMONSTRATED (2) - ...`, or `, LANES NOT CHECKED` when the lane file
@@ -162,11 +180,16 @@ or that file exists and cannot be read. The lanes are named on stderr, one per
 line, with the reason and what to do (issue #1767; committed cases in
 `controls/flow-plan-record-lanes-verdict`). The exit code does not change and
 nothing is refused. A project with no lane file, a waived plan, and a plan with
-no `will test` answer get the line exactly as it was. Where a lane result
+no `will test` or `will refuse` answer get the line exactly as it was. Where a lane result
 is owed, writing the file is not itself a change to the plan: it is left out of
 the touched files, like the plan record beside it. The file is a table - a
-header row, a `|---|---|` row, then `| <lane> | <what was demonstrated> |` per
-lane - and the stderr note beside the clause says so. Since #1821 the lanes
+header row, a `|---|---|---|` row, then `| <lane> | <result> | <test or
+observation> |` per lane - and the stderr note beside the clause says so.
+Since #1823 a row counts only when its result is `passed` or `refused as
+expected` and it names its evidence; the note names each other lane with why
+(no row, no result state, `failed`, `not run`, or no reference), and `approve`
+refuses a `will test` row that names none of its lane's listed values
+(committed cases in both controls). Since #1821 the lanes
 owed come from what `approve` stamped, not from the lane file at close, and
 only rows below this run's `<!-- lanes-demonstrated ... -->` line count; a run
 with no stamp that owes `will test` lanes reads `, LANES NOT CHECKED`.

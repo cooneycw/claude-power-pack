@@ -22,6 +22,7 @@ Not checked anywhere, by design: whether an answer is true.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -436,7 +437,7 @@ def test_a_table_without_outer_pipes_is_a_table(tmp_path: Path) -> None:
     lanes = ("# Lanes\n\nReviewed: 2026-11-11\n\nLane | Values\n--- | ---\n"
              "Checkout | main / linked\nHarness | Claude / Codex\n")
     table = ("\n### Lanes for this change\n\nLane | Answer | How\n---|---|---\n"
-             "Checkout | will test | a test\nHarness | not covered | no bundle run\n")
+             "Checkout | will test | a test in linked\nHarness | not covered | no bundle run\n")
     r = make_repo(tmp_path / "wt", lanes=lanes)
     begin(r, PLAN + table)
     done = run(r, "approve", "42")
@@ -509,11 +510,13 @@ def bind(repo: Path, body: str) -> str:
 
 DEMONSTRATED = """# Lanes demonstrated - issue #42
 
-| Lane | What happened |
-|---|---|
-| Checkout | tested in a linked worktree |
-| Harness | tested through a symlink |
+| Lane | Result | Evidence |
+|---|---|---|
+| Checkout | passed | tested in a linked worktree |
+| Harness | passed | tested through a symlink |
 """
+HARNESS_ROW = "| Harness | passed | tested through a symlink |\n"
+WITHOUT_HARNESS = DEMONSTRATED.replace(HARNESS_ROW, "")
 
 IN_RECORD_BLOCK = "\n### Lanes demonstrated\n\n| Lane | What happened |\n|---|---|\n| Checkout | x |\n"
 
@@ -605,7 +608,7 @@ SIBLING = Path("docs") / "flow-runs" / "issue-42.lanes-demonstrated.md"
 def test_no_demonstrated_file_is_reported_with_the_lanes_owed(repo: Path) -> None:
     approved(repo)
     done = compliance(repo)
-    assert f"no {SIBLING} - this plan answered `will test` for 2 lane(s), named below" in done.stderr
+    assert f"no {SIBLING} - this plan owes a result for 2 lane(s), named below" in done.stderr
     assert [ln.rsplit(" - ", 1)[1] for ln in done.stderr.splitlines() if "has no row in" in ln] == [
         "Checkout", "Harness"]
     assert "Project state" not in done.stderr, "not applicable owes no row"
@@ -615,13 +618,14 @@ def test_no_demonstrated_file_is_reported_with_the_lanes_owed(repo: Path) -> Non
 def test_a_will_test_lane_with_no_row_is_named(repo: Path) -> None:
     approved(repo)
     quiet = compliance(repo)
-    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED.replace("| Harness | tested through a symlink |\n", "")))
+    (repo / SIBLING).write_text(bind(repo, WITHOUT_HARNESS))
     partial = compliance(repo)
     assert f"has no row in {SIBLING} - Harness" in partial.stderr
     assert "- Checkout" not in partial.stderr
     assert partial.stdout.replace("\n", "") != "" and partial.returncode == quiet.returncode
-    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED.replace("tested through a symlink", " ")))
-    assert f"has no row in {SIBLING} - Harness" in compliance(repo).stderr, "an empty cell is no row"
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED.replace("passed | tested through a symlink", " | ")))
+    assert "(no result state (one of: passed / failed / not run / refused as expected)) - Harness" in \
+        compliance(repo).stderr, "empty cells are no result"
 
 
 def test_every_will_test_lane_demonstrated_draws_no_note(repo: Path) -> None:
@@ -661,7 +665,7 @@ def test_the_note_is_silent_where_nothing_is_owed(tmp_path: Path, why: str) -> N
     elif why == "nothing-will-test":
         section = PLAN + FULL_TABLE.replace("will test (Claude install); not covered (Codex install)",
                                             "not covered").replace("| Checkout | will test |",
-                                                                   "| Checkout | will refuse |")
+                                                                   "| Checkout | not applicable |")
     r = make_repo(tmp_path / "wt", lanes=None if why == "no-lane-file" else LANES)
     approved(r, section)
     done = compliance(r)
@@ -679,7 +683,7 @@ PRE_1767 = ROOT / "controls" / "flow-plan-record-lanes-verdict" / "anchors" / "p
 WAIVED = PLAN + "\nLanes: none - documentation only\n"
 NOTHING_WILL_TEST = PLAN + FULL_TABLE.replace(
     "will test (Claude install); not covered (Codex install)", "not covered").replace(
-    "| Checkout | will test |", "| Checkout | will refuse |")
+    "| Checkout | will test |", "| Checkout | not applicable |")
 
 
 def verdict(done: subprocess.CompletedProcess) -> str:
@@ -716,7 +720,7 @@ def test_a_will_test_lane_with_nothing_shown_is_on_the_verdict_line(repo: Path, 
 @pytest.mark.parametrize("word", WORDS)
 def test_only_the_lanes_still_missing_are_named_and_a_full_file_clears_the_line(repo: Path, word: str) -> None:
     approved(repo)
-    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED.replace("| Harness | tested through a symlink |\n", "")))
+    (repo / SIBLING).write_text(bind(repo, WITHOUT_HARNESS))
     assert verdict(compliance_as(repo, word)).startswith(
         f"PLAN_COMPLIANCE: {word}, LANES NOT DEMONSTRATED (1)")
     (repo / SIBLING).write_text(bind(repo, DEMONSTRATED.replace("tested through a symlink", " ")))
@@ -767,7 +771,7 @@ def test_a_lane_file_damaged_after_approval_changes_nothing_owed(repo: Path, how
     assert "LANES" not in verdict(compliance_as(repo, "divergence")), "precondition: clean before the damage"
     _damage_lane_file(repo, how)
     assert "LANES" not in verdict(compliance_as(repo, "divergence"))
-    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED.replace("| Harness | tested through a symlink |\n", "")))
+    (repo / SIBLING).write_text(bind(repo, WITHOUT_HARNESS))
     assert ", LANES NOT DEMONSTRATED (1)" in verdict(compliance_as(repo, "divergence"))
 
 
@@ -858,7 +862,7 @@ def test_the_clause_is_the_only_change_and_the_exit_code_does_not_move(repo: Pat
     strip = lambda s: re.sub(r"FLOW_PLAN_RECORD_SELF: .*\n", "", s)   # noqa: E731
     assert strip(new.stdout).replace(", LANES NOT DEMONSTRATED (2)", "") == strip(old.stdout)
     assert new.returncode == old.returncode
-    assert "a header row, a `|---|---|` row, then `| <lane> | <what was demonstrated> |`" in new.stderr
+    assert "a header row, a `|---|---|---|` row, then `| <lane> | <result> | <test or observation> |`" in new.stderr
 
 
 def make_checkout(tmp_path: Path, shape: str) -> Path:
@@ -893,7 +897,7 @@ def test_the_clause_is_the_same_from_a_plain_repository_and_a_linked_worktree(
     r = make_checkout(tmp_path, shape)
     approved(r)
     assert verdict(compliance_as(r, word)).startswith(f"PLAN_COMPLIANCE: {word}, LANES NOT DEMONSTRATED (2)")
-    (r / SIBLING).write_text(bind(r, DEMONSTRATED.replace("| Harness | tested through a symlink |\n", "")))
+    (r / SIBLING).write_text(bind(r, WITHOUT_HARNESS))
     assert verdict(compliance_as(r, word)).startswith(f"PLAN_COMPLIANCE: {word}, LANES NOT DEMONSTRATED (1)")
     (r / SIBLING).write_text(bind(r, DEMONSTRATED))
     done = compliance_as(r, word)
@@ -1130,11 +1134,11 @@ def test_a_previous_runs_unchanged_evidence_does_not_satisfy_a_new_run(repo: Pat
     assert ", LANES NOT DEMONSTRATED (2)" in verdict(done), "run 1's rows were taken for run 2's"
     assert f"{SIBLING} has no rows for this run" in done.stderr
     with (repo / SIBLING).open("a") as fh:
-        fh.write("\n" + bind(repo, DEMONSTRATED.replace("| Harness | tested through a symlink |\n", "")))
+        fh.write("\n" + bind(repo, WITHOUT_HARNESS))
     assert ", LANES NOT DEMONSTRATED (1)" in verdict(compliance_as(repo, "divergence")), \
         "run 2's own section counts; run 1's row for Harness above it does not"
     with (repo / SIBLING).open("a") as fh:
-        fh.write("| Harness | run 2 tested through a symlink |\n")
+        fh.write("| Harness | passed | run 2 tested through a symlink |\n")
     assert "LANES" not in verdict(compliance_as(repo, "divergence"))
 
 
@@ -1147,7 +1151,7 @@ def test_identical_rows_under_another_runs_line_do_not_count_and_under_this_runs
     assert ", LANES NOT DEMONSTRATED (2)" in verdict(compliance_as(repo, "divergence"))
     (repo / SIBLING).write_text(foreign + DEMONSTRATED + "\n" + bind(repo, DEMONSTRATED))
     assert "LANES" not in verdict(compliance_as(repo, "divergence"))
-    (repo / SIBLING).write_text(bind(repo, "| Lane | What happened |\n|---|---|\n| Checkout | x |\n")
+    (repo / SIBLING).write_text(bind(repo, "| Lane | Result | Evidence |\n|---|---|---|\n| Checkout | passed | x |\n")
                                 + "\n" + foreign + DEMONSTRATED)
     assert ", LANES NOT DEMONSTRATED (1)" in verdict(compliance_as(repo, "divergence")), \
         "the next run's line ends this run's section"
@@ -1290,7 +1294,7 @@ def test_an_unexpected_failure_in_the_lane_check_is_not_checked_never_shown(
     injection: with a lane genuinely missing, a failure anywhere in the check
     is NOT CHECKED - never shown, never silent."""
     approved(repo)
-    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED.replace("| Harness | tested through a symlink |\n", "")))
+    (repo / SIBLING).write_text(bind(repo, WITHOUT_HARNESS))
     helper = _load_helper()
     monkeypatch.chdir(repo)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-lanes")
@@ -1320,3 +1324,174 @@ def test_the_verdict_control_runner_ignores_a_foreign_git_dir(tmp_path: Path) ->
                           env={**os.environ, "GIT_DIR": str(foreign / ".git")})
     assert done.returncode == 0, done.stdout + done.stderr
     assert "LANES NOT" not in done.stdout
+
+
+# --- result states, evidence, promised refusals and named values (#1823) ------
+#
+# Before #1823 a demonstrated row counted when its second cell said anything:
+# `TODO`, `failed` and `n/a` each read as a demonstration, and a promised
+# refusal owed nothing at close. A `will test` row could also name no value, so
+# a test of one checkout read as covering every checkout. Each case below
+# fails on the helper as it was before #1823.
+
+ROWS = "| Lane | Result | Evidence |\n|---|---|---|\n"
+SHOWN_HARNESS = HARNESS_ROW
+REFUSE_TABLE = FULL_TABLE.replace(
+    "| Project state | not applicable | nothing reads an adopted file |",
+    "| Project state | will refuse | an unadopted repository is told so (not adopted) |")
+NOT_DEMONSTRATED = f"is not demonstrated in {SIBLING} ("
+
+
+def shown_with(repo: Path, checkout_row: str, extra: str = "") -> subprocess.CompletedProcess:
+    (repo / SIBLING).write_text(bind(repo, ROWS + checkout_row + SHOWN_HARNESS + extra))
+    return compliance_as(repo, "agreement")
+
+
+@pytest.mark.parametrize("row, why", [
+    ("| Checkout | TODO | |\n", "no result state (one of: passed / failed / not run / refused as expected)"),
+    ("| Checkout | n/a | x |\n", "no result state"),
+    ("| Checkout | passes | x |\n", "no result state"),
+    ("| Checkout | passed | |\n", "result is `passed` with no reference to the test or observation"),
+    ("| Checkout | failed | tests/t.py::test_x |\n", "result is `failed`"),
+    ("| Checkout | not run | no linked worktree on this host |\n", "result is `not run`"),
+])
+def test_a_row_that_is_not_a_referenced_pass_is_reported_with_why(repo: Path, row: str, why: str) -> None:
+    approved(repo)
+    assert "LANES" not in verdict(shown_with(repo, "| Checkout | passed | tests/t.py::test_wt |\n")), \
+        "precondition: a referenced pass clears the lane"
+    done = shown_with(repo, row)
+    assert ", LANES NOT DEMONSTRATED (1)" in verdict(done)
+    named = [ln for ln in done.stderr.splitlines() if NOT_DEMONSTRATED in ln]
+    assert len(named) == 1 and named[0].endswith(" - Checkout") and why in named[0], done.stderr
+
+
+@pytest.mark.parametrize("row", [
+    "| Checkout | passed | tests/t.py::test_wt |\n",
+    "| Checkout | passed - tests/t.py::test_wt |\n",
+    "| Checkout | **Passed**: tests/t.py::test_wt |\n",
+    "| Checkout | refused as expected | tests/t.py::test_main_refused |\n",
+])
+def test_a_referenced_pass_or_refusal_counts_in_either_layout(repo: Path, row: str) -> None:
+    approved(repo)
+    done = shown_with(repo, row)
+    assert verdict(done).startswith("PLAN_COMPLIANCE: agreement - "), done.stdout + done.stderr
+
+
+def test_a_lanes_last_row_is_its_result(repo: Path) -> None:
+    """A re-run's row replaces the first: failed then passed is a pass, and
+    passed then failed is a failure."""
+    approved(repo)
+    fail, ok = "| Checkout | failed | run 1 |\n", "| Checkout | passed | run 2 |\n"
+    assert "LANES" not in verdict(shown_with(repo, fail, ok))
+    assert ", LANES NOT DEMONSTRATED (1)" in verdict(shown_with(repo, ok, fail))
+
+
+def test_a_promised_refusal_is_owed_at_close(repo: Path) -> None:
+    approved(repo, PLAN + REFUSE_TABLE)
+    done = shown_with(repo, "| Checkout | passed | tests/t.py::test_wt |\n")
+    assert ", LANES NOT DEMONSTRATED (1)" in verdict(done)
+    assert f"has no row in {SIBLING} - Project state" in done.stderr
+    shown = shown_with(repo, "| Checkout | passed | tests/t.py::test_wt |\n",
+                       "| Project state | refused as expected | tests/t.py::test_unadopted |\n")
+    assert verdict(shown).startswith("PLAN_COMPLIANCE: agreement - "), shown.stderr
+
+
+def test_a_version_1_stamp_owes_only_its_will_test_lanes(repo: Path) -> None:
+    """A run approved by the #1821 helper keeps what that approval owed: its
+    stamp lists no `will refuse` lane, and close does not invent one."""
+    approved(repo, PLAN + REFUSE_TABLE)
+    gd = Path(git(repo, "rev-parse", "--absolute-git-dir").strip())
+    stamp_path = gd / "flow-plan-lanes-42"
+    stamp = json.loads(stamp_path.read_text())
+    assert stamp["version"] == 2 and "Project state" in stamp["owed"], "precondition: v2 owes the refusal"
+    stamp.update(version=1, owed=[x for x in stamp["owed"] if x != "Project state"])
+    stamp_path.write_text(json.dumps(stamp))
+    assert "LANES" not in verdict(shown_with(repo, "| Checkout | passed | tests/t.py::test_wt |\n"))
+
+
+# --- the values a will-test row names (#1823) ----------------------------------
+
+def test_lane_values_drop_asides_and_split_on_slash_and_semicolon() -> None:
+    helper = _load_helper()
+    assert helper.lane_values("`/flow:auto` (Claude implements) / delegated drivers (`/codex:auto`, `/qwen:auto`)") \
+        == ["/flow:auto", "delegated drivers"]
+    assert helper.lane_values("dev / prod; feature disabled / enabled (including admission)") \
+        == ["dev", "prod", "feature disabled", "enabled"]
+    assert helper.lane_values("") == [] and helper.lane_values(" - ") == []
+
+
+def test_a_will_test_row_naming_no_value_is_refused_at_approval(tmp_path: Path) -> None:
+    unnamed = FULL_TABLE.replace("| Checkout | will test | a test in a linked worktree |",
+                                 "| Checkout | will test | a test of the change |")
+    r = make_repo(tmp_path / "refused")
+    begin(r, PLAN + unnamed)
+    done = run(r, "approve", "42")
+    assert done.returncode == 1, done.stdout + done.stderr
+    assert ("without naming which values it will test for: Checkout (values: main checkout, "
+            "linked worktree)") in done.stdout
+    assert "Harness" not in done.stdout.split("values it will test for:")[1], \
+        "Harness names `Claude install` and is not refused"
+    ok = make_repo(tmp_path / "named")
+    begin(ok, PLAN + unnamed.replace("a test of the change", "a test in a `Linked  Worktree`"))
+    assert run(ok, "approve", "42").returncode == 0, "emphasis, spacing and case do not matter"
+
+
+def test_a_lane_with_no_listed_values_is_not_checked_for_values(tmp_path: Path) -> None:
+    lanes = LANES.replace("| Checkout | main checkout / linked worktree |", "| Checkout | |")
+    r = make_repo(tmp_path / "wt", lanes=lanes)
+    begin(r, PLAN + FULL_TABLE.replace("a test in a linked worktree", "a test"))
+    assert run(r, "approve", "42").returncode == 0
+
+
+def test_only_will_test_rows_must_name_values(repo: Path) -> None:
+    """`will refuse`, `not applicable` and `not covered` need a reason, which
+    the earlier check already asks for; naming values is the will-test promise."""
+    begin(repo, PLAN + REFUSE_TABLE.replace("(not adopted)", "")
+          .replace("| Harness | will test (Claude install); not covered (Codex install) | through a symlink |",
+                   "| Harness | not covered | no bundle run |"))
+    assert run(repo, "approve", "42").returncode == 0
+
+
+# --- counter-model review of #1823 --------------------------------------------
+
+@pytest.mark.parametrize("row", ["| Checkout | passed | - |\n", "| Checkout | passed | () |\n",
+                                 "| Checkout | passed - | -- |\n"])
+def test_punctuation_is_no_reference(repo: Path, row: str) -> None:
+    approved(repo)
+    done = shown_with(repo, row)
+    assert ", LANES NOT DEMONSTRATED (1)" in verdict(done)
+    assert "with no reference to the test or observation) - Checkout" in done.stderr
+
+
+def test_a_failure_in_a_later_table_is_the_result(repo: Path) -> None:
+    """A re-run appends a second table under the same line; its row is the
+    later result, so an earlier pass cannot hide it."""
+    approved(repo)
+    first = "| Checkout | passed | run 1 |\n"
+    assert "LANES" not in verdict(shown_with(repo, first)), "precondition: run 1 alone is clean"
+    done = shown_with(repo, first, "\nRe-run:\n\n" + ROWS + "| Checkout | failed | rerun.log |\n")
+    assert ", LANES NOT DEMONSTRATED (1)" in verdict(done), done.stderr
+    assert "(result is `failed`) - Checkout" in done.stderr
+
+
+def test_a_value_is_named_as_a_whole_phrase_not_a_substring(tmp_path: Path) -> None:
+    lanes = LANES.replace("| Checkout | main checkout / linked worktree |", "| Checkout | dev / prod |")
+    device = FULL_TABLE.replace("a test in a linked worktree", "exercise the device")
+    r = make_repo(tmp_path / "device", lanes=lanes)
+    begin(r, PLAN + device)
+    done = run(r, "approve", "42")
+    assert done.returncode == 1 and "Checkout (values: dev, prod)" in done.stdout, done.stdout
+    ok = make_repo(tmp_path / "dev", lanes=lanes)
+    begin(ok, PLAN + device.replace("exercise the device", "exercise dev, not prod"))
+    assert run(ok, "approve", "42").returncode == 0
+
+
+def test_a_refusal_only_plan_owes_its_file(repo: Path) -> None:
+    """No `will test` lane, one `will refuse`: the demonstrated file is owed."""
+    section = PLAN + REFUSE_TABLE.replace("| Checkout | will test |", "| Checkout | not applicable |").replace(
+        "| Harness | will test (Claude install); not covered (Codex install) | through a symlink |",
+        "| Harness | not covered | no bundle run |")
+    approved(repo, section)
+    done = compliance_as(repo, "agreement")
+    assert ", LANES NOT DEMONSTRATED (1)" in verdict(done)
+    assert f"no {SIBLING} - this plan owes a result for 1 lane(s)" in done.stderr

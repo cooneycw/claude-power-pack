@@ -320,28 +320,36 @@ def split_row(line: str) -> list[str]:
     return [c.replace("\\|", "|").strip() for c in cells]
 
 
-def table_rows(block: str) -> list[list[str]]:
-    """Cells of each body row of the first markdown table in `block`.
+def tables(block: str) -> list[list[list[str]]]:
+    """Body rows of each markdown table in `block`, in document order.
 
     A table is a header line, then a delimiter line, then rows. A delimiter
     with no header above it is not a table, and neither is anything inside a
     code fence. Outer pipes are optional, as markdown allows."""
     lines = outside_fences(block).splitlines()
-    for i in range(1, len(lines)):
+    found: list[list[list[str]]] = []
+    i = 1
+    while i < len(lines):
         rule, header = lines[i], lines[i - 1]
-        if not ("|" in rule and TABLE_RULE_RE.match(rule)):
-            continue
-        if "|" not in header or not header.strip() or TABLE_RULE_RE.match(header):
-            continue
-        if len(split_row(header)) != len(split_row(rule)):
+        if (not ("|" in rule and TABLE_RULE_RE.match(rule))
+                or "|" not in header or not header.strip() or TABLE_RULE_RE.match(header)
+                or len(split_row(header)) != len(split_row(rule))):
+            i += 1
             continue
         rows: list[list[str]] = []
-        for line in lines[i + 1:]:
-            if not line.strip() or "|" not in line:
-                break
-            rows.append(split_row(line))
-        return rows
-    return []
+        j = i + 1
+        while j < len(lines) and lines[j].strip() and "|" in lines[j]:
+            rows.append(split_row(lines[j]))
+            j += 1
+        found.append(rows)
+        i = j + 1
+    return found
+
+
+def table_rows(block: str) -> list[list[str]]:
+    """Cells of each body row of the FIRST markdown table in `block`."""
+    found = tables(block)
+    return found[0] if found else []
 
 
 def lane_key(name: str) -> str:
@@ -440,9 +448,98 @@ def answered(cell: str) -> bool:
     return lane_answer(cell) is not None
 
 
-def lanes_refusal(section: str, lanes: list[str]) -> tuple[str | None, str | None]:
+#: The answers that promise a result at close (#1823): a promised refusal
+#: needs its evidence exactly as a promised test does.
+LANES_OWED_ANSWERS = ("will test", "will refuse")
+
+#: What a demonstrated row may say happened (#1823), matched as a whole phrase
+#: the way `LANE_ANSWER_RE` matches a plan's answer. Only the first two are a
+#: demonstration, and only with a reference to the test or observation.
+RESULT_STATES = ("passed", "failed", "not run", "refused as expected")
+RESULT_DEMONSTRATED = ("passed", "refused as expected")
+RESULT_STATE_RE = re.compile(r"^[`*_ ]*(" + "|".join(re.escape(s) for s in RESULT_STATES)
+                             + r")(?![^\W_])[`*_]*", re.I)
+#: What separates a state from the reference written after it in the same cell.
+RESULT_SEPARATOR_RE = re.compile(r"^[\s\-:;,.()\[\]]+")
+
+
+def evidence_text(cell: str) -> str:
+    """A reference with leading separators dropped; empty when nothing with a
+    letter or digit is left, so `-`, `n/a`-style punctuation or `()` names no
+    test or observation (counter-model review)."""
+    text = RESULT_SEPARATOR_RE.sub("", cell).strip()
+    return text if re.search(r"[^\W_]", text) else ""
+
+
+def lane_result(cells: list[str]) -> tuple[str | None, str]:
+    """`(state, evidence)` of one demonstrated row's cells after the lane name.
+
+    The state is the `RESULT_STATES` phrase the first cell opens with,
+    casefolded, or None. The evidence is what follows it in that cell plus
+    every later cell, separators dropped: `| X | passed | tests/t.py |` and
+    `| X | passed - tests/t.py |` carry the same reference, and `| X | passed |`
+    carries none."""
+    first = cells[0] if cells else ""
+    match = RESULT_STATE_RE.match(first)
+    if not match:
+        return None, ""
+    rest = [evidence_text(first[match.end():])] + [evidence_text(cell) for cell in cells[1:]]
+    return match.group(1).casefold(), " ".join(part for part in rest if part)
+
+
+def value_text(text: str) -> str:
+    """Text as compared for a lane value: emphasis marks dropped, whitespace
+    collapsed, case folded."""
+    return " ".join(re.sub(r"[`*_]", "", text).split()).casefold()
+
+
+def lane_values(cell: str) -> list[str]:
+    """The values one lane-file `Values` cell lists, as compared (#1823).
+
+    Values are separated by ` / ` or `;`. A parenthetical is an aside about a
+    value, not part of its name - `` `/flow:auto` (Claude implements) `` is
+    named by `/flow:auto` - and a value left with no letter or digit is no value."""
+    values = []
+    for part in re.split(r"\s/\s|;", re.sub(r"\([^()]*\)", " ", cell)):
+        value = value_text(part)
+        if re.search(r"[^\W_]", value):
+            values.append(value)
+    return values
+
+
+def names_value(said: str, value: str) -> bool:
+    """Whether `said` names `value` as a whole phrase: `dev` is not named by
+    `device` (counter-model review). Both are already `value_text`."""
+    return re.search(r"(?<![^\W_])" + re.escape(value) + r"(?![^\W_])", said) is not None
+
+
+def project_lane_values(root: pathlib.Path) -> dict[str, list[str]]:
+    """`{lane key: values}` from the lane file's second column. Called only
+    after `project_lanes` read the file, so it raises exactly as that does."""
+    text = read_lane_text(root / LANE_FILE_REL) or ""
+    return {lane_key(row[0]): lane_values(row[1] if len(row) > 1 else "")
+            for row in table_rows(text) if row and lane_key(row[0])}
+
+
+def lane_rows(section: str) -> dict[str, list[str]] | None:
+    """`{lane key: every cell after the name}` from the plan's lanes table."""
+    span = heading_block(section, LANES_HEADING_RE)
+    if span is None:
+        return None
+    return {lane_key(row[0]): row[1:] for row in table_rows(section[span[0]:span[1]])
+            if row and lane_key(row[0])}
+
+
+def lanes_refusal(section: str, lanes: list[str],
+                  values: dict[str, list[str]] | None = None) -> tuple[str | None, str | None]:
     """`(refusal, waiver)`: why this section cannot be approved, else None; and
-    the reason given when the table was waived in one line."""
+    the reason given when the table was waived in one line.
+
+    With `values` (`project_lane_values`), a `will test` row must also name at
+    least one of its lane's listed values (#1823): `Checkout: will test` that
+    tested only a linked worktree otherwise reads as covering every checkout.
+    A lane whose `Values` cell lists nothing is not checked for values - there
+    is nothing to name."""
     table = lane_answers(section, LANES_HEADING_RE)
     listed = ", ".join(lanes)
     choices = " / ".join(LANE_ANSWERS)
@@ -463,6 +560,20 @@ def lanes_refusal(section: str, lanes: list[str]) -> tuple[str | None, str | Non
                 f"Each needs a row whose first cell is the lane's name exactly as "
                 f"{LANE_FILE_REL} lists it and whose answer is one of: {choices}, "
                 f"ending there or followed by its how/why"), None
+    rows = lane_rows(section) or {}
+    unnamed = []
+    for name in lanes:
+        cells = rows.get(lane_key(name), [])
+        listed_values = (values or {}).get(lane_key(name), [])
+        if not cells or lane_answer(cells[0]) != "will test" or not listed_values:
+            continue
+        said = value_text(" ".join(cells))
+        if not any(names_value(said, value) for value in listed_values):
+            unnamed.append(f"{name} (values: {', '.join(listed_values)})")
+    if unnamed:
+        return (f"the lanes table answers `will test` without naming which values it will "
+                f"test for: {'; '.join(unnamed)}. Name in the row the values it will test, "
+                f"as {LANE_FILE_REL} spells them, and the ones it will not"), None
     return None, None
 
 
@@ -785,7 +896,7 @@ def cmd_approve(issue: str) -> int:
               "against a list that cannot be read, so nothing was stamped. Run /lane:update.")
         return ERROR
     if lanes is not None:
-        refusal, waiver = lanes_refusal(section, lanes)
+        refusal, waiver = lanes_refusal(section, lanes, project_lane_values(root))
         if refusal:
             print(f"FLOW_PLAN_RECORD: error - {refusal}. Nothing was stamped.")
             return ERROR
@@ -1108,6 +1219,17 @@ def will_test_lanes(section: str) -> list[str]:
             and lane_answer(row[1]) == "will test"]
 
 
+def owed_lanes(section: str) -> list[str]:
+    """Lane names, as the plan wrote them, whose approved answer promises a
+    result at close: `will test` or `will refuse` (#1823)."""
+    span = heading_block(section, LANES_HEADING_RE)
+    if span is None:
+        return []
+    return [row[0] for row in table_rows(section[span[0]:span[1]])
+            if len(row) > 1 and lane_key(row[0])
+            and lane_answer(row[1]) in LANES_OWED_ANSWERS]
+
+
 def lanes_stamp_path(issue: str) -> pathlib.Path:
     """What `approve` decided about lanes, beside the baseline (#1821)."""
     return git_dir() / f"flow-plan-lanes-{issue}"
@@ -1126,16 +1248,18 @@ def write_lanes_stamp(issue: str, root: pathlib.Path, run_id: str | None, sectio
     - `adopted`: whether the project had a lane file NOW. Deleting it later
       must not cancel what this plan promised, and a project that never had
       one must stay silent whatever appears later.
-    - `owed`: the lanes this approved plan answered `will test`.
+    - `owed`: the lanes this approved plan answered `will test` or, since
+      version 2 (#1823), `will refuse`. A version-1 stamp, written before a
+      promised refusal was owed, lists only `will test` lanes and is read as is.
     - `run_id` and `plan_digest`: which run and which approved section this
       stamp speaks for. They are also what a demonstrated-file section must
       name for its rows to count (`lanes_marker`)."""
     stamp = {
-        "version": 1,
+        "version": 2,
         "run_id": run_id or "-",
         "plan_digest": section_digest(section),
         "adopted": lanes is not None,
-        "owed": will_test_lanes(section) if lanes is not None else [],
+        "owed": owed_lanes(section) if lanes is not None else [],
     }
     lanes_stamp_path(issue).write_text(json.dumps(stamp, indent=1) + "\n")
 
@@ -1154,22 +1278,51 @@ def lanes_marker(run_id: str, plan_digest: str) -> str:
     return f"<!-- lanes-demonstrated run={run_id} plan={plan_digest} -->"
 
 
-def bound_rows(text: str, run_id: str, plan_digest: str) -> set[str] | None:
-    """Lane keys with a row that says something, in every section of `text`
-    opened by this run's line; None when no such line is in it. Lines inside
-    a code fence are examples and open nothing."""
+def bound_rows(text: str, run_id: str, plan_digest: str) -> dict[str, tuple[str | None, str]] | None:
+    """`{lane key: (state, evidence)}` for each row with a lane name, in every
+    section of `text` opened by this run's line; None when no such line is in
+    it. A lane written twice keeps its LAST row, so a re-run's result replaces
+    the first one. Lines inside a code fence are examples and open nothing.
+
+    The row's text is parsed, not judged (#1823): `lane_result` finds the
+    state and whether anything follows it, and `lanes_at_close` decides what
+    that is. Before #1823 any non-empty cell counted, so `TODO` and `failed`
+    each read as a demonstration."""
     visible = outside_fences(text)
     starts = [m for m in LANES_MARKER_RE.finditer(visible)
               if m.group(1) == run_id and m.group(2) == plan_digest]
     if not starts:
         return None
     bounds = sorted(m.start() for m in LANES_MARKER_ANY_RE.finditer(visible))
-    keys: set[str] = set()
+    rows: dict[str, tuple[str | None, str]] = {}
     for m in starts:
         end = next((b for b in bounds if b > m.start()), len(text))
-        keys |= {lane_key(row[0]) for row in table_rows(text[m.end():end])
-                 if len(row) > 1 and lane_key(row[0]) and row[1].strip()}
-    return keys
+        for row in every_table_row(text[m.end():end]):
+            if lane_key(row[0]):
+                rows[lane_key(row[0])] = lane_result(row[1:])
+    return rows
+
+
+def every_table_row(block: str) -> list[list[str]]:
+    """Body rows of EVERY table in `block`, in document order. One run's
+    section may hold more than one table - a re-run appends its own - and a
+    later table's row is the later result (counter-model review: reading only
+    the first table let an earlier `passed` hide a later `failed`)."""
+    return [row for rows in tables(block) for row in rows]
+
+
+def result_shortfall(row: tuple[str | None, str] | None) -> str | None:
+    """Why one owed lane's row is not a demonstration (#1823), or None when it is."""
+    if row is None:
+        return "no row"
+    state, evidence = row
+    if state is None:
+        return f"no result state (one of: {' / '.join(RESULT_STATES)})"
+    if state not in RESULT_DEMONSTRATED:
+        return f"result is `{state}`"
+    if not evidence:
+        return f"result is `{state}` with no reference to the test or observation"
+    return None
 
 
 def read_lanes_stamp(issue: str, run_id: str | None) -> dict[str, Any] | None:
@@ -1191,7 +1344,7 @@ def read_lanes_stamp(issue: str, run_id: str | None) -> dict[str, Any] | None:
     except ValueError as exc:
         raise LanesUnusable(f"this run's lane stamp ({path.name}) is not valid JSON") from exc
     well_formed = (
-        isinstance(data, dict) and data.get("version") == 1
+        isinstance(data, dict) and data.get("version") in (1, 2)
         and isinstance(data.get("run_id"), str)
         and isinstance(data.get("plan_digest"), str)
         and re.fullmatch(r"[0-9a-f]{64}", data["plan_digest"]) is not None
@@ -1213,7 +1366,8 @@ class LanesAtClose(NamedTuple):
     reason nothing could be said (state `not-checked`), and `file_absent`
     separates "no demonstrated file" from "a file with rows missing".
     `marker` is the line this run's rows must sit under, and `unbound` says
-    the file exists with no such line in it (#1821)."""
+    the file exists with no such line in it (#1821). `reasons`, when given,
+    runs parallel to `lanes`: why each one is not a demonstration (#1823)."""
     state: str
     lanes: tuple[str, ...] = ()
     why: str = ""
@@ -1221,6 +1375,7 @@ class LanesAtClose(NamedTuple):
     file_absent: bool = False
     marker: str = ""
     unbound: bool = False
+    reasons: tuple[str, ...] = ()
 
 
 #: The only four answers. `nothing-owed` and `all-shown` leave the verdict line
@@ -1253,7 +1408,8 @@ def lanes_at_close(issue: str) -> LanesAtClose:
 
     - `nothing-owed`: the project had no lane file at approval (it has not
       adopted lanes, and must behave exactly as before); or this run's plan
-      waived the table, has no table, or answered `will test` for no lane.
+      waived the table, has no table, or answered `will test` or `will
+      refuse` for no lane.
       Also when there is no repository to ask: compliance's own verdict is
       already `unknown` there.
     - `not-checked`: this run has no lane stamp and its plan answered `will
@@ -1312,9 +1468,11 @@ def lanes_at_close(issue: str) -> LanesAtClose:
         shown = bound_rows(shown_text, stamp["run_id"], stamp["plan_digest"])
         if shown is None:
             return LanesAtClose("missing", lanes=owed, rel=rel, marker=marker, unbound=True)
-        missing = tuple(lane for lane in owed if lane_key(lane) not in shown)
+        short = [(lane, result_shortfall(shown.get(lane_key(lane)))) for lane in owed]
+        missing = tuple(lane for lane, why in short if why)
         if missing:
-            return LanesAtClose("missing", lanes=missing, rel=rel, marker=marker)
+            return LanesAtClose("missing", lanes=missing, rel=rel, marker=marker,
+                                reasons=tuple(why for _lane, why in short if why))
         return LanesAtClose("all-shown", rel=rel, marker=marker)
     except Exception as exc:    # noqa: BLE001 - see the docstring
         return LanesAtClose("not-checked", why=f"the lane check failed ({type(exc).__name__})")
@@ -1340,7 +1498,7 @@ def lanes_without_stamp(issue: str, root: pathlib.Path, run_id: str | None) -> L
         if not adopted:
             return LanesAtClose("nothing-owed")
         return LanesAtClose("not-checked", why=f"this run has no section in {record_rel(issue)}")
-    owed = will_test_lanes(section)
+    owed = owed_lanes(section)
     if not owed:
         return LanesAtClose("nothing-owed")
     return LanesAtClose("not-checked", lanes=tuple(owed), rel=demonstrated_rel(issue), why=(
@@ -1373,34 +1531,43 @@ def lanes_note(at_close: LanesAtClose) -> list[str]:
     exactly one line per lane counted on the verdict line, each ending in the
     lane's name as the plan wrote it. `/flow:auto` Step 6 sends a run here for
     the remedy, so each note is one a run can act on without another document."""
-    row = "`| <lane> | <what was demonstrated> |`"
-    table = "a header row, a `|---|---|` row, then " + row + " for each"
+    row = ("`| <lane> | <result> | <test or observation> |`, the result one of "
+           + " / ".join(RESULT_STATES) + " (only " + " or ".join(RESULT_DEMONSTRATED)
+           + ", with a reference, is a demonstration)")
+    table = "a header row, a `|---|---|---|` row, then " + row + " for each"
     line = (f"the line `{at_close.marker}` (it ties the rows below it to this run and the "
             "plan it approved; rows under another run's line do not count)")
     if at_close.state == "missing":
         if at_close.file_absent:
-            opening = (f"flow-plan-record: no {at_close.rel} - this plan answered `will test` for "
+            opening = (f"flow-plan-record: no {at_close.rel} - this plan owes a result for "
                        f"{len(at_close.lanes)} lane(s), named below. Write that file: {line}, "
                        f"then under it a table, one row per lane, saying what was demonstrated: "
                        f"{table}")
         elif at_close.unbound:
             opening = (f"flow-plan-record: {at_close.rel} has no rows for this run - this plan "
-                       f"answered `will test` for {len(at_close.lanes)} lane(s), named below. "
+                       f"owes a result for {len(at_close.lanes)} lane(s), named below. "
                        f"Append {line}, then under it a table, one row per lane, saying what "
                        f"this run demonstrated: {table}")
         else:
-            opening = (f"flow-plan-record: {len(at_close.lanes)} lane(s) answered `will test` at "
-                       f"approval have no row in {at_close.rel} under {line}, named below. Add "
-                       f"{row} for each to the table under that line (which needs a header row "
-                       "and a `|---|---|` row above it, if the file has none)")
+            opening = (f"flow-plan-record: {len(at_close.lanes)} lane(s) owed at approval "
+                       f"(`will test` or `will refuse`) are not demonstrated in {at_close.rel} "
+                       f"under {line}, named below with why. Each needs {row} in the table "
+                       "under that line (which needs a header row and a `|---|---|---|` row "
+                       "above it, if the file has none); a `failed` or `not run` result is "
+                       "reported, never counted")
         opening += ". A `|` inside a lane name is written `\\|` in its row"
-        return [opening] + [f"flow-plan-record: lane answered `will test` at approval has no row "
-                            f"in {at_close.rel} - {lane}" for lane in at_close.lanes]
+        reasons = at_close.reasons or ("no row",) * len(at_close.lanes)
+        return [opening] + [
+            f"flow-plan-record: lane owed at approval has no row in {at_close.rel} - {lane}"
+            if why == "no row" else
+            f"flow-plan-record: lane owed at approval is not demonstrated in {at_close.rel} "
+            f"({why}) - {lane}"
+            for lane, why in zip(at_close.lanes, reasons)]
     unchecked = "Fix that and re-run, or report the lanes as NOT CHECKED - never as demonstrated"
     if at_close.state == "not-checked" and at_close.lanes:
         return ([f"flow-plan-record: {at_close.why}, so the lanes this plan said it would test "
                  f"cannot be checked against what was demonstrated. {unchecked}"]
-                + [f"flow-plan-record: lane answered `will test` at approval was not checked - "
+                + [f"flow-plan-record: lane owed at approval was not checked - "
                    f"{lane}" for lane in at_close.lanes])
     if at_close.state == "not-checked":
         return [f"flow-plan-record: {at_close.why}, so whether this plan's will-test lanes "

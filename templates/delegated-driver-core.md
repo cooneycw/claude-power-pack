@@ -212,7 +212,8 @@ mis-route is paid before the gate is ever reached.
    - Specific instructions: "Implement the changes described in the issue. Follow existing code conventions. Create or modify only the files necessary."
    - If `.claude/lanes.md` exists, present its lane list and a
      `### Lanes for this change` table answering every lane: `will test`,
-     `will refuse`, `not applicable`, or `not covered`, with how/why. Settle a
+     `will refuse`, `not applicable`, or `not covered`, with how/why; a
+     `will test` row names the lane-file values it tests. Settle a
      lane needing a decision with the owner before approval.
      No lane file means no table/question; unreadable/malformed is not absent.
      Reuse `project_lanes`/`lanes_refusal`; no second parser. Preserve the
@@ -649,11 +650,13 @@ echo "DELEGATED_PRODUCT_CHANGE: ok - final product changes exist"
 ```
 
 **Record actual lane evidence and relay compliance before the closing reference.**
-For each `will test` lane, write a nonempty row (`Lane` / `What was
-demonstrated`) in `docs/flow-runs/issue-42.lanes-demonstrated.md`, below this
-run's marker line as the compliance note prints it. No lane file at approval,
-or no `will test`, owes no file/question. Never fill rows merely because a test
-was promised.
+For each `will test` or `will refuse` lane, write a row (`Lane` / `Result`
+`passed`, `failed`, `not run` or `refused as expected` / `Evidence`; only a
+referenced pass or refusal counts) in
+`docs/flow-runs/issue-42.lanes-demonstrated.md`, below this run's marker line as
+the compliance note prints it. No lane file at approval, or no `will
+test`/`will refuse`, owes no file/question. Never fill rows merely because a
+test was promised.
 
 The compliance call stays in the SAME shell block as `MERGE_BASE`. After
 writing evidence, rerun that full block. Relay stdout/stderr/status into PR
