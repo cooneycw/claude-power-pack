@@ -46,6 +46,15 @@ def run_probe(work: Path, target_uv_environment: bool, inherited_path_record: bo
     subprocess.run(["uv", "venv", "--python", target_python, "--no-python-downloads", str(target_venv)],
                    check=True, capture_output=True, text=True, timeout=30)
     target_path = f"{target_venv / 'bin'}:/usr/local/bin:/usr/bin:/bin"
+    if shutil.which("uv", path=target_path) is None:
+        # uv installed only in ~/.local/bin (its installer's default) is not on
+        # the fixed PATH, and the wrapper's `env ... uv` then fails before any
+        # probe runs (issue #1825). Append its directory LAST, so the target
+        # venv and system directories still win for python3 and every other tool.
+        uv_exe = shutil.which("uv")
+        assert uv_exe, "precondition: the module skip guard found uv"
+        target_path += os.pathsep + str(Path(uv_exe).parent)
+    assert shutil.which("uv", path=target_path), "precondition: the wrapper's uv resolves on the target PATH"
     assert shutil.which("python3", path=target_path) == str(target_venv / "bin/python3")
     assert str(target_venv / "bin") != str(ROOT / ".venv/bin")
     shutil.copy2(FIXTURE / "probe.sh", target / "probe.sh")

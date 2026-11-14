@@ -569,18 +569,29 @@ print(sys.argv[1] + ":" + ".".join(map(str, sys.version_info[:3])))
     fi
     cfg_minor=""
     python_minor=""
-    # virtualenv appends release metadata (for example 3.11.14.final.0).
+    # virtualenv appends release metadata (for example 3.11.14.final.0). uv,
+    # built against its minor-version Python link, may record only X.Y
+    # (issue #1824): that is minor evidence alone, and every value's minor
+    # must agree; full values must still agree with each other in full.
+    local minor
     while IFS= read -r candidate; do
         if [[ "$candidate" =~ ^(([0-9]+\.[0-9]+)\.[0-9]+)(\.(alpha|beta|candidate|final)\.[0-9]+)?$ ]]; then
-            cfg_minor="${BASH_REMATCH[2]}"
+            minor="${BASH_REMATCH[2]}"
             canonical="${BASH_REMATCH[1]}${BASH_REMATCH[3]:-.final.0}"
             if [[ -n "$cfg_canonical" && "$canonical" != "$cfg_canonical" ]]; then
                 cfg_valid=0
             fi
             cfg_canonical="$canonical"
+        elif [[ "$candidate" =~ ^([0-9]+\.[0-9]+)$ ]]; then
+            minor="${BASH_REMATCH[1]}"
         else
             cfg_valid=0
+            continue
         fi
+        if [[ -n "$cfg_minor" && "$minor" != "$cfg_minor" ]]; then
+            cfg_valid=0
+        fi
+        cfg_minor="$minor"
     done <<< "$cfg_versions"
     if [[ "$python_version" =~ ^([0-9]+\.[0-9]+)\.[0-9]+$ ]]; then
         python_minor="${BASH_REMATCH[1]}"
