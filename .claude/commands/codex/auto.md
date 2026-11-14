@@ -1062,10 +1062,11 @@ echo "DELEGATED_PRODUCT_CHANGE: ok - final product changes exist"
 ```
 
 **Record actual lane evidence and relay compliance before the closing reference.**
-For each `will test` lane, write a nonempty evidence row in the separate
-`docs/flow-runs/issue-42.lanes-demonstrated.md` table (`Lane` / `What was
-demonstrated`). No project lane file or no `will test` means no file/question
-owed. Never fill rows merely because a test was promised.
+For each `will test` lane, write a nonempty row (`Lane` / `What was
+demonstrated`) in `docs/flow-runs/issue-42.lanes-demonstrated.md`, below this
+run's marker line as the compliance note prints it. No lane file at approval,
+or no `will test`, owes no file/question. Never fill rows merely because a test
+was promised.
 
 The compliance call stays in the SAME shell block as `MERGE_BASE`. After
 writing evidence, rerun that full block. Relay stdout/stderr/status into PR

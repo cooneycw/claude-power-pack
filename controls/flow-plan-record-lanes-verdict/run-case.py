@@ -9,6 +9,14 @@ is the project that has not adopted lanes), and optionally `demonstrated.md`
 `demonstrated-is-a-directory` makes that path a directory, which is one way
 for it to exist and be unreadable.
 
+Two inputs place things in time around the approval (issue #1821):
+`demonstrated-before.md` is written as the demonstrated file BEFORE the plan is
+approved and left unchanged (an earlier run's evidence), and a file named
+`delete-lane-file-after-approval` removes `.claude/lanes.md` once the plan is
+approved. In `demonstrated.md`, a line `{{LANES_MARKER}}` becomes this run's
+own `<!-- lanes-demonstrated run=... plan=... -->` line, read from the stamp
+approval wrote; rows count only below it.
+
 The runner approves the plan, writes the planned file, and asks the gate for
 its compliance verdict. COMPLIANCE NEVER CHANGES ITS EXIT CODE FOR A LANE - the
 owner chose the verdict line, not a refusal (#1767) - so the exit code here is
@@ -40,6 +48,23 @@ def run(*argv: str, cwd: Path) -> subprocess.CompletedProcess:
     return subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True)
 
 
+def lanes_marker_text(text: str, repo) -> str:
+    """Put THIS run's line where a case writes `{{LANES_MARKER}}` (#1821):
+    rows count only below the line naming the run and plan approval stamped.
+    No stamp (a helper older than #1821) leaves no line: nothing reads one."""
+    import json
+    # The runner's sanitized `env`, like every other step: an inherited GIT_DIR
+    # would otherwise override -C and read another checkout's stamp.
+    gd = subprocess.run(["git", "-C", str(repo), "rev-parse", "--absolute-git-dir"],
+                        capture_output=True, text=True, env=env).stdout.strip()
+    stamp = Path(gd) / "flow-plan-lanes-42"
+    marker = ""
+    if gd and stamp.is_file():
+        data = json.loads(stamp.read_text())
+        marker = f"<!-- lanes-demonstrated run={data['run_id']} plan={data['plan_digest']} -->"
+    return text.replace("{{LANES_MARKER}}", marker)
+
+
 def setup(*argv: str, cwd: Path) -> None:
     done = run(*argv, cwd=cwd)
     if done.returncode != 0:
@@ -67,12 +92,16 @@ with tempfile.TemporaryDirectory() as directory:
     setup(sys.executable, str(gate), "begin-run", "42", cwd=repo)
     with (repo / "docs" / "flow-runs" / "issue-42.md").open("a") as record:
         record.write((case / "section.md").read_text())
+    shown = repo / "docs" / "flow-runs" / "issue-42.lanes-demonstrated.md"
+    if (case / "demonstrated-before.md").exists():
+        shutil.copy(case / "demonstrated-before.md", shown)
     setup(sys.executable, str(gate), "approve", "42", cwd=repo)
+    if (case / "delete-lane-file-after-approval").exists():
+        (repo / ".claude" / "lanes.md").unlink()
     (repo / "src").mkdir()
     (repo / "src" / "app.py").write_text("x = 1\n")
-    shown = repo / "docs" / "flow-runs" / "issue-42.lanes-demonstrated.md"
     if (case / "demonstrated.md").exists():
-        shutil.copy(case / "demonstrated.md", shown)
+        shown.write_text(lanes_marker_text((case / "demonstrated.md").read_text(), repo))
     elif (case / "demonstrated-is-a-directory").exists():
         shown.mkdir()
     done = run(sys.executable, str(gate), "compliance", "42", "--base", "main", cwd=repo)

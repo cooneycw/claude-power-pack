@@ -22,6 +22,7 @@ from tests.test_flow_plan_record_lanes import (
     SIBLING,
     WORDS,
     approved,
+    bind,
     compliance_as,
     make_repo,
     verdict,
@@ -76,7 +77,7 @@ def test_the_real_line_is_read_by_the_passage_as_written(tmp_path: Path, word: s
     repo = make_repo(tmp_path / "wt")
     approved(repo)
     if state == "no clause":
-        (repo / SIBLING).write_text(DEMONSTRATED)
+        (repo / SIBLING).write_text(bind(repo, DEMONSTRATED))
     elif state == "not checked":
         (repo / SIBLING).mkdir()
     line = verdict(compliance_as(repo, word))
@@ -104,7 +105,7 @@ def test_following_the_stderr_note_clears_the_clause(tmp_path: Path, start: str)
     repo = make_repo(tmp_path / "wt")
     approved(repo)
     if start == "one row missing":
-        (repo / SIBLING).write_text(DEMONSTRATED.replace("| Harness | tested through a symlink |\n", ""))
+        (repo / SIBLING).write_text(bind(repo, DEMONSTRATED.replace("| Harness | tested through a symlink |\n", "")))
     elif start == "an empty file":
         (repo / SIBLING).write_text("")
     elif start == "prose and no table":
@@ -119,8 +120,14 @@ def test_following_the_stderr_note_clears_the_clause(tmp_path: Path, start: str)
     lanes = [ln.split(marker, 1)[1] for ln in stderr_note(first) if marker in ln]
     assert len(lanes) == int(counted.group(1)) >= 1, "the count on the line is the names in the note"
     target = repo / path.group(1)
-    if "a header row, a `|---|---|` row" in note:
-        target.write_text("| Lane | What was demonstrated |\n|---|---|\n")
+    # The line rows must sit under, exactly as the note prints it (#1821).
+    line = re.search(r"the line `(<!-- lanes-demonstrated [^`]*-->)`", note)
+    assert line, note
+    if "Write that file:" in note:
+        target.write_text(line.group(1) + "\n\n| Lane | What was demonstrated |\n|---|---|\n")
+    elif "Append the line" in note:
+        with target.open("a") as handle:
+            handle.write("\n" + line.group(1) + "\n\n| Lane | What was demonstrated |\n|---|---|\n")
     else:
         assert target.exists(), "the note said to add to a table that is not there"
         assert "needs a header row and a `|---|---|` row above it, if the file has none" in note
@@ -144,7 +151,7 @@ def test_following_the_note_for_a_lane_named_with_a_pipe(tmp_path: Path) -> None
     piped = "Checkout \\| linked"
     repo = make_repo(tmp_path / "wt", lanes=LANES.replace("| Checkout |", f"| {piped} |"))
     approved(repo, PLAN + FULL_TABLE.replace("| Checkout |", f"| {piped} |"))
-    (repo / SIBLING).write_text("| Lane | What was demonstrated |\n|---|---|\n| Harness | shown |\n")
+    (repo / SIBLING).write_text(bind(repo, "| Lane | What was demonstrated |\n|---|---|\n| Harness | shown |\n"))
     first = compliance_as(repo, "agreement")
     assert ", LANES NOT DEMONSTRATED (1)" in verdict(first)
     note = stderr_note(first)
@@ -161,16 +168,19 @@ def test_following_the_note_for_a_lane_named_with_a_pipe(tmp_path: Path) -> None
     assert verdict(compliance_as(repo, "agreement")).startswith("PLAN_COMPLIANCE: agreement - ")
 
 
-@pytest.mark.parametrize("what", ["demonstrated file", "lane file"])
+@pytest.mark.parametrize("what", ["demonstrated file", "lane stamp"])
 def test_a_not_checked_note_says_to_fix_it_or_report_unchecked(tmp_path: Path, what: str) -> None:
-    """Adding rows repairs nothing here, and the note does not say to."""
+    """Adding rows repairs nothing here, and the note does not say to. (The
+    second source was a lane file damaged at close until #1821 made the lane
+    file's state at close irrelevant; the approval's lane stamp replaced it.)"""
     repo = make_repo(tmp_path / "wt")
     approved(repo)
     if what == "demonstrated file":
         (repo / SIBLING).mkdir()
     else:
-        (repo / ".claude" / "lanes.md").unlink()
-        (repo / ".claude" / "lanes.md").mkdir()
+        gd = Path(subprocess.run(["git", "-C", str(repo), "rev-parse", "--absolute-git-dir"],
+                                 capture_output=True, text=True, check=True).stdout.strip())
+        (gd / "flow-plan-lanes-42").write_text("{")
     done = compliance_as(repo, "divergence")
     assert ", LANES NOT CHECKED - " in verdict(done)
     note = stderr_note(done)
