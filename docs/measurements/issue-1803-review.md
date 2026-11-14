@@ -106,3 +106,9 @@ The actual repository inventory remains byte-for-byte unchanged. These delta
 reviews do not replace or extend the original four-pass clean wrapper receipt;
 neither delta report claimed a clean result. The final refusal is coordinator
 reviewed under the explicit no-seventh-pass ruling.
+
+The coordinator's final delta review (message 25942) required treating unlabelled
+and unfamiliar Markdown fences as shell text unless their language is explicitly
+non-shell. The committed unlabelled-fence BAD case and console/zsh/unknown
+variants failed on `36df314b` and pass after this correction. The real inventory
+remains unchanged. No additional model review was run.

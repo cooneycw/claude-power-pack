@@ -152,7 +152,8 @@ def earlier_command_block(path: Path, text: str, number: int) -> str:
             if not fence:
                 fence = marker
                 language = line[delimiter.end():].strip().split()
-                shell = bool(language and language[0] in {"sh", "bash", "shell"})
+                non_shell = {"python", "py", "json", "yaml", "yml", "toml", "text", "diff", "markdown", "md"}
+                shell = not language or language[0] not in non_shell
                 block = []
             elif marker[0] == fence[0] and len(marker) >= len(fence):
                 fence = ""
@@ -600,3 +601,13 @@ def test_prior_path_in_another_markdown_fence_is_unrelated(tmp_path: Path) -> No
                       '```sh\npython3 lib/cicd/bootstrap.py check\n```\n')
     rows = inventory(tmp_path)
     assert len(rows) == 1 and not rows[0]["error"], rows
+
+
+@pytest.mark.parametrize("language", ["", "console", "zsh", "unknown-shell"])
+def test_unlabelled_or_unknown_fence_keeps_path_state(tmp_path: Path, language: str) -> None:
+    source = tmp_path / ".claude/commands/owned.md"
+    source.parent.mkdir(parents=True)
+    fixture = ROOT / "tests/fixtures/cicd_launch_handoff/bad-unlabelled-path-fence.md"
+    source.write_text(fixture.read_text().replace("```\n", "```" + language + "\n", 1))
+    rows = inventory(tmp_path)
+    assert len(rows) == 1 and rows[0]["error"], rows
