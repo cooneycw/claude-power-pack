@@ -239,9 +239,12 @@ acceptance hardening, generated pipeline fixes, and bootstrap isolation. See
   runtimes and corrected IaC commands.
 - **Bootstrap and tests:** checking from external directories excludes caller
   package/search-path shadowing; standalone test controls isolate host admission.
-- **Delegated drivers:** answer every listed lane before approval and retain
-  plan/as-read/close evidence under `docs/flow-runs/`. A new driver-parity gate
-  checks static helper and plan-record membership with explicit exemptions.
+- **Delegated drivers:** persist approved plans under `docs/flow-runs/` and
+  retain an as-read snapshot when available; unresolved snapshots stay explicit.
+  With an adopted lane file, answer its lanes before approval. Demonstrated
+  records are required only for lanes marked `will test`; no lane file means
+  no lane table or demonstrated record is required. A new parity gate checks
+  static helper and plan-record membership with explicit exemptions.
 
 ### v11.0.0 (2026-11-12)
 

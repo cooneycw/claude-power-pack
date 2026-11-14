@@ -81,12 +81,14 @@
 
 ### Upgrading
 
-- Delegated Codex, Qwen and Gemma runs now require every listed project lane
-  to be answered before approval and write issue plan, as-read and demonstrated
-  records under `docs/flow-runs/` (#1809, PR #1815). Answer those lanes in the
-  approved plan, allow the evidence files in the worktree, and report lane
-  evidence at close. Plans with unanswered lanes stop before delegation; this
-  is a required caller action, not only a documentation update.
+- Delegated Codex, Qwen and Gemma runs require every listed project lane to
+  be answered before approval and persist issue plan records under
+  `docs/flow-runs/` (#1809, PR #1815). Allow those files and the as-read snapshot
+  when available; an unresolved snapshot remains explicit and permits the run
+  to continue. With an adopted lane file, answer its lanes before delegation
+  and report lane evidence at close. A demonstrated record is required only
+  when at least one lane is marked `will test`. With no lane file, no lane
+  table, lane question or demonstrated record is required.
 
 - Update the CPP gate/verify launchers and regenerate task manifests to adopt
   the PATH handoff (#1801). Target bare `python`, `python3` and console tools
