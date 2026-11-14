@@ -30,6 +30,10 @@ FLOW_PLAN_RECORD) are the contract. FLOW_PLAN_RECORD_EXIT=<code> is the last
 line written, on stderr (issue #1031).
 """
 
+#: NEGATIVE-CONTROL: controls/delegated-codex-plan-lanes
+#: NEGATIVE-CONTROL: controls/delegated-qwen-plan-lanes
+#: NEGATIVE-CONTROL: controls/delegated-gemma-plan-lanes
+
 from __future__ import annotations
 
 import argparse

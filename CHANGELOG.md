@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Delegated Codex, Qwen and Gemma drivers now record approved plans, refuse
+  omitted project lanes before delegation, ask the lane review question, and
+  report close-time lane evidence using the existing flow plan helper (#1809).
+
 - Flow CI fallback now exits 1 for stalled automation and 2 for unknown or
   not-found results (#1758). Invalid refs stop before provider requests;
   valid-ref wait expiry still wins as exit 5. A backend preset alone cannot

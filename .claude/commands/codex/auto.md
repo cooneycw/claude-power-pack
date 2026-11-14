@@ -151,6 +151,48 @@ stakes this run's claim on the worktree (`CLAIM=self`).
 echo "Verified: on branch '$(git branch --show-current)' in $(pwd)"
 ```
 
+Initialize the plan from the verified target worktree on every start/resume;
+replace example 42 with the literal assigned issue number:
+
+```bash
+~/.claude/scripts/flow-plan-record.py reconcile 42
+~/.claude/scripts/flow-plan-record.py read-issue 42
+```
+
+On exit 127 try `${CLAUDE_PLUGIN_ROOT}/scripts/flow-plan-record.py`, then the
+CPP-checkout copy; no usable helper means STOP. The parent orchestration
+session owns the run, not the delegated exec thread. Relay `read-issue` exit 4
+as unresolved; an already-fetched exact body may use `--body-file`.
+
+Write this shared evidence definition in the worktree git directory; both
+product guards must load it, never duplicate or broaden the exclusions.
+
+```bash
+# Write one evidence definition for all product checks.
+if ! EVIDENCE_GIT_DIR=$(git rev-parse --absolute-git-dir); then
+    echo "STOP: cannot locate the evidence definition's worktree git directory"
+    exit 1
+fi
+if ! cat > "$EVIDENCE_GIT_DIR/delegated-product-evidence.sh" <<'EVIDENCE'
+delegated_product_paths() {
+    case "${1:-}" in
+        ''|*[!0-9]*) echo "Invalid issue number for product evidence" >&2; return 1 ;;
+    esac
+    DELEGATED_PRODUCT_PATHS=(
+        .
+        ":(top,exclude,literal)docs/flow-runs/issue-$1.md"
+        ":(top,exclude,literal)docs/flow-runs/issue-$1.as-read.md"
+        ":(top,exclude,literal)docs/flow-runs/issue-$1.lanes-demonstrated.md"
+        ":(top,exclude,glob)docs/measurements/counter-model/*-issue-$1.json"
+    )
+}
+EVIDENCE
+then
+    echo "STOP: cannot write the shared evidence definition"
+    exit 1
+fi
+```
+
 Report: `Step 1/8: Start complete - worktree at {path}, on branch {branch}`
 
 ---
@@ -215,6 +257,14 @@ mis-route is paid before the gate is ever reached.
    - Relevant file paths and their current content summaries
    - Testing expectations (from Makefile targets)
    - Specific instructions: "Implement the changes described in the issue. Follow existing code conventions. Create or modify only the files necessary."
+   - If `.claude/lanes.md` exists, present its lane list and a
+     `### Lanes for this change` table answering every lane: `will test`,
+     `not applicable`, `not covered`, or `needs a decision`, with how/why.
+     No lane file means no table/question; unreadable/malformed is not absent.
+     Reuse `project_lanes` / `lanes_refusal`, no second parser. Preserve the
+     visible reasoned `Lanes: none - <reason>` waiver for nonbehavioural work.
+   - Present Base SHA, necessity, Section B evidence (or none), numbered
+     per-file changes, scope and risks for the approved record.
 
 4. **Report the prompt to the user:**
 
@@ -324,6 +374,54 @@ Unattended runs are not an exception: hand the Step 2 report to the orchestrator
 or reviewer and wait, rather than approving on their behalf. This driver matched
 `/flow:auto` when its gate shipped in #774; #775 then removed every bypass from
 that gate, and #784 closes the split standard this left behind.
+
+**Only after the real approval**, before Step 4, begin this run's record.
+Revise/abandon writes no approval; substitute the literal issue number:
+
+```bash
+~/.claude/scripts/flow-plan-record.py begin-run 42
+```
+
+Append the EXACT approved fields below its header in
+`docs/flow-runs/issue-42.md`, never overwriting an earlier run:
+
+```markdown
+- Issue:             #42
+- Base SHA:          <planning SHA>
+- Necessity verdict: <Still needed | Partially addressed | Needs reframing>
+- Approval:          granted
+- Approver:          <actual approver>
+- Recorded at:       <ISO 8601 UTC>
+
+### Section B evidence
+<existing commits/PRs/duplicates, or none>
+
+### Section C - the approved plan
+1. `src/path.py` - <approved change>
+Scope: <approved scope>
+Risks: <approved risks>
+
+### Lanes for this change
+| Lane | Answer | How, or why not |
+|---|---|---|
+| <exact lane> | <approved answer> | <approved evidence plan> |
+```
+
+Omit the lane table when not owed. Section C is one numbered source-file path
+per line; exclude record/snapshot/demonstrated evidence/receipt and ignored generated mirrors.
+The orchestrator writes metadata; pass the approved plan/lanes into Step 4.
+The implementation model must not edit the approved record.
+
+```bash
+~/.claude/scripts/flow-plan-record.py approve 42
+```
+
+Relay status/stdout/stderr. Exit 0 stamps the baseline and writes
+`docs/flow-runs/issue-42.as-read.md`. Exit 4 stamps but reports `AS_READ:
+unresolved`, never clean. Exit 1 is STOP: do not invoke Codex; the
+refusal names omitted lanes. Other errors are STOP too. Revise/reapprove
+instead of silently repairing the approved plan. Scratch stays in the
+worktree git directory. [Context](../../../docs/agents/delegated-plan-lanes.md).
 
 Report: `Step 3/8: Approve - {approved|revised|abandoned}`
 
@@ -643,6 +741,33 @@ Report: `Step 4/8: Execute Codex complete - {N} files changed (+{added} -{remove
 
 Cross-model review: Claude Code reviews what Codex wrote.
 
+**Before reviewing**, run this product-change refusal before committing the
+checkpoint. Replace 42 with the assigned issue number:
+
+```bash
+# Load the single evidence definition written at Step 1.
+if ! TARGET_ROOT=$(git rev-parse --show-toplevel); then
+    echo "DELEGATED_PRODUCT_CHANGE: fail - target checkout is unknown"
+    exit 1
+fi
+EVIDENCE_LIBRARY="$(git -C "$TARGET_ROOT" rev-parse --absolute-git-dir)/delegated-product-evidence.sh"
+if [ ! -f "$EVIDENCE_LIBRARY" ] || ! source "$EVIDENCE_LIBRARY" || ! delegated_product_paths 42; then
+    echo "DELEGATED_PRODUCT_CHANGE: fail - shared evidence definition unavailable; repeat Step 1"
+    exit 1
+fi
+if ! PRODUCT_STATUS=$(git -C "$TARGET_ROOT" status --porcelain --untracked-files=all -- "${DELEGATED_PRODUCT_PATHS[@]}"); then
+    echo "DELEGATED_PRODUCT_CHANGE: fail - could not examine product changes"
+    exit 1
+fi
+if [ -z "$PRODUCT_STATUS" ]; then
+    echo "DELEGATED_PRODUCT_CHANGE: fail - no product changes; approval evidence is not implementation"
+    exit 1
+fi
+echo "DELEGATED_PRODUCT_CHANGE: ok - product changes exist"
+```
+
+Evidence-only runs STOP; staged/untracked product files count.
+
 1. **Commit the implementation checkpoint, then bind the review artifact.**
    Stage only this issue's owned changes and commit them before reviewing. A
    receipt-bound review identifies a commit, so uncommitted work cannot stand
@@ -672,6 +797,13 @@ Cross-model review: Claude Code reviews what Codex wrote.
    - Security: Any injection, XSS, or other vulnerabilities?
    - Completeness: Are all acceptance criteria addressed?
    - Test coverage: Are tests updated or added?
+   - Lanes: give THIS Claude reviewer the project lane file and approved plan.
+     If a LANE LIST exists and behaviour changes, report (1) each listed lane
+     the plan does not answer (no table: say so once), (2) each `will test`
+     lane that no test in the diff exercises.
+     With no LANE LIST, skip both questions.
+     Missing tables/rows are no defect for Tier 1/standalone review.
+     Preserve Claude's independent direction; never ask Codex to review itself.
    - Detector claims: if the diff adds or changes a check, gate, guard, tripwire
      or allowlist, ask the two questions from
      [the detector contracts](../../../docs/agents/detector-contracts.md) - does
@@ -905,17 +1037,49 @@ if [ -z "$DEFAULT_BRANCH" ] || ! MERGE_BASE=$(git merge-base HEAD "origin/$DEFAU
     echo "STOP: could not resolve a merge base with origin/${DEFAULT_BRANCH:-<default branch>} - the empty-diff backstop cannot run, so it cannot pass."
     exit 1
 fi
-git diff --quiet "$MERGE_BASE"
+if ! TARGET_ROOT=$(git rev-parse --show-toplevel); then
+    echo "DELEGATED_PRODUCT_CHANGE: fail - target checkout is unknown"
+    exit 1
+fi
+EVIDENCE_LIBRARY="$(git -C "$TARGET_ROOT" rev-parse --absolute-git-dir)/delegated-product-evidence.sh"
+if [ ! -f "$EVIDENCE_LIBRARY" ] || ! source "$EVIDENCE_LIBRARY" || ! delegated_product_paths 42; then
+    echo "DELEGATED_PRODUCT_CHANGE: fail - shared evidence definition unavailable; repeat Step 1"
+    exit 1
+fi
+git -C "$TARGET_ROOT" diff --quiet "$MERGE_BASE" -- "${DELEGATED_PRODUCT_PATHS[@]}"
 CONTENT_RC=$?
-if [ "$CONTENT_RC" -gt 1 ] || ! UNTRACKED=$(git ls-files --others --exclude-standard); then
+if [ "$CONTENT_RC" -gt 1 ] || ! UNTRACKED=$(git -C "$TARGET_ROOT" ls-files --others --exclude-standard -- "${DELEGATED_PRODUCT_PATHS[@]}"); then
     echo "STOP: could not compare the working tree with $MERGE_BASE - the empty-diff backstop cannot run, so it cannot pass."
     exit 1
 fi
 if [ "$CONTENT_RC" -eq 0 ] && [ -z "$UNTRACKED" ]; then
-    echo "STOP: no content change since origin/$DEFAULT_BRANCH, committed or pending - refusing to open a PR on an empty diff."
+    echo "DELEGATED_PRODUCT_CHANGE: fail - no content change outside this issue's evidence; refusing an empty product diff"
     exit 1
 fi
+echo "DELEGATED_PRODUCT_CHANGE: ok - final product changes exist"
+# Keep this call in THIS shell block: MERGE_BASE is not shared across tool calls.
+~/.claude/scripts/flow-plan-record.py compliance 42 --base "$MERGE_BASE"
 ```
+
+**Record actual lane evidence and relay compliance before the closing reference.**
+For each `will test` lane, write a nonempty evidence row in the separate
+`docs/flow-runs/issue-42.lanes-demonstrated.md` table (`Lane` / `What was
+demonstrated`). No project lane file or no `will test` means no file/question
+owed. Never fill rows merely because a test was promised.
+
+The compliance call stays in the SAME shell block as `MERGE_BASE`. After
+writing evidence, rerun that full block. Relay stdout/stderr/status into PR
+and closing evidence: agreement 0, divergence/stability finding 3, unknown 4
+(never agreement). This is reporting, not a new blocking quality gate. Relay
+`LANES NOT DEMONSTRATED` counts/names and `LANES NOT CHECKED` reasons; follow
+the stderr remedy. Never discard output/status or edit the approved promise.
+Commit record/snapshot/owed evidence. Missing reports never establish
+`ACCEPTANCE_COMPLETE=yes`.
+
+Both product guards use the SAME Step-1 exclusions. Everything else, including
+another issue's records/receipts, is product. The final check covers committed,
+pending and untracked work, refusing evidence-only reverts and receipt-only
+diffs.
 
 1. **Commit** the changes:
    - Conventional commit format using the selected reference:
