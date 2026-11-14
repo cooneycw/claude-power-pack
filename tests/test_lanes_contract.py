@@ -451,7 +451,7 @@ def test_eli5_offering_a_different_list_is_reported() -> None:
 # The delegated drivers' close-time exemption must name every answer that owes
 # a result (#1823 counter-model review): it said "no `will test`" alone, which
 # told a refusal-only plan it owed no evidence file the helper then asked for.
-OWED_EXEMPTION = re.compile(r"No project lane file AT APPROVAL, or no (.+?),\s*means no file")
+OWED_EXEMPTION = re.compile(r"No (?:project )?lane file AT APPROVAL, or no (.+?),\s*(?:means|owes) no file", re.I)
 
 
 def owed_named_by_exemption(text: str) -> set[str]:
@@ -468,5 +468,7 @@ def test_the_delegated_exemption_names_every_answer_that_owes_a_result() -> None
 
 
 def test_an_exemption_naming_only_will_test_is_reported() -> None:
-    text = read(Path("templates/delegated-driver-core.md")).replace("`will test`/`will refuse`", "`will test`")
+    text = " ".join(read(Path("templates/delegated-driver-core.md")).split())
+    assert "`will test`/`will refuse`" in text, "precondition: the mutation has something to change"
+    text = text.replace("`will test`/`will refuse`", "`will test`")
     assert owed_named_by_exemption(text) != set(load_helper().LANES_OWED_ANSWERS)
