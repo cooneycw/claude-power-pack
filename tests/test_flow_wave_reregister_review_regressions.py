@@ -24,28 +24,44 @@ def test_unopenable_lock_is_io_error_not_work_refusal(tmp_path, cross_places, se
     assert registry.read_bytes() == before
 
 
-@pytest.mark.parametrize("mode", ["omitted", "issue-only", "full-same", "different"])
-def test_released_legacy_reuse_characterizes_main_and_this_branch(
+def _released_legacy(seeds):  # noqa: F811
+    data = json.loads(json.dumps(seeds[(True, True)]))
+    previous = data[matrix.WAVE]["roles"][matrix.ROLE]
+    previous["released"] = True
+    # A row released before #1222: it kept its lane, observation and count.
+    assert previous["files"] == "a.py,b.py" and previous["pr"] == "55" and previous["overtaken"] == 1
+    assert (previous["base"], previous["diff"]) == ("base-2", "diff-1") and previous["issue"] == "1710"
+    return data, previous
+
+
+RELEASED_FLAGS = {
+    "omitted": (), "issue-only": ("--issue", "1710"),
+    "full-same": ("--issue", "1710", "--repo", "{repo}"),
+    "different": ("--issue", "1711", "--repo", "{repo}"),
+}
+
+
+@pytest.mark.parametrize("mode", list(RELEASED_FLAGS))
+def test_released_legacy_reuse_starts_empty(
     tmp_path, cross_places, seeds, monkeypatch, mode,  # noqa: F811
 ):
+    """Released means gone (#1804, owner ruling 2026-11-14).
+
+    The same inputs run through the pre-#1762 anchor first: there the first
+    three modes restore the old files, PR and count, which is the red case
+    this test exists to tell apart from the fix.
+    """
     from tests import test_flow_wave_registry as registry_module
 
     registry = tmp_path / "reg/registry.json"
     registry.parent.mkdir()
-    data = json.loads(json.dumps(seeds[(True, True)]))
-    previous = data[matrix.WAVE]["roles"][matrix.ROLE]
-    previous["released"] = True
-    assert previous["files"] == "a.py,b.py" and previous["pr"] == "55" and previous["overtaken"] == 1
+    data, previous = _released_legacy(seeds)
     before = json.dumps(data)
-    flags = {
-        "omitted": (), "issue-only": ("--issue", "1710"),
-        "full-same": ("--issue", "1710", "--repo", previous["repo"]),
-        "different": ("--issue", "1711", "--repo", previous["repo"]),
-    }[mode]
+    flags = tuple(previous["repo"] if f == "{repo}" else f for f in RELEASED_FLAGS[mode])
     current = registry_module.REGISTRY
-    main = current.parents[1] / "controls/flow-wave-reregister-work/anchors/pre-1762-flow-wave-registry.sh"
+    anchor = current.parents[1] / "controls/flow-wave-reregister-work/anchors/pre-1762-flow-wave-registry.sh"
     measured = {}
-    for name, helper in (("main", main), ("branch", current)):
+    for name, helper in (("anchor", anchor), ("branch", current)):
         registry.write_text(before)
         monkeypatch.setattr(registry_module, "REGISTRY", helper)
         done = _run(tmp_path, "register", matrix.ROLE, "--wave", matrix.WAVE,
@@ -53,14 +69,40 @@ def test_released_legacy_reuse_characterizes_main_and_this_branch(
         assert done.returncode == 0, done.stdout + done.stderr
         active = json.loads(registry.read_text())[matrix.WAVE]["roles"][matrix.ROLE]
         assert active["released"] is False
-        expected_issue = "1711" if mode == "different" else ("" if name == "main" and mode == "omitted" else "1710")
-        expected_repo = "" if name == "main" and mode in ("omitted", "issue-only") else previous["repo"]
-        assert active["issue"] == expected_issue and active["repo"] == expected_repo
-        # Existing legacy reactivation is tracked in #1804, outside #1762.
-        expected_files = "" if mode == "different" else "a.py,b.py"
-        expected_pr = "" if mode == "different" else "55"
-        assert active["files"] == expected_files and active["pr"] == expected_pr
-        assert active["overtaken"] == (0 if mode == "different" else 1)
-        measured[name] = {key: active[key] for key in ("issue", "repo", "files", "pr", "overtaken")}
-    assert measured["main"]["files"] == measured["branch"]["files"]
-    print(json.dumps({"mode": mode, "measured": measured}))
+        measured[name] = active
+    old = measured["anchor"]
+    if mode == "different":
+        assert old["files"] == "" and old["pr"] == "" and old["overtaken"] == 0
+    else:
+        assert old["files"] == "a.py,b.py" and old["pr"] == "55" and old["overtaken"] == 1, \
+            "the anchor must still reactivate legacy work, or this test cannot fail"
+    new = measured["branch"]
+    for key in ("files", "pr", "base", "diff", "obs_repo"):
+        assert new[key] == "", (key, new)
+    assert new["overtaken"] == 0
+    assert new["issue"] == {"omitted": "", "different": "1711"}.get(mode, "1710")
+    assert new["repo"] == previous["repo"]
+
+
+def test_released_legacy_restatement_keeps_what_is_supplied(
+    tmp_path, cross_places, seeds,  # noqa: F811
+):
+    """Supplied work wins on a released row, and the count starts from zero.
+
+    Same PR, changed base, same diff would count an overtake against a live
+    baseline; against a released one there is no baseline to count from.
+    """
+    registry = tmp_path / "reg/registry.json"
+    registry.parent.mkdir()
+    data, previous = _released_legacy(seeds)
+    registry.write_text(json.dumps(data))
+    done = _run(tmp_path, "register", matrix.ROLE, "--wave", matrix.WAVE,
+                "--issue", "1710", "--files", "c.py",
+                "--pr", "55", "--base", "base-3", "--diff", "diff-1",
+                cwd=cross_places["plain"])
+    assert done.returncode == 0, done.stdout + done.stderr
+    active = json.loads(registry.read_text())[matrix.WAVE]["roles"][matrix.ROLE]
+    assert active["released"] is False
+    assert active["files"] == "c.py"
+    assert (active["pr"], active["base"], active["diff"]) == ("55", "base-3", "diff-1")
+    assert active["overtaken"] == 0
