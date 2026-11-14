@@ -31,7 +31,7 @@
       "citations": [
         {
           "file": ".claude/commands/codex/auto.md",
-          "line": 992,
+          "line": 1156,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
         },
         {
@@ -155,7 +155,7 @@
       "citations": [
         {
           "file": ".claude/commands/codex/auto.md",
-          "line": 992,
+          "line": 1156,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
         },
         {
@@ -188,7 +188,7 @@
       "citations": [
         {
           "file": ".claude/commands/codex/auto.md",
-          "line": 992,
+          "line": 1156,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
         },
         {
@@ -228,7 +228,7 @@
       "citations": [
         {
           "file": ".claude/commands/qwen/auto.md",
-          "line": 1121,
+          "line": 1285,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
         },
         {
@@ -352,7 +352,7 @@
       "citations": [
         {
           "file": ".claude/commands/qwen/auto.md",
-          "line": 1121,
+          "line": 1285,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
         },
         {
@@ -385,7 +385,7 @@
       "citations": [
         {
           "file": ".claude/commands/qwen/auto.md",
-          "line": 1121,
+          "line": 1285,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
         },
         {
@@ -425,7 +425,7 @@
       "citations": [
         {
           "file": ".claude/commands/gemma/auto.md",
-          "line": 1164,
+          "line": 1328,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
         },
         {
@@ -549,7 +549,7 @@
       "citations": [
         {
           "file": ".claude/commands/gemma/auto.md",
-          "line": 1164,
+          "line": 1328,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
         },
         {
@@ -582,7 +582,7 @@
       "citations": [
         {
           "file": ".claude/commands/gemma/auto.md",
-          "line": 1164,
+          "line": 1328,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
         },
         {

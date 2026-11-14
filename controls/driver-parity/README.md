@@ -20,3 +20,9 @@ is constructed, never historical. UNKNOWN/crash output is not a detection.
 Issue #1811 tracks the still-owed work. Approval and compliance are never waived;
 the real repository assertion stays red until #1809 supplies its required calls.
 The eventual landing closes #1810 while #1811 remains open.
+
+The fixture policy is frozen together with its fixture source documents; it is
+not a second current policy and is not synchronized with the live table when
+upstream driver lines move. Its citations bind to this owned snapshot. The
+GOOD control cases validate that internal relationship, while the repository
+parity test independently validates the live policy against live sources.
