@@ -10,6 +10,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def lanes_marker_text(text: str, repo) -> str:
+    """Put THIS run's line where a case writes `{{LANES_MARKER}}` (#1821):
+    rows count only below the line naming the run and plan approval stamped.
+    No stamp (a helper older than #1821) leaves no line: nothing reads one."""
+    import json
+    gd = subprocess.run(["git", "-C", str(repo), "rev-parse", "--absolute-git-dir"],
+                        capture_output=True, text=True).stdout.strip()
+    stamp = Path(gd) / "flow-plan-lanes-42"
+    marker = ""
+    if gd and stamp.is_file():
+        data = json.loads(stamp.read_text())
+        marker = f"<!-- lanes-demonstrated run={data['run_id']} plan={data['plan_digest']} -->"
+    return text.replace("{{LANES_MARKER}}", marker)
+
+
 def unavailable(reason):
     print("DELEGATED_PLAN_LANES: unavailable - " + reason)
     raise SystemExit(3)
@@ -140,7 +155,8 @@ with tempfile.TemporaryDirectory(prefix="delegated-lanes-") as raw:
             other.parent.mkdir(parents=True, exist_ok=True)
             other.write_text("Other work's evidence.\n")
         if (case / "demonstrated.md").is_file():
-            shutil.copy2(case / "demonstrated.md", work / "docs/flow-runs/issue-42.lanes-demonstrated.md")
+            (work / "docs/flow-runs/issue-42.lanes-demonstrated.md").write_text(
+                lanes_marker_text((case / "demonstrated.md").read_text(), work))
         if mode == "compliance":
             done = run([sys.executable, str(helper), "compliance", "42", "--base", base], work)
         else:

@@ -432,19 +432,19 @@ only: a quoted example is not the thing itself.
 
 **What is owed is decided at approval (issue #1821).** `approve` stamps, in
 this worktree's git directory beside the baseline, which run and which approved
-section it speaks for, whether the project had a lane file, the lanes answered
-`will test`, and the rows the demonstrated file already held. `compliance`
-reads that stamp and never the lane file's state at close: deleting the lane
-file after approval used to erase every promise the plan made, and the
-demonstrated file, one per issue, let an earlier run's unchanged rows satisfy
-a new run. A row now counts only when it is new or changed since this run's
-approval and is not already on the upstream ref (`--base` when given, else
-`origin/main`), so another run's rows merged upstream and brought in by merging
-main do not count either; re-approving makes earlier rows stale too. If that
-ref cannot be read, a file that would otherwise show every lane reads `NOT
-CHECKED`. A run with no stamp (one
-approved by an older helper), a stamp that cannot be read, or a section that
-changed after approval reads `, LANES NOT CHECKED` where `will test` lanes
-are owed, and is unchanged where nothing is.
+section it speaks for, whether the project had a lane file, and the lanes
+answered `will test`. `compliance` reads that stamp and never the lane file's
+state at close: deleting the lane file after approval used to erase every
+promise the plan made. And because the demonstrated file is one per issue, an
+earlier run's rows used to satisfy a new run. Rows now count only below this
+run's own line, `<!-- lanes-demonstrated run=<run id> plan=<approved-section
+digest> -->`, up to the next such line; the stderr note prints the exact line.
+A first cut compared row text with what was there at approval and upstream;
+counter-model review showed text cannot say which run wrote a row (another
+run's identical rows, merged in from main, read exactly like this run's), so
+the run names itself instead. A run with no stamp (one approved by an older
+helper), a stamp that cannot be read, or a section that changed after approval
+reads `, LANES NOT CHECKED` where `will test` lanes are owed, and is unchanged
+where nothing is.
 
 Not checked: whether an answer is true.

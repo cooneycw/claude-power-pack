@@ -461,6 +461,18 @@ def test_a_backtick_line_that_cannot_open_a_fence_does_not_unquote_what_follows(
 # (a fenced heading, an indented heading, a numbered plan line with a pipe).
 # So nothing is left out, and these tests hold the digest still.
 
+def bind(repo: Path, body: str) -> str:
+    """`body` under THIS run's line, as the stderr note says to write it (#1821):
+    rows count only below the line naming the run and the plan its approval
+    stamped. Read from that stamp, so it is the line the helper itself wants."""
+    import json
+
+    gd = Path(git(repo, "rev-parse", "--absolute-git-dir").strip())
+    stamp = json.loads((gd / "flow-plan-lanes-42").read_text())
+    return (f"<!-- lanes-demonstrated run={stamp['run_id']} plan={stamp['plan_digest']} -->\n\n"
+            + body)
+
+
 DEMONSTRATED = """# Lanes demonstrated - issue #42
 
 | Lane | What happened |
@@ -569,18 +581,18 @@ def test_no_demonstrated_file_is_reported_with_the_lanes_owed(repo: Path) -> Non
 def test_a_will_test_lane_with_no_row_is_named(repo: Path) -> None:
     approved(repo)
     quiet = compliance(repo)
-    (repo / SIBLING).write_text(DEMONSTRATED.replace("| Harness | tested through a symlink |\n", ""))
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED.replace("| Harness | tested through a symlink |\n", "")))
     partial = compliance(repo)
     assert f"has no row in {SIBLING} - Harness" in partial.stderr
     assert "- Checkout" not in partial.stderr
     assert partial.stdout.replace("\n", "") != "" and partial.returncode == quiet.returncode
-    (repo / SIBLING).write_text(DEMONSTRATED.replace("tested through a symlink", " "))
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED.replace("tested through a symlink", " ")))
     assert f"has no row in {SIBLING} - Harness" in compliance(repo).stderr, "an empty cell is no row"
 
 
 def test_every_will_test_lane_demonstrated_draws_no_note(repo: Path) -> None:
     approved(repo)
-    (repo / SIBLING).write_text(DEMONSTRATED)
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED))
     assert "lanes-demonstrated" not in compliance(repo).stderr
 
 
@@ -603,7 +615,7 @@ def test_an_unreadable_demonstrated_file_is_unreadable_not_missing(repo: Path, k
 
 def test_rows_quoted_in_a_code_fence_are_not_rows(repo: Path) -> None:
     approved(repo)
-    (repo / SIBLING).write_text("# Example\n\n```\n" + DEMONSTRATED + "```\n")
+    (repo / SIBLING).write_text(bind(repo, "# Example\n\n```\n" + DEMONSTRATED + "```\n"))
     assert f"has no row in {SIBLING} - Checkout" in compliance(repo).stderr
 
 
@@ -657,11 +669,6 @@ def compliance_as(repo: Path, word: str, helper: Path = HELPER) -> subprocess.Co
 
 
 WORDS = ("agreement", "divergence", "unknown")
-#: Where every lane IS shown, the line under each word. `unknown` is forced by
-#: a base that does not exist, and that same base is the ref whose copy of the
-#: demonstrated file says which rows another run already merged (#1821): it
-#: cannot be read, so a complete file is NOT CHECKED there, never clean.
-FULL_FILE_CLAUSE = {"agreement": "", "divergence": "", "unknown": ", LANES NOT CHECKED"}
 
 
 @pytest.mark.parametrize("word", WORDS)
@@ -675,13 +682,13 @@ def test_a_will_test_lane_with_nothing_shown_is_on_the_verdict_line(repo: Path, 
 @pytest.mark.parametrize("word", WORDS)
 def test_only_the_lanes_still_missing_are_named_and_a_full_file_clears_the_line(repo: Path, word: str) -> None:
     approved(repo)
-    (repo / SIBLING).write_text(DEMONSTRATED.replace("| Harness | tested through a symlink |\n", ""))
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED.replace("| Harness | tested through a symlink |\n", "")))
     assert verdict(compliance_as(repo, word)).startswith(
         f"PLAN_COMPLIANCE: {word}, LANES NOT DEMONSTRATED (1)")
-    (repo / SIBLING).write_text(DEMONSTRATED.replace("tested through a symlink", " "))
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED.replace("tested through a symlink", " ")))
     assert ", LANES NOT DEMONSTRATED (1)" in verdict(compliance_as(repo, word)), "an empty cell is no row"
-    (repo / SIBLING).write_text(DEMONSTRATED)
-    assert verdict(compliance_as(repo, word)).startswith(f"PLAN_COMPLIANCE: {word}{FULL_FILE_CLAUSE[word]} ")
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED))
+    assert "LANES" not in verdict(compliance_as(repo, word))
 
 
 @pytest.mark.parametrize("kind", ["directory", "dangling symlink", "not text"])
@@ -722,11 +729,11 @@ def test_a_lane_file_damaged_after_approval_changes_nothing_owed(repo: Path, how
     obligations are already stamped (#1821), so what the lane file has become
     is not read: shown lanes stay shown, and missing ones stay missing."""
     approved(repo)
-    (repo / SIBLING).write_text(DEMONSTRATED)
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED))
     assert "LANES" not in verdict(compliance_as(repo, "divergence")), "precondition: clean before the damage"
     _damage_lane_file(repo, how)
     assert "LANES" not in verdict(compliance_as(repo, "divergence"))
-    (repo / SIBLING).write_text(DEMONSTRATED.replace("| Harness | tested through a symlink |\n", ""))
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED.replace("| Harness | tested through a symlink |\n", "")))
     assert ", LANES NOT DEMONSTRATED (1)" in verdict(compliance_as(repo, "divergence"))
 
 
@@ -747,7 +754,7 @@ def test_where_nothing_is_owed_a_file_at_the_demonstrated_path_is_still_a_touche
     lanes, section, _unused = BYTE_IDENTICAL[case]
     r = make_repo(tmp_path / "wt", lanes=lanes)
     approved(r, section)
-    (r / SIBLING).write_text(DEMONSTRATED)
+    (r / SIBLING).write_text(bind(r, DEMONSTRATED))
     base = git(r, "rev-parse", "main").strip()
     if word == "agreement":
         (r / "src").mkdir()
@@ -786,7 +793,7 @@ def test_writing_the_demonstrated_file_does_not_itself_make_a_divergence(repo: P
     approved(repo)
     assert verdict(compliance_as(repo, "agreement")).startswith(
         "PLAN_COMPLIANCE: agreement, LANES NOT DEMONSTRATED (2) - "), "precondition"
-    (repo / SIBLING).write_text(DEMONSTRATED)
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED))
     if committed:
         git(repo, "add", "-A")
         git(repo, "commit", "-qm", "work and lanes")
@@ -852,12 +859,11 @@ def test_the_clause_is_the_same_from_a_plain_repository_and_a_linked_worktree(
     r = make_checkout(tmp_path, shape)
     approved(r)
     assert verdict(compliance_as(r, word)).startswith(f"PLAN_COMPLIANCE: {word}, LANES NOT DEMONSTRATED (2)")
-    (r / SIBLING).write_text(DEMONSTRATED.replace("| Harness | tested through a symlink |\n", ""))
+    (r / SIBLING).write_text(bind(r, DEMONSTRATED.replace("| Harness | tested through a symlink |\n", "")))
     assert verdict(compliance_as(r, word)).startswith(f"PLAN_COMPLIANCE: {word}, LANES NOT DEMONSTRATED (1)")
-    (r / SIBLING).write_text(DEMONSTRATED)
+    (r / SIBLING).write_text(bind(r, DEMONSTRATED))
     done = compliance_as(r, word)
-    assert verdict(done).startswith(f"PLAN_COMPLIANCE: {word}{FULL_FILE_CLAUSE[word]} ")
-    assert str(SIBLING) not in done.stdout
+    assert "LANES" not in verdict(done) and str(SIBLING) not in done.stdout
     (r / SIBLING).unlink()
     (r / SIBLING).mkdir()
     assert verdict(compliance_as(r, word)).startswith(f"PLAN_COMPLIANCE: {word}, LANES NOT CHECKED")
@@ -880,7 +886,7 @@ def test_deleting_the_lane_file_after_approval_does_not_cancel_what_was_owed(
     assert ", LANES NOT DEMONSTRATED (2)" in verdict(done)
     assert [ln.rsplit(" - ", 1)[1] for ln in done.stderr.splitlines() if "has no row in" in ln] == [
         "Checkout", "Harness"]
-    (r / SIBLING).write_text(DEMONSTRATED)
+    (r / SIBLING).write_text(bind(r, DEMONSTRATED))
     assert "LANES" not in verdict(compliance_as(r, "divergence")), "and evidence still clears it"
 
 
@@ -912,7 +918,7 @@ def test_a_lane_named_with_delimiters_cannot_change_the_shape_of_the_line(tmp_pa
     marker = f"has no row in {SIBLING} - "
     assert [ln.split(marker, 1)[1] for ln in done.stderr.splitlines() if marker in ln] == [
         HOSTILE_LANE, "Harness"]
-    (r / SIBLING).write_text(DEMONSTRATED.replace("| Checkout |", f"| {HOSTILE_LANE} |"))
+    (r / SIBLING).write_text(bind(r, DEMONSTRATED.replace("| Checkout |", f"| {HOSTILE_LANE} |")))
     assert "LANES" not in verdict(compliance_as(r, "divergence")), "the name still matches its own row"
 
 
@@ -976,13 +982,13 @@ def test_every_combination_lands_in_exactly_one_of_the_four_states(
     approved(r, PLAN_STATES[plan])
     _damage_lane_file(r, at_close)
     if shown == "present":
-        (r / SIBLING).write_text(DEMONSTRATED)
+        (r / SIBLING).write_text(bind(r, DEMONSTRATED))
     elif shown == "unreadable":
         (r / SIBLING).mkdir()
     helper = _load_helper()
     monkeypatch.chdir(r)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-lanes")
-    at_close_state = helper.lanes_at_close("42", git(r, "rev-parse", "main").strip())
+    at_close_state = helper.lanes_at_close("42")
     assert at_close_state.state in helper.LANES_AT_CLOSE_STATES
     assert len(helper.LANES_AT_CLOSE_STATES) == 4
     assert at_close_state.state == _expected_state(at_approval, plan, shown)
@@ -1013,7 +1019,7 @@ def test_a_plan_that_owes_nothing_is_untouched_by_an_unusable_lane_file(
     approved(r, sections[plan])
     _damage_lane_file(r, "unusable")
     if shown == "present":
-        (r / SIBLING).write_text(DEMONSTRATED)
+        (r / SIBLING).write_text(bind(r, DEMONSTRATED))
     elif shown == "unreadable":
         (r / SIBLING).mkdir()
     base = git(r, "rev-parse", "main").strip()
@@ -1079,7 +1085,7 @@ def start_a_second_run(repo: Path, section: str = PLAN + FULL_TABLE) -> None:
 
 def test_a_previous_runs_unchanged_evidence_does_not_satisfy_a_new_run(repo: Path) -> None:
     approved(repo)
-    (repo / SIBLING).write_text(DEMONSTRATED)
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED))
     assert "LANES" not in verdict(compliance_as(repo, "divergence")), "precondition: run 1 is clean"
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "run 1 evidence")
@@ -1088,23 +1094,51 @@ def test_a_previous_runs_unchanged_evidence_does_not_satisfy_a_new_run(repo: Pat
     assert record.count("<!-- flow-run n=") == 2, "precondition: two runs in the record"
     done = compliance_as(repo, "divergence")
     assert ", LANES NOT DEMONSTRATED (2)" in verdict(done), "run 1's rows were taken for run 2's"
-    assert "2 of these lane(s) have a row that was already in" in done.stderr
-    assert [ln.rsplit(" - ", 1)[1] for ln in done.stderr.splitlines()
-            if "predates this run's approval" in ln] == ["Checkout", "Harness"]
-    (repo / SIBLING).write_text(DEMONSTRATED.replace("tested in a linked worktree",
-                                                     "run 2: tested in a linked worktree"))
+    assert f"{SIBLING} has no rows for this run" in done.stderr
+    with (repo / SIBLING).open("a") as fh:
+        fh.write("\n" + bind(repo, DEMONSTRATED.replace("| Harness | tested through a symlink |\n", "")))
     assert ", LANES NOT DEMONSTRATED (1)" in verdict(compliance_as(repo, "divergence")), \
-        "a row this run rewrote counts; the one it left does not"
-    (repo / SIBLING).write_text(DEMONSTRATED.replace("tested", "run 2 tested"))
+        "run 2's own section counts; run 1's row for Harness above it does not"
+    with (repo / SIBLING).open("a") as fh:
+        fh.write("| Harness | run 2 tested through a symlink |\n")
     assert "LANES" not in verdict(compliance_as(repo, "divergence"))
 
 
-def test_re_approving_makes_evidence_written_before_it_stale(repo: Path) -> None:
+def test_identical_rows_under_another_runs_line_do_not_count_and_under_this_runs_do(repo: Path) -> None:
+    """Counter-model review, pass 2: text cannot say who wrote a row. The same
+    rows count under this run's line and not under anyone else's."""
     approved(repo)
-    (repo / SIBLING).write_text(DEMONSTRATED)
+    foreign = "<!-- lanes-demonstrated run=" + "0" * 32 + " plan=" + "0" * 64 + " -->\n\n"
+    (repo / SIBLING).write_text(foreign + DEMONSTRATED)
+    assert ", LANES NOT DEMONSTRATED (2)" in verdict(compliance_as(repo, "divergence"))
+    (repo / SIBLING).write_text(foreign + DEMONSTRATED + "\n" + bind(repo, DEMONSTRATED))
+    assert "LANES" not in verdict(compliance_as(repo, "divergence"))
+    (repo / SIBLING).write_text(bind(repo, "| Lane | What happened |\n|---|---|\n| Checkout | x |\n")
+                                + "\n" + foreign + DEMONSTRATED)
+    assert ", LANES NOT DEMONSTRATED (1)" in verdict(compliance_as(repo, "divergence")), \
+        "the next run's line ends this run's section"
+
+
+def test_this_runs_line_inside_a_code_fence_opens_nothing(repo: Path) -> None:
+    approved(repo)
+    (repo / SIBLING).write_text("```\n" + bind(repo, "") + "```\n\n" + DEMONSTRATED)
+    assert ", LANES NOT DEMONSTRATED (2)" in verdict(compliance_as(repo, "divergence"))
+
+
+def test_re_approving_a_changed_plan_makes_earlier_evidence_stale(repo: Path) -> None:
+    """Rows name the plan their run approved. Re-approving the SAME section
+    keeps them; re-approving after the section changed does not."""
+    record = approved(repo)
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED))
     assert "LANES" not in verdict(compliance_as(repo, "divergence")), "precondition"
     assert run(repo, "approve", "42").returncode == 0
-    assert ", LANES NOT DEMONSTRATED (2)" in verdict(compliance_as(repo, "divergence"))
+    assert "LANES" not in verdict(compliance_as(repo, "divergence")), "the same plan, re-approved"
+    with record.open("a") as fh:
+        fh.write("Risks: one more, added before re-approval\n")
+    assert run(repo, "approve", "42").returncode == 0
+    done = compliance_as(repo, "divergence")
+    assert ", LANES NOT DEMONSTRATED (2)" in verdict(done)
+    assert f"{SIBLING} has no rows for this run" in done.stderr
 
 
 def test_a_project_without_lanes_at_approval_stays_silent_when_a_lane_file_appears(tmp_path: Path) -> None:
@@ -1142,7 +1176,7 @@ def test_with_no_lane_stamp_a_plan_that_owes_lanes_is_not_checked(repo: Path, se
 @pytest.mark.parametrize("damage", ["not json", "wrong shape", "directory"])
 def test_a_damaged_lane_stamp_is_not_checked_never_nothing_owed(repo: Path, damage: str) -> None:
     approved(repo)
-    (repo / SIBLING).write_text(DEMONSTRATED)
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED))
     path = stamp_path(repo)
     assert path.is_file(), "precondition: approval wrote a stamp"
     if damage == "not json":
@@ -1159,7 +1193,7 @@ def test_a_damaged_lane_stamp_is_not_checked_never_nothing_owed(repo: Path, dama
 
 def test_a_stamp_from_another_run_is_not_this_runs(repo: Path) -> None:
     approved(repo)
-    (repo / SIBLING).write_text(DEMONSTRATED)
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED))
     path = stamp_path(repo)
     path.write_text(path.read_text().replace('"run_id": "', '"run_id": "0'))
     assert ", LANES NOT CHECKED - " in verdict(compliance_as(repo, "divergence"))
@@ -1167,7 +1201,7 @@ def test_a_stamp_from_another_run_is_not_this_runs(repo: Path) -> None:
 
 def test_a_plan_changed_after_approval_is_not_checked_against_its_stamp(repo: Path) -> None:
     record = approved(repo)
-    (repo / SIBLING).write_text(DEMONSTRATED)
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED))
     with record.open("a") as fh:
         fh.write("\n  2. `src/other.py` - slipped in\n")
     done = compliance_as(repo, "divergence")
@@ -1175,22 +1209,11 @@ def test_a_plan_changed_after_approval_is_not_checked_against_its_stamp(repo: Pa
     assert "is not the plan its approval stamped" in done.stderr
 
 
-def test_a_demonstrated_file_unreadable_at_approval_cannot_be_told_apart_later(repo: Path) -> None:
-    (repo / SIBLING).parent.mkdir(parents=True, exist_ok=True)
-    (repo / SIBLING).mkdir()
-    approved(repo)
-    (repo / SIBLING).rmdir()
-    (repo / SIBLING).write_text(DEMONSTRATED)
-    done = compliance_as(repo, "divergence")
-    assert ", LANES NOT CHECKED - " in verdict(done)
-    assert "could not be read when this run's plan was approved" in done.stderr
-
-
 def test_another_runs_evidence_merged_in_after_approval_does_not_count(repo: Path) -> None:
     """Counter-model review of #1821: run A of this issue merged its evidence
     upstream; run B, approved before that, merges main afterwards. A's rows
-    are new since B's approval but are A's, so they do not answer for B. Read
-    against `origin/main`, the upstream ref a real run has."""
+    are new to B's tree but are A's - not under B's line - so they do not
+    answer for B, whatever main later does to them."""
     main = git(repo, "rev-parse", "main").strip()
     git(repo, "checkout", "-q", "-b", "run-a", main)
     (repo / SIBLING).parent.mkdir(parents=True, exist_ok=True)
@@ -1205,8 +1228,9 @@ def test_another_runs_evidence_merged_in_after_approval_does_not_count(repo: Pat
     assert (repo / SIBLING).read_text() == DEMONSTRATED, "precondition: A's rows are now in B's tree"
     done = run(repo, "compliance", "42")
     assert ", LANES NOT DEMONSTRATED (2)" in verdict(done), done.stdout + done.stderr
-    assert "predates this run's approval" in done.stderr or "already" in done.stderr
-    (repo / SIBLING).write_text(DEMONSTRATED.replace("tested", "run B tested"))
+    assert f"{SIBLING} has no rows for this run" in done.stderr
+    with (repo / SIBLING).open("a") as fh:
+        fh.write("\n" + bind(repo, DEMONSTRATED))
     assert ", LANES NOT" not in verdict(run(repo, "compliance", "42")), "B's own rows count"
 
 

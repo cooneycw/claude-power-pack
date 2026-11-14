@@ -13,7 +13,9 @@ Two inputs place things in time around the approval (issue #1821):
 `demonstrated-before.md` is written as the demonstrated file BEFORE the plan is
 approved and left unchanged (an earlier run's evidence), and a file named
 `delete-lane-file-after-approval` removes `.claude/lanes.md` once the plan is
-approved.
+approved. In `demonstrated.md`, a line `{{LANES_MARKER}}` becomes this run's
+own `<!-- lanes-demonstrated run=... plan=... -->` line, read from the stamp
+approval wrote; rows count only below it.
 
 The runner approves the plan, writes the planned file, and asks the gate for
 its compliance verdict. COMPLIANCE NEVER CHANGES ITS EXIT CODE FOR A LANE - the
@@ -44,6 +46,21 @@ env.update(CLAUDE_CODE_SESSION_ID="lanes-verdict-control", GIT_AUTHOR_NAME="c",
 
 def run(*argv: str, cwd: Path) -> subprocess.CompletedProcess:
     return subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True)
+
+
+def lanes_marker_text(text: str, repo) -> str:
+    """Put THIS run's line where a case writes `{{LANES_MARKER}}` (#1821):
+    rows count only below the line naming the run and plan approval stamped.
+    No stamp (a helper older than #1821) leaves no line: nothing reads one."""
+    import json
+    gd = subprocess.run(["git", "-C", str(repo), "rev-parse", "--absolute-git-dir"],
+                        capture_output=True, text=True).stdout.strip()
+    stamp = Path(gd) / "flow-plan-lanes-42"
+    marker = ""
+    if gd and stamp.is_file():
+        data = json.loads(stamp.read_text())
+        marker = f"<!-- lanes-demonstrated run={data['run_id']} plan={data['plan_digest']} -->"
+    return text.replace("{{LANES_MARKER}}", marker)
 
 
 def setup(*argv: str, cwd: Path) -> None:
@@ -82,7 +99,7 @@ with tempfile.TemporaryDirectory() as directory:
     (repo / "src").mkdir()
     (repo / "src" / "app.py").write_text("x = 1\n")
     if (case / "demonstrated.md").exists():
-        shutil.copy(case / "demonstrated.md", shown)
+        shown.write_text(lanes_marker_text((case / "demonstrated.md").read_text(), repo))
     elif (case / "demonstrated-is-a-directory").exists():
         shown.mkdir()
     done = run(sys.executable, str(gate), "compliance", "42", "--base", "main", cwd=repo)
