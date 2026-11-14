@@ -1,7 +1,12 @@
 {
   "gate": "scripts/bootstrap-check.sh",
   "invocation": [
-    "python3",
+    "uv",
+    "run",
+    "--isolated",
+    "--frozen",
+    "--no-dev",
+    "python",
     "controls/bootstrap-wrapper/run-case.py",
     "{case}",
     "{gate}"
@@ -10,7 +15,7 @@
   "good_signal": "^BOOTSTRAP_WRAPPER_CONTROL: clean - wrapper accepted",
   "detect_signal": "^BOOTSTRAP_WRAPPER_CONTROL: finding - ",
   "unavailable_signal": "^BOOTSTRAP_WRAPPER_CONTROL: unavailable - ",
-  "limits": "Runs candidate wrapper bytes from an owned CPP layout, copying the current real lib.cicd.bootstrap and package initializers unchanged. JSON is valid YAML, decoded by real PyYAML, never a fake parser or checker. Only owned exit-0/exit-1 commands run. The wrapper owns the target; invocation cwd is a separate owned directory. A module import failure or an interpreter without PyYAML is unavailable, not unmet or clean. This control is unavailable in a CI image whose selected python3 lacks PyYAML; it does not provision an environment or claim CI runtime coverage there. The blind anchor routes check to list and therefore returns success without executing the blocker. Caller-shadow pairs add a regular lib package or raising yaml module outside CPP after the real PyYAML readiness check; the wrapper must still report the owned prerequisite verdict.",
+  "limits": "Runs candidate wrapper bytes from an owned CPP layout, copying the current real lib.cicd.bootstrap and package initializers unchanged. JSON is valid YAML, decoded by real PyYAML, never a fake parser or checker. Only owned exit-0/exit-1 commands run. The wrapper owns the target; invocation cwd is a separate owned directory. A module import failure or an interpreter without PyYAML is unavailable, not unmet or clean. The control invocation requires real uv and uses uv run --isolated --frozen --no-dev to supply CPP runtime dependencies from uv.lock in a disposable environment, without syncing the project .venv. A cold uv cache needs network to obtain the locked packages and possibly a compatible Python; a populated cache can run offline. The wrapper itself still uses ambient python3: only the control subprocess gets the isolated interpreter on PATH. Missing PyYAML remains a real -S case. The pinned CI image has not been executed locally. The blind anchor routes check to list and therefore returns success without executing the blocker. Caller-shadow pairs add a regular lib package or raising yaml module outside CPP after the real PyYAML readiness check; the wrapper must still report the owned prerequisite verdict.",
   "cases": [
     {
       "name": "bad-blocking-unmet",

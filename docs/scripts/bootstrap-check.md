@@ -30,3 +30,11 @@ checker on owned configurations. A failed blocking dependency is BAD, a
 satisfied one is GOOD, and unavailable imports/PyYAML are named unavailable,
 never clean. Its constructed blind anchor lists rather than checks, so it
 misses the unmet blocking dependency. No fake checker or YAML parser is used.
+
+The control invocation uses real `uv run --isolated --frozen --no-dev` to run
+with CPP's locked runtime dependencies, without syncing the project's `.venv`.
+This supplies PyYAML to the control subprocess even when the parent interpreter
+lacks it. A cold uv cache needs network for locked packages and possibly a
+compatible Python; a populated cache can run offline. The production wrapper
+continues to use ambient `python3`, and the control's `-S` case still tests actual
+PyYAML absence. The pinned CI image has not been executed locally.
