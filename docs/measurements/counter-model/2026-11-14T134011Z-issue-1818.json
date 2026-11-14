@@ -1,0 +1,15 @@
+{
+  "branch": "release/v11.1.1",
+  "head": "8f0f45509c4a08e06e2143928c6e9283d19a6ab7",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "rollout": "2026/11/14/rollout-2026-11-14T00-36-45-01a1d77c-3b9c-72e2-8a68-9ecedc2685e8.jsonl",
+    "thread_id": "01a1d77c-3b9c-72e2-8a68-9ecedc2685e8"
+  },
+  "issue": "1818",
+  "recorded_at": "2026-11-14T13:40:11Z",
+  "reviewer": null,
+  "schema": 1,
+  "skip_reason": "reviewer-unavailable",
+  "status": "skipped"
+}
