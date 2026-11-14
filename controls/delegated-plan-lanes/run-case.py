@@ -39,7 +39,9 @@ def calls(text):
 
 driver, case_arg, candidate_arg = sys.argv[1:4]
 mode = sys.argv[4] if len(sys.argv) > 4 else "approve"
-if mode not in {"approve", "compliance"}:
+if (case_mode := Path(case_arg) / "mode.txt").is_file():
+    mode = case_mode.read_text().strip()
+if mode not in {"approve", "compliance", "compliance-shell", "product"}:
     unavailable("unknown mode")
 if driver not in {"codex", "qwen", "gemma"}:
     unavailable("unknown driver")
@@ -55,7 +57,7 @@ if not approval_calls:
     raise SystemExit(0)
 if approval_calls != ["begin-run", "approve"] or calls(section(text, 1)) != ["reconcile", "read-issue"]:
     unavailable("incomplete or reordered plan lifecycle")
-if mode == "compliance" and calls(section(text, 7)) != ["compliance"]:
+if mode in {"compliance", "compliance-shell"} and calls(section(text, 7)) != ["compliance"]:
     unavailable("close has no supported compliance invocation")
 git = shutil.which("git")
 if not git:
@@ -82,6 +84,11 @@ def setup(argv, cwd):
 with tempfile.TemporaryDirectory(prefix="delegated-lanes-") as raw:
     top = Path(raw)
     main, work = top / "main", top / "work"
+    home = top / "home"
+    installed = home / ".claude/scripts/flow-plan-record.py"
+    installed.parent.mkdir(parents=True)
+    shutil.copy2(helper, installed)
+    env["HOME"] = str(home)
     main.mkdir()
     setup([git, "init", "-q", "-b", "main"], main)
     (main / "README.md").write_text("owned base\n")
@@ -92,6 +99,9 @@ with tempfile.TemporaryDirectory(prefix="delegated-lanes-") as raw:
     setup([git, "commit", "-qm", "base"], main)
     base = run([git, "rev-parse", "HEAD"], main).stdout.strip()
     setup([git, "worktree", "add", "-q", "-b", "issue-42-case", str(work)], main)
+    setup([git, "remote", "add", "origin", str(main)], work)
+    setup([git, "update-ref", "refs/remotes/origin/main", base], work)
+    setup([git, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], work)
     assert (work / ".git").is_file(), "construct a linked worktree, not a second plain checkout"
     body = top / "issue.md"
     body.write_text("Owned issue body.\n")
@@ -101,12 +111,25 @@ with tempfile.TemporaryDirectory(prefix="delegated-lanes-") as raw:
     with (work / "docs/flow-runs/issue-42.md").open("a") as record:
         record.write((case / "section.md").read_text())
     done = run([sys.executable, str(helper), "approve", "42"], work)
-    if mode == "compliance" and done.returncode == 0:
-        (work / "src").mkdir()
-        (work / "src/app.py").write_text("# The planned implementation.\n")
+    if mode in {"compliance", "compliance-shell", "product"} and done.returncode == 0:
+        if mode != "product" or (case / "product.txt").exists():
+            (work / "src").mkdir()
+            (work / "src/app.py").write_text("# The planned implementation.\n")
         if (case / "demonstrated.md").is_file():
             shutil.copy2(case / "demonstrated.md", work / "docs/flow-runs/issue-42.lanes-demonstrated.md")
-        done = run([sys.executable, str(helper), "compliance", "42", "--base", base], work)
+        if mode == "compliance":
+            done = run([sys.executable, str(helper), "compliance", "42", "--base", base], work)
+        else:
+            if not shutil.which("bash"):
+                unavailable("bash is absent")
+            blocks = re.findall(r"^```bash\n(.*?)^```", text, re.M | re.S)
+            if mode == "compliance-shell":
+                block = next(b for b in blocks if 'compliance 42 --base "$MERGE_BASE"' in b)
+            else:
+                block = next((b for b in blocks if "DELEGATED_PRODUCT_CHANGE:" in b), None)
+                if block is None:
+                    block = next(b for b in blocks if "FILES_CHANGED=" in b and '"$FILES_CHANGED" -eq 0' in b)
+            done = run(["bash", "-c", block], work)
     sys.stdout.write(done.stdout)
     sys.stderr.write(done.stderr)
     raise SystemExit(done.returncode)

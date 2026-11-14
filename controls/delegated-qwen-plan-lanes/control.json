@@ -8,10 +8,10 @@
     "{gate}"
   ],
   "good_exit": 0,
-  "good_signal": "^(FLOW_PLAN_RECORD: baseline stamped [0-9a-f]{64}|DELEGATED_PLAN_LANES: legacy continuation)",
-  "detect_signal": "^FLOW_PLAN_RECORD: error - the lanes table leaves these listed lanes unanswered: Harness",
+  "good_signal": "^(FLOW_PLAN_RECORD: baseline stamped [0-9a-f]{64}|DELEGATED_PLAN_LANES: legacy continuation|DELEGATED_PRODUCT_CHANGE: ok)",
+  "detect_signal": "^(FLOW_PLAN_RECORD: error - the lanes table leaves these listed lanes unanswered: Harness|DELEGATED_PRODUCT_CHANGE: fail)",
   "unavailable_signal": "^DELEGATED_PLAN_LANES: unavailable - ",
-  "limits": "Runs the actual approve command declared in this driver's Step 3, with the existing plan helper in an owned linked worktree. A recorded approved historical Step 3 without an approve call continues without a lane refusal; the same adapter applies to current and historical document bytes. It does not run a model, prove obedience to prose, or judge lane-answer truth. Narrow fenced-command extraction, not a second lane parser. Setup or unsupported command shape is unavailable, never clean.",
+  "limits": "Runs the actual approve command declared in this driver's Step 3, with the existing plan helper in an owned linked worktree. A recorded approved historical Step 3 without an approve call continues without a lane refusal; the same adapter applies to current and historical document bytes. It does not run a model, prove obedience to prose, or judge lane-answer truth. Narrow fenced-command extraction, not a second lane parser. Setup or unsupported command shape is unavailable, never clean. Metadata-only/product-change cases execute the actual fenced product-change check after creating the real approval artifacts. Before that shared check exists they execute the recorded Step 4 status check; this demonstrates the integration regression from new metadata.",
   "cases": [
     {
       "name": "bad-omitted-lane",
@@ -26,6 +26,16 @@
     {
       "name": "good-no-lane-file",
       "input": "cases/good-no-lane-file",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-metadata-only",
+      "input": "cases/bad-metadata-only",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-product-change",
+      "input": "cases/good-product-change",
       "expect": "GOOD"
     }
   ],

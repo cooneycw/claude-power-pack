@@ -9,8 +9,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER = ROOT / "controls/delegated-plan-lanes/run-case.py"
-pytestmark = pytest.mark.skipif(shutil.which("git") is None or shutil.which(sys.executable) is None,
-                                reason="requires git and Python")
+pytestmark = pytest.mark.skipif(shutil.which("git") is None or shutil.which("bash") is None
+                                or shutil.which(sys.executable) is None, reason="requires git, bash and Python")
 
 
 @pytest.mark.parametrize("driver", ["codex", "qwen", "gemma"])
@@ -110,3 +110,25 @@ def test_delegated_families_remain_explicitly_unbundled():
     assert {"codex", "qwen", "gemma"} <= excluded
     for driver in ["codex", "qwen", "gemma"]:
         assert not (ROOT / f"codex/skills/{driver}-auto").exists()
+
+
+@pytest.mark.parametrize("driver", ["codex", "qwen", "gemma"])
+@pytest.mark.parametrize("product", [False, True])
+def test_plan_evidence_is_not_delegated_implementation(driver, product):
+    case = "good-product-change" if product else "bad-metadata-only"
+    control = ROOT / f"controls/delegated-{driver}-plan-lanes"
+    done = subprocess.run([sys.executable, str(RUNNER), driver, str(control / "cases" / case),
+                           str(ROOT / "scripts/flow-plan-record.py")], capture_output=True, text=True, timeout=45)
+    assert done.returncode == (0 if product else 1), done.stdout + done.stderr
+    if not product:
+        assert "DELEGATED_PRODUCT_CHANGE: fail" in done.stdout
+
+
+@pytest.mark.parametrize("driver", ["codex", "qwen", "gemma"])
+def test_compliance_resolves_base_in_its_own_fresh_shell(driver):
+    case = ROOT / f"controls/delegated-{driver}-plan-lanes/cases/close-every-lane-demonstrated"
+    done = subprocess.run([sys.executable, str(RUNNER), driver, str(case),
+                           str(ROOT / "scripts/flow-plan-record.py"), "compliance-shell"],
+                          capture_output=True, text=True, timeout=45)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "PLAN_COMPLIANCE: agreement" in done.stdout

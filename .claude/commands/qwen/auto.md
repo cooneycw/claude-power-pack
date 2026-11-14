@@ -853,6 +853,37 @@ Cross-model review: Claude Code reviews what the local Qwen model wrote.
 produces plausible-but-wrong code at a higher rate than a frontier model.
 Review the diff line by line, not just structurally.
 
+**Before reviewing, require a product change, not just approval evidence.**
+Step 3 now creates record/snapshot files before delegation, so Step 4's raw
+status count alone cannot prove the implementation changed anything. Run this
+additional refusal before committing the review checkpoint. Substitute the
+literal assigned issue number for 42; do not exclude another issue's records:
+
+```bash
+# Exclude only this run's orchestration evidence.
+if ! TARGET_ROOT=$(git rev-parse --show-toplevel); then
+    echo "DELEGATED_PRODUCT_CHANGE: fail - target checkout is unknown"
+    exit 1
+fi
+if ! PRODUCT_STATUS=$(git -C "$TARGET_ROOT" status --porcelain --untracked-files=all -- . \
+    ':(top,exclude,literal)docs/flow-runs/issue-42.md' \
+    ':(top,exclude,literal)docs/flow-runs/issue-42.as-read.md' \
+    ':(top,exclude,literal)docs/flow-runs/issue-42.lanes-demonstrated.md'); then
+    echo "DELEGATED_PRODUCT_CHANGE: fail - could not examine product changes"
+    exit 1
+fi
+if [ -z "$PRODUCT_STATUS" ]; then
+    echo "DELEGATED_PRODUCT_CHANGE: fail - no product changes; approval evidence is not implementation"
+    exit 1
+fi
+echo "DELEGATED_PRODUCT_CHANGE: ok - product changes exist"
+```
+
+An evidence-only run stops here, even when Step 4 counted the new plan files.
+Staged and untracked product files count, and an examination failure stops.
+The original empty-diff guard still applies; this is its integration backstop
+for the artifacts introduced by this driver, not permission to waive it.
+
 1. **Commit the implementation checkpoint, then bind the review artifact.**
    Stage only this issue's owned changes and commit them before reviewing. A
    receipt-bound review identifies a commit, so uncommitted work cannot stand
@@ -1143,6 +1174,8 @@ if [ "$CONTENT_RC" -eq 0 ] && [ -z "$UNTRACKED" ]; then
     echo "STOP: no content change since origin/$DEFAULT_BRANCH, committed or pending - refusing to open a PR on an empty diff."
     exit 1
 fi
+# Keep this call in THIS shell block: MERGE_BASE is not shared across tool calls.
+~/.claude/scripts/flow-plan-record.py compliance 42 --base "$MERGE_BASE"
 ```
 
 **Report plan and lane compliance before selecting the closing reference.**
@@ -1153,11 +1186,10 @@ nonempty evidence row per lane. Do not fill a row merely because the plan
 promised a test. With no project lane file or no `will test` rows, no such file
 is owed and no lane question is asked.
 
-From the target worktree, using the explicit merge base just resolved above:
-
-```bash
-~/.claude/scripts/flow-plan-record.py compliance 42 --base "$MERGE_BASE"
-```
+The invocation above runs from the target worktree in the same shell block
+that resolves `MERGE_BASE`; never carry that variable into a fresh tool shell.
+After writing new demonstrated rows, re-run that full block to recompute the
+base and report the updated evidence.
 
 Relay the complete verdict and stderr names/reasons into the PR and closing
 evidence. Preserve its reporting semantics: agreement exits 0; divergence or
