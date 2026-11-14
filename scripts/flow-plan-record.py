@@ -1069,7 +1069,7 @@ def cmd_compliance(issue: str, base: str | None) -> int:
     """Compare the diff's FILE SET against Section C. Reports; never blocks."""
     state: dict[str, Any] = {"root": None, "marked": []}
     global _LANES_CLAUSE, _LANES_OWED
-    at_close = lanes_at_close(issue)
+    at_close = lanes_at_close(issue, base)
     _LANES_CLAUSE = lanes_clause(at_close)
     _LANES_OWED = at_close.state == "all-shown" or bool(at_close.lanes)
     try:
@@ -1196,7 +1196,7 @@ class LanesAtClose(NamedTuple):
 LANES_AT_CLOSE_STATES = ("nothing-owed", "all-shown", "missing", "not-checked")
 
 
-def lanes_at_close(issue: str) -> LanesAtClose:
+def lanes_at_close(issue: str, base: str | None = None) -> LanesAtClose:
     """Close-time half of #1731, decided ONCE, before any verdict is printed.
 
     What happened in each lane the plan said it would test is written to
@@ -1213,7 +1213,11 @@ def lanes_at_close(issue: str) -> LanesAtClose:
     never the lane file's current state: deleting the lane file after
     approval used to erase the obligation, and a demonstrated file left by an
     earlier run used to satisfy a new one. A row counts only when it is new
-    or changed since this run's approval.
+    or changed since this run's approval, AND is not already on the upstream
+    ref (`--base` when given, else `origin/main`): rows another run of this
+    issue merged upstream, then brought into this branch after approval by
+    merging main, are that run's evidence, not this one's (counter-model
+    review of #1821).
 
     The four states:
 
@@ -1243,7 +1247,12 @@ def lanes_at_close(issue: str) -> LanesAtClose:
         try:
             stamp = read_lanes_stamp(issue, run_id)
         except LanesUnusable as exc:
-            return LanesAtClose("not-checked", why=str(exc))
+            # A plan that owes nothing is silent whatever state the stamp is
+            # in (counter-model review); one that owes lanes is not checked.
+            fallback = lanes_without_stamp(issue, root, run_id)
+            if fallback.state == "nothing-owed":
+                return fallback
+            return LanesAtClose("not-checked", lanes=fallback.lanes, rel=fallback.rel, why=str(exc))
         if stamp is None:
             return lanes_without_stamp(issue, root, run_id)
         if not stamp["adopted"] or not stamp["owed"]:
@@ -1275,16 +1284,48 @@ def lanes_at_close(issue: str) -> LanesAtClose:
                 f"{rel} could not be read when this run's plan was approved, so rows "
                 "written before the approval cannot be told from rows written after it"))
         before = {(k, c) for k, c in stamp["shown_before"]}
+        upstream_ref = base if base is not None else "origin/main"
+        upstream = upstream_rows(root, upstream_ref, rel)
+        not_ours = before | (upstream or set())
         rows = shown_rows(shown_text)
-        fresh = {k for k, c in rows if (k, c) not in before}
-        left = {k for k, c in rows if (k, c) in before}
+        fresh = {k for k, c in rows if (k, c) not in not_ours}
+        left = {k for k, c in rows if (k, c) in not_ours}
         missing = tuple(lane for lane in owed if lane_key(lane) not in fresh)
         if missing:
             return LanesAtClose("missing", lanes=missing, rel=rel, stale=tuple(
                 lane for lane in missing if lane_key(lane) in left))
+        if upstream is None:
+            return LanesAtClose("not-checked", lanes=owed, rel=rel, why=(
+                f"{rel} on {upstream_ref} could not be read, so rows another run already "
+                "merged upstream cannot be told from this run's"))
         return LanesAtClose("all-shown", rel=rel)
     except Exception as exc:    # noqa: BLE001 - see the docstring
         return LanesAtClose("not-checked", why=f"the lane check failed ({type(exc).__name__})")
+
+
+def upstream_rows(root: pathlib.Path, ref: str, rel: str) -> set[tuple[str, str]] | None:
+    """The demonstrated file's rows as `ref` holds it: empty when `ref` has no
+    such file, None when `ref` or the file on it cannot be read."""
+    resolved = subprocess.run(["git", "-C", str(root), "rev-parse", "--verify", "--quiet",
+                               f"{ref}^{{commit}}"], capture_output=True, text=True)
+    if resolved.returncode != 0 or not resolved.stdout.strip():
+        return None
+    commit = resolved.stdout.strip()
+    kind = subprocess.run(["git", "-C", str(root), "cat-file", "-t", f"{commit}:{rel}"],
+                          capture_output=True, text=True)
+    if kind.returncode != 0:
+        listed = subprocess.run(["git", "-C", str(root), "ls-tree", "--name-only", commit, "--",
+                                 rel], capture_output=True, text=True)
+        return set() if listed.returncode == 0 and not listed.stdout.strip() else None
+    if kind.stdout.strip() != "blob":
+        return None
+    shown = subprocess.run(["git", "-C", str(root), "show", f"{commit}:{rel}"], capture_output=True)
+    if shown.returncode != 0:
+        return None
+    try:
+        return shown_rows(shown.stdout.decode("utf-8"))
+    except UnicodeDecodeError:
+        return None
 
 
 def lanes_without_stamp(issue: str, root: pathlib.Path, run_id: str | None) -> LanesAtClose:

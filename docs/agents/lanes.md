@@ -93,8 +93,9 @@ which must not change after approval.
 What a run owes is fixed when its plan is approved (issue #1821): deleting
 `.claude/lanes.md` afterwards owes nothing less, and adding one to a project
 that had none owes nothing more. A row counts only when this run writes or
-changes it after its approval, so rows an earlier run left in the file do not
-answer for this one - say what this run demonstrated.
+changes it after its approval, and that is not already on `origin/main` (or
+the `--base` given), so rows an earlier or concurrent run left in the file do
+not answer for this one - say what this run demonstrated.
 
 The closing report's Evidence carries the same rows with what happened. A row
 whose result differs from the approved answer is explained. In

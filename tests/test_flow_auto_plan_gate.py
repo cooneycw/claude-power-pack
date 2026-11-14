@@ -86,7 +86,10 @@ def test_the_real_line_is_read_by_the_passage_as_written(tmp_path: Path, word: s
     after_word = line[len(prefixes[0]):]
     kinds = {"not demonstrated": "DEMONSTRATED (", "not checked": "CHECKED"}
     opening = documented_clause(passage)
-    if state == "no clause":
+    if state == "no clause" and word == "unknown":
+        # The base that forces `unknown` also hides upstream rows (#1821).
+        assert after_word.startswith(opening + "CHECKED"), line
+    elif state == "no clause":
         assert "LANES" not in line
     else:
         assert after_word.startswith(opening + kinds[state]), line

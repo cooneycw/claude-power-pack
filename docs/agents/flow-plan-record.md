@@ -438,7 +438,11 @@ reads that stamp and never the lane file's state at close: deleting the lane
 file after approval used to erase every promise the plan made, and the
 demonstrated file, one per issue, let an earlier run's unchanged rows satisfy
 a new run. A row now counts only when it is new or changed since this run's
-approval; re-approving makes earlier rows stale too. A run with no stamp (one
+approval and is not already on the upstream ref (`--base` when given, else
+`origin/main`), so another run's rows merged upstream and brought in by merging
+main do not count either; re-approving makes earlier rows stale too. If that
+ref cannot be read, a file that would otherwise show every lane reads `NOT
+CHECKED`. A run with no stamp (one
 approved by an older helper), a stamp that cannot be read, or a section that
 changed after approval reads `, LANES NOT CHECKED` where `will test` lanes
 are owed, and is unchanged where nothing is.
