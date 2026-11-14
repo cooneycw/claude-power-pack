@@ -2,7 +2,7 @@
 
 # Lanes demonstrated - issue #42
 
-| Lane | What happened |
-|---|---|
-| Checkout | tested in a linked worktree |
-| Harness | tested through a symlink |
+| Lane | Result | Evidence |
+|---|---|---|
+| Checkout | passed | tested in a linked worktree |
+| Harness | passed | tested through a symlink |

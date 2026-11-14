@@ -2,6 +2,6 @@
 
 # Lanes demonstrated - issue #42
 
-| Lane | What happened |
-|---|---|
-| Checkout | tested in a linked worktree |
+| Lane | Result | Evidence |
+|---|---|---|
+| Checkout | passed | tested in a linked worktree |

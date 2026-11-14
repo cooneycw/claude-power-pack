@@ -105,7 +105,8 @@ def test_following_the_stderr_note_clears_the_clause(tmp_path: Path, start: str)
     repo = make_repo(tmp_path / "wt")
     approved(repo)
     if start == "one row missing":
-        (repo / SIBLING).write_text(bind(repo, DEMONSTRATED.replace("| Harness | tested through a symlink |\n", "")))
+        (repo / SIBLING).write_text(bind(repo, DEMONSTRATED.replace(
+            "| Harness | passed | tested through a symlink |\n", "")))
     elif start == "an empty file":
         (repo / SIBLING).write_text("")
     elif start == "prose and no table":
@@ -115,7 +116,8 @@ def test_following_the_stderr_note_clears_the_clause(tmp_path: Path, start: str)
     assert counted, verdict(first)
     note = "\n".join(stderr_note(first))
     path = re.search(r"(docs/flow-runs/issue-42\.lanes-demonstrated\.md)", note)
-    assert path and "`| <lane> | <what was demonstrated> |`" in note, note
+    assert path and "`| <lane> | <result> | <test or observation> |`" in note, note
+    assert "only passed or refused as expected, with a reference, is a demonstration" in note
     marker = f"has no row in {path.group(1)} - "
     lanes = [ln.split(marker, 1)[1] for ln in stderr_note(first) if marker in ln]
     assert len(lanes) == int(counted.group(1)) >= 1, "the count on the line is the names in the note"
@@ -124,19 +126,19 @@ def test_following_the_stderr_note_clears_the_clause(tmp_path: Path, start: str)
     line = re.search(r"the line `(<!-- lanes-demonstrated [^`]*-->)`", note)
     assert line, note
     if "Write that file:" in note:
-        target.write_text(line.group(1) + "\n\n| Lane | What was demonstrated |\n|---|---|\n")
+        target.write_text(line.group(1) + "\n\n| Lane | Result | Evidence |\n|---|---|---|\n")
     elif "Append the line" in note:
         with target.open("a") as handle:
-            handle.write("\n" + line.group(1) + "\n\n| Lane | What was demonstrated |\n|---|---|\n")
+            handle.write("\n" + line.group(1) + "\n\n| Lane | Result | Evidence |\n|---|---|---|\n")
     else:
         assert target.exists(), "the note said to add to a table that is not there"
-        assert "needs a header row and a `|---|---|` row above it, if the file has none" in note
+        assert "needs a header row and a `|---|---|---|` row above it, if the file has none" in note
         if "|---|" not in target.read_text():
             with target.open("a") as handle:
-                handle.write("\n| Lane | What was demonstrated |\n|---|---|\n")
+                handle.write("\n| Lane | Result | Evidence |\n|---|---|---|\n")
     with target.open("a") as handle:
         for lane in lanes:
-            handle.write(f"| {lane} | shown |\n")
+            handle.write(f"| {lane} | passed | shown |\n")
     again = compliance_as(repo, "agreement")
     assert verdict(again).startswith("PLAN_COMPLIANCE: agreement - "), verdict(again)
     assert stderr_note(again) == []
@@ -151,7 +153,8 @@ def test_following_the_note_for_a_lane_named_with_a_pipe(tmp_path: Path) -> None
     piped = "Checkout \\| linked"
     repo = make_repo(tmp_path / "wt", lanes=LANES.replace("| Checkout |", f"| {piped} |"))
     approved(repo, PLAN + FULL_TABLE.replace("| Checkout |", f"| {piped} |"))
-    (repo / SIBLING).write_text(bind(repo, "| Lane | What was demonstrated |\n|---|---|\n| Harness | shown |\n"))
+    (repo / SIBLING).write_text(
+        bind(repo, "| Lane | Result | Evidence |\n|---|---|---|\n| Harness | passed | shown |\n"))
     first = compliance_as(repo, "agreement")
     assert ", LANES NOT DEMONSTRATED (1)" in verdict(first)
     note = stderr_note(first)
@@ -160,11 +163,11 @@ def test_following_the_note_for_a_lane_named_with_a_pipe(tmp_path: Path) -> None
     names = [ln.split(marker, 1)[1] for ln in note if marker in ln]
     assert names == ["Checkout | linked"]
     with (repo / SIBLING).open("a") as handle:
-        handle.write(f"| {names[0]} | shown |\n")
+        handle.write(f"| {names[0]} | passed | shown |\n")
     assert ", LANES NOT DEMONSTRATED (1)" in verdict(compliance_as(repo, "agreement")), (
         "precondition: pasted unescaped, the row does not name this lane")
     with (repo / SIBLING).open("a") as handle:
-        handle.write("| " + names[0].replace("|", "\\|") + " | shown |\n")
+        handle.write("| " + names[0].replace("|", "\\|") + " | passed | shown |\n")
     assert verdict(compliance_as(repo, "agreement")).startswith("PLAN_COMPLIANCE: agreement - ")
 
 

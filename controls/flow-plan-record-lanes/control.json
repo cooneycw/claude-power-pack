@@ -26,10 +26,10 @@
     "{gate}"
   ],
   "good_exit": 0,
-  "detect_signal": "^FLOW_PLAN_RECORD: error - (the plan record has no lanes table|the lanes table leaves these listed lanes unanswered|unknown: )",
+  "detect_signal": "^FLOW_PLAN_RECORD: error - (the plan record has no lanes table|the lanes table leaves these listed lanes unanswered|the lanes table answers `will test` without naming which values|unknown: )",
   "good_signal": "^FLOW_PLAN_RECORD: baseline stamped [0-9a-f]{64}$",
   "unavailable_signal": "^FLOW_PLAN_RECORD_LANES_CONTROL: unavailable",
-  "limits": "Covers the APPROVAL refusal for a readable lane file and for one that lists nothing. It does not cover the one-line waiver (`Lanes: none - <reason>`), the other unusable-file states, code fences, table edge cases, or the close-time stderr report about docs/flow-runs/issue-<N>.lanes-demonstrated.md - those are pinned by tests/test_flow_plan_record_lanes.py. It says nothing about whether an answer is TRUE: a plan can answer every lane `will test` and test none of them.",
+  "limits": "Covers the APPROVAL refusal for a readable lane file and for one that lists nothing. It does not cover the one-line waiver (`Lanes: none - <reason>`), the other unusable-file states, code fences, table edge cases, or the close-time stderr report about docs/flow-runs/issue-<N>.lanes-demonstrated.md - those are pinned by tests/test_flow_plan_record_lanes.py. It says nothing about whether an answer is TRUE: a plan can answer every lane `will test` and test none of them. Since #1823 it also covers a `will test` row that names none of its lane's listed values; value spelling (parentheticals, `;`, emphasis) and a lane with no listed values are pinned by the tests.",
   "cases": [
     {
       "name": "bad-no-table",
@@ -60,6 +60,12 @@
       "input": "cases/bad-lane-file-lists-nothing",
       "expect": "BAD",
       "why": "The lane file exists and its table is gone. If it scores GOOD an unusable list is being read as a project with no lanes."
+    },
+    {
+      "name": "bad-will-test-names-no-values",
+      "input": "cases/bad-will-test-names-no-values",
+      "expect": "BAD",
+      "why": "`Checkout: will test` that names neither `main checkout` nor `linked worktree` (#1823). If it is stamped, a test of one value reads as covering the whole lane again."
     },
     {
       "name": "good-every-lane-answered",
