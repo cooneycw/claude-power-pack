@@ -174,6 +174,85 @@ def test_no_gate_knob_in_the_suites_environment_reaches_the_gate(
     assert _gate_env(FLOW_GATE_RERUN="0")["FLOW_GATE_RERUN"] == "0"
 
 
+#: The shell's own names, and the one gate-lib.sh hands back to its caller: read
+#: by the gate, never configured by the environment.
+_SHELL_NAMES = frozenset({"_", "BASHPID", "BASH_COMMAND", "BASH_REMATCH", "BASH_SOURCE",
+                          "BASH_VERSION", "PIPESTATUS", "PWD", "RANDOM", "GATE_VALUE"})
+#: What `_GATE_KNOBS` holds that no `$NAME` in the gate's own files reads: the
+#: two the gate only forwards (see the list's comment) and `_run`'s admission
+#: signal, which the fixture turns into a flag file before the gate starts.
+_KNOBS_NOT_READ_BY_NAME = frozenset({"CPP_GATE_RERUN_FAILED", "CPP_GATE_TEST_TIMEOUT",
+                                     "CPP_KYLE_COORDINATION_ADMISSION"})
+_GATE_SOURCES = ("flow-finish-gate.sh", "coordination-admission.sh", "gate-lib.sh")
+
+
+def _environment_reads(text: str) -> set[str]:
+    """Upper-case names a bash file reads before (or without) assigning them.
+
+    What it sees: `$NAME` and `${NAME...}` outside comments and single-quoted
+    spans, against line-start assignments, `read NAME` and `for NAME in`. It
+    reads TEXT ORDER, not control flow: an assignment that never executes (inside
+    `if false`) still counts as initialisation, and two apostrophes inside a
+    double-quoted string hide what lies between them. It cannot see a name read
+    through indirection (`${!x}`) or by a child process. So its answer is "the
+    names these files read by name, in text order", not "everything the gate
+    obeys".
+    """
+    first_ref: dict[str, int] = {}
+    first_set: dict[str, int] = {}
+    for number, line in enumerate(text.splitlines()):
+        if line.lstrip().startswith("#"):
+            continue
+        # A single-quoted span is a literal the shell never expands.
+        for name in re.findall(r"(?<!\\)\$\{?([A-Z_][A-Z0-9_]*)", re.sub(r"'[^']*'", "''", line)):
+            first_ref.setdefault(name, number)
+        start = re.match(r"\s*(?:local\s+|export\s+|declare\s+-\w+\s+)?([A-Z_][A-Z0-9_]*)\+?=", line)
+        names = [start.group(1)] if start else []
+        names += re.findall(r"\b(?:read\s+(?:-\w+\s+)*|for\s+)([A-Z_][A-Z0-9_]*)", line)
+        for name in names:
+            first_set.setdefault(name, number)
+    return {name for name, at in first_ref.items() if at <= first_set.get(name, 10**9)}
+
+
+def test_the_environment_reader_finds_a_new_knob_and_ignores_an_internal_name() -> None:
+    """The derivation's own known-bad and known-good input (issue #1828): a
+    knob read with a default is found; a name assigned before it is read is not."""
+    sample = ('# ${IN_A_COMMENT:-x}\n'
+              'INTERNAL=1\n'
+              'echo "$INTERNAL ${A_NEW_KNOB:-} \\$ESCAPED"\n'
+              'SELF="${SELF:-default}"\n'
+              "awk '{ print ${IN_SINGLE_QUOTES:-x} }'\n")
+    assert _environment_reads(sample) == {"A_NEW_KNOB", "SELF"}
+
+
+def test_every_name_the_gate_reads_from_the_environment_is_a_listed_knob() -> None:
+    """`_GATE_KNOBS` was hand-written, and nothing failed when the gate grew a
+    variable it lacked (issue #1828, Nit Store 6819640932). Derived instead from
+    the three files the gate runs, by name; see `_environment_reads` for what
+    that cannot see.
+
+    Red case: delete CPP_KYLE_LOCK_WAIT_SECONDS from `_GATE_KNOBS` and this fails
+    naming it.
+    """
+    scripts = ROOT / "scripts"
+    read = set().union(*(_environment_reads((scripts / f).read_text()) for f in _GATE_SOURCES))
+    assert "CPP_KYLE_LOCK_WAIT_SECONDS" in read, "precondition: the reader sees a known knob"
+    unlisted = sorted(read - _SHELL_NAMES - set(_GATE_KNOBS) - set(_BASE_ENV_ALLOWLIST))
+    assert unlisted == [], f"read by the gate but missing from _GATE_KNOBS: {unlisted}"
+    stale = sorted(set(_GATE_KNOBS) - read - _KNOBS_NOT_READ_BY_NAME)
+    assert stale == [], f"listed in _GATE_KNOBS but read by no gate file: {stale}"
+
+
+#: A fake kyle-lock's argv walk past the lease identity flags the gate passes
+#: before `--` (issue #1828). Anything else there is not ours: exit 92.
+_SKIP_TO_COMMAND = (
+    'while [[ $# -gt 0 && "$1" != -- ]]; do\n'
+    '  case "$1" in --issue|--pr|--purpose) [[ $# -ge 2 ]] || exit 92; shift 2 ;; *) exit 92 ;; esac\n'
+    'done\n'
+    '[[ "${1-}" == -- ]] || exit 92\nshift\n'
+)
+
+
 def _make_stub(
     bindir: Path, name: str, exit_code: int = 0, stdout: str = ""
 ) -> Path:
@@ -3279,8 +3358,8 @@ def test_coordination_supervises_full_gate_once_only_when_enabled(tmp_path: Path
     supervisor.write_text(
         "#!/usr/bin/env bash\n"
         'printf "%s\\n" "$*" >> "$(dirname "$0")/supervisor.log"\n'
-        '[[ "$1" == run && "$2" == full-suite && "$3" == --wait && "$4" == 3600 && "$5" == -- ]] || exit 92\n'
-        'shift 5\nexec "$@"\n'
+        '[[ "$1" == run && "$2" == full-suite && "$3" == --wait && "$4" == 3600 ]] || exit 92\n'
+        'shift 4\n' + _SKIP_TO_COMMAND + 'exec "$@"\n'
     )
     supervisor.chmod(0o755)
     (tmp_path / "Makefile").write_text("lint:\ntest:\ntypecheck:\nverify:\n")
@@ -3312,6 +3391,14 @@ def test_coordination_refusal_starts_no_gate_work(tmp_path: Path, supervisor_exi
     assert not (bindir / "make.log").exists()
     if supervisor_exit == 75:
         assert "FLOW_FINISH_GATE: fail (coordination unavailable: exit 75; " in proc.stdout
+    elif supervisor_exit in (10, 11):
+        # kyle-lock's --wait expiry returns the LAST answer's code (#1828).
+        # With no answer printed, the code names only what it can: 10 is
+        # queued OR blocked in kyle-lock's STATE_EXIT, 11 is frozen.
+        state = "queued or blocked" if supervisor_exit == 10 else "frozen"
+        assert ("FLOW_FINISH_GATE: fail (coordination not granted: no grant within 3600s, "
+                f"last state {state} (kyle-lock exit {supervisor_exit}), no gate work started)") in proc.stdout
+        assert "supervisor exited" not in proc.stdout
     else:
         assert f"FLOW_FINISH_GATE: fail (coordination supervisor exited {supervisor_exit} " in proc.stdout
     assert "FLOW_FINISH_GATE: ok" not in proc.stdout
@@ -3319,6 +3406,160 @@ def test_coordination_refusal_starts_no_gate_work(tmp_path: Path, supervisor_exi
     assert exit_lines == ["FLOW_FINISH_GATE_EXIT=1"], proc.stdout
     assert proc.stdout.splitlines()[-1] == "FLOW_FINISH_GATE_EXIT=1"
 
+
+
+#: A valid branch name long enough to push the purpose past Kyle's 300.
+_LONG_BRANCH = "feature/" + "/".join(c * 100 for c in "abc")
+#: The same, past 300 CHARACTERS as well as bytes, and not ASCII: three
+#: 110-character components of a two-byte letter (220 bytes each, inside a
+#: filesystem's 255-byte name limit).
+_UNICODE_BRANCH = "f/" + "/".join(["\u00e9" * 110] * 3)
+
+
+def _recording_authority(path: Path) -> Path:
+    """A fake kyle-lock that writes its argv, one per line, then runs the gate."""
+    argv = path.parent / "authority.argv"
+    path.write_text(
+        "#!/usr/bin/env bash\n"
+        f'printf "%s\\n" "$@" > "{argv}"\n'
+        '[[ "$1 $2 $3" == "run full-suite --wait" ]] || exit 92\n'
+        "shift 4\n" + _SKIP_TO_COMMAND + 'exec "$@"\n'
+    )
+    path.chmod(0o755)
+    return argv
+
+
+@requires_git
+@requires_bash
+@pytest.mark.parametrize("layout", ["issue-branch", "plain-branch-no-origin", "detached", "outside-git",
+                                    "long-branch", "no-timeout", "unicode-long-branch-C",
+                                    "unicode-long-branch-C.UTF-8"])
+def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
+    """Issue #1828 A1: the lease names repo, branch and sha, plus --issue and
+    --pr where they can be derived, and leaves out what cannot be. On the
+    pre-fix gate there is no --purpose at all, so every layout fails."""
+    # The gate looks a PR up only through `timeout` (counter-model review, pass
+    # 2), so a layout that expects the lookup needs the real binary; the
+    # no-timeout layout takes it off PATH and expects no lookup at all.
+    lookup_layouts = ("issue-branch", "plain-branch-no-origin", "long-branch",
+                      "unicode-long-branch-C", "unicode-long-branch-C.UTF-8")
+    if layout in lookup_layouts and shutil.which("timeout") is None:
+        pytest.skip("the PR lookup runs under timeout, which this host lacks")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    gh_log = bindir / "gh.log"
+    gh_answer = {"issue-branch": "123", "plain-branch-no-origin": "not-a-number", "long-branch": "",
+                 "no-timeout": "123"}.get(layout, "")
+    gh = bindir / "gh"
+    gh.write_text(f'#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "{gh_log}"\necho {gh_answer}\n')
+    gh.chmod(0o755)
+    work = tmp_path / ("plain" if layout == "outside-git" else "widget-checkout")
+    work.mkdir()
+    (work / "Makefile").write_text("lint:\ntest:\ntypecheck:\nverify:\n")
+    sha = ""
+    if layout != "outside-git":
+        _git(work, "init", "-q", "-b", "main")
+        _git(work, "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+             "commit", "-q", "--allow-empty", "-m", "base")
+        sha = _git(work, "rev-parse", "--short", "HEAD")
+        if layout != "plain-branch-no-origin":
+            _git(work, "remote", "add", "origin", "git@github.com:acme/widget.git")
+        branch = {"issue-branch": "issue-77-widget", "long-branch": _LONG_BRANCH,
+                  "no-timeout": "issue-77-widget", "unicode-long-branch-C": _UNICODE_BRANCH,
+                  "unicode-long-branch-C.UTF-8": _UNICODE_BRANCH}.get(layout, "feature-x")
+        _git(work, "checkout", "-q", "-b", branch)
+        if layout == "detached":
+            _git(work, "checkout", "-q", "--detach")
+    else:
+        probe = subprocess.run(["git", "-C", str(work), "rev-parse", "--git-dir"],
+                               capture_output=True, text=True, timeout=30, check=False)
+        assert probe.returncode != 0, "precondition: this layout is outside every git repository"
+    supervisor = tmp_path / "authority"
+    argv_file = _recording_authority(supervisor)
+    extra = {"CPP_KYLE_COORDINATION_ADMISSION": "1", "CPP_KYLE_LOCK_BIN": str(supervisor)}
+    if layout.startswith("unicode-long-branch-"):
+        extra["LC_ALL"] = layout.removeprefix("unicode-long-branch-")
+    if layout == "no-timeout":
+        extra["PATH"] = _path_without(tmp_path, "timeout")
+        assert shutil.which("timeout", path=extra["PATH"]) is None, "precondition: timeout is off this PATH"
+        assert shutil.which("bash", path=extra["PATH"]), "precondition: the rest of PATH is still there"
+    proc, _ = _run(tmp_path, cpp_dir="", make_exit=0, cwd=work, extra_env=extra)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    # surrogateescape: a purpose cut through a character must fail an
+    # assertion below, not a decode here.
+    argv = argv_file.read_text(encoding="utf-8", errors="surrogateescape").splitlines()
+    options = argv[: argv.index("--")]
+    pairs = dict(zip(options[4::2], options[5::2]))
+    purpose = {
+        "issue-branch": f"cpp finish gate: acme/widget issue-77-widget {sha}",
+        "plain-branch-no-origin": f"cpp finish gate: widget-checkout feature-x {sha}",
+        "detached": f"cpp finish gate: acme/widget {sha}",
+        "outside-git": "cpp finish gate:",
+        # Kyle refuses a purpose over 300 characters (counter-model review):
+        # the branch gives way, repository and sha stay.
+        "long-branch": f"cpp finish gate: acme/widget {_LONG_BRANCH[:267 - len(sha)]}... {sha}",
+        "no-timeout": f"cpp finish gate: acme/widget issue-77-widget {sha}",
+        # Only ASCII is ever shortened (counter-model review, pass 3): a cut
+        # through a multi-byte character hands Kyle invalid text, so a
+        # non-ASCII branch too long to fit is left out, in either locale.
+        "unicode-long-branch-C": f"cpp finish gate: acme/widget {sha}",
+        "unicode-long-branch-C.UTF-8": f"cpp finish gate: acme/widget {sha}",
+    }[layout]
+    assert len(purpose) <= 300 and pairs.get("--purpose") == purpose, options
+    if layout == "issue-branch":
+        assert pairs.get("--issue") == "77" and pairs.get("--pr") == "123", options
+    elif layout == "no-timeout":
+        # No bounded lookup is possible, so none is made; the rest stays.
+        assert pairs.get("--issue") == "77" and "--pr" not in pairs, options
+    else:
+        assert "--issue" not in pairs, options
+        assert "--pr" not in pairs, options  # never a guessed or non-numeric PR
+    # The PR lookup runs only for a named branch, and asks about THAT branch.
+    if layout in lookup_layouts:
+        assert gh_log.read_text().splitlines() == [f"pr view {branch} --json number --jq .number"]
+    else:
+        assert not gh_log.exists()
+
+
+@requires_git
+@requires_bash
+@pytest.mark.parametrize(("supervisor_exit", "state"), [(10, "blocked"), (10, "queued"), (11, "frozen")])
+def test_coordination_not_granted_names_the_state_the_authority_answered(
+    tmp_path: Path, supervisor_exit: int, state: str,
+):
+    """Exit 10 is queued OR blocked (counter-model review, pass 2): the state
+    comes from the answer kyle-lock printed last. Red case: a gate that names
+    the state from the exit code says `queued` for the blocked answer."""
+    supervisor = tmp_path / "authority"
+    supervisor.write_text(
+        "#!/usr/bin/env bash\n"
+        f"printf '{{\"state\": \"{state}\", \"request_id\": 7}}\\n'\n"
+        f"exit {supervisor_exit}\n"
+    )
+    supervisor.chmod(0o755)
+    (tmp_path / "Makefile").write_text("lint:\ntest:\ntypecheck:\nverify:\n")
+    proc, bindir = _run(tmp_path, cpp_dir="", make_exit=0, extra_env={
+        "CPP_KYLE_COORDINATION_ADMISSION": "1", "CPP_KYLE_LOCK_BIN": str(supervisor)})
+    assert proc.returncode == 1, proc.stdout
+    assert not (bindir / "make.log").exists()
+    assert ("FLOW_FINISH_GATE: fail (coordination not granted: no grant within 3600s, "
+            f"last state {state} (kyle-lock exit {supervisor_exit}), no gate work started)") in proc.stdout
+
+
+def _path_without(tmp_path: Path, name: str) -> str:
+    """This PATH, with one command removed: a directory of links to every
+    executable on PATH except ``name``, so absence is real, not stubbed."""
+    shadow = tmp_path / f"path-without-{name}"
+    shadow.mkdir()
+    for directory in os.environ["PATH"].split(os.pathsep):
+        folder = Path(directory)
+        if not folder.is_dir():
+            continue
+        for entry in folder.iterdir():
+            link = shadow / entry.name
+            if entry.name != name and not link.exists() and os.access(entry, os.X_OK):
+                link.symlink_to(entry)
+    return str(shadow)
 
 def _bounded_authority(path: Path, state: str) -> None:
     """A fake kyle-lock that behaves like the real one around --wait (#1678).
@@ -3331,7 +3572,7 @@ def _bounded_authority(path: Path, state: str) -> None:
         '[[ "$1" == run && "$2" == full-suite ]] || exit 92\n'
         "shift 2\nwait=\n"
         'if [[ "$1" == --wait ]]; then wait="$2"; shift 2; fi\n'
-        '[[ "$1" == -- ]] || exit 92\nshift\n'
+        + _SKIP_TO_COMMAND
         + ('exec "$@"\n' if state == "held" else
            '[[ -n "$wait" ]] || exec sleep 600\n'
            'sleep "$wait"\n'
@@ -3459,7 +3700,7 @@ def test_coordination_writers_outliving_the_parent_cannot_recreate_its_files(tmp
         "#!/usr/bin/env bash\n"
         f'touch "{started}"\n'
         f'while [[ ! -e "{go}" ]]; do sleep 0.05; done\n'
-        'shift 5\n"$@"\n'
+        'shift 4\n' + _SKIP_TO_COMMAND + '"$@"\n'
         f'touch "{done}"\n'
     )
     supervisor.chmod(0o755)
@@ -3508,8 +3749,8 @@ def test_coordination_passes_the_gate_verdict_only_when_the_supervisor_agrees(
     supervisor = tmp_path / "supervisor"
     supervisor.write_text(
         "#!/usr/bin/env bash\n"
-        '[[ "$1 $2 $3 $5" == "run full-suite --wait --" ]] || exit 92\n'
-        f'shift 5\n"$@"\nrc=$?\n{supervisor_tail}\n'
+        '[[ "$1 $2 $3" == "run full-suite --wait" ]] || exit 92\n'
+        'shift 4\n' + _SKIP_TO_COMMAND + f'"$@"\nrc=$?\n{supervisor_tail}\n'
     )
     supervisor.chmod(0o755)
     (tmp_path / "Makefile").write_text("lint:\ntest:\ntypecheck:\nverify:\n")
@@ -3568,7 +3809,7 @@ def test_coordination_continuation_keeps_one_lease_and_hides_authority_credentia
         "#!/usr/bin/env bash\n"
         'printf "%s\\n" "$*" >> "$(dirname "$0")/supervisor.log"\n'
         '[[ "$KYLE_LOCK_TOKEN" == synthetic-supervisor-only ]] || exit 93\n'
-        'shift 5\nexec "$@"\n'
+        'shift 4\n' + _SKIP_TO_COMMAND + 'exec "$@"\n'
     )
     supervisor.chmod(0o755)
     make = bindir / "make"

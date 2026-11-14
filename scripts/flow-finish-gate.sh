@@ -373,6 +373,70 @@ if coordination_admission_on && [[ "$MODE" == "gate" && "${CPP_KYLE_FULL_SUITE_A
         echo "FLOW_FINISH_GATE: fail (coordination wait bound invalid: CPP_KYLE_LOCK_WAIT_SECONDS must be a positive whole number of seconds)"
         gate_exit fail
     fi
+    # THE LEASE SAYS WHAT IT IS FOR (issue #1828). Every host-side CPP gate
+    # runs under one shared service principal, so without these a queued or
+    # stuck gate shows in `kyle-lock status full-suite` as issue null, pr null,
+    # purpose "" - indistinguishable from every other. Each part is DERIVED or
+    # left out, never guessed: --issue and --pr are integers to the client, so
+    # only an all-digit value is passed. The repository is the last two path
+    # segments of origin's URL (never the whole URL, which can carry a
+    # credential), else the checkout's own directory name.
+    _coordination_identity=()
+    _coordination_purpose="cpp finish gate:"
+    if git rev-parse --git-dir >/dev/null 2>&1; then
+        _coordination_repo=""
+        _coordination_origin="$(git remote get-url origin 2>/dev/null)"
+        if [[ "$_coordination_origin" =~ ([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/?$ ]]; then
+            _coordination_repo="${BASH_REMATCH[1]}/${BASH_REMATCH[2]%.git}"
+        fi
+        if [[ -z "$_coordination_repo" ]]; then
+            _coordination_common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+            [[ -z "$_coordination_common" ]] || _coordination_repo="$(basename -- "$(dirname -- "$_coordination_common")")"
+        fi
+        _coordination_branch="$(git symbolic-ref --short -q HEAD 2>/dev/null)"
+        _coordination_sha="$(git rev-parse --short HEAD 2>/dev/null)"
+        # Kyle refuses a purpose over 300 characters (core/coordination_http.py),
+        # and a refused acquire would fail the gate before any work. The branch
+        # is the one unbounded part, so it gives way first; repository and sha
+        # stay. Lengths are BYTES whatever the locale (never fewer than Kyle's
+        # characters), and only plain ASCII is ever cut: under LC_ALL=C bash
+        # slices bytes, and a cut through a multi-byte character hands Kyle
+        # invalid text. A part that would need such a cut is left out instead.
+        _coordination_bytes() { ( LC_ALL=C; printf '%s' "${#1}" ); }
+        _coordination_ascii() { ( LC_ALL=C; [[ "$1" =~ ^[\ -~]*$ ]] ); }
+        _coordination_room=$(( 300 - $(_coordination_bytes "$_coordination_purpose") \
+            - $(_coordination_bytes "$_coordination_repo") - $(_coordination_bytes "$_coordination_sha") - 3 ))
+        _coordination_label="$_coordination_branch"
+        if (( $(_coordination_bytes "$_coordination_branch") > _coordination_room )); then
+            _coordination_label=""
+            if _coordination_ascii "$_coordination_branch" && (( _coordination_room > 3 )); then
+                _coordination_label="${_coordination_branch:0:$(( _coordination_room - 3 ))}..."
+            fi
+        fi
+        for _coordination_part in "$_coordination_repo" "$_coordination_label" "$_coordination_sha"; do
+            [[ -z "$_coordination_part" ]] || _coordination_purpose+=" $_coordination_part"
+        done
+        # Last resort, for a repository name no budget fits: cut it only if it
+        # is ASCII, else keep just the sha.
+        if (( $(_coordination_bytes "$_coordination_purpose") > 300 )); then
+            if _coordination_ascii "$_coordination_purpose"; then
+                _coordination_purpose="${_coordination_purpose:0:300}"
+            else
+                _coordination_purpose="cpp finish gate: $_coordination_sha"
+            fi
+        fi
+        if [[ "$_coordination_branch" =~ ^issue-([0-9]{1,9})(-|$) ]]; then
+            _coordination_identity+=(--issue "${BASH_REMATCH[1]}")
+        fi
+        # The PR lookup is the one network call; it is bounded and optional.
+        if [[ -n "$_coordination_branch" ]] && command -v gh >/dev/null 2>&1 \
+            && command -v timeout >/dev/null 2>&1; then
+            _coordination_pr="$(timeout 15 gh pr view "$_coordination_branch" --json number --jq .number 2>/dev/null)"
+            [[ ! "$_coordination_pr" =~ ^[1-9][0-9]{0,8}$ ]] \
+                || _coordination_identity+=(--pr "$_coordination_pr")
+        fi
+    fi
+    _coordination_identity+=(--purpose "$_coordination_purpose")
     # The authority configuration belongs to the supervisor. Test commands
     # must not inherit its credentials.
     #
@@ -382,7 +446,7 @@ if coordination_admission_on && [[ "$MODE" == "gate" && "${CPP_KYLE_FULL_SUITE_A
     # its verdict line is held back from stdout: only a matching pair is the
     # gate's verdict, so a lease lost after a green gate prints one fail, never
     # an ok followed by a fail. This process writes the one exit line.
-    "$_coordination_bin" run full-suite --wait "$_coordination_wait" -- env \
+    "$_coordination_bin" run full-suite --wait "$_coordination_wait" "${_coordination_identity[@]}" -- env \
         -u KYLE_LOCK_URL -u KYLE_LOCK_TOKEN -u KYLE_LOCK_TOKEN_FILE \
         CPP_KYLE_FULL_SUITE_ACTIVE=1 CPP_FLOW_FINISH_GATE_STATUS_FILE="$_coordination_status" \
         bash "${BASH_SOURCE[0]}" "${COORDINATION_ORIGINAL_ARGS[@]}" \
@@ -422,6 +486,23 @@ if coordination_admission_on && [[ "$MODE" == "gate" && "${CPP_KYLE_FULL_SUITE_A
             _coordination_code="${BASH_REMATCH[1]}"
         fi
         echo "FLOW_FINISH_GATE: fail (coordination unavailable: $_coordination_code; no grant within ${_coordination_wait}s, no gate work started)"
+        gate_exit fail
+    fi
+    # kyle-lock's `run` returns its LAST answer's code when --wait expires
+    # (issue #1828, measured on Kyle prod 2026-11-13: a --wait 60 left queued
+    # exits 10). So a real queue timeout is 10 or 11, not 75. The code alone
+    # does not name the state: kyle-lock's STATE_EXIT maps BOTH queued and
+    # blocked to 10 (frozen is 11), and a blocked answer returns at once rather
+    # than at the bound. So the state comes from the answer it printed last;
+    # only without one does the code speak, and then only as far as it can.
+    # "Within" is the bound, an upper limit, not a measured wait.
+    if [[ "$_coordination_rc" == 10 || "$_coordination_rc" == 11 ]]; then
+        _coordination_state="queued or blocked"
+        [[ "$_coordination_rc" == 10 ]] || _coordination_state="frozen"
+        if [[ "$_coordination_last" =~ \"state\"[[:space:]]*:[[:space:]]*\"([A-Za-z0-9_.-]{1,64})\" ]]; then
+            _coordination_state="${BASH_REMATCH[1]}"
+        fi
+        echo "FLOW_FINISH_GATE: fail (coordination not granted: no grant within ${_coordination_wait}s, last state $_coordination_state (kyle-lock exit $_coordination_rc), no gate work started)"
         gate_exit fail
     fi
     echo "FLOW_FINISH_GATE: fail (coordination supervisor exited $_coordination_rc and the gate recorded no status)"

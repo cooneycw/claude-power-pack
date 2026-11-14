@@ -824,9 +824,14 @@ def test_text_inside_a_double_quoted_string_is_not_read_as_an_invocation(
     widened = _widened_checker(
         tmp_path, frozenset({"git", "docker", "gitleaks", "jq", "timeout"})
     )
+    # Since #1828 the gate also makes ONE real, fail-soft `timeout` call (the
+    # lease's PR lookup, behind `command -v timeout`). So the scan must find
+    # exactly that one: a second use would be the quoted text read as a call.
+    assert text.count("timeout 15 gh pr view") == 1  # precondition: one real call
     source = widened._mask_noncode(text)
     uses = [u for u in widened._script_uses(source, source.splitlines()) if u.binary == "timeout"]
-    assert uses == [], f"expected the quoted text to produce no use, got {uses}"
+    assert len(uses) == 1, f"expected only the one real call, not the quoted text, got {uses}"
+    assert uses[0].failsoft, "the real call is guarded by command -v, so it is fail-soft"
 
 
 def test_text_inside_a_single_quoted_string_is_not_read_as_an_invocation(
