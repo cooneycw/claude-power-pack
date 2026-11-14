@@ -292,6 +292,8 @@ The runnable rationale source is included because Codex packages its examples.
 | `.claude/commands/project/init.md` | `checks` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
 | `.claude/commands/qwen/auto.md` | `run` | i | captured | PATH handoff before target execution/query boundary |
 | `templates/delegated-driver-core.md` | `run` | i | captured | PATH handoff before target execution/query boundary |
+| `scripts/bootstrap-check.sh` | `.bootstrap list` | ii | not required | lists configuration only |
+| `scripts/bootstrap-check.sh` | `.bootstrap check` | i | direct/no prepend | standalone original-PATH wrapper, no CPP uv activation |
 | `scripts/check-control-ci-deps.py` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
 | `scripts/ci-provider-advisory.sh` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
 | `scripts/ci-provider-advisory.sh` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
