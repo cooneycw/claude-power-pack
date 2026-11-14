@@ -25,3 +25,12 @@ Split mirrors must direct the reader from SKILL.md to reference.md. Every
 rendered helper/verb retains an invoked bundled primary address and its helper
 file; the generator's explicit CPP-checkout exceptions remain exceptions.
 Fallback path/phase behavior is not inferred from this membership check.
+
+The extractor accepts plain helper calls and closed same-helper literal path
+aliases, including environment parameter path segments. Standard file/location
+probes, empty alias clears and quoted output are reported as NON_EXECUTING.
+Comments are stripped per physical line before joining continuations. A command
+substitution containing a helper, a changing alias identity, helper-bearing
+heredoc data, or another unsupported helper position reports UNKNOWN. A
+non-helper substitution in an ordinary argument does not hide the helper call.
+This is a closed grammar, not a general Bash interpreter.

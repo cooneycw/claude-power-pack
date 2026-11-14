@@ -32,7 +32,39 @@ def materialize(root: Path, mode: str) -> None:
     mirror = root / "codex/skills/flow-auto/SKILL.md"
     policy = root / "docs/agents/driver-parity.json"
     data = json.loads(policy.read_text())
-    if mode in {"unsupported-if", "unsupported-env"}:
+    if mode.startswith("closed-"):
+        path = root / ".claude/commands/codex/auto.md"
+        old = "~/.claude/scripts/flow-plan-record.py approve 42"
+        assert old in path.read_text()
+        variants = {
+            "closed-D-good": old + ' --root "$(git rev-parse --show-toplevel)"',
+            "closed-E-bad": "# " + old,
+            "closed-E-good": old + " # scripts/comment-only.sh is not code",
+            "closed-F-bad": old + "\necho flow-plan-record.py >&2",
+            "closed-F-good": old + '\necho "flow-plan-record.py unavailable" >&2',
+            "closed-G-bad": "${X}/$(cmd)/scripts/flow-plan-record.py approve 42",
+            "closed-G-good": "${X:-/d}/scripts/flow-plan-record.py approve 42",
+        }
+        path.write_text(path.read_text().replace(old, variants[mode]))
+    elif mode == "echo-alias-substitution":
+        assert EXTRA not in flow.read_text()
+        append(flow, "RUN=~/.claude/scripts/" + EXTRA + '\necho "$("$RUN" check)"')
+        append_mirror(root, CALL)
+    elif mode in {"echo-substitution", "printf-substitution"}:
+        assert EXTRA not in flow.read_text()
+        output = 'echo "$(' + CALL + ')"' if mode == "echo-substitution" else "printf '%s' \"$(" + CALL + ')"'
+        append(flow, output)
+        append_mirror(root, CALL)
+    elif mode == "conditional-alias":
+        path = root / ".claude/commands/codex/auto.md"
+        call = "~/.claude/scripts/flow-plan-record.py approve 42"
+        assert call in path.read_text()
+        path.write_text(
+            path.read_text().replace(
+                call, 'REC=~/.claude/scripts/flow-plan-record.py\n[ -f "$REC" ] || REC=echo\n"$REC" approve 42'
+            )
+        )
+    elif mode in {"unsupported-if", "unsupported-env"}:
         assert EXTRA not in flow.read_text()
         call = f"if {CALL}; then\n    :\nfi" if mode == "unsupported-if" else f"env MODE=1 {CALL}"
         append(flow, call)

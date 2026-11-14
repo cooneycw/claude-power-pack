@@ -60,6 +60,10 @@ def test_committed_cases_distinguish_good_bad_and_the_blind_anchor(tmp_path: Pat
         assert current.returncode == 1, current.stdout + current.stderr
         assert "DRIVER_PARITY: fail" in current.stdout
         assert blind.returncode == 0, blind.stdout + blind.stderr
+    elif case["expect"] == "UNKNOWN":
+        assert current.returncode == 2, current.stdout + current.stderr
+        assert "DRIVER_PARITY: unknown" in current.stdout
+        assert blind.returncode == 0, blind.stdout + blind.stderr
     else:
         assert current.returncode == blind.returncode == 0, current.stdout + current.stderr
 
@@ -130,7 +134,7 @@ UNUSED=~/.claude/scripts/assignment-only.sh
 CM_RECEIPT=~/.claude/scripts/counter-model-receipt.py
 python3 "$CM_RECEIPT" write
 cat <<'DATA'
-scripts/heredoc-data.sh run
+literal heredoc data
 DATA
 scripts/actual.sh run
 ```
@@ -253,5 +257,192 @@ def test_real_generated_procedure_cannot_lose_its_entry_point_or_bundled_binding
     ],
 )
 def test_other_unsupported_helper_positions_are_unknown(shell: str) -> None:
+    with pytest.raises(parity.Unknown):
+        parity.inventory("## Instructions\n```bash\n" + shell + "\n```\n")
+
+
+@pytest.mark.parametrize(
+    "shell",
+    [
+        "echo '$(scripts/literal.sh check)'",
+        "printf '%s' '`scripts/literal.sh check`'",
+        'echo "$(date)"',
+    ],
+)
+def test_literal_output_and_known_nonhelper_substitution_are_not_calls(shell: str) -> None:
+    assert not parity.inventory("## Instructions\n```bash\n" + shell + "\n```\n")
+
+
+@pytest.mark.parametrize(
+    "shell",
+    [
+        "echo <(scripts/new.sh check)",
+        'echo "`scripts/new.sh check`"',
+    ],
+)
+def test_unsupported_executed_output_expansions_are_unknown(shell: str) -> None:
+    with pytest.raises(parity.Unknown):
+        parity.inventory("## Instructions\n```bash\n" + shell + "\n```\n")
+
+
+@pytest.mark.parametrize(
+    "fallback,code",
+    [
+        ('[ -f "$REC" ] || { echo absent; REC=echo; }', 2),
+        ('[ -f "$REC" ] || REC=$OTHER', 2),
+    ],
+)
+def test_conditional_alias_alternatives_cannot_supply_stale_identity(tmp_path: Path, fallback: str, code: int) -> None:
+    root = tree(tmp_path)
+    driver = root / ".claude/commands/codex/auto.md"
+    old = "~/.claude/scripts/flow-plan-record.py approve 42"
+    assert old in driver.read_text()
+    driver.write_text(
+        driver.read_text().replace(
+            old, "REC=~/.claude/scripts/flow-plan-record.py\n" + fallback + '\n"$REC" approve 42'
+        )
+    )
+    result = outcome(root)
+    assert result.returncode == code, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    "probe",
+    [
+        "[ -x scripts/probe.sh ]",
+        "[[ -f scripts/probe.sh ]]",
+        "test -e scripts/probe.sh",
+        "command -v scripts/probe.sh",
+        "type -P scripts/probe.sh",
+        "which scripts/probe.sh",
+    ],
+)
+def test_closed_existence_probes_are_reported_and_never_run(probe: str) -> None:
+    events = []
+    text = "## Instructions\n```bash\n" + probe + "\n```\n"
+    assert not parity.inventory(text, nonexecuting=events)
+    assert events and all(event["helper"] == "probe.sh" for event in events)
+    assert set(parity.inventory(text + "\n```bash\nscripts/probe.sh check\n```\n")) == {"probe.sh"}
+
+
+def test_closed_same_basename_alias_fallback_is_run_only_at_invocation() -> None:
+    text = '## Instructions\n```bash\nREC=~/.claude/scripts/probe.sh\n[ -f "$REC" ] || REC=/other/scripts/probe.sh\n'
+    events = []
+    assert not parity.inventory(text + "```\n", nonexecuting=events)
+    assert any(event["kind"] == "same-helper fallback path resolution" for event in events)
+    assert set(parity.inventory(text + '"$REC" check\n```\n')) == {"probe.sh"}
+
+
+@pytest.mark.parametrize("target", ["echo", "/other/scripts/different.sh", "$OTHER"])
+def test_closed_alias_fallback_rejects_different_or_nonpath_identity(target: str) -> None:
+    text = (
+        '## Instructions\n```bash\nREC=~/.claude/scripts/probe.sh\n[ -f "$REC" ] || REC='
+        + target
+        + '\n"$REC" check\n```\n'
+    )
+    with pytest.raises(parity.Unknown):
+        parity.inventory(text)
+
+
+@pytest.mark.parametrize("operator", ["-d", "-e", "-f", "-r", "-s", "-x", "-L"])
+@pytest.mark.parametrize(
+    "form", ["[ {op} scripts/probe.sh ]", "[[ {op} scripts/probe.sh ]]", "test {op} scripts/probe.sh"]
+)
+def test_closed_standard_file_test_operators_are_nonexecuting(operator: str, form: str) -> None:
+    observations = []
+    text = "## Instructions\n```bash\n" + form.format(op=operator) + "\n```\n"
+    assert not parity.inventory(text, nonexecuting=observations)
+    assert observations and observations[0]["helper"] == "probe.sh"
+
+
+@pytest.mark.parametrize("operator", ["-n", "-z"])
+def test_closed_quoted_alias_string_tests_are_nonexecuting(operator: str) -> None:
+    text = "## Instructions\n```bash\nREC=~/.claude/scripts/probe.sh\n[ " + operator + ' "$REC" ]\n```\n'
+    observations = []
+    assert not parity.inventory(text, nonexecuting=observations)
+    assert any(event["kind"] == "existence/location probe" for event in observations)
+
+
+@pytest.mark.parametrize(
+    "test",
+    [
+        "test -Q scripts/probe.sh",
+        '[ -f "$(scripts/probe.sh)" ]',
+        "REC=~/.claude/scripts/probe.sh\n[ -n $REC ]",
+    ],
+)
+def test_closed_test_rules_reject_other_operators_substitutions_or_unquoted_aliases(test: str) -> None:
+    with pytest.raises(parity.Unknown):
+        parity.inventory("## Instructions\n```bash\n" + test + "\n```\n")
+
+
+@pytest.mark.parametrize("join", ["&&", "||"])
+def test_closed_chains_of_file_tests_do_not_count_as_calls(join: str) -> None:
+    text = (
+        "## Instructions\n```bash\nREC=~/.claude/scripts/probe.sh\nif [ -d docs ] "
+        + join
+        + ' [ -f "$REC" ]; then\n:\nfi\n```\n'
+    )
+    assert not parity.inventory(text)
+
+
+@pytest.mark.parametrize("clear", ['REC=""', "REC="])
+def test_closed_empty_alias_keeps_only_historical_same_helper_membership(clear: str) -> None:
+    # Rule C describes document membership, not successful runtime execution.
+    prefix = "## Instructions\n```bash\nREC=~/.claude/scripts/probe.sh\n"
+    assert not parity.inventory(prefix + clear + "\n```\n")
+    assert set(parity.inventory(prefix + clear + '\n"$REC" check\n```\n')) == {"probe.sh"}
+    assert not parity.inventory("## Instructions\n```bash\n" + clear + '\n"$REC" check\n```\n')
+
+
+def test_closed_missing_helper_note_and_clear_are_nonexecuting() -> None:
+    text = """## Instructions
+```bash
+REC=~/.claude/scripts/probe.sh
+[ -f "$REC" ] || { echo "NOTE: probe.sh absent"; REC=""; }
+"$REC" check
+```
+"""
+    observations = []
+    assert set(parity.inventory(text, nonexecuting=observations)) == {"probe.sh"}
+    assert any(event["kind"] == "literal missing-helper NOTE and empty alias clear" for event in observations)
+
+
+def test_closed_quoted_note_is_prose_but_unquoted_helper_argument_is_unknown() -> None:
+    text = '## Instructions\n```bash\necho "NOTE: probe.sh absent"\n```\n'
+    assert not parity.inventory(text, helper_names={"probe.sh"})
+    with pytest.raises(parity.Unknown):
+        parity.inventory(text.replace('"NOTE: probe.sh absent"', "probe.sh"), helper_names={"probe.sh"})
+
+
+@pytest.mark.parametrize("body", ["scripts/new.sh run", "$(scripts/new.sh run)"])
+def test_helper_bearing_heredoc_is_unknown(body: str) -> None:
+    with pytest.raises(parity.Unknown):
+        parity.inventory("## Instructions\n```bash\ncat <<'DATA'\n" + body + "\nDATA\n```\n")
+
+
+def test_comment_backslash_cannot_swallow_next_command() -> None:
+    source = "## Instructions\n```bash\n# scripts/comment.sh \\\n scripts/actual.sh run\n```\n"
+    assert set(parity.inventory(source)) == {"actual.sh"}
+
+
+@pytest.mark.parametrize("prefix", ["${X:-/d}", "${X}", '"${X}"', '"$X"'])
+def test_literal_parameter_path_segments_and_concatenation(prefix: str) -> None:
+    source = "## Instructions\n```bash\n" + prefix + "/scripts/probe.sh check\n```\n"
+    assert set(parity.inventory(source)) == {"probe.sh"}
+
+
+@pytest.mark.parametrize("guard", ["-f", "-e", "-x"])
+def test_same_helper_fallback_parameter_paths(guard: str) -> None:
+    source = (
+        "## Instructions\n```bash\nREC=/d/scripts/probe.sh\n[ "
+        + guard
+        + ' "$REC" ] || REC="${X:-/d}"/scripts/probe.sh\n"$REC" check\n```\n'
+    )
+    assert set(parity.inventory(source)) == {"probe.sh"}
+
+
+@pytest.mark.parametrize("shell", ["'${CPP_SKILL_DIR}/scripts/probe.sh' check", "REC=/d/scripts/probe.sh\necho $REC"])
+def test_literal_parameter_filenames_and_unquoted_alias_output_are_unknown(shell: str) -> None:
     with pytest.raises(parity.Unknown):
         parity.inventory("## Instructions\n```bash\n" + shell + "\n```\n")

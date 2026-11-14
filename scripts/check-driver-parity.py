@@ -65,94 +65,312 @@ def compound_shell(text: str) -> bool:
     return False
 
 
-def command(text: str, aliases: dict[str, tuple[str, str] | None]) -> tuple[str, str, str] | None:
-    """A documented command position; never execute or expand shell input."""
-    stripped = text.strip()
-    if not stripped or stripped.startswith("#"):
+def strip_comments(text: str) -> str:
+    """Shell comments start at an unquoted word boundary, on this line only."""
+    quote = ""
+    escaped = False
+    for index, character in enumerate(text):
+        if escaped:
+            escaped = False
+        elif character == "\\" and quote != "'":
+            escaped = True
+        elif quote:
+            if character == quote:
+                quote = ""
+        elif character in {"'", '"'}:
+            quote = character
+        elif character == "#" and (index == 0 or text[index - 1].isspace() or text[index - 1] in ";&|()"):
+            return text[:index]
+    return text
+
+
+def helper_mentions(text: str, helpers: set[str], aliases: dict[str, tuple[str, str] | None]) -> bool:
+    return (
+        bool(re.search(r"scripts/[\w-]+\.(?:py|sh)", text))
+        or any(re.search(r"(?<![\w-])" + re.escape(name) + r"(?![\w-])", text) for name in helpers)
+        or any(re.search(r"\$\{?" + re.escape(key) + r"(?!\w)", text) for key in aliases)
+    )
+
+
+def mask_substitutions(text: str, helpers: set[str], aliases: dict[str, tuple[str, str] | None]) -> str:
+    """Non-helper substitutions are irrelevant argument data; helper ones are UNKNOWN.
+
+    Keep single-quoted text literal. Do not use this masked text to validate an
+    executable path: even a non-helper substitution is forbidden in that path.
+    """
+    result = ""
+    quote = ""
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char == "\\" and quote != "'" and index + 1 < len(text):
+            result += text[index : index + 2]
+            index += 2
+            continue
+        if char == "'" and quote != '"':
+            quote = "" if quote else "'"
+        elif char == '"' and quote != "'":
+            quote = "" if quote else '"'
+        if quote != "'" and (text.startswith("$(", index) or char == "`"):
+            backtick = char == "`"
+            start = index + (1 if backtick else 2)
+            end = start
+            depth = 1
+            inner_quote = ""
+            while end < len(text):
+                current = text[end]
+                if current == "\\" and inner_quote != "'":
+                    end += 2
+                    continue
+                if backtick and current == "`":
+                    break
+                if current in {"'", '"'}:
+                    if not inner_quote:
+                        inner_quote = current
+                    elif inner_quote == current:
+                        inner_quote = ""
+                elif not inner_quote and not backtick:
+                    if current == "(":
+                        depth += 1
+                    elif current == ")":
+                        depth -= 1
+                        if depth == 0:
+                            break
+                end += 1
+            if end == len(text):
+                raise Unknown("unclosed command substitution")
+            if helper_mentions(text[start:end], helpers, aliases):
+                raise Unknown("helper token inside command substitution")
+            result += "SUBSTITUTION"
+            index = end + 1
+            continue
+        result += char
+        index += 1
+    return result
+
+
+def literal_path(value: str) -> re.Match[str] | None:
+    """Closed literal segments/parameter expansions ending in a literal helper."""
+    if any(marker in value for marker in ("$(", "`", "*", "?", "[", "]")):
         return None
-    helper_text = bool(re.search(r"scripts/[\w-]+\.(?:py|sh)", stripped))
-    substitution = re.match(r"(?:export\s+)?([A-Za-z_]\w*)=", stripped)
-    if substitution and ("$(" in stripped or "`" in stripped):
-        aliases.pop(substitution[1], None)
-        if helper_text:
-            raise Unknown("helper inside an unsupported command substitution")
+    remainder = re.sub(r"\$\{[A-Za-z_]\w*(?::-[^{}$`]*|)\}|\$[A-Za-z_]\w*", "ENV", value)
+    if any(character in remainder for character in "$(){}"):
         return None
-    # Existence probes and literal fallback assignments do not invoke helpers.
-    # Only a complete test/condition is ignored, never a trailing then-command.
-    metadata_text = stripped.replace("[[", "[").replace("]]", "]")
-    metadata = re.fullmatch(r"(?:if\s+)?!?\s*\[[^\[\]\n]*\](?:\s*&&\s*\[[^\[\]\n]*\])*(?:\s*;\s*then)?", metadata_text)
-    if metadata and "$(" not in stripped:
+    return HELPER.search(value)
+
+
+def probe_operands(text: str) -> list[str] | None:
+    """Closed non-executing file/string tests and location probes."""
+    if any(marker in text for marker in ("$(", "`", "<(", ">(")):
         return None
-    if stripped.startswith("if "):
-        stripped = re.sub(r";\s*then\s*$", "", stripped[3:]).strip()
-        if stripped.startswith("! "):
-            stripped = stripped[2:].strip()
-    if helper_text and compound_shell(stripped):
-        # Known fallback resolution lines only assign an alternate spelling of
-        # a path. Their eventual invocation must still resolve a known alias.
-        if "$(" not in stripped and re.match(r"^\[[^\[\]]*\]\s*\|\|\s*(?:[A-Za-z_]\w*=|\{\s*echo )", stripped):
+    lexer = shlex.shlex(text, posix=True, punctuation_chars=";&|")
+    lexer.whitespace_split = True
+    words = list(lexer)
+    if words[:1] == ["if"]:
+        words = words[1:]
+        if words[-2:] == [";", "then"]:
+            words = words[:-2]
+    if words[:1] == ["!"]:
+        words = words[1:]
+    groups: list[list[str]] = [[]]
+    for word in words:
+        if word in {"&&", "||"}:
+            groups.append([])
+        else:
+            groups[-1].append(word)
+    operands = []
+    for group in groups:
+        if group and group[0] in {"[", "[["}:
+            closing = "]" if group[0] == "[" else "]]"
+            if group[-1:] != [closing]:
+                return None
+            body = group[1:-1]
+        elif group[:1] == ["test"]:
+            body = group[1:]
+        elif len(group) == 3 and group[:2] in [["command", "-v"], ["type", "-P"]]:
+            operands.append(group[2])
+            continue
+        elif len(group) == 2 and group[0] == "which":
+            operands.append(group[1])
+            continue
+        else:
             return None
-        raise Unknown("compound helper command requires explicit inventory parsing")
-    if stripped.startswith(("echo ", "printf ")):
+        if body[:1] == ["!"]:
+            body = body[1:]
+        if len(body) != 2:
+            return None
+        operand = body[1]
+        if body[0] in {"-n", "-z"}:
+            if not (
+                re.search(r"[\"']\$(?:[A-Za-z_]\w*|\{[A-Za-z_]\w*\})[\"']", text)
+                and re.fullmatch(r"\$(?:[A-Za-z_]\w*|\{[A-Za-z_]\w*\})", operand)
+            ):
+                return None
+        elif body[0] not in {"-d", "-e", "-f", "-r", "-s", "-x", "-L"}:
+            return None
+        operands.append(operand)
+    return operands
+
+
+def literal_output(text: str, helpers: set[str]) -> bool:
+    """A quoted NOTE may name a helper but cannot execute one."""
+    if not re.match(r"^(?:echo|printf)\s", text) or any(x in text for x in ("<(", ">(")):
+        return False
+    if compound_shell(re.sub(r">&[0-9]+", "", text)):
+        return False
+    outside = re.sub(r""""(?:[^"\\]|\\.)*"|'[^']*' """.strip(), "", text)
+    if re.search(r"scripts/[\w-]+\.(?:py|sh)", outside):
+        return False
+    return not any(re.search(r"(?<![\w-])" + re.escape(name) + r"(?![\w-])", outside) for name in helpers)
+
+
+def command(
+    text: str,
+    aliases: dict[str, tuple[str, str] | None],
+    *,
+    helper_names: set[str],
+    assigned: set[str],
+    cleared: set[str],
+    nonexecuting: list[tuple[str, str]],
+) -> tuple[str, str, str] | None:
+    """Deny unclassified helper tokens; preserve closed same-helper alias paths."""
+    original = strip_comments(text).strip()
+    stripped = mask_substitutions(original, helper_names, aliases)
+    writes = set(re.findall(r"\b([A-Za-z_]\w*)=", stripped))
+    empty = re.fullmatch(r"([A-Za-z_]\w*)=(?:\"\"|'')?", stripped)
+    if empty:
+        key = empty[1]
+        cleared.add(key)
+        assigned.add(key)
+        prior = aliases.get(key)
+        if prior:
+            nonexecuting.append((prior[0], "empty alias clear; historical same-helper identity retained"))
+        return None
+    # Closed existing missing-helper branch: literal NOTE followed by a clear.
+    branch = re.fullmatch(r"\[\s+-f\s+([^\]]+)\]\s*\|\|\s*\{\s*(.+)\s*\}", stripped)
+    if branch:
+        note_operand = shlex.split(branch[1])
+        clear = re.fullmatch(r"(.+);\s*([A-Za-z_]\w*)=(?:\"\"|'')?;\s*", branch[2])
+        if len(note_operand) == 1 and clear and note_operand[0].startswith("$"):
+            key = note_operand[0].removeprefix("$").strip("{}")
+            if key == clear[2] and literal_output(clear[1], helper_names | set(aliases)):
+                cleared.add(key)
+                prior = aliases.get(key)
+                if prior:
+                    nonexecuting.append((prior[0], "literal missing-helper NOTE and empty alias clear"))
+                return None
+    mentions = helper_mentions(stripped, helper_names, aliases)
+    if (
+        mentions
+        and re.search(r"'[^']*\$[^']*'", stripped)
+        and not literal_output(stripped, helper_names | set(aliases))
+    ):
+        raise Unknown("single-quoted parameter text is not an environment path")
+    fallback = shlex.split(stripped, comments=False) if "||" in stripped else []
+    if len(fallback) == 6 and fallback[0] == "[" and fallback[1] in {"-f", "-x", "-e"} and fallback[3:5] == ["]", "||"]:
+        assignment = re.fullmatch(r"([A-Za-z_]\w*)=(.*)", fallback[5])
+        key = fallback[2].removeprefix("$").strip("{}")
+        if assignment and fallback[2].startswith("$") and assignment[1] == key and key in aliases:
+            current = aliases[key]
+            if assignment[2] == "":
+                cleared.add(key)
+                if current:
+                    nonexecuting.append((current[0], "conditional empty alias clear"))
+                return None
+            target = literal_path(assignment[2])
+            if (
+                current is None
+                or target is None
+                or target[1] != current[0]
+                or any(c in assignment[2] for c in ("$(", "`"))
+            ):
+                raise Unknown(f"fallback alias is not a literal path to the same helper: {key}")
+            nonexecuting.append((current[0], "same-helper fallback path resolution"))
+            return None
+    if (
+        stripped != original
+        and mentions
+        and (
+            re.match(r"^[A-Za-z_]\w*=", stripped)
+            or re.search(r"^\s*(?:(?:python3?|bash|sh)\s+)?[^\s]*SUBSTITUTION[^\s]*/scripts/", stripped)
+        )
+    ):
+        raise Unknown("command substitution in helper path/assignment")
+    reassigned = writes & set(aliases)
+    if reassigned:
+        single = shlex.split(stripped, comments=False)
+        assignment = re.fullmatch(r"([A-Za-z_]\w*)=(.*)", single[0]) if len(single) == 1 else None
+        target = literal_path(assignment[2]) if assignment else None
+        key = assignment[1] if assignment else ""
+        current = aliases.get(key)
+        if (
+            assignment
+            and target
+            and current
+            and target[1] == current[0]
+            and not any(c in assignment[2] for c in ("$(", "`"))
+        ):
+            aliases[key] = (target[1], assignment[2])
+            nonexecuting.append((target[1], "same-helper literal path reassignment"))
+            return None
+        raise Unknown("helper alias reassigned/conditionally assigned: " + ", ".join(sorted(reassigned)))
+    if mentions:
+        operands = probe_operands(stripped)
+        if operands is not None:
+            for operand in operands:
+                target = HELPER.search(operand)
+                alias = aliases.get(operand.removeprefix("$").strip("{}")) if operand.startswith("$") else None
+                names = (
+                    {target[1]}
+                    if target
+                    else {alias[0]}
+                    if alias
+                    else {name for name in helper_names if name in operand}
+                )
+                nonexecuting.extend((name, "existence/location probe") for name in sorted(names))
+            return None
+    if mentions and literal_output(stripped, helper_names | set(aliases)):
+        nonexecuting.extend((name, "quoted literal output") for name in sorted(helper_names) if name in stripped)
+        return None
+    if re.match(r"^(?:unset|read|local|declare|typeset|export|readonly)\b", stripped):
+        if any(re.search(r"\b" + re.escape(key) + r"\b", stripped) for key in aliases):
+            raise Unknown("helper alias modified outside a plain literal assignment")
+    if not mentions:
+        assigned.update(writes)
         return None
     try:
-        words = shlex.split(stripped, comments=True)
+        words = shlex.split(stripped, comments=False)
     except ValueError as exc:
-        raise Unknown("unparseable documented shell command") from exc
-    if not words:
-        return None
-    if words[0] in {"unset", "read", "local", "declare", "typeset"}:
-        for word in words[1:]:
-            key = word.split("=", 1)[0]
-            if key in aliases:
-                if words[0] == "unset":
-                    aliases[key] = None
-                else:
-                    aliases.pop(key)
-        return None
-    if words[0] in {"export", "readonly"}:
-        words.pop(0)
-    environment = bool(words and words[0] == "env")
-    if environment:
-        words.pop(0)
-        if words and words[0].startswith("-"):
-            raise Unknown("unsupported env options in documented command")
-    assignments = []
-    while words and re.match(r"^[A-Za-z_]\w*=", words[0]):
-        assignments.append(words.pop(0).split("=", 1))
-    if not words:
-        if not environment:
-            for key, value in assignments:
-                match = HELPER.search(value)
-                if match:
-                    aliases[key] = (match.group(1), value)
-                elif "$" in value or "`" in value:
-                    aliases.pop(key, None)
-                else:
-                    aliases[key] = None
-        return None
-    if words[0] in {"bash", "sh", "python", "python3"}:
+        raise Unknown("unparseable helper-bearing command") from exc
+    assignment = re.fullmatch(r"([A-Za-z_]\w*)=(.*)", words[0]) if len(words) == 1 else None
+    if assignment and not compound_shell(stripped) and "$(" not in stripped and "`" not in stripped:
+        key, value = assignment.groups()
+        match = literal_path(value)
+        if match and (key not in assigned or key in cleared):
+            aliases[key] = (match.group(1), value)
+            assigned.add(key)
+            nonexecuting.append((match[1], "literal alias binding"))
+            return None
+    assigned.update(writes)
+    if compound_shell(stripped) or "$(" in stripped or "`" in stripped or "<(" in stripped or ">(" in stripped:
+        raise Unknown("helper token in a non-plain shell construct")
+    if words and words[0] in {"bash", "sh", "python", "python3"}:
         words.pop(0)
     if not words:
-        return None
+        raise Unknown("helper token without a plain command")
     token = words.pop(0)
-    match = HELPER.search(token)
+    match = literal_path(token)
     if match:
         name, address = match.group(1), token
-    elif token.startswith("$"):
-        key = token.removeprefix("$").strip("{}")
-        if any(assigned == key for assigned, _ in assignments):
-            raise Unknown("ambiguous command alias and environment assignment")
-        if key not in aliases:
-            raise Unknown(f"unresolved documented command alias {key}")
-        alias = aliases[key]
+    elif token.startswith("$") and token.removeprefix("$").strip("{}") in aliases:
+        alias = aliases[token.removeprefix("$").strip("{}")]
         if alias is None:
-            return None
+            raise Unknown("helper alias has no single literal identity")
         name, address = alias
     else:
-        if helper_text:
-            raise Unknown("helper in unsupported documented command position")
-        return None
+        raise Unknown("helper token outside a plain command position")
+    if any(re.search(r"(?<![\w-])" + re.escape(other) + r"(?![\w-])", " ".join(words)) for other in helper_names):
+        raise Unknown("helper token in command arguments")
     return name, words[0] if words else "", address
 
 
@@ -162,9 +380,15 @@ def inventory(
     bundled_exempt: set[str] | None = None,
     bundled_helpers: set[str] | None = None,
     bundled_gates: set[str] | None = None,
+    helper_names: set[str] | None = None,
+    nonexecuting: list[dict[str, object]] | None = None,
+    source: str = "document",
 ) -> dict[str, list[int]]:
     """Derive calls inside Instructions, retaining their physical source lines."""
     found: dict[str, list[int]] = {}
+    helper_names = set(helper_names or ()) | set(re.findall(r"scripts/([\w-]+\.(?:py|sh))", text))
+    assigned: set[str] = set()
+    cleared: set[str] = set()
     aliases: dict[str, tuple[str, str] | None] = {}
     active = False
     fence: tuple[str, str, bool] | None = None
@@ -175,7 +399,17 @@ def inventory(
     heredoc = ""
 
     def add(value: str, line: int) -> None:
-        result = command(value, aliases)
+        observed: list[tuple[str, str]] = []
+        try:
+            result = command(
+                value, aliases, helper_names=helper_names, assigned=assigned, cleared=cleared, nonexecuting=observed
+            )
+        except ValueError as exc:
+            raise Unknown(f"{source}:{line}: {exc}") from exc
+        if nonexecuting is not None:
+            nonexecuting.extend(
+                {"source": source, "line": line, "helper": name, "kind": kind} for name, kind in observed
+            )
         if result:
             name, verb, address = result
             if name == "flow-plan-record.py" and not re.fullmatch(r"[a-z][a-z0-9-]*", verb):
@@ -210,11 +444,14 @@ def inventory(
                     raise Unknown("helper reference in unsupported fenced language")
                 continue
             if heredoc:
+                if helper_mentions(line, helper_names, aliases):
+                    raise Unknown(f"{source}:{number}: helper token in heredoc body")
                 if stripped == heredoc:
                     heredoc = ""
                 continue
             if not continuation:
                 continuation_line = number
+            stripped = strip_comments(line).strip()
             continuation += stripped.removesuffix("\\") + " "
             if stripped.endswith("\\"):
                 continue
@@ -379,8 +616,10 @@ def unpackaged(root: Path) -> set[str]:
         raise Unknown("cannot establish delegated mirror packaging policy") from exc
 
 
-def evaluate(root: Path, generated: Path) -> tuple[list[str], int]:
-    derived = inventory(read(root / FLOW))
+def evaluate(
+    root: Path, generated: Path, *, nonexecuting: list[dict[str, object]] | None = None
+) -> tuple[list[str], int]:
+    derived = inventory(read(root / FLOW), source=FLOW, nonexecuting=nonexecuting)
     gates = set(derived)
     if len(derived) < FLOOR or not {f"flow-plan-record.py {v}" for v in VERBS} <= set(derived):
         raise Unknown(f"implausible inventory: {len(derived)} items (floor {FLOOR})")
@@ -388,7 +627,12 @@ def evaluate(root: Path, generated: Path) -> tuple[list[str], int]:
     bundled_exempt = unpackaged(root)
     missing = []
     for driver in DRIVERS:
-        actual = inventory(read(root / f".claude/commands/{driver}/auto.md"))
+        actual = inventory(
+            read(root / f".claude/commands/{driver}/auto.md"),
+            helper_names={key.split()[0] for key in gates},
+            source=f".claude/commands/{driver}/auto.md",
+            nonexecuting=nonexecuting,
+        )
         for gate in sorted(gates):
             entry = table.get((gate, driver))
             if (entry is None or entry["disposition"] == "run") and gate not in actual:
@@ -409,7 +653,12 @@ def evaluate(root: Path, generated: Path) -> tuple[list[str], int]:
     bundled_helpers: set[str] = set()
     bundled_gates: set[str] = set()
     rendered = inventory(
-        body, bundled_exempt=bundled_exempt, bundled_helpers=bundled_helpers, bundled_gates=bundled_gates
+        body,
+        bundled_exempt=bundled_exempt,
+        bundled_helpers=bundled_helpers,
+        bundled_gates=bundled_gates,
+        source="generated-flow-auto",
+        nonexecuting=nonexecuting,
     )
     if set(rendered) - bundled_gates:
         raise Invalid(
@@ -429,14 +678,26 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--generated-root", type=Path)
     args = parser.parse_args(argv)
+    events: list[dict[str, object]] = []
+
+    def emit_nonexecuting() -> None:
+        for event in events:
+            print(
+                f"DRIVER_PARITY_NON_EXECUTING: {event['source']}:{event['line']} "
+                f"helper={event['helper']} kind={event['kind']}"
+            )
+
     try:
-        missing, count = evaluate(args.root, args.generated_root or args.root / "codex/skills")
+        missing, count = evaluate(args.root, args.generated_root or args.root / "codex/skills", nonexecuting=events)
     except Unknown as exc:
+        emit_nonexecuting()
         print(f"DRIVER_PARITY: unknown - {exc}")
         return 2
     except Invalid as exc:
+        emit_nonexecuting()
         print(f"DRIVER_PARITY: fail - {exc}")
         return 1
+    emit_nonexecuting()
     print("DRIVER_PARITY_SCOPE: helper/plan-record-verb membership; not flags, ordering or live execution")
     print("DRIVER_PARITY_MIRRORS: flow-auto checked; codex-auto/qwen-auto/gemma-auto intentionally unpackaged")
     for problem in missing:

@@ -97,14 +97,18 @@
     {
       "name": "bad-env-command",
       "input": "cases/bad-env-command",
-      "expect": "BAD",
-      "why": "Review counterexample: unsupported-env must not produce a false green."
+      "expect": "UNKNOWN",
+      "why": "Review counterexample: unsupported-env must not produce a false green.",
+      "anchor_expect": "clean",
+      "anchor_expect_reason": "The fixed-list anchor cannot classify unsupported helper positions or changing alias identity; it remains deliberately blind."
     },
     {
       "name": "bad-if-command",
       "input": "cases/bad-if-command",
-      "expect": "BAD",
-      "why": "Review counterexample: unsupported-if must not produce a false green."
+      "expect": "UNKNOWN",
+      "why": "Review counterexample: unsupported-if must not produce a false green.",
+      "anchor_expect": "clean",
+      "anchor_expect_reason": "The fixed-list anchor cannot classify unsupported helper positions or changing alias identity; it remains deliberately blind."
     },
     {
       "name": "bad-mirror-entry-point",
@@ -121,8 +125,88 @@
     {
       "name": "bad-reassigned-alias",
       "input": "cases/bad-reassigned-alias",
+      "expect": "UNKNOWN",
+      "why": "Review counterexample: reassigned-alias must not produce a false green.",
+      "anchor_expect": "clean",
+      "anchor_expect_reason": "The fixed-list anchor cannot classify unsupported helper positions or changing alias identity; it remains deliberately blind."
+    },
+    {
+      "name": "bad-conditional-alias",
+      "input": "cases/bad-conditional-alias",
+      "expect": "UNKNOWN",
+      "why": "Second review counterexample: conditional-alias must not produce a false green.",
+      "anchor_expect": "clean",
+      "anchor_expect_reason": "The fixed-list anchor cannot classify unsupported helper positions or changing alias identity; it remains deliberately blind."
+    },
+    {
+      "name": "bad-echo-substitution",
+      "input": "cases/bad-echo-substitution",
+      "expect": "UNKNOWN",
+      "why": "Second review counterexample: echo-substitution must not produce a false green.",
+      "anchor_expect": "clean",
+      "anchor_expect_reason": "The fixed-list anchor cannot classify unsupported helper positions or changing alias identity; it remains deliberately blind."
+    },
+    {
+      "name": "bad-printf-substitution",
+      "input": "cases/bad-printf-substitution",
+      "expect": "UNKNOWN",
+      "why": "Second review counterexample: printf-substitution must not produce a false green.",
+      "anchor_expect": "clean",
+      "anchor_expect_reason": "The fixed-list anchor cannot classify unsupported helper positions or changing alias identity; it remains deliberately blind."
+    },
+    {
+      "name": "bad-echo-alias-substitution",
+      "input": "cases/bad-echo-alias-substitution",
+      "expect": "UNKNOWN",
+      "why": "An output substitution invokes a helper alias even without a literal path on the echo line.",
+      "anchor_expect": "clean",
+      "anchor_expect_reason": "The fixed-list anchor cannot classify unsupported helper positions or changing alias identity; it remains deliberately blind."
+    },
+    {
+      "name": "good-closed-D-good",
+      "input": "cases/good-closed-D-good",
+      "expect": "GOOD",
+      "why": "Closed owner rule D-good distinguishes executable calls from unsupported positions or nonexecuting text."
+    },
+    {
+      "name": "bad-closed-E-bad",
+      "input": "cases/bad-closed-E-bad",
       "expect": "BAD",
-      "why": "Review counterexample: reassigned-alias must not produce a false green."
+      "why": "Closed owner rule E-bad distinguishes executable calls from unsupported positions or nonexecuting text."
+    },
+    {
+      "name": "good-closed-E-good",
+      "input": "cases/good-closed-E-good",
+      "expect": "GOOD",
+      "why": "Closed owner rule E-good distinguishes executable calls from unsupported positions or nonexecuting text."
+    },
+    {
+      "name": "bad-closed-F-bad",
+      "input": "cases/bad-closed-F-bad",
+      "expect": "UNKNOWN",
+      "why": "Closed owner rule F-bad distinguishes executable calls from unsupported positions or nonexecuting text.",
+      "anchor_expect": "clean",
+      "anchor_expect_reason": "The fixed-list anchor cannot classify unsupported helper positions; it remains deliberately blind."
+    },
+    {
+      "name": "good-closed-F-good",
+      "input": "cases/good-closed-F-good",
+      "expect": "GOOD",
+      "why": "Closed owner rule F-good distinguishes executable calls from unsupported positions or nonexecuting text."
+    },
+    {
+      "name": "bad-closed-G-bad",
+      "input": "cases/bad-closed-G-bad",
+      "expect": "UNKNOWN",
+      "why": "Closed owner rule G-bad distinguishes executable calls from unsupported positions or nonexecuting text.",
+      "anchor_expect": "clean",
+      "anchor_expect_reason": "The fixed-list anchor cannot classify unsupported helper positions; it remains deliberately blind."
+    },
+    {
+      "name": "good-closed-G-good",
+      "input": "cases/good-closed-G-good",
+      "expect": "GOOD",
+      "why": "Closed owner rule G-good distinguishes executable calls from unsupported positions or nonexecuting text."
     }
   ],
   "anchors": [
@@ -134,5 +218,7 @@
       "sha256": "abf4c4eabf13c32075be2eee8cb3eb95187e49caf08ccee25c3ad70437250bea",
       "why": "Constructed fixed helper list misses invented calls and plan-record verbs, and trusts unvalidated waiver metadata. Never historical provenance."
     }
-  ]
+  ],
+  "unknown_signal": "^DRIVER_PARITY: unknown\\b",
+  "good_signal": "^DRIVER_PARITY: ok\\b"
 }
