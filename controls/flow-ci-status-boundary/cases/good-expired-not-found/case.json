@@ -1,0 +1,17 @@
+{
+  "name": "good-expired-not-found",
+  "row": "expiry-positive",
+  "kind": "GOOD",
+  "fallback": true,
+  "wp": "not-found",
+  "args": [
+    "--wait",
+    "1"
+  ],
+  "expected": {
+    "exit": 5,
+    "STATUS": "not-found",
+    "PROVIDER": "woodpecker",
+    "SELECTION": "fallback"
+  }
+}

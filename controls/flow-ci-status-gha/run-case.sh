@@ -60,7 +60,9 @@ CURL
     chmod +x "$curl"
 fi
 
-out=$(env CPP_FLOW_CI_BACKEND="$backend" FLOW_CI_GH="$T/gh" \
+worker=""
+[ -n "$backend" ] && worker=1
+out=$(env CPP_FLOW_CI_WORKER="$worker" CPP_FLOW_CI_BACKEND="$backend" FLOW_CI_GH="$T/gh" \
           FLOW_CI_CURL="$curl" FLOW_CI_AWS=/nonexistent/aws \
           FLOW_CI_WPCLI=/nonexistent/woodpecker-cli FLOW_CI_SLEEP=/bin/true \
           WOODPECKER_API_TOKEN="fixture-token" WOODPECKER_SERVER="https://wp.example.invalid" WOODPECKER_HOST="" \

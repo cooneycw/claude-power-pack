@@ -12,8 +12,8 @@ Contract:
   test suite from a red deploy step.
 - The Woodpecker token is taken from the environment, else fetched from AWS
   Secrets Manager, and never reaches stdout/stderr or a command line.
-- Everything is fail-open: no credentials, no provider, no checkout ⇒ ``unknown``
-  and exit 0. Only ``--exit-code`` turns a ``failure`` verdict into exit 1.
+- Unknown/not-found exits 2 in both modes. An expired valid-ref wait stays 5.
+  ``--exit-code`` turns failure/stalled into exit 1; advisory stall stays 0.
 
 No test touches the network: ``curl``, ``aws``, ``woodpecker-cli`` and ``gh`` are
 replaced through the FLOW_CI_* test hooks. The third provider lane exercises the
@@ -312,7 +312,7 @@ def test_wpcli_is_not_consulted_when_api_lane_answers(tmp_path):
 
 
 @requires_bash
-def test_missing_wpcli_falls_through_and_stays_fail_open(tmp_path):
+def test_missing_wpcli_falls_through_and_reports_unknown_two(tmp_path):
     missing_curl = Path("/nonexistent/curl")
     missing_wpcli = Path("/nonexistent/woodpecker-cli")
     missing_gh = Path("/nonexistent/gh")
@@ -332,7 +332,7 @@ def test_missing_wpcli_falls_through_and_stays_fail_open(tmp_path):
     markers = _markers(result.stdout)
     assert markers["FLOW_CI_STATUS"] == ["unknown"]
     assert markers["FLOW_CI_PROVIDER"] == ["none"]
-    assert result.returncode == 0
+    assert result.returncode == 2
 
 
 @requires_bash
@@ -447,7 +447,7 @@ def test_not_found_when_no_pipeline_carries_the_sha(tmp_path):
     markers = _markers(result.stdout)
     assert markers["FLOW_CI_STATUS"] == ["not-found"]
     assert markers["FLOW_CI_PIPELINE"] == ["-"]
-    assert result.returncode == 0
+    assert result.returncode == 2
 
 
 @requires_bash
@@ -494,7 +494,7 @@ def test_fetches_token_from_aws_when_not_exported(tmp_path):
 
 
 @requires_bash
-def test_fails_open_without_credentials_or_provider(tmp_path):
+def test_unknown_without_credentials_or_provider_is_two(tmp_path):
     assert not Path("/nonexistent/curl").exists()
     assert not Path("/nonexistent/woodpecker-cli").exists()
     assert not Path("/nonexistent/gh").exists()
@@ -504,14 +504,14 @@ def test_fails_open_without_credentials_or_provider(tmp_path):
     markers = _markers(result.stdout)
     assert markers["FLOW_CI_STATUS"] == ["unknown"]
     assert markers["FLOW_CI_PROVIDER"] == ["none"]
-    assert result.returncode == 0
+    assert result.returncode == 2
 
 
 @requires_bash
-def test_fails_open_on_a_missing_checkout(tmp_path):
+def test_missing_checkout_is_unknown_two(tmp_path):
     result = _run(tmp_path, "--path", str(tmp_path / "nope"))
     assert _markers(result.stdout)["FLOW_CI_STATUS"] == ["unknown"]
-    assert result.returncode == 0
+    assert result.returncode == 2
 
 
 @requires_bash
@@ -586,7 +586,7 @@ def test_missing_jq_names_itself_instead_of_reporting_a_bare_unknown(tmp_path):
             "WOODPECKER_API_TOKEN": "test-token-canary",
         },
     )
-    assert result.returncode == 0, "fail-open: a missing tool must never block the flow"
+    assert result.returncode == 2, "fail-open: a missing tool must never block the flow"
     markers = _markers(result.stdout)
     assert markers["FLOW_CI_STATUS"] == ["unknown"], result.stdout
     assert "jq not found" in result.stderr
@@ -2177,16 +2177,15 @@ def test_an_unreadable_status_that_NEVER_resolves_expires_nonzero_and_says_so(tm
 
 
 @requires_bash
-def test_a_single_shot_unreadable_status_keeps_its_fail_open_exit_and_names_itself(tmp_path):
-    """No --wait: the exit code makes no claim, so it stays 0 - but the reason
-    is on the contract, which is what the recorded dispatcher polls on."""
+def test_a_single_shot_unreadable_status_is_two_and_names_itself(tmp_path):
+    """Single-shot unknown is 2; the retry reason remains available to polling."""
     curl = _write_sequenced_curl(tmp_path, [[_pipeline(4726, SHA, "")]], tmp_path / "count")
     result = _run(tmp_path, SHA, "--repo", "o/r", "--event", "push", env={"FLOW_CI_CURL": str(curl)})
     m = _markers(result.stdout)
     assert m["FLOW_CI_STATUS"] == ["unknown"]
     assert m["FLOW_CI_WAIT"] == ["none"]
     assert len(m["FLOW_CI_RETRYABLE"]) == 1
-    assert result.returncode == 0
+    assert result.returncode == 2
 
 
 @requires_bash
@@ -2437,7 +2436,8 @@ def test_NO_CLASSIC_RULE_is_concluded_only_from_a_404_seen_on_the_second_read(
     unusable TMPDIR changes nothing: the first cut used a temp file there."""
     curl = _both_lanes_curl(tmp_path)
     gh = _gh_classic_answers(tmp_path / "bin", answers, ["ci/woodpecker/pr/woodpecker"])
-    env = {"FLOW_CI_CURL": str(curl), "FLOW_CI_GH": str(gh), "CPP_FLOW_CI_BACKEND": "woodpecker"}
+    env = {"FLOW_CI_CURL": str(curl), "FLOW_CI_GH": str(gh),
+           "CPP_FLOW_CI_BACKEND": "woodpecker", "CPP_FLOW_CI_WORKER": "1"}
     if tmpdir is not None:
         env["TMPDIR"] = tmpdir
     result = _run(tmp_path, SHA, "--repo", "o/r", env=env)

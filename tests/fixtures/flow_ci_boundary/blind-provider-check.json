@@ -1,0 +1,6 @@
+{
+  "kind": "constructed",
+  "purpose": "Preservation control: remove only the existing provider equality check, leaving ref validation intact. This is not a pre-fix regression anchor.",
+  "remove": " or report.get(\"FLOW_CI_PROVIDER\") != [name]",
+  "replace": ""
+}
