@@ -207,6 +207,22 @@
       "input": "cases/good-closed-G-good",
       "expect": "GOOD",
       "why": "Closed owner rule G-good distinguishes executable calls from unsupported positions or nonexecuting text."
+    },
+    {
+      "name": "bad-fallback-substitution",
+      "input": "cases/bad-fallback-substitution",
+      "expect": "UNKNOWN",
+      "why": "Pass3 reviewer reproduction violates approved literal-path rules D/G; unsupported syntax must block the gate.",
+      "anchor_expect": "clean",
+      "anchor_expect_reason": "Fixed helper-list anchor does not classify dynamic alias fallback paths or globbed test operands."
+    },
+    {
+      "name": "bad-glob-probe",
+      "input": "cases/bad-glob-probe",
+      "expect": "UNKNOWN",
+      "why": "Pass3 reviewer reproduction violates approved literal-path rules D/G; unsupported syntax must block the gate.",
+      "anchor_expect": "clean",
+      "anchor_expect_reason": "Fixed helper-list anchor does not classify dynamic alias fallback paths or globbed test operands."
     }
   ],
   "anchors": [

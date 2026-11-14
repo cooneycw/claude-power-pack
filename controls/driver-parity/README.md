@@ -12,7 +12,7 @@ it does not attest generation or helper bundling. `tests/test_driver_parity.py`
 separately builds and reads the real flow-auto Codex mirror. The stub generator
 and driver declaration files state only the packaging population for fixtures.
 
-Fourteen BAD, nine UNKNOWN and seven GOOD cases run through the real checker. The constructed
+Fourteen BAD, eleven UNKNOWN and seven GOOD cases run through the real checker. The constructed
 anchor checks a fixed helper list, omits all plan-record verbs and trusts waiver
 metadata. It misses all BAD/UNKNOWN cases and agrees on the GOOD cases. UNKNOWN cases
 explicitly declare the blind anchor clean with a reason. Its provenance is
@@ -47,3 +47,7 @@ from dynamic executable paths. These have owned contrasting cases. Standard
 file/location probes and empty clears are NON_EXECUTING; unsupported positions
 and alias changes are UNKNOWN, never silently accepted. The grammar does not
 claim general Bash interpretation. Helper-bearing heredoc data is UNKNOWN.
+
+Pass3 controls pin substitution-bearing alias fallbacks and globbed helper file
+probes. Both were false greens at b1cce978; original assignment spelling and the
+same literal-path rule for helper probe operands now reject them as UNKNOWN.

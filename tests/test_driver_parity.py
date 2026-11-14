@@ -446,3 +446,34 @@ def test_same_helper_fallback_parameter_paths(guard: str) -> None:
 def test_literal_parameter_filenames_and_unquoted_alias_output_are_unknown(shell: str) -> None:
     with pytest.raises(parity.Unknown):
         parity.inventory("## Instructions\n```bash\n" + shell + "\n```\n")
+
+
+@pytest.mark.parametrize("mode", ["fallback-substitution", "glob-probe"])
+def test_pass3_dynamic_fallback_and_glob_probe_reproductions_are_unknown(tmp_path: Path, mode: str) -> None:
+    result = outcome(tree(tmp_path, mode))
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "DRIVER_PARITY: unknown" in result.stdout
+
+
+@pytest.mark.parametrize("value", ["$(date)/scripts/probe.sh", "`date`/scripts/probe.sh", "/tmp/*/scripts/probe.sh"])
+@pytest.mark.parametrize("assignment", ["REC={value}", '[ -f "$REC" ] || REC={value}'])
+def test_original_alias_assignment_spelling_must_be_literal(value: str, assignment: str) -> None:
+    source = (
+        "## Instructions\n```bash\nREC=/d/scripts/probe.sh\n" + assignment.format(value=value) + '\n"$REC" check\n```\n'
+    )
+    with pytest.raises(parity.Unknown):
+        parity.inventory(source)
+
+
+@pytest.mark.parametrize(
+    "probe",
+    [
+        "[ -f /tmp/*/scripts/probe.sh ]",
+        "[[ -x /tmp/?/scripts/probe.sh ]]",
+        "test -e /tmp/[ab]/scripts/probe.sh",
+        "command -v /tmp/*/scripts/probe.sh",
+    ],
+)
+def test_helper_probes_apply_the_same_literal_path_rule(probe: str) -> None:
+    with pytest.raises(parity.Unknown):
+        parity.inventory("## Instructions\n```bash\n" + probe + "\n```\n")

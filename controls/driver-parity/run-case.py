@@ -32,7 +32,21 @@ def materialize(root: Path, mode: str) -> None:
     mirror = root / "codex/skills/flow-auto/SKILL.md"
     policy = root / "docs/agents/driver-parity.json"
     data = json.loads(policy.read_text())
-    if mode.startswith("closed-"):
+    if mode == "fallback-substitution":
+        path = root / ".claude/commands/codex/auto.md"
+        old = "~/.claude/scripts/flow-plan-record.py approve 42"
+        assert old in path.read_text()
+        path.write_text(
+            path.read_text().replace(
+                old,
+                'REC=~/.claude/scripts/flow-plan-record.py\n'
+                '[ -f "$REC" ] || REC=$(date)/scripts/flow-plan-record.py\n'
+                '"$REC" approve 42',
+            )
+        )
+    elif mode == "glob-probe":
+        append(flow, "[ -f /tmp/*/scripts/probe.sh ]")
+    elif mode.startswith("closed-"):
         path = root / ".claude/commands/codex/auto.md"
         old = "~/.claude/scripts/flow-plan-record.py approve 42"
         assert old in path.read_text()

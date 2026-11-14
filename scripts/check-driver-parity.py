@@ -266,7 +266,9 @@ def command(
         and not literal_output(stripped, helper_names | set(aliases))
     ):
         raise Unknown("single-quoted parameter text is not an environment path")
-    fallback = shlex.split(stripped, comments=False) if "||" in stripped else []
+    # Assignment identity must be validated from the original spelling. Masked
+    # argument substitutions are never evidence of a literal fallback path.
+    fallback = shlex.split(original, comments=False) if "||" in original else []
     if len(fallback) == 6 and fallback[0] == "[" and fallback[1] in {"-f", "-x", "-e"} and fallback[3:5] == ["]", "||"]:
         assignment = re.fullmatch(r"([A-Za-z_]\w*)=(.*)", fallback[5])
         key = fallback[2].removeprefix("$").strip("{}")
@@ -298,7 +300,7 @@ def command(
         raise Unknown("command substitution in helper path/assignment")
     reassigned = writes & set(aliases)
     if reassigned:
-        single = shlex.split(stripped, comments=False)
+        single = shlex.split(original, comments=False)
         assignment = re.fullmatch(r"([A-Za-z_]\w*)=(.*)", single[0]) if len(single) == 1 else None
         target = literal_path(assignment[2]) if assignment else None
         key = assignment[1] if assignment else ""
@@ -315,11 +317,14 @@ def command(
             return None
         raise Unknown("helper alias reassigned/conditionally assigned: " + ", ".join(sorted(reassigned)))
     if mentions:
-        operands = probe_operands(stripped)
+        operands = probe_operands(original)
         if operands is not None:
             for operand in operands:
-                target = HELPER.search(operand)
-                alias = aliases.get(operand.removeprefix("$").strip("{}")) if operand.startswith("$") else None
+                target = literal_path(operand)
+                key = operand.removeprefix("$").strip("{}")
+                alias = aliases.get(key) if re.fullmatch(r"\$(?:[A-Za-z_]\w*|\{[A-Za-z_]\w*\})", operand) else None
+                if helper_mentions(operand, helper_names, aliases) and not alias and not target:
+                    raise Unknown("helper probe operand is not a literal path")
                 names = (
                     {target[1]}
                     if target
