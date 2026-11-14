@@ -106,6 +106,25 @@ echo "Verified: on branch '$(git branch --show-current)' in $(pwd)"
 ```
 
 {{VERIFY_EXTRA}}
+**Initialize this run's plan record from inside the verified target worktree.**
+Use the literal assigned issue number (42 below is an example), on every lane,
+including a resumed/current-branch run:
+
+```bash
+~/.claude/scripts/flow-plan-record.py reconcile 42
+~/.claude/scripts/flow-plan-record.py read-issue 42
+```
+
+Reuse `/flow:auto`'s helper resolution: the stable path above, then on exit 127
+`${CLAUDE_PLUGIN_ROOT}/scripts/flow-plan-record.py`, then the CPP-checkout copy.
+If no copy can run, STOP and report it; never treat a missing helper as a skip.
+`reconcile` preserves the committed record and selects this orchestration
+session's run identity in the worktree's git directory. The delegated model's
+later exec thread does not own that identity. `read-issue` records what this run
+read; exit 4 (`AS_READ: unresolved`) is relayed as unresolved, never unchanged.
+An exact issue body already fetched for this run may be passed with
+`read-issue 42 --body-file <owned-body-file>` instead of fetching it again.
+
 Report: `Step 1/8: Start complete - worktree at {path}, on branch {branch}`
 
 ---
@@ -168,6 +187,20 @@ mis-route is paid before the gate is ever reached.
    - Relevant file paths and their current content summaries
    - Testing expectations (from Makefile targets)
    - Specific instructions: "Implement the changes described in the issue. Follow existing code conventions. Create or modify only the files necessary."
+   - When the target project has `.claude/lanes.md`, include its actual lane
+     list and a `### Lanes for this change` table in the plan presented for
+     approval. Answer every lane with `will test`, `not applicable`,
+     `not covered`, or `needs a decision`, with how or why. A project with no
+     lane file gets no lane table or lane question. An existing unreadable or
+     malformed file is not absence: report it and resolve it before approval.
+     The existing plan helper's `project_lanes` / `lanes_refusal` owns the
+     machine check; do not implement another lane parser. Preserve the existing
+     reasoned `Lanes: none - <reason>` form for work with no behavioural lanes,
+     visibly for the approver to judge.
+   - Present a numbered per-file change list, the planning Base SHA, necessity
+     verdict, scope and risks. Record relevant existing commits/PRs/duplicates
+     as Section B evidence, or explicitly say none. These are the approved
+     record's inputs, not facts to invent after implementation.
 
 {{STEP2_CALIBRATION}}
 4. **Report the prompt to the user:**
@@ -280,6 +313,63 @@ or reviewer and wait, rather than approving on their behalf. This driver matched
 `/flow:auto` when its gate shipped in #774; #775 then removed every bypass from
 that gate, and #784 closes the split standard this left behind.
 
+**Only after the real approval, record it and enforce the lane refusal before
+Step 4.** A revise/abandon response writes no approval. Run from the target
+worktree using the literal issue number and the helper resolution from Step 1:
+
+```bash
+~/.claude/scripts/flow-plan-record.py begin-run 42
+```
+
+Append this run's fields and the EXACT approved plan below its new run header
+in `docs/flow-runs/issue-42.md`; never overwrite an earlier run's section:
+
+```markdown
+- Issue:             #42
+- Base SHA:          <the SHA this plan was formed against>
+- Necessity verdict: <Still needed | Partially addressed | Needs reframing>
+- Approval:          granted
+- Approver:          <the actual approving human or orchestrator>
+- Recorded at:       <ISO 8601 UTC>
+
+### Section B evidence
+<the existing commits/PRs/duplicates considered, or explicit none>
+
+### Section C - the approved plan
+1. `src/path.py` - <the approved change to this file>
+Scope: <the approved scope>
+Risks: <the approved risks>
+
+### Lanes for this change
+| Lane | Answer | How, or why not |
+|---|---|---|
+| <exact listed lane> | <one of the four answers> | <the approved evidence plan> |
+```
+
+The lane table is present only when owed, as explained in Step 2. Section C
+uses one numbered line per real source file in the form ``N. `path` - gist``.
+Do not list this record, its `.as-read.md` snapshot or the counter-model
+receipt as planned product changes; ignored generated mirrors are not source.
+The orchestrator writes these records, not the fenced implementation model.
+
+```bash
+~/.claude/scripts/flow-plan-record.py approve 42
+```
+
+Read the actual exit status and both output streams. Exit 0 means the as-read
+snapshot was written and this run's plan baseline stamped. Exit 4
+(`AS_READ: unresolved`) stamps the baseline but leaves source evidence
+unresolved: relay it, never claim unchanged/clean. Exit 1 is STOP: do not invoke
+{{DRIVER_TITLE}} or proceed to Step 4. In particular the refusal names each
+listed lane the approved plan omitted. Other errors are STOP too. Revise and
+obtain real approval again rather than silently repairing the approved plan.
+The snapshot lives at `docs/flow-runs/issue-42.as-read.md`; scratch identity,
+body and baseline stay in the active worktree's git directory. These are the
+existing `/flow:auto` record format and verdicts, not a second plan schema.
+Pass the approved plan and its lane-test obligations into the Step 4 prompt;
+the implementation model must not edit the approved record to make a later
+comparison agree.
+
 Report: `Step 3/8: Approve - {approved|revised|abandoned}`
 
 There is deliberately no auto-approved outcome: a value that can still be produced means something can still skip the gate (issue #784).
@@ -320,6 +410,16 @@ Cross-model review: Claude Code reviews what {{MODEL_WROTE}}.
    - Security: Any injection, XSS, or other vulnerabilities?
    - Completeness: Are all acceptance criteria addressed?
    - Test coverage: Are tests updated or added?
+   - Lanes: read the target project's `.claude/lanes.md`, when it exists, and
+     this run's approved plan record. If a LANE LIST is given and the diff
+     changes behaviour, report (1) each listed lane that the plan's
+     `Lanes for this change` table does not answer - with no such table, say
+     so once; (2) each lane the plan marks `will test` that no test in the diff
+     exercises. With no LANE LIST, skip both questions. A missing table or row
+     is no defect for Tier 1 or standalone review. This is the same question
+     as `/codex:code_review`, asked by THIS Claude reviewer; do not delegate
+     Codex's implementation to Codex for its own review. Its judgment is a
+     model observation, not a deterministic test of lane-answer truth.
    - Detector claims: if the diff adds or changes a check, gate, guard, tripwire
      or allowlist, ask the two questions from
      [the detector contracts](../../../docs/agents/detector-contracts.md) - does
@@ -502,6 +602,32 @@ if [ "$CONTENT_RC" -eq 0 ] && [ -z "$UNTRACKED" ]; then
     exit 1
 fi
 ```
+
+**Report plan and lane compliance before selecting the closing reference.**
+For every lane answered `will test`, write what was actually demonstrated in
+`docs/flow-runs/issue-42.lanes-demonstrated.md`, separately from the immutable
+approved plan: a table with `Lane` and `What was demonstrated` columns and a
+nonempty evidence row per lane. Do not fill a row merely because the plan
+promised a test. With no project lane file or no `will test` rows, no such file
+is owed and no lane question is asked.
+
+From the target worktree, using the explicit merge base just resolved above:
+
+```bash
+~/.claude/scripts/flow-plan-record.py compliance 42 --base "$MERGE_BASE"
+```
+
+Relay the complete verdict and stderr names/reasons into the PR and closing
+evidence. Preserve its reporting semantics: agreement exits 0; divergence or
+changed approved record exits 3; unknown exits 4 and is never agreement. This
+is a report, not a new blocking quality gate. A `LANES NOT DEMONSTRATED` clause
+names/counts owed rows not shown; `LANES NOT CHECKED` means evidence could not
+be read, not that it passed. Follow the helper's stderr remedy and re-run after
+recording genuine evidence; do not edit the approved plan to erase a promise.
+Do not discard failure status/output with `|| true`, and do not infer
+`ACCEPTANCE_COMPLETE=yes` from a missing report. Commit the plan, snapshot and
+any owed demonstrated file with the issue. The canonical helper already
+excludes these evidence files from its product-file comparison where owed.
 
 1. **Commit** the changes:
    - Conventional commit format using the selected reference:

@@ -1,0 +1,42 @@
+{
+  "gate": "scripts/flow-plan-record.py",
+  "invocation": [
+    "python3",
+    "controls/delegated-plan-lanes/run-case.py",
+    "gemma",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "good_signal": "^(FLOW_PLAN_RECORD: baseline stamped [0-9a-f]{64}|DELEGATED_PLAN_LANES: legacy continuation)",
+  "detect_signal": "^FLOW_PLAN_RECORD: error - the lanes table leaves these listed lanes unanswered: Harness",
+  "unavailable_signal": "^DELEGATED_PLAN_LANES: unavailable - ",
+  "limits": "Runs the actual approve command declared in this driver's Step 3, with the existing plan helper in an owned linked worktree. A recorded approved historical Step 3 without an approve call continues without a lane refusal; the same adapter applies to current and historical document bytes. It does not run a model, prove obedience to prose, or judge lane-answer truth. Narrow fenced-command extraction, not a second lane parser. Setup or unsupported command shape is unavailable, never clean.",
+  "cases": [
+    {
+      "name": "bad-omitted-lane",
+      "input": "cases/bad-omitted-lane",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-every-lane",
+      "input": "cases/good-every-lane",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-no-lane-file",
+      "input": "cases/good-no-lane-file",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "65921ba3d229a12c885f631beb34b969c1c0743c",
+      "origin": ".claude/commands/gemma/auto.md",
+      "path": "anchors/65921ba3-gemma-auto.md",
+      "sha256": "f78ff8dee2b30b22b4dc3f49a3c15ea47d547b9e591e6548df6b32021067d4b5",
+      "why": "The historical Step 3 waits for human approval but never invokes the plan-record lane refusal. Given a recorded approval it continues for both the omitted-lane and complete plans."
+    }
+  ]
+}
