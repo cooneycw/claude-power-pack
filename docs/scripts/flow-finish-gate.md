@@ -266,3 +266,28 @@ Marked absent-PATH handoffs are always refused: deleting PATH would enable the
 system default executable search directories. Explicit empty PATH (presence x,
 value empty) stays present and empty. An accepted handoff never deletes PATH;
 unmarked callers retain legacy behavior, including absent PATH (#1801).
+
+
+## Kyle lease identity and the queue timeout message (#1828)
+
+A host-side gate's `full-suite` lease now says what it is for. Every host CPP
+gate shares one service principal, so before this a queued or stuck gate
+showed in `kyle-lock status full-suite` as `issue: null, pr: null, purpose: ""`,
+indistinguishable from every other. The gate passes
+`--purpose "cpp finish gate: <owner/repo> <branch> <short-sha>"`, plus
+`--issue N` when the branch is `issue-<N>-...` and `--pr N` when a
+`timeout 15 gh pr view <branch>` answers a number. Each part is derived or left
+out, never guessed: the repository is the last two path segments of origin's
+URL (never the whole URL, which can carry a credential), else the checkout's
+directory name; a detached HEAD has no branch, no issue and no PR lookup;
+outside a git checkout the purpose is just `cpp finish gate:`.
+
+`kyle-lock run` returns its LAST answer's code when `--wait` expires (measured
+on Kyle prod, 2026-11-13: a `--wait 60` left queued exits 10). So a real queue
+timeout ended in the generic `coordination supervisor exited 10 and the gate
+recorded no status`. Exit 10 (queued or blocked) and 11 (frozen) with no
+recorded status now print
+`FLOW_FINISH_GATE: fail (coordination not granted: no grant within <N>s, last state queued|frozen (kyle-lock exit <code>), no gate work started)`.
+The verdict and exit code are unchanged: fail, 1. A live Kyle authority is not
+exercised by the tests; the fake `kyle-lock` mirrors the client's own argparse
+(`--issue`/`--pr` are integers) and exit codes.
