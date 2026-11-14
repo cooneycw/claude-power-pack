@@ -3453,7 +3453,8 @@ def test_the_pr_lookup_jq_prints_one_tab_separated_line_per_pr() -> None:
 @pytest.mark.parametrize("layout", ["issue-branch", "plain-branch-no-origin", "detached", "outside-git",
                                     "long-branch", "no-timeout", "unicode-long-branch-C",
                                     "unicode-long-branch-C.UTF-8", "digit-branch", "two-matches",
-                                    "head-mismatch", "fork-match"])
+                                    "head-mismatch", "fork-match", "enterprise-origin",
+                                    "token-in-origin", "path-origin"])
 def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
     """Issue #1828 A1: the lease names repo, branch and sha, plus --issue and
     --pr where they can be derived, and leaves out what cannot be. On the
@@ -3461,9 +3462,11 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
     # The gate looks a PR up only through `timeout` (counter-model review, pass
     # 2), so a layout that expects the lookup needs the real binary; the
     # no-timeout layout takes it off PATH and expects no lookup at all.
-    lookup_layouts = ("issue-branch", "plain-branch-no-origin", "long-branch",
-                      "unicode-long-branch-C", "unicode-long-branch-C.UTF-8", "digit-branch",
-                      "two-matches", "head-mismatch", "fork-match")
+    # No origin host, no lookup (#1831 counter-model review): `-R owner/repo`
+    # alone would ask gh's default host about a repository it cannot name.
+    lookup_layouts = ("issue-branch", "long-branch", "unicode-long-branch-C",
+                      "unicode-long-branch-C.UTF-8", "digit-branch", "two-matches",
+                      "head-mismatch", "fork-match", "enterprise-origin", "token-in-origin")
     if layout in lookup_layouts and shutil.which("timeout") is None:
         pytest.skip("the PR lookup runs under timeout, which this host lacks")
     bindir = tmp_path / "bin"
@@ -3480,7 +3483,10 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
                    "digit-branch": "",
                    "two-matches": "5\tfalse\tfeature-x\n6\tfalse\tfeature-x",
                    "head-mismatch": "5\tfalse\tfeature-x-other",
-                   "fork-match": "5\ttrue\tfeature-x"}.get(layout, "")
+                   "fork-match": "5\ttrue\tfeature-x",
+                   "enterprise-origin": "41\tfalse\tfeature-x",
+                   "token-in-origin": "42\tfalse\tfeature-x",
+                   "path-origin": "43\tfalse\tfeature-x"}.get(layout, "")
     if layout == "digit-branch":
         view_answer = "123"   # gh resolves `pr view 123` as PR #123, not branch 123
     gh = bindir / "gh"
@@ -3501,8 +3507,13 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
         _git(work, "-c", "user.name=t", "-c", "user.email=t@example.invalid",
              "commit", "-q", "--allow-empty", "-m", "base")
         sha = _git(work, "rev-parse", "--short", "HEAD")
+        origin = {"enterprise-origin": "https://ghe.example.com/acme/widget.git",
+                  # A credential in origin's URL must never reach gh's argv.
+                  "token-in-origin": "https://x-access-token:SECRETVALUE@github.com/acme/widget",
+                  # A path origin has no host to ask.
+                  "path-origin": "/srv/git/acme/widget.git"}.get(layout, "git@github.com:acme/widget.git")
         if layout != "plain-branch-no-origin":
-            _git(work, "remote", "add", "origin", "git@github.com:acme/widget.git")
+            _git(work, "remote", "add", "origin", origin)
         branch = {"issue-branch": "issue-77-widget", "long-branch": _LONG_BRANCH,
                   "no-timeout": "issue-77-widget", "unicode-long-branch-C": _UNICODE_BRANCH,
                   "unicode-long-branch-C.UTF-8": _UNICODE_BRANCH,
@@ -3548,10 +3559,15 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
         "two-matches": f"cpp finish gate: acme/widget feature-x {sha}",
         "head-mismatch": f"cpp finish gate: acme/widget feature-x {sha}",
         "fork-match": f"cpp finish gate: acme/widget feature-x {sha}",
+        "enterprise-origin": f"cpp finish gate: acme/widget feature-x {sha}",
+        "token-in-origin": f"cpp finish gate: acme/widget feature-x {sha}",
+        "path-origin": f"cpp finish gate: acme/widget feature-x {sha}",
     }[layout]
     assert len(purpose) <= 300 and pairs.get("--purpose") == purpose, options
     if layout == "issue-branch":
         assert pairs.get("--issue") == "77" and pairs.get("--pr") == "123", options
+    elif layout in ("enterprise-origin", "token-in-origin"):
+        assert "--issue" not in pairs and pairs.get("--pr") == str(41 + (layout == "token-in-origin")), options
     elif layout == "no-timeout":
         # No bounded lookup is possible, so none is made; the rest stays.
         assert pairs.get("--issue") == "77" and "--pr" not in pairs, options
@@ -3561,10 +3577,12 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
     # The PR lookup runs only for a named branch, and asks for PRs whose HEAD is
     # THAT branch, in this repository when origin names it (#1831).
     if layout in lookup_layouts:
-        repo_arg = "" if layout == "plain-branch-no-origin" else "-R acme/widget "
-        assert gh_log.read_text().splitlines() == [
-            f"pr list {repo_arg}--head {branch} --state open "
+        host = "ghe.example.com" if layout == "enterprise-origin" else "github.com"
+        logged = gh_log.read_text()
+        assert logged.splitlines() == [
+            f"pr list -R {host}/acme/widget --head {branch} --state open "
             f"--json number,headRefName,isCrossRepository --jq {_PR_LIST_JQ}"]
+        assert "SECRETVALUE" not in logged and "SECRETVALUE" not in "\n".join(argv)
     else:
         assert not gh_log.exists()
 
