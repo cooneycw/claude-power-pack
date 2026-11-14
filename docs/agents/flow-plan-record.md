@@ -426,7 +426,7 @@ names, one per line, the reason and the remedy are in the stderr note. It first 
 three hours five changes merged without the file, because the line is what gets
 read. The stderr note remains and is generated from the same state as the
 clause. It does not refuse and its exit code is unchanged. Where nothing is
-owed - no lane file, a waived plan, no `will test` answer - the line is byte
+owed - no lane file, a waived plan, no `will test` or `will refuse` answer - the line is byte
 for byte what it was. Where a lane result is owed, the demonstrated file is not counted as a
 touched file: counted, it turned `agreement` into `divergence` for every run that wrote it. Headings, tables and the waiver line are read outside code fences
 only: a quoted example is not the thing itself.

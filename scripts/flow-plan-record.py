@@ -320,28 +320,36 @@ def split_row(line: str) -> list[str]:
     return [c.replace("\\|", "|").strip() for c in cells]
 
 
-def table_rows(block: str) -> list[list[str]]:
-    """Cells of each body row of the first markdown table in `block`.
+def tables(block: str) -> list[list[list[str]]]:
+    """Body rows of each markdown table in `block`, in document order.
 
     A table is a header line, then a delimiter line, then rows. A delimiter
     with no header above it is not a table, and neither is anything inside a
     code fence. Outer pipes are optional, as markdown allows."""
     lines = outside_fences(block).splitlines()
-    for i in range(1, len(lines)):
+    found: list[list[list[str]]] = []
+    i = 1
+    while i < len(lines):
         rule, header = lines[i], lines[i - 1]
-        if not ("|" in rule and TABLE_RULE_RE.match(rule)):
-            continue
-        if "|" not in header or not header.strip() or TABLE_RULE_RE.match(header):
-            continue
-        if len(split_row(header)) != len(split_row(rule)):
+        if (not ("|" in rule and TABLE_RULE_RE.match(rule))
+                or "|" not in header or not header.strip() or TABLE_RULE_RE.match(header)
+                or len(split_row(header)) != len(split_row(rule))):
+            i += 1
             continue
         rows: list[list[str]] = []
-        for line in lines[i + 1:]:
-            if not line.strip() or "|" not in line:
-                break
-            rows.append(split_row(line))
-        return rows
-    return []
+        j = i + 1
+        while j < len(lines) and lines[j].strip() and "|" in lines[j]:
+            rows.append(split_row(lines[j]))
+            j += 1
+        found.append(rows)
+        i = j + 1
+    return found
+
+
+def table_rows(block: str) -> list[list[str]]:
+    """Cells of each body row of the FIRST markdown table in `block`."""
+    found = tables(block)
+    return found[0] if found else []
 
 
 def lane_key(name: str) -> str:
@@ -455,6 +463,14 @@ RESULT_STATE_RE = re.compile(r"^[`*_ ]*(" + "|".join(re.escape(s) for s in RESUL
 RESULT_SEPARATOR_RE = re.compile(r"^[\s\-:;,.()\[\]]+")
 
 
+def evidence_text(cell: str) -> str:
+    """A reference with leading separators dropped; empty when nothing with a
+    letter or digit is left, so `-`, `n/a`-style punctuation or `()` names no
+    test or observation (counter-model review)."""
+    text = RESULT_SEPARATOR_RE.sub("", cell).strip()
+    return text if re.search(r"[^\W_]", text) else ""
+
+
 def lane_result(cells: list[str]) -> tuple[str | None, str]:
     """`(state, evidence)` of one demonstrated row's cells after the lane name.
 
@@ -467,8 +483,7 @@ def lane_result(cells: list[str]) -> tuple[str | None, str]:
     match = RESULT_STATE_RE.match(first)
     if not match:
         return None, ""
-    rest = [RESULT_SEPARATOR_RE.sub("", first[match.end():]).strip()]
-    rest += [cell.strip() for cell in cells[1:]]
+    rest = [evidence_text(first[match.end():])] + [evidence_text(cell) for cell in cells[1:]]
     return match.group(1).casefold(), " ".join(part for part in rest if part)
 
 
@@ -490,6 +505,12 @@ def lane_values(cell: str) -> list[str]:
         if re.search(r"[^\W_]", value):
             values.append(value)
     return values
+
+
+def names_value(said: str, value: str) -> bool:
+    """Whether `said` names `value` as a whole phrase: `dev` is not named by
+    `device` (counter-model review). Both are already `value_text`."""
+    return re.search(r"(?<![^\W_])" + re.escape(value) + r"(?![^\W_])", said) is not None
 
 
 def project_lane_values(root: pathlib.Path) -> dict[str, list[str]]:
@@ -547,7 +568,7 @@ def lanes_refusal(section: str, lanes: list[str],
         if not cells or lane_answer(cells[0]) != "will test" or not listed_values:
             continue
         said = value_text(" ".join(cells))
-        if not any(value in said for value in listed_values):
+        if not any(names_value(said, value) for value in listed_values):
             unnamed.append(f"{name} (values: {', '.join(listed_values)})")
     if unnamed:
         return (f"the lanes table answers `will test` without naming which values it will "
@@ -1276,10 +1297,18 @@ def bound_rows(text: str, run_id: str, plan_digest: str) -> dict[str, tuple[str 
     rows: dict[str, tuple[str | None, str]] = {}
     for m in starts:
         end = next((b for b in bounds if b > m.start()), len(text))
-        for row in table_rows(text[m.end():end]):
+        for row in every_table_row(text[m.end():end]):
             if lane_key(row[0]):
                 rows[lane_key(row[0])] = lane_result(row[1:])
     return rows
+
+
+def every_table_row(block: str) -> list[list[str]]:
+    """Body rows of EVERY table in `block`, in document order. One run's
+    section may hold more than one table - a re-run appends its own - and a
+    later table's row is the later result (counter-model review: reading only
+    the first table let an earlier `passed` hide a later `failed`)."""
+    return [row for rows in tables(block) for row in rows]
 
 
 def result_shortfall(row: tuple[str | None, str] | None) -> str | None:
@@ -1379,7 +1408,8 @@ def lanes_at_close(issue: str) -> LanesAtClose:
 
     - `nothing-owed`: the project had no lane file at approval (it has not
       adopted lanes, and must behave exactly as before); or this run's plan
-      waived the table, has no table, or answered `will test` for no lane.
+      waived the table, has no table, or answered `will test` or `will
+      refuse` for no lane.
       Also when there is no repository to ask: compliance's own verdict is
       already `unknown` there.
     - `not-checked`: this run has no lane stamp and its plan answered `will

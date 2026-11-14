@@ -25,8 +25,8 @@
 # gemma/auto.md and qwen/auto.md grow by exactly that 8, after trimming the
 # paragraph; codex/auto.md absorbs it within its cap. Other caps unchanged.
 # #1823 makes a lane result a stated outcome with evidence, and a will-test row
-# name its values: +26 words in the shared core, so each of the three auto caps
-# grows by exactly 26. flow/eli5.md grows by 2: its lane sentence says a will-test
+# name its values: +27 words in the shared core, so each of the three auto caps
+# grows by exactly 27. flow/eli5.md grows by 2: its lane sentence says a will-test
 # answer names its values (5 words, 3 absorbed by trimming the same paragraph).
 # Other caps unchanged.
 464	browser/help.md
@@ -46,7 +46,7 @@
 242	claude-md/help.md
 1396	claude-md/lint.md
 1613	codex/ask.md
-8680	codex/auto.md
+8681	codex/auto.md
 6359	codex/code_review.md
 1134	codex/exec.md
 640	codex/help.md
@@ -79,7 +79,7 @@
 450	flow/status.md
 386	flow/sync.md
 11837	flow/wave.md
-10505	gemma/auto.md
+10506	gemma/auto.md
 1779	gemma/exec.md
 1859	gemma/help.md
 1831	gemma/status.md
@@ -101,7 +101,7 @@
 2443	project/next.md
 499	qa/help.md
 1279	qa/test.md
-9896	qwen/auto.md
+9897	qwen/auto.md
 1554	qwen/exec.md
 1521	qwen/help.md
 1243	qwen/status.md

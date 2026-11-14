@@ -1450,3 +1450,48 @@ def test_only_will_test_rows_must_name_values(repo: Path) -> None:
           .replace("| Harness | will test (Claude install); not covered (Codex install) | through a symlink |",
                    "| Harness | not covered | no bundle run |"))
     assert run(repo, "approve", "42").returncode == 0
+
+
+# --- counter-model review of #1823 --------------------------------------------
+
+@pytest.mark.parametrize("row", ["| Checkout | passed | - |\n", "| Checkout | passed | () |\n",
+                                 "| Checkout | passed - | -- |\n"])
+def test_punctuation_is_no_reference(repo: Path, row: str) -> None:
+    approved(repo)
+    done = shown_with(repo, row)
+    assert ", LANES NOT DEMONSTRATED (1)" in verdict(done)
+    assert "with no reference to the test or observation) - Checkout" in done.stderr
+
+
+def test_a_failure_in_a_later_table_is_the_result(repo: Path) -> None:
+    """A re-run appends a second table under the same line; its row is the
+    later result, so an earlier pass cannot hide it."""
+    approved(repo)
+    first = "| Checkout | passed | run 1 |\n"
+    assert "LANES" not in verdict(shown_with(repo, first)), "precondition: run 1 alone is clean"
+    done = shown_with(repo, first, "\nRe-run:\n\n" + ROWS + "| Checkout | failed | rerun.log |\n")
+    assert ", LANES NOT DEMONSTRATED (1)" in verdict(done), done.stderr
+    assert "(result is `failed`) - Checkout" in done.stderr
+
+
+def test_a_value_is_named_as_a_whole_phrase_not_a_substring(tmp_path: Path) -> None:
+    lanes = LANES.replace("| Checkout | main checkout / linked worktree |", "| Checkout | dev / prod |")
+    device = FULL_TABLE.replace("a test in a linked worktree", "exercise the device")
+    r = make_repo(tmp_path / "device", lanes=lanes)
+    begin(r, PLAN + device)
+    done = run(r, "approve", "42")
+    assert done.returncode == 1 and "Checkout (values: dev, prod)" in done.stdout, done.stdout
+    ok = make_repo(tmp_path / "dev", lanes=lanes)
+    begin(ok, PLAN + device.replace("exercise the device", "exercise dev, not prod"))
+    assert run(ok, "approve", "42").returncode == 0
+
+
+def test_a_refusal_only_plan_owes_its_file(repo: Path) -> None:
+    """No `will test` lane, one `will refuse`: the demonstrated file is owed."""
+    section = PLAN + REFUSE_TABLE.replace("| Checkout | will test |", "| Checkout | not applicable |").replace(
+        "| Harness | will test (Claude install); not covered (Codex install) | through a symlink |",
+        "| Harness | not covered | no bundle run |")
+    approved(repo, section)
+    done = compliance_as(repo, "agreement")
+    assert ", LANES NOT DEMONSTRATED (1)" in verdict(done)
+    assert f"no {SIBLING} - this plan owes a result for 1 lane(s)" in done.stderr

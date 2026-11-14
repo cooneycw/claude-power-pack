@@ -1240,7 +1240,7 @@ For each `will test` or `will refuse` lane, write a row in the separate
 `passed`, `failed`, `not run` or `refused as expected` / `Evidence`; only a
 referenced pass or refusal counts), under this run's `<!-- lanes-demonstrated run=... plan=... -->`
 line exactly as the compliance stderr note prints it; rows under another run's
-line do not count (#1821). No project lane file AT APPROVAL, or no `will test`,
+line do not count (#1821). No project lane file AT APPROVAL, or no `will test`/`will refuse`,
 means no file/question owed; a lane file deleted since does not cancel it. Never fill rows merely because a test was promised.
 
 The compliance call stays in the SAME shell block as `MERGE_BASE`. After

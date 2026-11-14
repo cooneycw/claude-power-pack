@@ -31,9 +31,7 @@ FIXTURES = REPO / "tests" / "fixtures" / "lanes"
 
 
 
-def _load_helper_answers() -> tuple[str, ...]:
-    """The helper's own vocabulary: the contract below compares every surface to
-    THIS, never to a second copy kept here (issue #1822)."""
+def load_helper():
     import importlib.util
 
     spec = importlib.util.spec_from_file_location(
@@ -41,7 +39,13 @@ def _load_helper_answers() -> tuple[str, ...]:
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return tuple(module.LANE_ANSWERS)
+    return module
+
+
+def _load_helper_answers() -> tuple[str, ...]:
+    """The helper's own vocabulary: the contract below compares every surface to
+    THIS, never to a second copy kept here (issue #1822)."""
+    return tuple(load_helper().LANE_ANSWERS)
 
 
 ANSWERS = _load_helper_answers()
@@ -442,3 +446,27 @@ def test_eli5_offering_a_different_list_is_reported() -> None:
                                "will test, not applicable, needs a decision or")
     assert mutated != original
     assert offered_by_eli5(mutated) != set(ANSWERS)
+
+
+# The delegated drivers' close-time exemption must name every answer that owes
+# a result (#1823 counter-model review): it said "no `will test`" alone, which
+# told a refusal-only plan it owed no evidence file the helper then asked for.
+OWED_EXEMPTION = re.compile(r"No project lane file AT APPROVAL, or no (.+?),\s*means no file")
+
+
+def owed_named_by_exemption(text: str) -> set[str]:
+    match = OWED_EXEMPTION.search(" ".join(text.split()))
+    assert match, "the delegated core no longer states its close-time exemption where this check reads"
+    return set(re.findall(r"`([^`]+)`", match.group(1)))
+
+
+def test_the_delegated_exemption_names_every_answer_that_owes_a_result() -> None:
+    helper = load_helper()
+    for path in [Path("templates/delegated-driver-core.md"),
+                 *(Path(".claude/commands") / d / "auto.md" for d in ("codex", "qwen", "gemma"))]:
+        assert owed_named_by_exemption(read(path)) == set(helper.LANES_OWED_ANSWERS), path
+
+
+def test_an_exemption_naming_only_will_test_is_reported() -> None:
+    text = read(Path("templates/delegated-driver-core.md")).replace("`will test`/`will refuse`", "`will test`")
+    assert owed_named_by_exemption(text) != set(load_helper().LANES_OWED_ANSWERS)
