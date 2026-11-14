@@ -11,6 +11,8 @@ lanes in `.claude/lanes.md` so a plan has to say which ones it tested. The
 format and the rule are in
 [the lanes reference](../../../docs/agents/lanes.md) (`docs/agents/lanes.md`).
 
+Only `.claude/lanes.md` is read; lane lists kept at other paths are not read.
+
 This command drafts that file. It never writes a lane the owner has not seen.
 
 ## Arguments
@@ -43,9 +45,7 @@ to run `/cpp:update`.
 
 ## Step 2: Survey the repository
 
-Read the repository for evidence of each kind of lane below. This is a
-checklist for you to work through, not a script: look, and write down what you
-found and where.
+Survey the repository using this checklist; record what you found and where.
 
 | Kind of lane | Evidence to look for |
 |---|---|

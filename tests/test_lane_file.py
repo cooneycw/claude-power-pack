@@ -108,6 +108,21 @@ def test_a_claude_directory_with_no_lane_file_is_absent(tmp_path: Path) -> None:
     assert age(tmp_path)[1].startswith("LANE_FILE_AGE: absent - ")
 
 
+@requires_git
+def test_a_lane_list_at_another_path_does_not_hide_what_was_checked(tmp_path: Path) -> None:
+    git("init", "-q", cwd=tmp_path)
+    alternate = tmp_path / "docs" / "testing" / "project-lanes.md"
+    alternate.parent.mkdir(parents=True)
+    alternate.write_text(lane_text(TODAY), encoding="utf-8")
+    assert alternate.is_file()
+    assert not (tmp_path / ".claude" / "lanes.md").exists()
+    code, line = age(tmp_path)
+    assert code == 0
+    assert line.startswith(f"LANE_FILE_AGE: absent - no .claude/lanes.md under {tmp_path};"), line
+    assert "a lane list kept at any other path is not read" in line, line
+    assert alternate.read_text(encoding="utf-8") == lane_text(TODAY)
+
+
 # --- exists, and cannot be dated: unknown, never absent, never fresh ----------
 
 

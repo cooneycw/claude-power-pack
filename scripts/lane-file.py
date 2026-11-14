@@ -14,7 +14,7 @@ step (`/flow:eli5`) calls `age` and relays what it says.
 Contract (the LAST stdout line, and the exit code):
 
     LANE_FILE_AGE: fresh - ...     exit 0   reviewed within the threshold
-    LANE_FILE_AGE: absent - ...    exit 0   the project has no lane file; say nothing
+    LANE_FILE_AGE: absent - ...    exit 0   no .claude/lanes.md under root; other paths are not read
     LANE_FILE_AGE: stale - ...     exit 3   reviewed longer ago than the threshold
     LANE_FILE_AGE: unknown - ...   exit 4   a lane file exists and its age cannot be read
 
@@ -147,7 +147,10 @@ def cmd_age(root: Path, how: str, threshold: int, today: date) -> int:
         text = read_lane_file(root / LANE_FILE)
         if text is None:
             print("LANE_FILE_REVIEWED: -")
-            print(f"LANE_FILE_AGE: absent - this project has no {LANE_FILE}; nothing is asked")
+            print(
+                f"LANE_FILE_AGE: absent - no {LANE_FILE} under {root}; "
+                "a lane list kept at any other path is not read"
+            )
             return EXIT_OK
         reviewed = reviewed_day(text)
         days = (today - reviewed).days
