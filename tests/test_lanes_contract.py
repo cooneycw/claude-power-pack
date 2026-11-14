@@ -438,6 +438,7 @@ def test_a_driver_offering_a_different_list_is_reported(mutate) -> None:
 
 def test_eli5_offering_a_different_list_is_reported() -> None:
     original = read(ELI5)
-    mutated = original.replace("will test, will refuse, not applicable or", "will test, not applicable, needs a decision or")
+    mutated = original.replace("will test, will refuse, not applicable or",
+                               "will test, not applicable, needs a decision or")
     assert mutated != original
     assert offered_by_eli5(mutated) != set(ANSWERS)
