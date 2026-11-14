@@ -79,7 +79,10 @@ if [ -f "$case_dir/RUN-ON-THE-REAL-REPO-PATH" ]; then
     # isolated, which is the drift this case exists to catch, wearing the costume
     # of the guard against it.
     echo "FLOW_FINISH_GATE_CONTROL_PATH: real-repo"
-    PATH="$case_dir/bin:$PATH" FLOW_GATE_CPP_DIR="$(_cpp_dir "$case_dir")" bash "$gate"
+    # Fixture gates must not read the host's service admission flag.
+    [ ! -e "$case_dir/no-coordination-admission" ] || exit 2
+    CPP_COORDINATION_ADMISSION_FILE="$case_dir/no-coordination-admission" \
+        PATH="$case_dir/bin:$PATH" FLOW_GATE_CPP_DIR="$(_cpp_dir "$case_dir")" bash "$gate"
     exit $?
 fi
 
@@ -117,4 +120,7 @@ cd "$work" || {
     exit 2
 }
 echo "FLOW_FINISH_GATE_CONTROL_PATH: isolated"
-PATH="$work/bin:$PATH" FLOW_GATE_CPP_DIR="$(_cpp_dir "$work")" bash "$gate"
+# Isolating cwd does not isolate the admission flag inherited through HOME.
+[ ! -e "$work/no-coordination-admission" ] || exit 2
+CPP_COORDINATION_ADMISSION_FILE="$work/no-coordination-admission" \
+    PATH="$work/bin:$PATH" FLOW_GATE_CPP_DIR="$(_cpp_dir "$work")" bash "$gate"

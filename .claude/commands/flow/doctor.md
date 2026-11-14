@@ -5,7 +5,7 @@ allowed-tools: Bash(~/.claude/scripts/flow-preflight.sh:*), Bash(git:*), Bash(gh
 
 # Flow: Doctor - Diagnose Workflow Environment
 
-Check that the environment is properly configured for the `/flow` workflow.
+Check the `/flow` environment.
 
 ## Instructions
 
@@ -280,7 +280,7 @@ If `CPP_DIR` is found, run these checks:
 PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd detect --quiet 2>/dev/null
 
 # 3. Makefile completeness (uses lib/cicd check)
-PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd check --summary 2>/dev/null
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" env "CPP_RUNNER_TARGET_PATH=${PATH-}" "CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" uv run --project "$CPP_DIR" python -m lib.cicd check --summary 2>/dev/null
 
 # 4. Health check configuration
 grep -q "endpoints:" .claude/cicd.yml 2>/dev/null && echo "PASS health endpoints" || echo "MISSING health endpoints"

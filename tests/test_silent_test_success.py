@@ -164,6 +164,9 @@ def test_actual_finish_helper_preserves_the_silent_verdict(
         "plans": {"finish": {"steps": gates}},
     }))
     env = os.environ.copy()
+    # This owned gate probes test evidence, not the host's admission policy.
+    assert not (tmp_path / "no-coordination-admission").exists()
+    env["CPP_COORDINATION_ADMISSION_FILE"] = str(tmp_path / "no-coordination-admission")
     env["FLOW_GATE_CPP_DIR"] = str(cpp)
     env.pop("PYTEST_ADDOPTS", None)
     result = subprocess.run(

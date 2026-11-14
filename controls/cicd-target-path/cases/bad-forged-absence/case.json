@@ -1,0 +1,8 @@
+{
+  "environment": {
+    "PATH": "",
+    "CPP_RUNNER_TARGET_PATH": "",
+    "CPP_RUNNER_TARGET_PATH_PRESENT": ""
+  },
+  "guard": "absent-policy"
+}

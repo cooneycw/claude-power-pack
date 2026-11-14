@@ -5,8 +5,6 @@ allowed-tools: Bash(python3:*), Bash(PYTHONPATH=*), Bash(curl:*), Bash(ls:*), Ba
 
 # /cicd:smoke - Smoke Tests
 
-Run smoke tests from `.claude/cicd.yml` configuration.
-
 ---
 
 ## Step 1: Locate CPP Source
@@ -58,7 +56,7 @@ If `.claude/cicd.yml` exists but has no `smoke_tests:` section, the CLI will rep
 ## Step 3: Run Smoke Tests
 
 ```bash
-PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd smoke
+PYTHONPATH="$CPP_DIR:$PYTHONPATH" env "CPP_RUNNER_TARGET_PATH=${PATH-}" "CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" uv run --project "$CPP_DIR" python -m lib.cicd smoke
 ```
 
 ---

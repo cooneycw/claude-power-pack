@@ -1,6 +1,6 @@
 # Flow: Auto - Full Issue Lifecycle in One Shot
 
-Complete end-to-end workflow: start worktree → analyze issue → ELI5 plan + necessity gate → implement → finish (PR) → merge → deploy.
+Worktree → issue analysis → approved plan → implementation → PR → merge → deploy.
 
 Why each rule exists (#1669):
 [flow:auto rationale](../../../docs/reference/flow-auto-rationale.md).
@@ -1435,7 +1435,7 @@ elif [[ -f "Makefile" ]] && grep -q "^deploy:" Makefile; then
 
     if [ "$VERIFY_ENABLED" -eq 1 ]; then
         echo "Capturing pre-deploy baseline..."
-        PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd verify --baseline --summary
+        PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" "CPP_RUNNER_TARGET_PATH=${PATH-}" "CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd verify --baseline --summary
     fi
 
     echo "Running: make deploy"
@@ -1445,7 +1445,7 @@ elif [[ -f "Makefile" ]] && grep -q "^deploy:" Makefile; then
     VERDICT="none"
     if [ "$VERIFY_ENABLED" -eq 1 ]; then
         echo "Running deploy verification..."
-        PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd verify
+        PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" "CPP_RUNNER_TARGET_PATH=${PATH-}" "CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd verify
         VERIFY_EXIT=$?
         VERDICT=$( [ "$VERIFY_EXIT" -eq 1 ] && echo "rollback" || echo "proceed/review" )
         if [ "$VERIFY_EXIT" -eq 1 ]; then

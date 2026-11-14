@@ -47,6 +47,9 @@ def test_mismatched_environment_is_refused_without_mutation(tmp_path, mode, rebu
     from tests.conftest import find_python, uv_child_env
 
     env = uv_child_env()
+    # This nested runtime probe owns admission, independent of the host flag.
+    assert not (tmp_path / "no-coordination-admission").exists()
+    env["CPP_COORDINATION_ADMISSION_FILE"] = str(tmp_path / "no-coordination-admission")
     python = find_python("uv", env, "3.12")
     cpp, target = owned_runtime(tmp_path)
     venv = cpp / ".venv"
@@ -104,6 +107,9 @@ def test_fresh_pin_and_matching_environment_are_preserved(tmp_path, dev):
     from tests.conftest import find_python, uv_child_env
 
     env = uv_child_env()
+    # This nested runtime probe owns admission, independent of the host flag.
+    assert not (tmp_path / "no-coordination-admission").exists()
+    env["CPP_COORDINATION_ADMISSION_FILE"] = str(tmp_path / "no-coordination-admission")
     find_python("uv", env, "3.11")
     cpp, target = owned_runtime(tmp_path)
     venv = cpp / ".venv"
@@ -153,6 +159,9 @@ def test_unverified_environment_is_refused_before_uv(tmp_path, broken):
     from tests.conftest import find_python, uv_child_env
 
     env = uv_child_env()
+    # This nested runtime probe owns admission, independent of the host flag.
+    assert not (tmp_path / "no-coordination-admission").exists()
+    env["CPP_COORDINATION_ADMISSION_FILE"] = str(tmp_path / "no-coordination-admission")
     python = find_python("uv", env, "3.11")
     cpp, target = owned_runtime(tmp_path)
     venv = cpp / ".venv"
@@ -193,6 +202,9 @@ def test_pin_on_host_with_only_312_refuses_without_download(tmp_path):
     from tests.conftest import find_python, uv_child_env
 
     env = uv_child_env()
+    # This nested runtime probe owns admission, independent of the host flag.
+    assert not (tmp_path / "no-coordination-admission").exists()
+    env["CPP_COORDINATION_ADMISSION_FILE"] = str(tmp_path / "no-coordination-admission")
     python = find_python("uv", env, "3.12")
     cpp, _ = owned_runtime(tmp_path)
     binaries = tmp_path / "bin"

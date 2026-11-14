@@ -1257,7 +1257,7 @@ class TestStepDefinitionsSandboxAware:
         """bootstrap_check previously pointed PYTHONPATH at .../lib (wrong for
         -m lib.cicd.bootstrap); it now derives the parent-of-lib root."""
         step = {s.id: s for s in BUILTIN_PLANS["deploy"]}["bootstrap_check"]
-        assert step.command == "python3 -m lib.cicd.bootstrap check"
+        assert step.command == '"$CPP_RUNNER_PYTHON" -m lib.cicd.bootstrap check'
         assert step.env.get("PYTHONPATH") == _CPP_ROOT
 
     @pytest.mark.skipif(shutil.which("sh") is None, reason="requires sh")

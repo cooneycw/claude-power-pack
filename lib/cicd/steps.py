@@ -11,6 +11,7 @@ import re
 import shlex
 import signal
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Iterator
@@ -24,7 +25,7 @@ from .outcomes import SuiteOutcome, merge_stream_outcomes, parse_suite_outcome
 from .state import StepStatus
 
 # Root of the CPP checkout (the parent of ``lib/``), derived from this file's
-# own location so ``python3 -m lib.security`` / ``-m lib.cicd.bootstrap`` resolve
+# own location so ``"$CPP_RUNNER_PYTHON" -m lib.security`` / ``-m lib.cicd.bootstrap`` resolve
 # regardless of where CPP is checked out - the hardcoded "${HOME}/Projects/
 # claude-power-pack" prefix broke under a sandbox or an alternate checkout
 # (/opt, ~/.claude-power-pack), the very fallbacks flow:auto searches (#534).
@@ -380,6 +381,8 @@ class ShellStep:
                 env.pop("PYTEST_WORKERS", None)
                 if test_workers is not None:
                     env["PYTEST_WORKERS"] = test_workers[0]
+        env = dict(env) if env is not None else dict(os.environ)
+        env["CPP_RUNNER_PYTHON"] = sys.executable
         return env
 
     def resolve_pytest_workers(
@@ -740,7 +743,7 @@ def _generated_fallback(command: str, target: str) -> Optional[str]:
 # One plain command, so the fallback slot stays free of `;`/`|` and the gate
 # stays recognisable to `command_runs_make_target` (issue #1258).
 _SCOPED_MYPY_FALLBACK = (
-    f"python3 {shlex.quote(os.path.join(_CPP_ROOT, 'lib', 'cicd', 'mypy_scope.py'))} "
+    f'"$CPP_RUNNER_PYTHON" {shlex.quote(os.path.join(_CPP_ROOT, "lib", "cicd", "mypy_scope.py"))} '
     "uv run --extra dev mypy"
 )
 
@@ -808,11 +811,11 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
         StepDef(
             id="security_scan",
             gate=True,
-            command="python3 -m lib.security gate flow_finish",
+            command="\"$CPP_RUNNER_PYTHON\" -m lib.security gate flow_finish",
             description="Run security quick scan",
             timeout_seconds=120,
             max_attempts=1,
-            skip_if="! python3 -c 'import lib.security' 2>/dev/null",
+            skip_if="! \"$CPP_RUNNER_PYTHON\" -c 'import lib.security' 2>/dev/null",
             env={"PYTHONPATH": _CPP_ROOT},
         ),
         # `make verify`, the full pipeline CLAUDE.md names (#1147): a plan that
@@ -848,7 +851,7 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
         # bootstrap.py so applicable advisories are not skipped by the plan.
         StepDef(
             id="bootstrap_check",
-            command="python3 -m lib.cicd.bootstrap check",
+            command="\"$CPP_RUNNER_PYTHON\" -m lib.cicd.bootstrap check",
             description="Check bootstrap dependencies and built-in advisories",
             timeout_seconds=30,
             max_attempts=1,
@@ -895,11 +898,11 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
             # would have caught that.
             id="deploy_security_scan",
             gate=True,
-            command="python3 -m lib.security gate flow_deploy",
+            command="\"$CPP_RUNNER_PYTHON\" -m lib.security gate flow_deploy",
             description="Run security scan before deploy",
             timeout_seconds=120,
             max_attempts=1,
-            skip_if="! python3 -c 'import lib.security' 2>/dev/null",
+            skip_if="! \"$CPP_RUNNER_PYTHON\" -c 'import lib.security' 2>/dev/null",
             env={"PYTHONPATH": _CPP_ROOT},
         ),
         StepDef(
@@ -998,6 +1001,7 @@ def _query_env(env: Optional[dict[str, str]]) -> dict[str, str]:
     base = dict(os.environ if env is None else env)
     for name in _MAKE_OWN_ENV:
         base.pop(name, None)
+    base["CPP_RUNNER_PYTHON"] = sys.executable
     return base
 
 
@@ -1634,7 +1638,7 @@ def dropped_gate_ids(
 # on purpose.
 FALLBACK_UNRUNNABLE_GATES: dict[str, str] = {
     "security_scan": (
-        "the scanner is `python3 -m lib.security`, which lives in the CPP "
+        "the scanner is `\"$CPP_RUNNER_PYTHON\" -m lib.security`, which lives in the CPP "
         "checkout. The fallback lane exists precisely when uv or that checkout "
         "is unavailable - the same condition that skips the step - so there is "
         "no degraded form of it to run. A skipped scan is surfaced as a #628 "

@@ -863,7 +863,7 @@ Report: `Step 5/8: Review complete - {PASS|N issues found}`
 
 ### Step 6: Quality Gates - Lint, Test, Security (with Fix Loop)
 
-Run the deterministic quality gate runner:
+Run quality gates:
 
 ```bash
 CPP_DIR=""
@@ -875,7 +875,7 @@ for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-p
 done
 
 if [ -n "$CPP_DIR" ]; then
-    PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd run --plan finish
+    PYTHONPATH="$CPP_DIR:$PYTHONPATH" env "CPP_RUNNER_TARGET_PATH=${PATH-}" "CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" uv run --project "$CPP_DIR" python -m lib.cicd run --plan finish
     RUNNER_EXIT=$?
 fi
 ```

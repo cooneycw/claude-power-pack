@@ -45,6 +45,9 @@ def test_actual_finish_preserves_dual_native_runtime_policy(
         monkeypatch.setenv(hostile, str(ROOT))
     monkeypatch.setenv("UV_PROJECT_ENVIRONMENT", str(ROOT / ".venv"))
     env = uv_child_env()
+    # This nested runtime probe owns admission, independent of the host flag.
+    assert not (tmp_path / "no-coordination-admission").exists()
+    env["CPP_COORDINATION_ADMISSION_FILE"] = str(tmp_path / "no-coordination-admission")
     assert not {"UV_PROJECT", "UV_WORKING_DIR", "UV_WORKING_DIRECTORY", "UV_PROJECT_ENVIRONMENT"} & set(env)
     env.update(UV_PYTHON_DOWNLOADS="never", UV_OFFLINE="1", UV_CACHE_DIR=str(tmp_path / "cache"), CPP_OFFLINE="1")
     interpreters = {}
