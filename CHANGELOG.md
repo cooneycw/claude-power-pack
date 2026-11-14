@@ -2,8 +2,40 @@
 
 ## [Unreleased]
 
+## [11.1.0] - 2026-11-14
+
+### Added
+
+- A driver-parity gate derives helper and plan-record verb membership across
+  flow and delegated drivers, checks the generated flow-auto mirror, and records
+  explicit equivalents and exemptions. Static membership does not establish
+  execution order or semantic equivalence (#1816).
+
 ### Fixed
 
+- CPP's documented lanes now include toolchain version, clone shape, run
+  location, gate target and wave role state, with scoped coverage claims (#1814).
+- Wave ruling validation now recognizes colon `RATIFY:` and `OVERRULE:`
+  spellings and requires an issue and reason, while retaining unpunctuated
+  syntax (#1790).
+- Nested uv test environments strip both supported working-directory variable
+  spellings, preventing tests from selecting their surrounding checkout (#1791).
+- Generated Woodpecker secret scans pin the gitleaks image by digest (#1792).
+- Finish-gate startup preserves existing CPP environments and refuses mismatched
+  or unverified interpreter evidence instead of silently replacing them (#1793).
+- Counter-model receipts reject independence claims based only on one leading
+  `claude-` spelling difference, without rewriting measured identities (#1794).
+- Generated Woodpecker clone and Trivy images use immutable digests while
+  existing `woodpeckerci/plugin-git:2` configurations remain readable (#1795).
+- Generated infrastructure workflows restrict GitHub permissions, avoid stored
+  checkout credentials, bound runtimes and pin tool images. Pulumi and Bicep
+  use their own commands; unsupported providers fail before output (#1798).
+- Counter-model enrolment is decided in Python with explicit pass-count,
+  escalation-ruling and malformed-receipt checks (#1799).
+- Wave re-registration preserves omitted issue/repository identity and requires
+  explicit consent before dropping active work during an identity move (#1805).
+- Standalone nested finish-gate controls and tests isolate host coordination
+  admission without changing operational coordination policy (#1808).
 - Delegated Codex, Qwen and Gemma drivers now record approved plans, refuse
   omitted project lanes before delegation, ask the lane review question, and
   report close-time lane evidence using the existing flow plan helper (#1809).
@@ -48,6 +80,15 @@
   duplicates the marker. Bash 3.2 retains its previous unguarded behavior.
 
 ### Upgrading
+
+- Delegated Codex, Qwen and Gemma runs require every listed project lane to
+  be answered before approval and persist issue plan records under
+  `docs/flow-runs/` (#1809, PR #1815). Allow those files and the as-read snapshot
+  when available; an unresolved snapshot remains explicit and permits the run
+  to continue. With an adopted lane file, answer its lanes before delegation
+  and report lane evidence at close. A demonstrated record is required only
+  when at least one lane is marked `will test`. With no lane file, no lane
+  table, lane question or demonstrated record is required.
 
 - Update the CPP gate/verify launchers and regenerate task manifests to adopt
   the PATH handoff (#1801). Target bare `python`, `python3` and console tools
