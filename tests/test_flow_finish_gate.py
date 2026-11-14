@@ -189,18 +189,22 @@ _GATE_SOURCES = ("flow-finish-gate.sh", "coordination-admission.sh", "gate-lib.s
 def _environment_reads(text: str) -> set[str]:
     """Upper-case names a bash file reads before (or without) assigning them.
 
-    What it sees: `$NAME` and `${NAME...}` in non-comment lines, against
-    line-start assignments, `read NAME` and `for NAME in`. What it cannot see: a
-    name read through indirection (`${!x}`), by a child process, or assigned
-    first inside a function defined earlier than it is called. So its answer is
-    "the names these files read by name", not "everything the gate obeys".
+    What it sees: `$NAME` and `${NAME...}` outside comments and single-quoted
+    spans, against line-start assignments, `read NAME` and `for NAME in`. It
+    reads TEXT ORDER, not control flow: an assignment that never executes (inside
+    `if false`) still counts as initialisation, and two apostrophes inside a
+    double-quoted string hide what lies between them. It cannot see a name read
+    through indirection (`${!x}`) or by a child process. So its answer is "the
+    names these files read by name, in text order", not "everything the gate
+    obeys".
     """
     first_ref: dict[str, int] = {}
     first_set: dict[str, int] = {}
     for number, line in enumerate(text.splitlines()):
         if line.lstrip().startswith("#"):
             continue
-        for name in re.findall(r"(?<!\\)\$\{?([A-Z_][A-Z0-9_]*)", line):
+        # A single-quoted span is a literal the shell never expands.
+        for name in re.findall(r"(?<!\\)\$\{?([A-Z_][A-Z0-9_]*)", re.sub(r"'[^']*'", "''", line)):
             first_ref.setdefault(name, number)
         start = re.match(r"\s*(?:local\s+|export\s+|declare\s+-\w+\s+)?([A-Z_][A-Z0-9_]*)\+?=", line)
         names = [start.group(1)] if start else []
@@ -216,7 +220,8 @@ def test_the_environment_reader_finds_a_new_knob_and_ignores_an_internal_name() 
     sample = ('# ${IN_A_COMMENT:-x}\n'
               'INTERNAL=1\n'
               'echo "$INTERNAL ${A_NEW_KNOB:-} \\$ESCAPED"\n'
-              'SELF="${SELF:-default}"\n')
+              'SELF="${SELF:-default}"\n'
+              "awk '{ print ${IN_SINGLE_QUOTES:-x} }'\n")
     assert _environment_reads(sample) == {"A_NEW_KNOB", "SELF"}
 
 
@@ -3401,6 +3406,10 @@ def test_coordination_refusal_starts_no_gate_work(tmp_path: Path, supervisor_exi
 
 
 
+#: A valid branch name long enough to push the purpose past Kyle's 300.
+_LONG_BRANCH = "feature/" + "/".join(c * 100 for c in "abc")
+
+
 def _recording_authority(path: Path) -> Path:
     """A fake kyle-lock that writes its argv, one per line, then runs the gate."""
     argv = path.parent / "authority.argv"
@@ -3421,7 +3430,8 @@ def _git(repo: Path, *args: str) -> str:
 
 @requires_git
 @requires_bash
-@pytest.mark.parametrize("layout", ["issue-branch", "plain-branch-no-origin", "detached", "outside-git"])
+@pytest.mark.parametrize("layout", ["issue-branch", "plain-branch-no-origin", "detached", "outside-git",
+                                    "long-branch"])
 def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
     """Issue #1828 A1: the lease names repo, branch and sha, plus --issue and
     --pr where they can be derived, and leaves out what cannot be. On the
@@ -3429,7 +3439,7 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
     bindir = tmp_path / "bin"
     bindir.mkdir()
     gh_log = bindir / "gh.log"
-    gh_answer = {"issue-branch": "123", "plain-branch-no-origin": "not-a-number"}.get(layout, "999")
+    gh_answer = {"issue-branch": "123", "plain-branch-no-origin": "not-a-number", "long-branch": ""}.get(layout, "999")
     gh = bindir / "gh"
     gh.write_text(f'#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "{gh_log}"\necho {gh_answer}\n')
     gh.chmod(0o755)
@@ -3444,8 +3454,8 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
         sha = _git(work, "rev-parse", "--short", "HEAD")
         if layout != "plain-branch-no-origin":
             _git(work, "remote", "add", "origin", "git@github.com:acme/widget.git")
-        _git(work, "checkout", "-q", "-b",
-             "issue-77-widget" if layout == "issue-branch" else "feature-x")
+        branch = {"issue-branch": "issue-77-widget", "long-branch": _LONG_BRANCH}.get(layout, "feature-x")
+        _git(work, "checkout", "-q", "-b", branch)
         if layout == "detached":
             _git(work, "checkout", "-q", "--detach")
     else:
@@ -3465,16 +3475,18 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
         "plain-branch-no-origin": f"cpp finish gate: widget-checkout feature-x {sha}",
         "detached": f"cpp finish gate: acme/widget {sha}",
         "outside-git": "cpp finish gate:",
+        # Kyle refuses a purpose over 300 characters (counter-model review):
+        # the branch gives way, repository and sha stay.
+        "long-branch": f"cpp finish gate: acme/widget {_LONG_BRANCH[:267 - len(sha)]}... {sha}",
     }[layout]
-    assert pairs.get("--purpose") == purpose, options
+    assert len(purpose) <= 300 and pairs.get("--purpose") == purpose, options
     if layout == "issue-branch":
         assert pairs.get("--issue") == "77" and pairs.get("--pr") == "123", options
     else:
         assert "--issue" not in pairs, options
         assert "--pr" not in pairs, options  # never a guessed or non-numeric PR
     # The PR lookup runs only for a named branch, and asks about THAT branch.
-    if layout in ("issue-branch", "plain-branch-no-origin"):
-        branch = "issue-77-widget" if layout == "issue-branch" else "feature-x"
+    if layout in ("issue-branch", "plain-branch-no-origin", "long-branch"):
         assert gh_log.read_text().splitlines() == [f"pr view {branch} --json number --jq .number"]
     else:
         assert not gh_log.exists()
