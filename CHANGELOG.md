@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [11.1.1] - 2026-11-14
+
+### Fixed
+
+- Historical counter-model receipts declaring schema 1 validate by their
+  original count and extra-pass reason contract, without changing any
+  historical record (#1818, PR #1819). Schema 2 and newer keep current
+  escalation rules. Current writer version selection and the enrolment
+  gate's independent ruling checks are unchanged. Shape acceptance proves
+  neither the producer revision nor historical quota authorization.
+
 ## [11.1.0] - 2026-11-14
 
 ### Added

@@ -1,6 +1,6 @@
 # Claude Power Pack
 
-**v11.1.0** - Delegated-driver lane checks (`/codex:auto`, `/qwen:auto`, `/gemma:auto`), driver parity, caller PATH isolation, and hardened CI and bootstrap boundaries for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and Codex.
+**v11.1.1** - Historical counter-model receipt compatibility, with current writer and enrolment policies preserved, for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and Codex.
 
 ## What It Does
 
@@ -221,6 +221,15 @@ real annotated tag at [`626a96d9`](https://github.com/cooneycw/claude-power-pack
 It can be fetched with `git fetch origin tag v10.1.0`. No GitHub Release has
 been published. Further release/tag decisions remain the operator checkpoint
 tracked at [#1278](https://github.com/cooneycw/claude-power-pack/issues/1278).
+
+### v11.1.1 (2026-11-14)
+
+- Historical schema-1 counter-model receipts retain their original count and
+  extra-pass reason contract without rewriting records (#1818, PR #1819).
+- Schema 2 and newer retain current escalation requirements. The writer's
+  version selection and the enrolment gate's independent policy are unchanged.
+- Shape compatibility establishes neither the historical producer revision
+  nor quota authorization. See the [receipt contract](docs/agents/counter-model-evidence.md).
 
 ### v11.1.0 (2026-11-14)
 
