@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -22,12 +23,15 @@ pytestmark = pytest.mark.skipif(
 
 
 def target_base_python() -> str:
-    # The uv CI image installs Python under /usr/local/bin; other supported
-    # hosts provide it under /usr/bin. Neither lookup may borrow CPP's venv.
-    interpreter = shutil.which("python3", path="/usr/local/bin:/usr/bin:/bin")
-    if interpreter is None:
-        pytest.skip("needs a non-CPP Python in /usr/local/bin, /usr/bin or /bin")
-    assert not Path(interpreter).resolve().is_relative_to((ROOT / ".venv").resolve()), (
+    # Resolve on the caller's policy, excluding every CPP venv directory and
+    # alias so the fixture cannot borrow its own runner's interpreter.
+    cpp_venv = (ROOT / ".venv").resolve()
+    caller_path = os.pathsep.join(
+        entry for entry in os.environ["PATH"].split(os.pathsep)
+        if not Path(entry).resolve().is_relative_to(cpp_venv))
+    interpreter = shutil.which("python3", path=caller_path)
+    assert interpreter, "precondition: caller PATH needs a Python outside CPP's venv"
+    assert not Path(interpreter).resolve().is_relative_to(cpp_venv), (
         "precondition: target interpreter must be outside CPP's venv")
     return interpreter
 
@@ -353,24 +357,40 @@ def test_unresolved_empty_path_launcher_never_silently_dispatches(tmp_path: Path
 
 
 @pytest.mark.parametrize("probe", [run_probe, security_probe])
-def test_target_fixture_finds_python_in_ci_local_bin(tmp_path: Path, monkeypatch, probe) -> None:
-    # The uv Python CI image installs python3 in /usr/local/bin, with no
-    # interpreter in /usr/bin or /bin. Keep the rest of the real fixture intact.
-    local_bin = tmp_path / "usr/local/bin"
-    local_bin.mkdir(parents=True)
-    host_python = shutil.which("python3", path="/usr/local/bin:/usr/bin:/bin")
-    assert host_python, "precondition: CI-shaped fixture needs a base interpreter"
-    (local_bin / "python3").symlink_to(host_python)
+def test_target_fixture_finds_python_on_callers_path(tmp_path: Path, monkeypatch, probe) -> None:
+    # CI has python3 outside /usr/bin. Model that layout with a fixture-owned
+    # caller directory, while retaining real tools for the owned runner probe.
+    caller_bin = tmp_path / "caller/bin"
+    caller_bin.mkdir(parents=True)
+    (caller_bin / "python3").symlink_to(sys._base_executable)
+    monkeypatch.setenv("PATH", f"{ROOT / '.venv/bin'}:{caller_bin}:{os.environ['PATH']}")
     real_which = shutil.which
 
     def ci_which(command, mode=os.F_OK | os.X_OK, path=None):
-        if command == "python3" and path in ("/usr/bin:/bin", "/usr/local/bin:/usr/bin:/bin"):
-            directories = [str(local_bin) if entry == "/usr/local/bin" else str(tmp_path / "absent")
-                           for entry in path.split(os.pathsep)]
+        if command == "python3" and path is not None and ".target-venv" not in path:
+            # No system python3 exists outside the constructed caller dir.
+            directories = [entry for entry in path.split(os.pathsep) if entry == str(caller_bin)
+                           or Path(entry).resolve().is_relative_to((ROOT / ".venv").resolve())]
             return real_which(command, mode=mode, path=os.pathsep.join(directories))
         return real_which(command, mode=mode, path=path)
 
     monkeypatch.setattr(shutil, "which", ci_which)
     assert shutil.which("python3", path="/usr/bin:/bin") is None
-    assert shutil.which("python3", path="/usr/local/bin:/usr/bin:/bin") == str(local_bin / "python3")
+    assert shutil.which("python3", path=str(caller_bin)) == str(caller_bin / "python3")
+    try:
+        selected = target_base_python()
+    except pytest.skip.Exception as exc:
+        pytest.fail(f"supported caller PATH must be examined, not skipped: {exc}")
+    assert selected == str(caller_bin / "python3")
     probe(tmp_path / "probe", False)
+
+
+def test_target_fixture_refuses_cpp_venv_as_the_only_python(tmp_path: Path, monkeypatch) -> None:
+    # Include an alias and a subdirectory to prove exclusion follows realpaths.
+    cpp_alias = tmp_path / "cpp-alias"
+    cpp_alias.symlink_to(ROOT / ".venv", target_is_directory=True)
+    nested_bin = ROOT / ".venv/bin"
+    monkeypatch.setenv("PATH", f"{nested_bin}:{cpp_alias / 'bin'}")
+    assert shutil.which("python3", path=os.environ["PATH"]) is not None
+    with pytest.raises(AssertionError, match="precondition:.*outside CPP's venv"):
+        target_base_python()
