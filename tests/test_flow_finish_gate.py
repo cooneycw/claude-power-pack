@@ -3410,6 +3410,10 @@ def test_coordination_refusal_starts_no_gate_work(tmp_path: Path, supervisor_exi
 
 #: A valid branch name long enough to push the purpose past Kyle's 300.
 _LONG_BRANCH = "feature/" + "/".join(c * 100 for c in "abc")
+#: The same, past 300 CHARACTERS as well as bytes, and not ASCII: three
+#: 110-character components of a two-byte letter (220 bytes each, inside a
+#: filesystem's 255-byte name limit).
+_UNICODE_BRANCH = "f/" + "/".join(["\u00e9" * 110] * 3)
 
 
 def _recording_authority(path: Path) -> Path:
@@ -3428,7 +3432,8 @@ def _recording_authority(path: Path) -> Path:
 @requires_git
 @requires_bash
 @pytest.mark.parametrize("layout", ["issue-branch", "plain-branch-no-origin", "detached", "outside-git",
-                                    "long-branch", "no-timeout"])
+                                    "long-branch", "no-timeout", "unicode-long-branch-C",
+                                    "unicode-long-branch-C.UTF-8"])
 def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
     """Issue #1828 A1: the lease names repo, branch and sha, plus --issue and
     --pr where they can be derived, and leaves out what cannot be. On the
@@ -3436,14 +3441,15 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
     # The gate looks a PR up only through `timeout` (counter-model review, pass
     # 2), so a layout that expects the lookup needs the real binary; the
     # no-timeout layout takes it off PATH and expects no lookup at all.
-    lookup_layouts = ("issue-branch", "plain-branch-no-origin", "long-branch")
+    lookup_layouts = ("issue-branch", "plain-branch-no-origin", "long-branch",
+                      "unicode-long-branch-C", "unicode-long-branch-C.UTF-8")
     if layout in lookup_layouts and shutil.which("timeout") is None:
         pytest.skip("the PR lookup runs under timeout, which this host lacks")
     bindir = tmp_path / "bin"
     bindir.mkdir()
     gh_log = bindir / "gh.log"
     gh_answer = {"issue-branch": "123", "plain-branch-no-origin": "not-a-number", "long-branch": "",
-                 "no-timeout": "123"}.get(layout, "999")
+                 "no-timeout": "123"}.get(layout, "")
     gh = bindir / "gh"
     gh.write_text(f'#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "{gh_log}"\necho {gh_answer}\n')
     gh.chmod(0o755)
@@ -3459,7 +3465,8 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
         if layout != "plain-branch-no-origin":
             _git(work, "remote", "add", "origin", "git@github.com:acme/widget.git")
         branch = {"issue-branch": "issue-77-widget", "long-branch": _LONG_BRANCH,
-                  "no-timeout": "issue-77-widget"}.get(layout, "feature-x")
+                  "no-timeout": "issue-77-widget", "unicode-long-branch-C": _UNICODE_BRANCH,
+                  "unicode-long-branch-C.UTF-8": _UNICODE_BRANCH}.get(layout, "feature-x")
         _git(work, "checkout", "-q", "-b", branch)
         if layout == "detached":
             _git(work, "checkout", "-q", "--detach")
@@ -3470,6 +3477,8 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
     supervisor = tmp_path / "authority"
     argv_file = _recording_authority(supervisor)
     extra = {"CPP_KYLE_COORDINATION_ADMISSION": "1", "CPP_KYLE_LOCK_BIN": str(supervisor)}
+    if layout.startswith("unicode-long-branch-"):
+        extra["LC_ALL"] = layout.removeprefix("unicode-long-branch-")
     if layout == "no-timeout":
         extra["PATH"] = _path_without(tmp_path, "timeout")
         probe = subprocess.run(["bash", "-c", "command -v timeout"], env={"PATH": extra["PATH"]},
@@ -3477,7 +3486,9 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
         assert probe.returncode != 0, "precondition: timeout is off this PATH"
     proc, _ = _run(tmp_path, cpp_dir="", make_exit=0, cwd=work, extra_env=extra)
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    argv = argv_file.read_text().splitlines()
+    # surrogateescape: a purpose cut through a character must fail an
+    # assertion below, not a decode here.
+    argv = argv_file.read_text(encoding="utf-8", errors="surrogateescape").splitlines()
     options = argv[: argv.index("--")]
     pairs = dict(zip(options[4::2], options[5::2]))
     purpose = {
@@ -3489,6 +3500,11 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
         # the branch gives way, repository and sha stay.
         "long-branch": f"cpp finish gate: acme/widget {_LONG_BRANCH[:267 - len(sha)]}... {sha}",
         "no-timeout": f"cpp finish gate: acme/widget issue-77-widget {sha}",
+        # Only ASCII is ever shortened (counter-model review, pass 3): a cut
+        # through a multi-byte character hands Kyle invalid text, so a
+        # non-ASCII branch too long to fit is left out, in either locale.
+        "unicode-long-branch-C": f"cpp finish gate: acme/widget {sha}",
+        "unicode-long-branch-C.UTF-8": f"cpp finish gate: acme/widget {sha}",
     }[layout]
     assert len(purpose) <= 300 and pairs.get("--purpose") == purpose, options
     if layout == "issue-branch":
@@ -3500,7 +3516,7 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
         assert "--issue" not in pairs, options
         assert "--pr" not in pairs, options  # never a guessed or non-numeric PR
     # The PR lookup runs only for a named branch, and asks about THAT branch.
-    if layout in ("issue-branch", "plain-branch-no-origin", "long-branch"):
+    if layout in lookup_layouts:
         assert gh_log.read_text().splitlines() == [f"pr view {branch} --json number --jq .number"]
     else:
         assert not gh_log.exists()

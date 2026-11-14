@@ -281,7 +281,11 @@ and `--pr` is omitted. Each part is derived or left
 out, never guessed: the repository is the last two path segments of origin's
 URL (never the whole URL, which can carry a credential), else the checkout's
 directory name. Kyle refuses a purpose over 300 characters, so a long
-branch is shortened (with `...`) before repository or sha; a detached HEAD has no branch, no issue and no PR lookup;
+branch gives way before repository or sha. Lengths are measured in bytes
+whatever the locale, which never understates Kyle's character count, and only
+plain ASCII is ever shortened (with `...`): under `LC_ALL=C` bash slices bytes,
+and a cut through a multi-byte character hands Kyle invalid text. A non-ASCII
+branch too long to fit is left out of the purpose; a detached HEAD has no branch, no issue and no PR lookup;
 outside a git checkout the purpose is just `cpp finish gate:`.
 
 `kyle-lock run` returns its LAST answer's code when `--wait` expires (measured

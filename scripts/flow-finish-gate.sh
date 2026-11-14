@@ -398,17 +398,33 @@ if coordination_admission_on && [[ "$MODE" == "gate" && "${CPP_KYLE_FULL_SUITE_A
         # Kyle refuses a purpose over 300 characters (core/coordination_http.py),
         # and a refused acquire would fail the gate before any work. The branch
         # is the one unbounded part, so it gives way first; repository and sha
-        # stay. The hard cut below is the last resort for a giant repo name.
-        _coordination_room=$(( 300 - ${#_coordination_purpose} - ${#_coordination_repo} - ${#_coordination_sha} - 3 ))
-        if (( ${#_coordination_branch} > _coordination_room )); then
-            _coordination_label="${_coordination_branch:0:$(( _coordination_room > 3 ? _coordination_room - 3 : 0 ))}..."
-        else
-            _coordination_label="$_coordination_branch"
+        # stay. Lengths are BYTES whatever the locale (never fewer than Kyle's
+        # characters), and only plain ASCII is ever cut: under LC_ALL=C bash
+        # slices bytes, and a cut through a multi-byte character hands Kyle
+        # invalid text. A part that would need such a cut is left out instead.
+        _coordination_bytes() { ( LC_ALL=C; printf '%s' "${#1}" ); }
+        _coordination_ascii() { ( LC_ALL=C; [[ "$1" =~ ^[\ -~]*$ ]] ); }
+        _coordination_room=$(( 300 - $(_coordination_bytes "$_coordination_purpose") \
+            - $(_coordination_bytes "$_coordination_repo") - $(_coordination_bytes "$_coordination_sha") - 3 ))
+        _coordination_label="$_coordination_branch"
+        if (( $(_coordination_bytes "$_coordination_branch") > _coordination_room )); then
+            _coordination_label=""
+            if _coordination_ascii "$_coordination_branch" && (( _coordination_room > 3 )); then
+                _coordination_label="${_coordination_branch:0:$(( _coordination_room - 3 ))}..."
+            fi
         fi
         for _coordination_part in "$_coordination_repo" "$_coordination_label" "$_coordination_sha"; do
             [[ -z "$_coordination_part" ]] || _coordination_purpose+=" $_coordination_part"
         done
-        _coordination_purpose="${_coordination_purpose:0:300}"
+        # Last resort, for a repository name no budget fits: cut it only if it
+        # is ASCII, else keep just the sha.
+        if (( $(_coordination_bytes "$_coordination_purpose") > 300 )); then
+            if _coordination_ascii "$_coordination_purpose"; then
+                _coordination_purpose="${_coordination_purpose:0:300}"
+            else
+                _coordination_purpose="cpp finish gate: $_coordination_sha"
+            fi
+        fi
         if [[ "$_coordination_branch" =~ ^issue-([0-9]{1,9})(-|$) ]]; then
             _coordination_identity+=(--issue "${BASH_REMATCH[1]}")
         fi
