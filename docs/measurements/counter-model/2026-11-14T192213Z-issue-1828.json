@@ -1,0 +1,75 @@
+{
+  "branch": "issue-1828-flow-finish-gate-s-kyle-coordination-say-what-the",
+  "counts": {
+    "accepted": 8,
+    "deferred": 1,
+    "rejected": 1
+  },
+  "escalation": {
+    "raised_cap": 4,
+    "reference": "https://github.com/cooneycw/claude-power-pack/issues/1828#issuecomment-6882874663",
+    "ruled_by": "owner (cooneycw), in-session ruling"
+  },
+  "extra_passes_reason": "pass 2 found three MEDIUM defects in the pass-1 fixes (duplicate helper breaking mypy, exit 10 mislabelled as queued when blocked, test assuming timeout); pass 3 found a MEDIUM byte-cut of a multi-byte branch; each further pass requested by the owner in session",
+  "head": "f66f691e4a7d8461f0f5989537b0be3f506cdf79",
+  "implementer": "claude/claude-opus-5-5",
+  "implementer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "75dd78d4-9cbb-4a76-b847-70a6bd6f80e9",
+    "sources": [
+      {
+        "bytes": 2533150,
+        "path": "-home-user-Projects/75dd78d4-9cbb-4a76-b847-70a6bd6f80e9.jsonl",
+        "sha256": "56060a8cba372eaf998c8140b8d6dca81de19edc4e4cf6e337a9b2a53f6349d7"
+      }
+    ],
+    "transcript": "-home-user-Projects/75dd78d4-9cbb-4a76-b847-70a6bd6f80e9.jsonl"
+  },
+  "issue": "1828",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 4,
+  "recorded_at": "2026-11-14T19:22:13Z",
+  "red_cases": {
+    "already_covered": 18,
+    "proposed": 22
+  },
+  "reviewed_artifact": {
+    "base_sha": "d5ef0a66912436925078184d1ec8e89cb40323e6",
+    "merge_base": "908d332c0c2df04c1540fbb0afab5ad96e8db8c7",
+    "method": "runtime-head",
+    "patch_sha256": "c11ff83c167b8ab12e832152a5fc0421a25b9651688bafc218bfb1739c17adf7",
+    "report_record": 106,
+    "target_head": "f66f691e4a7d8461f0f5989537b0be3f506cdf79"
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "exec_log": "codex-review-stream.nkCnlu",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/14/rollout-2026-11-14T14-18-26-01a1db7f-29af-7e40-8340-46e4a89e7c65.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 264082,
+        "path": "codex-review-stream.nkCnlu",
+        "sha256": "69ea5700d3efcb924bd0642ec50a9cdf4722221f1038642f2b7581cc6270fb70"
+      },
+      {
+        "bytes": 843401,
+        "path": "2026/11/14/rollout-2026-11-14T14-18-26-01a1db7f-29af-7e40-8340-46e4a89e7c65.jsonl",
+        "sha256": "67ca1f208e7cca262e53b62274990d6f44097bc066a34e0d43804cea46d32ecc"
+      }
+    ],
+    "thread_id": "01a1db7f-29af-7e40-8340-46e4a89e7c65"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}
