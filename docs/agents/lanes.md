@@ -90,6 +90,12 @@ In `/flow:auto`, what happened goes in a file of its own at Step 6,
 lane answered `will test`. It is deliberately not part of the plan record,
 which must not change after approval.
 
+What a run owes is fixed when its plan is approved (issue #1821): deleting
+`.claude/lanes.md` afterwards owes nothing less, and adding one to a project
+that had none owes nothing more. A row counts only when this run writes or
+changes it after its approval, so rows an earlier run left in the file do not
+answer for this one - say what this run demonstrated.
+
 The closing report's Evidence carries the same rows with what happened. A row
 whose result differs from the approved answer is explained. In
 [the issue contract](issue-contract.md)'s terms, a Demonstrated item names the
@@ -159,7 +165,10 @@ no `will test` answer get the line exactly as it was. Where a lane result
 is owed, writing the file is not itself a change to the plan: it is left out of
 the touched files, like the plan record beside it. The file is a table - a
 header row, a `|---|---|` row, then `| <lane> | <what was demonstrated> |` per
-lane - and the stderr note beside the clause says so.
+lane - and the stderr note beside the clause says so. Since #1821 the lanes
+owed come from what `approve` stamped, not from the lane file at close, and a
+row left unchanged from before this run's approval does not count; a run with
+no stamp that owes `will test` lanes reads `, LANES NOT CHECKED`.
 
 The table itself is not machine-checked for truth. A plan can answer every
 lane `will test` and test none of them. Two readers check that:

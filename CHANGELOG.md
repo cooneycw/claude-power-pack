@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- The close-time lane check now takes what a run owes from its approval, not
+  from the lane file at close, and counts only demonstration rows written or
+  changed since that approval (#1821). Deleting `.claude/lanes.md` after
+  approval no longer silences `LANES NOT DEMONSTRATED`, and an earlier run's
+  unchanged rows no longer satisfy a new run. A run approved by an older
+  helper that owes `will test` lanes reads `LANES NOT CHECKED` until it is
+  re-approved. Whether a row is true is still not checked.
+
 ## [11.1.1] - 2026-11-14
 
 ### Fixed

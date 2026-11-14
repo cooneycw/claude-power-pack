@@ -161,16 +161,19 @@ def test_following_the_note_for_a_lane_named_with_a_pipe(tmp_path: Path) -> None
     assert verdict(compliance_as(repo, "agreement")).startswith("PLAN_COMPLIANCE: agreement - ")
 
 
-@pytest.mark.parametrize("what", ["demonstrated file", "lane file"])
+@pytest.mark.parametrize("what", ["demonstrated file", "lane stamp"])
 def test_a_not_checked_note_says_to_fix_it_or_report_unchecked(tmp_path: Path, what: str) -> None:
-    """Adding rows repairs nothing here, and the note does not say to."""
+    """Adding rows repairs nothing here, and the note does not say to. (The
+    second source was a lane file damaged at close until #1821 made the lane
+    file's state at close irrelevant; the approval's lane stamp replaced it.)"""
     repo = make_repo(tmp_path / "wt")
     approved(repo)
     if what == "demonstrated file":
         (repo / SIBLING).mkdir()
     else:
-        (repo / ".claude" / "lanes.md").unlink()
-        (repo / ".claude" / "lanes.md").mkdir()
+        gd = Path(subprocess.run(["git", "-C", str(repo), "rev-parse", "--absolute-git-dir"],
+                                 capture_output=True, text=True, check=True).stdout.strip())
+        (gd / "flow-plan-lanes-42").write_text("{")
     done = compliance_as(repo, "divergence")
     assert ", LANES NOT CHECKED - " in verdict(done)
     note = stderr_note(done)

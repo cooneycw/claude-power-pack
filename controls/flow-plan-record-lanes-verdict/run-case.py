@@ -9,6 +9,12 @@ is the project that has not adopted lanes), and optionally `demonstrated.md`
 `demonstrated-is-a-directory` makes that path a directory, which is one way
 for it to exist and be unreadable.
 
+Two inputs place things in time around the approval (issue #1821):
+`demonstrated-before.md` is written as the demonstrated file BEFORE the plan is
+approved and left unchanged (an earlier run's evidence), and a file named
+`delete-lane-file-after-approval` removes `.claude/lanes.md` once the plan is
+approved.
+
 The runner approves the plan, writes the planned file, and asks the gate for
 its compliance verdict. COMPLIANCE NEVER CHANGES ITS EXIT CODE FOR A LANE - the
 owner chose the verdict line, not a refusal (#1767) - so the exit code here is
@@ -67,10 +73,14 @@ with tempfile.TemporaryDirectory() as directory:
     setup(sys.executable, str(gate), "begin-run", "42", cwd=repo)
     with (repo / "docs" / "flow-runs" / "issue-42.md").open("a") as record:
         record.write((case / "section.md").read_text())
+    shown = repo / "docs" / "flow-runs" / "issue-42.lanes-demonstrated.md"
+    if (case / "demonstrated-before.md").exists():
+        shutil.copy(case / "demonstrated-before.md", shown)
     setup(sys.executable, str(gate), "approve", "42", cwd=repo)
+    if (case / "delete-lane-file-after-approval").exists():
+        (repo / ".claude" / "lanes.md").unlink()
     (repo / "src").mkdir()
     (repo / "src" / "app.py").write_text("x = 1\n")
-    shown = repo / "docs" / "flow-runs" / "issue-42.lanes-demonstrated.md"
     if (case / "demonstrated.md").exists():
         shutil.copy(case / "demonstrated.md", shown)
     elif (case / "demonstrated-is-a-directory").exists():
