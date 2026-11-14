@@ -83,7 +83,9 @@ with tempfile.TemporaryDirectory() as directory:
         (venv / "pyvenv.cfg").write_text(f"version_info = {cfg_version}\n")
         if mode == "major-minor-contradictory":
             cfg_version = "3.11"
-            (venv / "pyvenv.cfg").write_text("version = 3.11\nversion_info = 3.12.3\n")
+            # Ends on the value that MATCHES the interpreter, so only the cross-field
+            # minor-agreement guard can refuse it (counter-model review, #1824).
+            (venv / "pyvenv.cfg").write_text("version_info = 3.12.3\nversion = 3.11\n")
         if mode in ("contradictory-config", "contradictory-config-optin"):
             second = "3.11.9" if mode == "contradictory-config-optin" else "3.12.3"
             (venv / "pyvenv.cfg").write_text(f"version = {version}\nversion_info = {second}\n")
@@ -122,7 +124,7 @@ with tempfile.TemporaryDirectory() as directory:
         elif mode == "major-minor-disagreeing":
             assert cfg_version == "3.12" and probe.stdout.strip().startswith("3.11.")
         elif mode == "major-minor-contradictory":
-            assert (venv / "pyvenv.cfg").read_text() == "version = 3.11\nversion_info = 3.12.3\n"
+            assert (venv / "pyvenv.cfg").read_text() == "version_info = 3.12.3\nversion = 3.11\n"
         before = {str(p.relative_to(venv)): p.read_bytes() for p in venv.rglob("*") if p.is_file()}
     trace = owned / "uv.argv"
     download = owned / "would-download"
