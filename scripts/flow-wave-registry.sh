@@ -3091,11 +3091,19 @@ case "$VERB" in
     with_lock '
       .[$w] //= {"roles": {}} |
       (.[$w].roles[$r] // {}) as $prev |
+      #: RELEASED MEANS GONE (#1804, owner ruling 2026-11-14). A released row is
+      #: history, so reusing its role carries none of its work forward: files,
+      #: the merge observation and its count, and the issue all start empty
+      #: unless this call supplies them. Current `release` already blanks them;
+      #: this matters for rows released before #1222 that kept them. `repo` and
+      #: the role grants (model, permission mode, capacity, driver) stay, as
+      #: `release` keeps them too.
+      ($prev.released // false) as $was_released |
       # Omission preserves identity; explicit empty values clear it. A move
       # includes empty-to-named and named-to-empty transitions (#1762).
-      (if $issue_set == "1" then $issue else ($prev.issue // "") end) as $effective_issue |
+      (if $issue_set == "1" then $issue elif $was_released then "" else ($prev.issue // "") end) as $effective_issue |
       (if $repo_set == "1" then $repo else ($prev.repo // "") end) as $effective_repo |
-      (($prev.issue // "") != $effective_issue or ($prev.repo // "") != $effective_repo) as $moved |
+      ($was_released or ($prev.issue // "") != $effective_issue or ($prev.repo // "") != $effective_repo) as $moved |
       .[$w].roles[$r] = {
         socket: $sock, self_socket: $selfsock, pid: ($pid | tonumber? // $pid),
         pid_started: $pidstarted,
