@@ -12,6 +12,12 @@
   another run's rows merged in from main, no longer satisfy a new run. A run
   approved by an older helper that owes `will test` lanes reads `LANES NOT
   CHECKED` until it is re-approved. Whether a row is true is still not checked.
+- Reusing a released wave role no longer reactivates its old work (#1804,
+  owner ruling 2026-11-14: released means gone). A row released before #1222
+  that kept its file lane, merge observation and overtake count no longer
+  hands them, or its issue, to the next session that registers under the
+  role. Supplied values still win and a supplied observation starts its count
+  at zero; `repo` and role grants are kept, as `release` keeps them.
 
 ## [11.1.1] - 2026-11-14
 
