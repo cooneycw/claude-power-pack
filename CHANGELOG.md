@@ -2,44 +2,102 @@
 
 ## [Unreleased]
 
+## [12.0.0] - 2026-11-14
+
+Seven merged pull requests since 11.1.1 (#1826 through #1836). It is a major
+version because three of them change what `flow-plan-record.py` accepts in a
+project that has adopted a lane file (`.claude/lanes.md`): a plan or a result
+written the way 11.1.1 accepted it can now be refused or reported. Each is
+listed under Breaking with its pull request; Upgrading says what to do. A
+project with no lane file sees no lane change at all. Counts by the #1278
+rule: 3 major, 1 minor, 3 patch.
+
+### Breaking
+
+Each of these changes what the plan record accepts or what compliance reports,
+and only where `.claude/lanes.md` exists.
+
+1. **Lane answers are matched as whole phrases, from one vocabulary** (#1822,
+   PR #1829). `approve` refuses an answer that only starts with one of the
+   four (`will testing`, `not applicablewhatever`); `will test - how` and
+   `not applicable: reason` are still answers. The delegated drivers
+   (`/codex:auto`, `/qwen:auto`, `/gemma:auto`) now offer exactly the four
+   answers the helper accepts: `will refuse` is offered, and `needs a
+   decision`, which the helper always refused, is gone - settle such a lane
+   with the owner before approval.
+2. **What a run owes at close is fixed at approval** (#1821, PR #1832).
+   `approve` stamps whether the project had a lane file and which lanes were
+   owed; `compliance` reads that stamp, never the lane file at close, so
+   deleting `.claude/lanes.md` after approval no longer silences
+   `LANES NOT DEMONSTRATED`. Demonstration rows count only below this run's
+   own `<!-- lanes-demonstrated run=... plan=... -->` line, which the
+   compliance note prints, so an earlier run's rows (or another run's, merged
+   in from main) no longer satisfy a new run. A run approved by an older
+   helper that owes `will test` lanes reads `LANES NOT CHECKED` until it is
+   re-approved. Whether a row is true is still not checked.
+3. **A lane result is a stated outcome with evidence, and a will-test row
+   names its values** (#1823, PR #1833). Rows in
+   `docs/flow-runs/issue-<N>.lanes-demonstrated.md` are
+   `| <lane> | <result> | <evidence> |`, the result one of `passed`,
+   `failed`, `not run` or `refused as expected`; only `passed` or
+   `refused as expected` with evidence counts, and `TODO`, `failed`,
+   `not run` or a bare `passed` are reported with why. Lanes answered
+   `will refuse` now owe their evidence too. `approve` refuses a `will test`
+   row that names none of its lane's values from the lane file's `Values`
+   column. The `PLAN_COMPLIANCE` verdict line's shape is unchanged.
+
+### Upgrading
+
+- **A project with a lane file (Kyle today):**
+  - In each plan, answer every lane with one of `will test`, `will refuse`,
+    `not applicable`, `not covered`, and give each `will test` row the
+    values it tests, spelled as the lane file lists them (parenthetical
+    asides, emphasis and case are ignored), and the ones it does not.
+  - Write results as `| <lane> | <result> | <evidence> |` below the marker
+    line the compliance note prints; owe a result for `will refuse` lanes
+    as well as `will test` ones.
+  - A run approved before the upgrade and still open: re-run
+    `flow-plan-record.py approve <N>` (the plan is unchanged; the stamp is
+    what was missing), then write its rows under the new marker.
+  - A one-line waiver (`Lanes: none - <reason>`) still stands alone, never
+    under a `### Lanes for this change` heading.
+- **A project with no lane file (skillc today):** nothing to do; approval and
+  compliance behave exactly as before.
+- **A host that runs the finish gate under Kyle coordination:** nothing to
+  do. The lease gains a label (Added, below) and its verdicts and exit codes
+  are unchanged.
+
+### Added
+
+- The finish gate's Kyle `full-suite` lease says what it is for (#1828, PR
+  #1834): `--purpose "cpp finish gate: <owner/repo> <branch> <short-sha>"`,
+  plus `--issue N` from an `issue-<N>-...` branch and `--pr N` when it can be
+  derived, each left out rather than guessed. A `kyle-lock` exit 10 or 11 with
+  no recorded gate status now prints `coordination not granted: no grant
+  within <N>s, last state <state>`, the state read from kyle-lock's last
+  answer. Verdict and exit code are unchanged.
+
 ### Fixed
 
-- The finish gate's Kyle lease no longer names an unrelated PR for an
-  all-digit branch (#1831). It looks the PR up by head branch
-  (`gh pr list --head`) and passes `--pr` only when exactly one open,
-  same-repository PR on that branch answers; `gh pr view 123` had read branch
-  `123` as PR #123. The gate's verdict was never affected.
-- The close-time lane check now takes what a run owes from its approval, not
-  from the lane file at close, and counts only demonstration rows below this
-  run's own `<!-- lanes-demonstrated run=... plan=... -->` line, which the
-  compliance note prints (#1821). Deleting `.claude/lanes.md` after approval
-  no longer silences `LANES NOT DEMONSTRATED`, and an earlier run's rows, or
-  another run's rows merged in from main, no longer satisfy a new run. A run
-  approved by an older helper that owes `will test` lanes reads `LANES NOT
-  CHECKED` until it is re-approved. Whether a row is true is still not checked.
-- Reusing a released wave role no longer reactivates its old work (#1804,
-  owner ruling 2026-11-14: released means gone). A row released before #1222
-  that kept its file lane, merge observation and overtake count no longer
-  hands them, or its issue, to the next session that registers under the
-  role. Supplied values still win and a supplied observation starts its count
-  at zero; `repo` and role grants are kept, as `release` keeps them.
-- The close-time lane check now takes what a run owes from its approval, not
-  from the lane file at close, and counts only demonstration rows below this
-  run's own `<!-- lanes-demonstrated run=... plan=... -->` line, which the
-  compliance note prints (#1821). Deleting `.claude/lanes.md` after approval
-  no longer silences `LANES NOT DEMONSTRATED`, and an earlier run's rows, or
-  another run's rows merged in from main, no longer satisfy a new run. A run
-  approved by an older helper that owes `will test` lanes reads `LANES NOT
-  CHECKED` until it is re-approved. Whether a row is true is still not checked.
-- A lane demonstration row now counts only when it states `passed` or
-  `refused as expected` and names its evidence (#1823). Rows are
-  `| <lane> | <result> | <evidence> |`, the result one of `passed`, `failed`,
-  `not run` or `refused as expected`; `TODO`, `failed`, `not run` or a bare
-  `passed` no longer read as demonstrated, and the note names each such lane
-  with why. Lanes answered `will refuse` now owe their evidence at close too.
-  `flow-plan-record.py approve` refuses a `will test` row that names none of
-  its lane's values from `.claude/lanes.md`: a plan now says which checkouts,
-  harnesses or environments it tests. The verdict line's shape is unchanged.
+- The finish gate's Kyle lease no longer names an unrelated PR (#1831, PR
+  #1836). It looks the PR up by head branch on origin's host
+  (`gh pr list -R <host>/<owner/repo> --head <branch>`) and passes `--pr`
+  only when the lookup succeeded and exactly one open, same-repository PR on
+  that branch answers; `gh pr view 123` had read branch `123` as PR #123. An
+  origin with no host, or naming a port, makes no lookup.
+- Reusing a released wave role no longer reactivates its old work (#1804, PR
+  #1827, owner ruling 2026-11-14: released means gone). A row released before
+  #1222 that kept its file lane, merge observation and overtake count no
+  longer hands them, or its issue, to the next session that registers under
+  the role. Supplied values still win and a supplied observation starts its
+  count at zero; `repo` and role grants are kept, as `release` keeps them.
+- The finish gate accepts a `pyvenv.cfg` that records `version_info` as
+  `major.minor` (`3.11`), as current uv writes it (#1824, PR #1826): every
+  value's minor must agree with every other's and with the probed
+  interpreter, full values must still agree in full, and malformed values
+  stay invalid. Before, every fresh uv venv on such a host was refused before
+  any step ran. `tests/test_runner_target_path.py` no longer hard-codes the
+  uv directory on PATH (#1825).
 
 ## [11.1.1] - 2026-11-14
 
