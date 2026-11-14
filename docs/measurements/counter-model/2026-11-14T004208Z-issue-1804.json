@@ -1,0 +1,69 @@
+{
+  "branch": "docs-cpp-lanes",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "de533378133b5e90ba4a2cc59abe15e7aae5eab2",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/14/rollout-2026-11-14T00-30-53-01a1d776-dad5-7e22-8290-2e8db27a00da.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 1049372,
+        "path": "2026/11/14/rollout-2026-11-14T00-30-53-01a1d776-dad5-7e22-8290-2e8db27a00da.jsonl",
+        "sha256": "afb8cbfa56b54cc60ca01315baf8528f68079c7baaf0379047ff3c9aab7bacc2"
+      }
+    ],
+    "thread_id": "01a1d776-dad5-7e22-8290-2e8db27a00da"
+  },
+  "issue": "1804",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 2,
+  "recorded_at": "2026-11-14T00:42:08Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewed_artifact": {
+    "base_sha": "bcd0f3ed967ba997eb6958835f3610fc7c41a561",
+    "merge_base": "bcd0f3ed967ba997eb6958835f3610fc7c41a561",
+    "method": "captured-patch",
+    "patch_sha256": "5aefd84a00349f81d54789ffa93bd20dd059bb6834a24654cd2606989a871b45",
+    "report_record": 78,
+    "target_head": "de533378133b5e90ba4a2cc59abe15e7aae5eab2"
+  },
+  "reviewer": "codex/gpt-6.1-terra",
+  "reviewer_evidence": {
+    "exec_log": "pass2.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.1-terra"
+    ],
+    "rollout": "2026/11/14/rollout-2026-11-14T00-41-05-01a1d780-3427-7f73-a683-88e1efb60a77.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 272275,
+        "path": "pass2.jsonl",
+        "sha256": "4e0c33f8e09e959e0df4f729c130569d32dee1866ab6b9460325c8e96480698e"
+      },
+      {
+        "bytes": 579758,
+        "path": "2026/11/14/rollout-2026-11-14T00-41-05-01a1d780-3427-7f73-a683-88e1efb60a77.jsonl",
+        "sha256": "b23feb51e3349e7bab5e4f5bb212571b7e7726d477be7aec48e024765ed91984"
+      }
+    ],
+    "thread_id": "01a1d780-3427-7f73-a683-88e1efb60a77"
+  },
+  "schema": 5,
+  "scope": "unverified",
+  "status": "ran"
+}
