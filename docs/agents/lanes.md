@@ -25,8 +25,6 @@ comes from the repository, not from the session.
 
 ## The lane file
 
-Only `.claude/lanes.md` is read; lane lists kept at other paths are not read.
-
 A project that adopts lanes commits `.claude/lanes.md`:
 
 ```markdown
