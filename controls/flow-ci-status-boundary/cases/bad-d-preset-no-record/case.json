@@ -1,0 +1,13 @@
+{
+  "name": "bad-d-preset-no-record",
+  "row": "d",
+  "kind": "BAD",
+  "expected": {
+    "exit": 2,
+    "STATUS": "unknown",
+    "PROVIDER": "none",
+    "SELECTION": "unknown",
+    "no_requests": true
+  },
+  "backend": "probe"
+}

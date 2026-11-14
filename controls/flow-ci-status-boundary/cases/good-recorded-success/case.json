@@ -1,0 +1,13 @@
+{
+  "name": "good-recorded-success",
+  "row": "positive",
+  "kind": "GOOD",
+  "expected": {
+    "exit": 0,
+    "STATUS": "success",
+    "PROVIDER": "github-actions",
+    "SELECTION": "recorded",
+    "no_wp": true
+  },
+  "record": "github-actions"
+}

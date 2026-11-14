@@ -58,7 +58,7 @@ if [ "$resolved" != "$T/bin/curl" ]; then
     exit 3
 fi
 
-out=$(env CPP_FLOW_CI_BACKEND=probe PATH="$T/bin:$PATH" \
+out=$(env CPP_FLOW_CI_WORKER=1 CPP_FLOW_CI_BACKEND=probe PATH="$T/bin:$PATH" \
           FLOW_CI_CURL="$T/bin/curl" \
           FLOW_CI_AWS=/nonexistent/aws FLOW_CI_WPCLI=/nonexistent/woodpecker-cli \
           FLOW_CI_GH=/nonexistent/gh FLOW_CI_SLEEP=/bin/true \

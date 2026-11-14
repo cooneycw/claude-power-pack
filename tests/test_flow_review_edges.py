@@ -76,6 +76,7 @@ def test_status_fallback_budgets_requested_wait_and_reports_timeout(tmp_path, mo
 
     def simulated_wait(argv, *, timeout=120, **kwargs):
         assert kwargs["env"]["CPP_FLOW_CI_BACKEND"] == "probe"
+        assert kwargs["env"]["CPP_FLOW_CI_WORKER"] == "1"
         assert argv[argv.index("--wait") + 1] == "600"
         if hung or timeout < 600:
             raise subprocess.TimeoutExpired(argv, timeout)
