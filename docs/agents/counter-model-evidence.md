@@ -106,6 +106,25 @@ not authenticate their author. `validate` checks stored receipt shape and
 internal consistency without reopening host-local evidence. It does not
 upgrade a historical record to an audited review.
 
+## Historical receipt versions
+
+`validate` reads schema 1 by its recorded extra-pass contract from
+[`b6117e7b`](https://github.com/cooneycw/claude-power-pack/blob/b6117e7bcc465dc8879eefb325b87548fcd69357/scripts/counter-model-receipt.py),
+before PR #1515. A run has a positive integer pass count; above two it needs
+a nonempty `extra_passes_reason`, and at or below two it must not carry that
+field. That version had no three-pass ceiling. Schema 2 retains today's
+bounded escalation rules, as do the newer evidence schemas. Dispatch uses
+the declared integer schema version, never a date, path, or validation retry.
+The current writer's version selection is unchanged: scalar extra-pass
+records use schema 2; richer evidence uses its existing newer version.
+
+This preserves records, not permission. Historical receipts without a producer
+revision do not establish which producer wrote them, and a valid schema-1
+shape does not establish authorization for the recorded quota use. The finish
+gate independently still requires a recorded escalation above three passes,
+including when the selected receipt declares schema 1. No historical count,
+timestamp, or authority is backfilled by validation (#1818).
+
 ## Pair roles independently
 
 For example, a native Codex TUI implementation reviewed by Claude needs no

@@ -55,8 +55,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 SCHEMA = 1
-# A receipt using extra_passes_reason declares this instead (issue #1495).
-# No committed receipt uses that field yet, so no existing file needs a shim.
+# Current scalar writers use schema 2 for extra_passes_reason (#1495).
+# Historical schema 1 also carried it, before d8e86f93 (#1818); reading that
+# contract does not establish its producer revision or authorize extra passes.
 SCHEMA_EXTRA_PASSES = 2
 SCHEMA_FLOW_SCOPE = 3
 # A receipt whose retained Codex implementation rollout names more than one
@@ -64,9 +65,8 @@ SCHEMA_FLOW_SCOPE = 3
 # reviewer remains scalar: independence means it intersects none of this set.
 SCHEMA_IMPLEMENTER_SET = 4
 SCHEMA_ADAPTERS = 5
-# The committed corpus tops out at 2 passes. The only historical extra-pass
-# request was #1320, exactly pass 3 (fc87b5b8 / PR #1457); nothing above 3
-# has ever been requested in the repository's review history.
+# Current-schema validation and all writes use this ordinary ceiling.
+# Historical schema 1 predates it; its shape acceptance grants no permission.
 PASSES_HARD_CEILING = 3
 # A review that honestly ran MORE than three passes (issue #1700, owner ruling
 # 2026-11-11). The cap of 2 stays the default and 3 stays recordable with a
@@ -2360,6 +2360,9 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
 
     if not isinstance(receipt, dict):
         return [f"{source}: receipt must be an object"]
+    if type(receipt.get("schema")) is not int:
+        return [f"{source}: schema must be an integer version"]
+    legacy = receipt.get("schema") == SCHEMA
     adapters = receipt.get("schema") == SCHEMA_ADAPTERS
     has_extra_reason = "extra_passes_reason" in receipt
     has_flow_scope = (
@@ -2374,7 +2377,7 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
         else SCHEMA_FLOW_SCOPE
         if has_flow_scope
         else SCHEMA_EXTRA_PASSES
-        if has_extra_reason
+        if has_extra_reason and not legacy
         else SCHEMA
     )
     if receipt.get("schema") != expected_schema:
@@ -2654,7 +2657,7 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
     reason = receipt.get("extra_passes_reason")
     if not isinstance(passes, int) or isinstance(passes, bool) or passes < 1:
         bad.append(f"{source}: passes is {passes!r}, expected a positive integer")
-    elif passes > PASSES_HARD_CEILING:
+    elif passes > PASSES_HARD_CEILING and not legacy:
         # Beyond the ceiling only as an ESCALATED record (issue #1700): the
         # ruling fields, within the raised cap and the outer bound, and still
         # with the reason every pass beyond 2 owes.
@@ -2669,6 +2672,8 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
             )
     elif "escalation" in receipt:
         bad.append(
+            f"{source}: 'escalation' requires a current schema"
+            if legacy else
             f"{source}: 'escalation' is only for passes beyond {PASSES_HARD_CEILING} "
             f"(passes is {passes})"
         )
