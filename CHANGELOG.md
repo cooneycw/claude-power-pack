@@ -6,7 +6,8 @@
 
 - The bootstrap shell wrapper loads CPP's checker from an external working
   directory (#1803). It still uses ambient `python3` and checks its own CPP
-  checkout's bootstrap configuration.
+  checkout's bootstrap configuration. Python starts in CPP, preventing caller
+  packages from shadowing the checker or its dependencies.
 - Flow CI fallback now exits 1 for stalled automation and 2 for unknown or
   not-found results (#1758). Invalid refs stop before provider requests;
   valid-ref wait expiry still wins as exit 5. A backend preset alone cannot

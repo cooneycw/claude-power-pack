@@ -5,7 +5,7 @@
 # Thin wrapper that invokes the Python bootstrap checker. Projects can declare
 # dependencies in .claude/bootstrap.yaml; blocking checks must exit 0 for the
 # deploy to proceed. Advisory findings are reported but never block.
-# The target is this wrapper's own CPP checkout, never the caller's cwd.
+# The target and Python cwd are this wrapper's own CPP checkout.
 # Uses ambient python3 with CPP's declared PyYAML dependency; no runtime setup.
 #: NEGATIVE-CONTROL: controls/bootstrap-wrapper
 #
@@ -52,13 +52,19 @@ case "${1:-}" in
         exit 0
         ;;
     --list)
-        PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}" \
-            python3 -m lib.cicd.bootstrap list --project-root "$REPO_ROOT"
+        (
+            cd "$REPO_ROOT"
+            PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:$PYTHONPATH}" \
+                python3 -m lib.cicd.bootstrap list --project-root "$REPO_ROOT"
+        )
         exit $?
         ;;
     ""|--check)
-        PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}" \
-            python3 -m lib.cicd.bootstrap check --project-root "$REPO_ROOT"
+        (
+            cd "$REPO_ROOT"
+            PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:$PYTHONPATH}" \
+                python3 -m lib.cicd.bootstrap check --project-root "$REPO_ROOT"
+        )
         exit $?
         ;;
     *)

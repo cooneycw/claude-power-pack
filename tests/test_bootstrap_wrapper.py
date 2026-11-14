@@ -64,6 +64,10 @@ def test_real_wrapper_lists_cpp_from_outside_and_ignores_caller_lure(tmp_path, s
 @pytest.mark.parametrize("case,code,signal,anchor", [
     ("bad-blocking-unmet", 1, "finding -", False),
     ("good-blocking-satisfied", 0, "clean -", False),
+    ("bad-caller-regular-lib", 1, "finding -", False),
+    ("good-caller-regular-lib", 0, "clean -", False),
+    ("bad-caller-yaml-module", 1, "finding -", False),
+    ("good-caller-yaml-module", 0, "clean -", False),
     ("unknown-module-unimportable", 3, "unknown - unavailable", False),
     ("unknown-pyyaml-missing", 3, "unknown - unavailable", False),
     ("bad-blocking-unmet", 0, "clean -", True),

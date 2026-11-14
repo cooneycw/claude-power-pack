@@ -10,7 +10,7 @@
   "good_signal": "^BOOTSTRAP_WRAPPER_CONTROL: clean - wrapper accepted",
   "detect_signal": "^BOOTSTRAP_WRAPPER_CONTROL: finding - ",
   "unavailable_signal": "^BOOTSTRAP_WRAPPER_CONTROL: unavailable - ",
-  "limits": "Runs candidate wrapper bytes from an owned CPP layout, copying the current real lib.cicd.bootstrap and package initializers unchanged. JSON is valid YAML, decoded by real PyYAML, never a fake parser or checker. Only owned exit-0/exit-1 commands run. The wrapper owns the target; invocation cwd is a separate owned directory. A module import failure or an interpreter without PyYAML is unavailable, not unmet or clean. This control is unavailable in a CI image whose selected python3 lacks PyYAML; it does not provision an environment or claim CI runtime coverage there. The blind anchor routes check to list and therefore returns success without executing the blocker.",
+  "limits": "Runs candidate wrapper bytes from an owned CPP layout, copying the current real lib.cicd.bootstrap and package initializers unchanged. JSON is valid YAML, decoded by real PyYAML, never a fake parser or checker. Only owned exit-0/exit-1 commands run. The wrapper owns the target; invocation cwd is a separate owned directory. A module import failure or an interpreter without PyYAML is unavailable, not unmet or clean. This control is unavailable in a CI image whose selected python3 lacks PyYAML; it does not provision an environment or claim CI runtime coverage there. The blind anchor routes check to list and therefore returns success without executing the blocker. Caller-shadow pairs add a regular lib package or raising yaml module outside CPP after the real PyYAML readiness check; the wrapper must still report the owned prerequisite verdict.",
   "cases": [
     {
       "name": "bad-blocking-unmet",
@@ -31,14 +31,34 @@
       "name": "unknown-pyyaml-missing",
       "input": "cases/unknown-pyyaml-missing",
       "expect": "UNKNOWN"
+    },
+    {
+      "name": "bad-caller-regular-lib",
+      "input": "cases/bad-caller-regular-lib",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-caller-regular-lib",
+      "input": "cases/good-caller-regular-lib",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-caller-yaml-module",
+      "input": "cases/bad-caller-yaml-module",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-caller-yaml-module",
+      "input": "cases/good-caller-yaml-module",
+      "expect": "GOOD"
     }
   ],
   "anchors": [
     {
       "kind": "constructed",
       "path": "anchors/blind-list-instead-check.sh",
-      "sha256": "43701f0a5323cfd531444f43d86e4582c08e034e4306647075aace1ac7dde535",
-      "why": "Keeps the corrected import root but substitutes bootstrap list for bootstrap check. Both blocking cases return success because their commands are never examined, while import failures remain unexaminable. This is the blind alternative to a working deploy prerequisite verdict, not a historical source claim."
+      "sha256": "a65797d2e150fd2dd815313d648e8de6fbf46032830e0d2c141afe78f0b504ef",
+      "why": "Keeps the corrected import root and CPP Python cwd but substitutes bootstrap list for bootstrap check. Every blocking case returns success because its command is never examined, including caller-shadow cases, while import failures remain unexaminable. This is the blind alternative to a working deploy prerequisite verdict, not a historical source claim."
     }
   ],
   "unknown_signal": "^BOOTSTRAP_WRAPPER_CONTROL: unknown - unavailable "

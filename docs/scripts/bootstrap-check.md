@@ -13,6 +13,9 @@ there and configured check commands run there. A configuration in the caller's
 working directory is not the target. `--list` executes no dependency commands.
 The Python import root is the parent of `lib/`, so the same wrapper can be
 invoked from outside CPP without relying on the caller's cwd for `lib.cicd`.
+Python starts in CPP's root, so caller-local packages such as `lib` and `yaml`
+do not shadow the checker or its dependencies. An unset or empty `PYTHONPATH`
+does not add an empty search-path entry.
 
 The interpreter remains ambient `python3` on PATH, with CPP's declared PyYAML
 runtime dependency. This fix neither selects CPP's virtualenv nor provisions or
