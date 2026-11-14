@@ -125,6 +125,37 @@ read; exit 4 (`AS_READ: unresolved`) is relayed as unresolved, never unchanged.
 An exact issue body already fetched for this run may be passed with
 `read-issue 42 --body-file <owned-body-file>` instead of fetching it again.
 
+Define this issue's orchestration-evidence paths ONCE for both product checks.
+The shared Bash definition lives in the active worktree's git directory, not
+the product tree; each later tool shell loads this same file. Do not copy its
+path list into either guard or exclude all of `docs/flow-runs` or all receipts.
+
+```bash
+# Write one evidence definition for all product checks.
+if ! EVIDENCE_GIT_DIR=$(git rev-parse --absolute-git-dir); then
+    echo "STOP: cannot locate the evidence definition's worktree git directory"
+    exit 1
+fi
+if ! cat > "$EVIDENCE_GIT_DIR/delegated-product-evidence.sh" <<'EVIDENCE'
+delegated_product_paths() {
+    case "${1:-}" in
+        ''|*[!0-9]*) echo "Invalid issue number for product evidence" >&2; return 1 ;;
+    esac
+    DELEGATED_PRODUCT_PATHS=(
+        .
+        ":(top,exclude,literal)docs/flow-runs/issue-$1.md"
+        ":(top,exclude,literal)docs/flow-runs/issue-$1.as-read.md"
+        ":(top,exclude,literal)docs/flow-runs/issue-$1.lanes-demonstrated.md"
+        ":(top,exclude,glob)docs/measurements/counter-model/*-issue-$1.json"
+    )
+}
+EVIDENCE
+then
+    echo "STOP: cannot write the shared evidence definition"
+    exit 1
+fi
+```
+
 Report: `Step 1/8: Start complete - worktree at {path}, on branch {branch}`
 
 ---
@@ -387,15 +418,17 @@ additional refusal before committing the review checkpoint. Substitute the
 literal assigned issue number for 42; do not exclude another issue's records:
 
 ```bash
-# Exclude only this run's orchestration evidence.
+# Load the single evidence definition written at Step 1.
 if ! TARGET_ROOT=$(git rev-parse --show-toplevel); then
     echo "DELEGATED_PRODUCT_CHANGE: fail - target checkout is unknown"
     exit 1
 fi
-if ! PRODUCT_STATUS=$(git -C "$TARGET_ROOT" status --porcelain --untracked-files=all -- . \
-    ':(top,exclude,literal)docs/flow-runs/issue-42.md' \
-    ':(top,exclude,literal)docs/flow-runs/issue-42.as-read.md' \
-    ':(top,exclude,literal)docs/flow-runs/issue-42.lanes-demonstrated.md'); then
+EVIDENCE_LIBRARY="$(git -C "$TARGET_ROOT" rev-parse --absolute-git-dir)/delegated-product-evidence.sh"
+if [ ! -f "$EVIDENCE_LIBRARY" ] || ! source "$EVIDENCE_LIBRARY" || ! delegated_product_paths 42; then
+    echo "DELEGATED_PRODUCT_CHANGE: fail - shared evidence definition unavailable; repeat Step 1"
+    exit 1
+fi
+if ! PRODUCT_STATUS=$(git -C "$TARGET_ROOT" status --porcelain --untracked-files=all -- "${DELEGATED_PRODUCT_PATHS[@]}"); then
     echo "DELEGATED_PRODUCT_CHANGE: fail - could not examine product changes"
     exit 1
 fi
@@ -622,16 +655,26 @@ if [ -z "$DEFAULT_BRANCH" ] || ! MERGE_BASE=$(git merge-base HEAD "origin/$DEFAU
     echo "STOP: could not resolve a merge base with origin/${DEFAULT_BRANCH:-<default branch>} - the empty-diff backstop cannot run, so it cannot pass."
     exit 1
 fi
-git diff --quiet "$MERGE_BASE"
+if ! TARGET_ROOT=$(git rev-parse --show-toplevel); then
+    echo "DELEGATED_PRODUCT_CHANGE: fail - target checkout is unknown"
+    exit 1
+fi
+EVIDENCE_LIBRARY="$(git -C "$TARGET_ROOT" rev-parse --absolute-git-dir)/delegated-product-evidence.sh"
+if [ ! -f "$EVIDENCE_LIBRARY" ] || ! source "$EVIDENCE_LIBRARY" || ! delegated_product_paths 42; then
+    echo "DELEGATED_PRODUCT_CHANGE: fail - shared evidence definition unavailable; repeat Step 1"
+    exit 1
+fi
+git -C "$TARGET_ROOT" diff --quiet "$MERGE_BASE" -- "${DELEGATED_PRODUCT_PATHS[@]}"
 CONTENT_RC=$?
-if [ "$CONTENT_RC" -gt 1 ] || ! UNTRACKED=$(git ls-files --others --exclude-standard); then
+if [ "$CONTENT_RC" -gt 1 ] || ! UNTRACKED=$(git -C "$TARGET_ROOT" ls-files --others --exclude-standard -- "${DELEGATED_PRODUCT_PATHS[@]}"); then
     echo "STOP: could not compare the working tree with $MERGE_BASE - the empty-diff backstop cannot run, so it cannot pass."
     exit 1
 fi
 if [ "$CONTENT_RC" -eq 0 ] && [ -z "$UNTRACKED" ]; then
-    echo "STOP: no content change since origin/$DEFAULT_BRANCH, committed or pending - refusing to open a PR on an empty diff."
+    echo "DELEGATED_PRODUCT_CHANGE: fail - no content change outside this issue's evidence; refusing an empty product diff"
     exit 1
 fi
+echo "DELEGATED_PRODUCT_CHANGE: ok - final product changes exist"
 # Keep this call in THIS shell block: MERGE_BASE is not shared across tool calls.
 ~/.claude/scripts/flow-plan-record.py compliance 42 --base "$MERGE_BASE"
 ```
@@ -648,6 +691,15 @@ The invocation above runs from the target worktree in the same shell block
 that resolves `MERGE_BASE`; never carry that variable into a fresh tool shell.
 After writing new demonstrated rows, re-run that full block to recompute the
 base and report the updated evidence.
+
+Step 5 and this final backstop use the SAME Step-1 evidence definition: only
+the three exact current-issue flow-run paths and current-issue receipt names
+ending `-issue-<N>.json` directly under `docs/measurements/counter-model/` are
+evidence. Another issue's records/receipts and every other file remain product.
+The final check includes committed and pending tracked content plus untracked
+files: a quality-gate fix that reverts the product cannot ship just metadata.
+Receipt-only diffs are refused too, closing the pre-existing evidence-only
+finish hole with this same definition rather than another exclusion list.
 
 Relay the complete verdict and stderr names/reasons into the PR and closing
 evidence. Preserve its reporting semantics: agreement exits 0; divergence or

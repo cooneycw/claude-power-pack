@@ -81,6 +81,29 @@ def _run(cmd: list[str], cwd: Path, env: dict[str, str]) -> subprocess.Completed
     return subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True)
 
 
+def _prepare_plan_helper(work: Path, env: dict[str, str]) -> None:
+    """Step 7 now includes real compliance in the same shell as its backstop."""
+    installed = Path(env["HOME"]) / ".claude/scripts/flow-plan-record.py"
+    installed.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(REPO / "scripts/flow-plan-record.py", installed)
+    env["CLAUDE_CODE_SESSION_ID"] = "overrun-plan-fixture"
+    git_dir = Path(_run(["git", "rev-parse", "--absolute-git-dir"], work, env).stdout.strip())
+    body = git_dir / "owned-issue-body"
+    body.write_text("Owned issue about overrun.txt.\n")
+    for args in (["reconcile", "42"], ["read-issue", "42", "--body-file", str(body)], ["begin-run", "42"]):
+        done = _run([str(installed), *args], work, env)
+        assert done.returncode == 0, done.stdout + done.stderr
+    with (work / "docs/flow-runs/issue-42.md").open("a") as record:
+        record.write("- Approval: granted\n\n## Section C - the approved plan\n"
+                     "1. `overrun.txt` - the product change\nScope: one file\nRisks: none\n")
+    approved = _run([str(installed), "approve", "42"], work, env)
+    assert approved.returncode == 0, approved.stdout + approved.stderr
+    shared = next(block for block in re.findall(r"```bash\n(.*?)```", CORE.read_text(), re.S)
+                  if "# Write one evidence definition" in block)
+    ready = _run(["bash", "-c", shared], work, env)
+    assert ready.returncode == 0, ready.stdout + ready.stderr
+
+
 def _resolver_shaped_worktree(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     """A worktree whose branch tracks its OWN unpushed name, as the resolver makes it."""
     home = tmp_path / "home"
@@ -105,6 +128,7 @@ def _resolver_shaped_worktree(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     _run(["git", "config", f"branch.{branch}.merge", f"refs/heads/{branch}"], wt, env)
     # Precondition of the negative case: @{u} must NOT resolve here.
     assert _run(["git", "rev-parse", "--verify", "-q", "@{u}"], wt, env).returncode != 0
+    _prepare_plan_helper(wt, env)
     return wt, env
 
 
@@ -238,6 +262,7 @@ def test_the_step7_backstop_finds_origin_master_without_origin_head(tmp_path: Pa
     _run(["git", "push", "-q", "origin", "master"], work, env)
     _run(["git", "checkout", "-q", "-b", "issue-1-x"], work, env)
     assert _run(["git", "symbolic-ref", "refs/remotes/origin/HEAD"], work, env).returncode != 0
+    _prepare_plan_helper(work, env)
     _overrun_commit(work, env)
     r = _run(["bash", "-c", _backstop_block()], work, env)
     assert r.returncode == 0, r.stdout + r.stderr

@@ -41,7 +41,7 @@ driver, case_arg, candidate_arg = sys.argv[1:4]
 mode = sys.argv[4] if len(sys.argv) > 4 else "approve"
 if (case_mode := Path(case_arg) / "mode.txt").is_file():
     mode = case_mode.read_text().strip()
-if mode not in {"approve", "compliance", "compliance-shell", "product"}:
+if mode not in {"approve", "compliance", "compliance-shell", "product", "final-product"}:
     unavailable("unknown mode")
 if driver not in {"codex", "qwen", "gemma"}:
     unavailable("unknown driver")
@@ -111,10 +111,34 @@ with tempfile.TemporaryDirectory(prefix="delegated-lanes-") as raw:
     with (work / "docs/flow-runs/issue-42.md").open("a") as record:
         record.write((case / "section.md").read_text())
     done = run([sys.executable, str(helper), "approve", "42"], work)
-    if mode in {"compliance", "compliance-shell", "product"} and done.returncode == 0:
-        if mode != "product" or (case / "product.txt").exists():
+    if mode in {"compliance", "compliance-shell", "product", "final-product"} and done.returncode == 0:
+        blocks = re.findall(r"^```bash\n(.*?)^```", text, re.M | re.S)
+        shared = next((b for b in blocks if "# Write one evidence definition" in b), None)
+        if shared is not None:
+            setup(["bash", "-c", shared], work)
+        if mode in {"compliance", "compliance-shell"} or (case / "product.txt").exists():
             (work / "src").mkdir()
             (work / "src/app.py").write_text("# The planned implementation.\n")
+        if (case / "revert.txt").exists():
+            assert (work / "src/app.py").is_file(), "construct a product change before its revert"
+            setup([git, "add", "src/app.py"], work)
+            setup([git, "commit", "-qm", "product checkpoint"], work)
+            (work / "src/app.py").unlink()
+            assert not (work / "src/app.py").exists(), "construct an exact product revert"
+        if (case / "receipt.txt").exists():
+            setup([git, "add", "docs/flow-runs"], work)
+            setup([git, "commit", "-qm", "existing approval evidence"], work)
+            setup([git, "update-ref", "refs/heads/main", run([git, "rev-parse", "HEAD"], work).stdout.strip()], main)
+            receipts = work / "docs/measurements/counter-model"
+            receipts.mkdir(parents=True)
+            (receipts / "owned-issue-42.json").write_text("{}\n")
+        if (case / "other-evidence.txt").exists():
+            relative = (case / "other-evidence.txt").read_text().strip()
+            assert relative in {"docs/flow-runs/issue-43.md", "docs/flow-runs/notes.md",
+                                "docs/measurements/counter-model/owned-issue-43.json"}
+            other = work / relative
+            other.parent.mkdir(parents=True, exist_ok=True)
+            other.write_text("Other work's evidence.\n")
         if (case / "demonstrated.md").is_file():
             shutil.copy2(case / "demonstrated.md", work / "docs/flow-runs/issue-42.lanes-demonstrated.md")
         if mode == "compliance":
@@ -122,14 +146,20 @@ with tempfile.TemporaryDirectory(prefix="delegated-lanes-") as raw:
         else:
             if not shutil.which("bash"):
                 unavailable("bash is absent")
-            blocks = re.findall(r"^```bash\n(.*?)^```", text, re.M | re.S)
-            if mode == "compliance-shell":
+            if mode in {"compliance-shell", "final-product"}:
                 block = next(b for b in blocks if 'compliance 42 --base "$MERGE_BASE"' in b)
             else:
                 block = next((b for b in blocks if "DELEGATED_PRODUCT_CHANGE:" in b), None)
                 if block is None:
                     block = next(b for b in blocks if "FILES_CHANGED=" in b and '"$FILES_CHANGED" -eq 0' in b)
             done = run(["bash", "-c", block], work)
+            if mode == "final-product":
+                # Judge the product refusal, not compliance's advisory file-set result.
+                if "DELEGATED_PRODUCT_CHANGE: fail" not in done.stdout and "PLAN_COMPLIANCE:" in done.stdout:
+                    if "DELEGATED_PRODUCT_CHANGE: ok" not in done.stdout:
+                        print("DELEGATED_PLAN_LANES: legacy continuation - final check counted evidence")
+                    print(f"DELEGATED_PLAN_LANES: advisory compliance status {done.returncode}")
+                    done.returncode = 0
     sys.stdout.write(done.stdout)
     sys.stderr.write(done.stderr)
     raise SystemExit(done.returncode)

@@ -191,7 +191,11 @@ a listed lane is refused and names it; the complete plan and a project with
 no lane file pass. Each historical Step 3 anchor continues for both plans,
 showing the old omission. Close tests run the declared `compliance` invocation
 with missing and present demonstrated rows. The shared core's vendoring check
-keeps these calls in all three commands. The helper and record formats are
+keeps these calls in all three commands. The pre-review and final product
+checks load one definition excluding only this issue's three flow-run evidence
+paths and its counter-model receipt names. Metadata-only and product-revert
+cases refuse, including receipt-only diffs; another issue's records and
+receipts remain product. This also closes the earlier receipt-only finish gap. The helper and record formats are
 the existing `/flow:auto` ones; no second lane parser is introduced.
 
 **Not covered.** Recorded deterministic checkpoint calls and source-bound

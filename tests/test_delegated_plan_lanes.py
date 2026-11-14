@@ -132,3 +132,34 @@ def test_compliance_resolves_base_in_its_own_fresh_shell(driver):
                           capture_output=True, text=True, timeout=45)
     assert done.returncode == 0, done.stdout + done.stderr
     assert "PLAN_COMPLIANCE: agreement" in done.stdout
+
+
+@pytest.mark.parametrize("driver", ["codex", "qwen", "gemma"])
+@pytest.mark.parametrize("case,code", [("bad-final-product-reverted", 1), ("bad-final-receipt-only", 1),
+    ("good-final-other-flow-record", 0), ("good-final-other-receipt", 0), ("good-final-other-flow-file", 0)])
+def test_final_product_check_excludes_only_this_issues_evidence(driver, case, code):
+    control = ROOT / f"controls/delegated-{driver}-plan-lanes"
+    done = subprocess.run([sys.executable, str(RUNNER), driver, str(control / "cases" / case),
+                           str(ROOT / "scripts/flow-plan-record.py")], capture_output=True, text=True, timeout=45)
+    assert done.returncode == code, done.stdout + done.stderr
+    if code:
+        assert "DELEGATED_PRODUCT_CHANGE: fail" in done.stdout
+
+
+@pytest.mark.parametrize("driver", ["codex", "qwen", "gemma"])
+@pytest.mark.parametrize("suffix", ["other-flow-record", "other-receipt", "other-flow-file"])
+def test_pre_review_keeps_other_issues_evidence_as_product(driver, suffix):
+    control = ROOT / f"controls/delegated-{driver}-plan-lanes"
+    done = subprocess.run([sys.executable, str(RUNNER), driver,
+                           str(control / "cases" / ("good-pre-review-" + suffix)),
+                           str(ROOT / "scripts/flow-plan-record.py")], capture_output=True, text=True, timeout=45)
+    assert done.returncode == 0 and "DELEGATED_PRODUCT_CHANGE: ok" in done.stdout, done.stdout + done.stderr
+
+
+def test_both_product_guards_load_one_shared_evidence_definition():
+    core = (ROOT / "templates/delegated-driver-core.md").read_text()
+    assert core.count("delegated_product_paths() {") == 1
+    assert core.count(":(top,exclude,literal)docs/flow-runs/issue-$1") == 3
+    assert core.count(":(top,exclude,glob)docs/measurements/counter-model/*-issue-$1.json") == 1
+    assert core.count('source "$EVIDENCE_LIBRARY"') == 2
+    assert core.count('"${DELEGATED_PRODUCT_PATHS[@]}"') == 3
