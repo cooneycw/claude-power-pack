@@ -21,14 +21,24 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def target_base_python() -> str:
+    # The uv CI image installs Python under /usr/local/bin; other supported
+    # hosts provide it under /usr/bin. Neither lookup may borrow CPP's venv.
+    interpreter = shutil.which("python3", path="/usr/local/bin:/usr/bin:/bin")
+    if interpreter is None:
+        pytest.skip("needs a non-CPP Python in /usr/local/bin, /usr/bin or /bin")
+    assert not Path(interpreter).resolve().is_relative_to((ROOT / ".venv").resolve()), (
+        "precondition: target interpreter must be outside CPP's venv")
+    return interpreter
+
+
 def run_probe(work: Path, target_uv_environment: bool, inherited_path_record: bool = False,
               make_query: bool = False) -> dict:
     work.mkdir(parents=True, exist_ok=True)
     target = work / "target"
     target.mkdir()
     target_venv = target / ".target-venv"
-    target_python = shutil.which("python3", path="/usr/bin:/bin")
-    assert target_python, "precondition: fixture needs an interpreter outside CPP's venv"
+    target_python = target_base_python()
     subprocess.run(["uv", "venv", "--python", target_python, "--no-python-downloads", str(target_venv)],
                    check=True, capture_output=True, text=True, timeout=30)
     target_path = f"{target_venv / 'bin'}:/usr/local/bin:/usr/bin:/bin"
@@ -128,8 +138,7 @@ def security_probe(work: Path, with_yaml: bool, builtin: str | None = None,
     target = work / "target"
     target.mkdir()
     target_venv = target / ".target-venv"
-    target_python = shutil.which("python3", path="/usr/bin:/bin")
-    assert target_python
+    target_python = target_base_python()
     subprocess.run(["uv", "venv", "--python", target_python, "--no-python-downloads", str(target_venv)],
                    check=True, capture_output=True, text=True, timeout=30)
     site = subprocess.check_output([str(target_venv / "bin/python3"), "-c",
@@ -341,3 +350,27 @@ def test_unresolved_empty_path_launcher_never_silently_dispatches(tmp_path: Path
     assert observed["exit_code"] != 0 and not observed["dispatched"]
     if observed["runtime"] is not None:
         assert "PATH policy is unverified" in observed["stderr"]
+
+
+@pytest.mark.parametrize("probe", [run_probe, security_probe])
+def test_target_fixture_finds_python_in_ci_local_bin(tmp_path: Path, monkeypatch, probe) -> None:
+    # The uv Python CI image installs python3 in /usr/local/bin, with no
+    # interpreter in /usr/bin or /bin. Keep the rest of the real fixture intact.
+    local_bin = tmp_path / "usr/local/bin"
+    local_bin.mkdir(parents=True)
+    host_python = shutil.which("python3", path="/usr/local/bin:/usr/bin:/bin")
+    assert host_python, "precondition: CI-shaped fixture needs a base interpreter"
+    (local_bin / "python3").symlink_to(host_python)
+    real_which = shutil.which
+
+    def ci_which(command, mode=os.F_OK | os.X_OK, path=None):
+        if command == "python3" and path in ("/usr/bin:/bin", "/usr/local/bin:/usr/bin:/bin"):
+            directories = [str(local_bin) if entry == "/usr/local/bin" else str(tmp_path / "absent")
+                           for entry in path.split(os.pathsep)]
+            return real_which(command, mode=mode, path=os.pathsep.join(directories))
+        return real_which(command, mode=mode, path=path)
+
+    monkeypatch.setattr(shutil, "which", ci_which)
+    assert shutil.which("python3", path="/usr/bin:/bin") is None
+    assert shutil.which("python3", path="/usr/local/bin:/usr/bin:/bin") == str(local_bin / "python3")
+    probe(tmp_path / "probe", False)
