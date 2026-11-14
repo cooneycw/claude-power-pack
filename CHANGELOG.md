@@ -4,6 +4,20 @@
 
 ### Fixed
 
+- The bootstrap shell wrapper loads CPP's checker from an external working
+  directory (#1803). It still uses ambient `python3` and checks its own CPP
+  checkout's bootstrap configuration. Python starts in CPP, preventing caller
+  packages from shadowing the checker or its dependencies, and ignores inherited
+  Python search paths that could substitute another checker.
+- Runner PATH handoffs refuse marked absence to prevent default-directory
+  lookup; explicit empty PATH stays present and empty. The launch inventory
+  binds metadata to the actual module command, including shell separators
+  (#1801).
+
+- Finish/deploy runner steps and probes retain the caller's original PATH
+  instead of borrowing CPP's venv executables (#1801). The runner itself keeps
+  its selected interpreter. A malformed or forged PATH handoff fails before
+  CLI dispatch, without printing its value.
 - Flow CI fallback now exits 1 for stalled automation and 2 for unknown or
   not-found results (#1758). Invalid refs stop before provider requests;
   valid-ref wait expiry still wins as exit 5. A backend preset alone cannot
@@ -31,6 +45,20 @@
 
 ### Upgrading
 
+- Update the CPP gate/verify launchers and regenerate task manifests to adopt
+  the PATH handoff (#1801). Target bare `python`, `python3` and console tools
+  now resolve on the caller's original PATH; install target dependencies or
+  use its own `uv run`. Missing tools do not fall back to CPP's venv. Older
+  unmarked launchers retain their existing PATH behavior. With no caller PATH,
+  real uv startup is refused; an explicitly empty PATH stays empty.
+- `CPP_RUNNER_PYTHON` is reserved and overwritten with the actual runner
+  interpreter, including after step env overrides. CPP-owned helper commands
+  and their skip probes use its quoted value. Existing hand-written
+  `PYTHONPATH=<cpp> python3 -m lib.security` steps remain target-owned: with
+  a security YAML and no target PyYAML they return UNKNOWN/exit 2; install
+  PyYAML or explicitly migrate that helper invocation. Unknown configuration
+  never becomes a skipped or clean scan. Coordination: [kyle#2424](https://github.com/cooneycw/kyle/issues/2424)
+  and [skillc#715](https://github.com/cooneycw/skillc/issues/715).
 - Consumers of `flow-ci-status.sh` must handle fallback unknown/not-found as
   exit 2, even without `--exit-code` (#1758). Valid-ref expired waits stay 5.
   Internal backend harnesses must set `CPP_FLOW_CI_WORKER=1` with the selector;

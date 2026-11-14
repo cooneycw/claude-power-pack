@@ -1,0 +1,70 @@
+{
+  "branch": "issue-1801-runner-target-path",
+  "counts": {
+    "accepted": 5,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "extra_passes_reason": "cr-orch authorized pass 3 in mailbox 24513 because the marked-absence fix changed runtime bytes after pass 2. gpt-6.1-terra reviewed product c13099a1; its pass-3 scanner finding was accepted and fixed in tests/docs-only follow-up aa30a169, independently reviewed by cr-orch (claude-fable-5-2), mailbox 24547. Terra did not review the final scanner check; no fourth model pass was authorized.",
+  "head": "c13099a1593c4ef23b620b1b72dfd92462d24808",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/12/rollout-2026-11-12T11-03-01-01a1cf6c-e057-7223-a48a-5ed64c7d4bfe.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 15947120,
+        "path": "2026/11/12/rollout-2026-11-12T11-03-01-01a1cf6c-e057-7223-a48a-5ed64c7d4bfe.jsonl",
+        "sha256": "eeb3d73fa78d197a2e18f79f78a24a4e2cab776caaabbf106e3dbde098f50296"
+      }
+    ],
+    "thread_id": "01a1cf6c-e057-7223-a48a-5ed64c7d4bfe"
+  },
+  "issue": "1801",
+  "local_credentials": "absent",
+  "network": "unverified",
+  "passes": 3,
+  "recorded_at": "2026-11-13T22:15:59Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 5
+  },
+  "reviewed_artifact": {
+    "base_sha": "35c51d81424999849f496f325a51ecc7b7ea9367",
+    "merge_base": "35c51d81424999849f496f325a51ecc7b7ea9367",
+    "method": "captured-patch",
+    "patch_sha256": "672125e932570b7872cea41e8425f04d8440593de9f6c04896cbf4a74759610d",
+    "report_record": 17,
+    "target_head": "c13099a1593c4ef23b620b1b72dfd92462d24808"
+  },
+  "reviewer": "codex/gpt-6.1-terra",
+  "reviewer_evidence": {
+    "exec_log": "reviewer.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.1-terra"
+    ],
+    "rollout": "2026/11/13/rollout-2026-11-13T22-11-38-01a1d6f7-5e80-71b3-8020-9d6c675739db.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 2989,
+        "path": "reviewer.jsonl",
+        "sha256": "1d7aa0321cf0d990ff66239af4f3703f9d8028ebb3d93efa59fb511a99358b45"
+      },
+      {
+        "bytes": 470545,
+        "path": "2026/11/13/rollout-2026-11-13T22-11-38-01a1d6f7-5e80-71b3-8020-9d6c675739db.jsonl",
+        "sha256": "1042831fa1db5690d9bda21c1e216ec90a7deb27fadd1e61703a1d3731fb6c38"
+      }
+    ],
+    "thread_id": "01a1d6f7-5e80-71b3-8020-9d6c675739db"
+  },
+  "schema": 5,
+  "scope": "diff-only",
+  "status": "ran"
+}

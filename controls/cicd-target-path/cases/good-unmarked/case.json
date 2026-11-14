@@ -1,0 +1,6 @@
+{
+  "environment": {
+    "PATH": "@CALLER@"
+  },
+  "expected_path": "@CALLER@"
+}

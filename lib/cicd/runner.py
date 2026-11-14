@@ -316,6 +316,8 @@ def _build_step_env(project_root: Optional[Path] = None) -> dict[str, str]:
     that materializes CPP_OFFLINE runs once in the runner's execute loop.
     """
     env = {k: v for k, v in os.environ.items() if k not in RUNNER_STRIP_VARS}
+    # Reserved runtime identity, never a caller-supplied interpreter selection.
+    env["CPP_RUNNER_PYTHON"] = sys.executable
     # NOT `env.setdefault(..., _ensure_private_dir(...))` (counter-model review,
     # second pass): Python evaluates the default argument eagerly, so that form
     # created and validated the DEFAULT cache even when the caller had already

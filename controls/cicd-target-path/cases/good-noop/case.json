@@ -1,0 +1,8 @@
+{
+  "environment": {
+    "PATH": "@CALLER@",
+    "CPP_RUNNER_TARGET_PATH": "@CALLER@",
+    "CPP_RUNNER_TARGET_PATH_PRESENT": "x"
+  },
+  "expected_path": "@CALLER@"
+}

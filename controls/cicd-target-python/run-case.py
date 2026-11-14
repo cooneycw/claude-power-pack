@@ -23,7 +23,7 @@ for node in tree.body:
         isinstance(t, ast.Name) and t.id in ("RUNNER_STRIP_VARS", "MAX_TARGET_PYTHON_PIN_BYTES") for t in node.targets
     ):
         nodes.append(node)
-namespace = dict(os=os, re=re, stat=stat, Path=Path)
+namespace = dict(os=os, re=re, stat=stat, sys=sys, Path=Path)
 exec(compile(ast.Module(body=nodes, type_ignores=[]), str(sys.argv[2]), "exec"), namespace)
 with tempfile.TemporaryDirectory() as directory:
     target = Path(directory)

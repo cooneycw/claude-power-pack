@@ -53,14 +53,19 @@ BARE_PYTHON = re.compile(r"\bpython3\b")
 PYTHONPATH_INTO_LIB = re.compile(r'PYTHONPATH="\$CPP_DIR/lib')
 # Explicit approved shapes only: legacy commands and the CPP-specific isolated runner.
 LEGACY_VERIFY = 'PYTHONPATH="$CPP_DIR:$PYTHONPATH" uv run --project "$CPP_DIR" python -m lib.cicd verify'
+PATH_HANDOFF = ('"CPP_RUNNER_TARGET_PATH=${PATH-}" '
+                '"CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" ')
+PATH_VERIFY = 'PYTHONPATH="$CPP_DIR:$PYTHONPATH" env ' + PATH_HANDOFF + (
+    'uv run --project "$CPP_DIR" python -m lib.cicd verify')
 CPP_VERIFY = (
     'PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT '
     '"CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" '
     '"CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" '
-    'uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd verify'
+    + PATH_HANDOFF + 'uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd verify'
 )
-VERIFY_PREFIXES = (LEGACY_VERIFY, CPP_VERIFY)
-CORRECT_UV = re.compile(r"(?:" + re.escape(LEGACY_VERIFY.split(" ", 1)[1]) + "|" + re.escape(CPP_VERIFY) + r")\b")
+LEGACY_CPP_VERIFY = CPP_VERIFY.replace(PATH_HANDOFF, "")
+VERIFY_PREFIXES = (LEGACY_VERIFY, LEGACY_CPP_VERIFY, PATH_VERIFY, CPP_VERIFY)
+CORRECT_UV = re.compile(r"(?:" + "|".join(re.escape(prefix) for prefix in VERIFY_PREFIXES) + r")\b")
 
 
 def _markdown_files() -> list[Path]:

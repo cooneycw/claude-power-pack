@@ -1,0 +1,75 @@
+{
+  "branch": "issue-1803-bootstrap-wrapper",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "escalation": {
+    "raised_cap": 4,
+    "reference": "docs/measurements/issue-1803-review.md#review-cap",
+    "ruled_by": "cr-orch"
+  },
+  "extra_passes_reason": "Pass 2 found installed regular-lib checker substitution; pass 3 found the unknown-PyYAML control case skipped the candidate.",
+  "head": "bb9f33795e6b4b345bec96437161950a090ddd3a",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/14/rollout-2026-11-14T00-31-17-01a1d777-3aa9-7950-b067-2892df82e2ef.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 2122048,
+        "path": "2026/11/14/rollout-2026-11-14T00-31-17-01a1d777-3aa9-7950-b067-2892df82e2ef.jsonl",
+        "sha256": "545e0adc111fdffb3874c596905e17cc36e6bff4fff6dc48b3413df0750ccde6"
+      }
+    ],
+    "thread_id": "01a1d777-3aa9-7950-b067-2892df82e2ef"
+  },
+  "issue": "1803",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 4,
+  "recorded_at": "2026-11-14T01:00:23Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 3
+  },
+  "reviewed_artifact": {
+    "base_sha": "bcd0f3ed967ba997eb6958835f3610fc7c41a561",
+    "merge_base": "bcd0f3ed967ba997eb6958835f3610fc7c41a561",
+    "method": "captured-patch",
+    "patch_sha256": "a1049d92beab271858ce151fc4ba6f0852eb2626d0d0f39d4dc98cec1891c41a",
+    "report_record": 35,
+    "target_head": "bb9f33795e6b4b345bec96437161950a090ddd3a"
+  },
+  "reviewer": "codex/gpt-6.1-terra",
+  "reviewer_evidence": {
+    "exec_log": "terra-review-pass4-captured.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.1-terra"
+    ],
+    "rollout": "2026/11/14/rollout-2026-11-14T00-57-41-01a1d78f-664a-7a42-b42f-b2d633b5e2b9.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 840,
+        "path": "terra-review-pass4-captured.jsonl",
+        "sha256": "124fa51ebcedad75b9184565180f59703bd710c9cb2026e933c28940a7a23f73"
+      },
+      {
+        "bytes": 261137,
+        "path": "2026/11/14/rollout-2026-11-14T00-57-41-01a1d78f-664a-7a42-b42f-b2d633b5e2b9.jsonl",
+        "sha256": "af05fad171ce3bcf7a5f15af2c159ba0eaea6793d6f3f1ae04cd3db12ba9f5c6"
+      }
+    ],
+    "thread_id": "01a1d78f-664a-7a42-b42f-b2d633b5e2b9"
+  },
+  "schema": 5,
+  "scope": "diff-only",
+  "status": "ran"
+}
