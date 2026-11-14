@@ -1363,12 +1363,11 @@ Act on `FLOW_CI_STATUS`:
   evidence gap; an unexamined lane is not green, and a fallback probe's result
   never establishes recorded-provider completeness.
 
-`--wait` defaults to 600s, polling every 15s; `--wait <seconds>` changes it;
-omitted, one read. Without `--event` the preferred event is
-derived from the default branch's required contexts (issue #1262;
-`FLOW_CI_EVENT` names the source); a PR into a differently-protected base
-should pass `--event`. `--exit-code` exits 1 on `failure`. `--wait` exits 2
-(`unknown`), 5 (expired).
+`--wait` defaults to 600s, polling every 15s; omit for one read. Without `--event`, required contexts of the default branch select
+the event (`FLOW_CI_EVENT` names the source). Pass `--event` for a
+differently protected base. With `--exit-code`, failure/stalled exits 1.
+Unknown/not-found exits 2; valid-ref wait expiry takes precedence as 5.
+Invalid refs exit 2 before requests.
 
 On exit 127 fall back to `${CLAUDE_PLUGIN_ROOT}/scripts/flow-ci-status.sh`
 (#590), else the CPP-checkout copy; tell the user to run **`/flow:repair`**. If

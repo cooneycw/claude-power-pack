@@ -24,7 +24,7 @@ def test_incompatible_partial_credentials_never_send_an_authenticated_request(sc
     result, requests, called = cases.exercise(GATE, scenario)
     assert called, 'fixture must exercise secret fallback'
     assert not requests, 'partial settings must not route credentials from an unrelated source'
-    assert result.returncode == 0
+    assert result.returncode == 2
     assert 'FLOW_CI_STATUS: unknown' in result.stdout
 
 

@@ -13,6 +13,11 @@
   instead of borrowing CPP's venv executables (#1801). The runner itself keeps
   its selected interpreter. A malformed or forged PATH handoff fails before
   CLI dispatch, without printing its value.
+- Flow CI fallback now exits 1 for stalled automation and 2 for unknown or
+  not-found results (#1758). Invalid refs stop before provider requests;
+  valid-ref wait expiry still wins as exit 5. A backend preset alone cannot
+  bypass recorded selection; explicit workers report one scoped selection
+  and provider `none` until a lane answers. Canceled/killed stays failure.
 
 - Generated main-app CI enrolment proves the pinned CPP revision belongs to a
   complete official main snapshot before checkout or execution (#1754).
@@ -49,6 +54,10 @@
   PyYAML or explicitly migrate that helper invocation. Unknown configuration
   never becomes a skipped or clean scan. Coordination: [kyle#2424](https://github.com/cooneycw/kyle/issues/2424)
   and [skillc#715](https://github.com/cooneycw/skillc/issues/715).
+- Consumers of `flow-ci-status.sh` must handle fallback unknown/not-found as
+  exit 2, even without `--exit-code` (#1758). Valid-ref expired waits stay 5.
+  Internal backend harnesses must set `CPP_FLOW_CI_WORKER=1` with the selector;
+  public callers use `--fallback-provider-probes` for explicit probing.
 
 - Wave re-registration now keeps omitted issue/repo values and refuses an
   identity move that would implicitly discard an active lane or merge

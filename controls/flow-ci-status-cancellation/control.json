@@ -11,7 +11,7 @@
   "ci_deps_provided_by_invocation": [
     "curl"
   ],
-  "limits": "Checks HTTP cancellation classification using the verified pipeline 3196 validate step shape: commands, failure, exit 126, error Canceled. The identical shape without error must remain code. Pipeline status must remain failure. Does not establish transport behavior, CLI behavior, or aggregate classification. Anchor is a local pre-change source snapshot; no network was used. These cases exercise backend evidence with CPP_FLOW_CI_BACKEND=probe; recorded-provider dispatch is independently tested in tests/test_flow_recorded_providers.py.",
+  "limits": "Checks HTTP cancellation classification using the verified pipeline 3196 validate step shape: commands, failure, exit 126, error Canceled. The identical shape without error must remain code. Pipeline status must remain failure. Does not establish transport behavior, CLI behavior, or aggregate classification. Anchor is a local pre-change source snapshot; no network was used. These cases exercise backend evidence with CPP_FLOW_CI_BACKEND=probe; recorded-provider dispatch is independently tested in tests/test_flow_recorded_providers.py. Backend fixture calls explicitly set CPP_FLOW_CI_WORKER=1 as well as the lane selector; recorded fixture calls omit the worker marker. Frozen anchors ignore the new marker and remain executable. This change preserves each case's existing evidence rather than treating a dispatch failure as detection.",
   "cases": [
     {
       "name": "bad-canceled",

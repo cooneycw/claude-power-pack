@@ -127,7 +127,7 @@ def callback(hook: str):
 
 def shell_status(script: str, argv: list[str], lane: str) -> subprocess.CompletedProcess[str]:
     return command(["bash", script, *argv, "--wait", "0"],
-                          env={**os.environ, "CPP_FLOW_CI_BACKEND": lane},
+                          env={**os.environ, "CPP_FLOW_CI_BACKEND": lane, "CPP_FLOW_CI_WORKER": "1"},
                           capture_output=True, text=True, timeout=120)
 
 
@@ -166,6 +166,19 @@ def watch_entry(script: str, argv: list[str]) -> int:
     return entry(watch_main, "FLOW_PR_WATCH_EXIT", script, argv)
 
 
+def pin_status_ref(path: str, ref: str | None) -> str:
+    """Capture a commit once before either public mode can probe or poll."""
+    pinned = ref or "HEAD"
+    if re.fullmatch(r"[0-9a-fA-F]{40}", pinned):
+        return pinned.lower()
+    resolved = command(["git", "-C", path, "rev-parse", "--verify", "--end-of-options",
+                        pinned + "^{commit}"], capture_output=True, text=True, timeout=10, check=True)
+    pinned = resolved.stdout.strip()
+    if not re.fullmatch(r"[0-9a-f]{40}", pinned):
+        raise ProviderError("commit ref did not resolve to a full SHA")
+    return pinned
+
+
 def status_main(script: str, argv: list[str]) -> int:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--path", default=os.getcwd())
@@ -190,47 +203,44 @@ def status_main(script: str, argv: list[str]) -> int:
     if args.strict_event:
         backend_args.append("--strict-event")
     plan = lane_plan(args.path, allow_fallback=args.fallback_provider_probes)
-    if plan["fallback"]["would_trigger"]:
-        env = {**os.environ, "CPP_FLOW_CI_BACKEND": "probe"}
-        fallback_argv = ["bash", script, *([args.sha] if args.sha else []),
-                         *backend_args, "--wait", str(args.wait)]
-        if args.exit_code:
-            fallback_argv.append("--exit-code")
-        try:
-            result = command(fallback_argv, env=env, capture_output=True, text=True,
-                             timeout=max(120, args.wait + 120))
-        except subprocess.TimeoutExpired:
-            print("flow-ci-status: explicit provider-probe fallback exceeded its wait budget", file=sys.stderr)
-            print("FLOW_CI_SELECTION: fallback")
-            print("FLOW_CI_PROVIDER: unknown")
-            print("FLOW_CI_STATUS: unknown")
-            return 2
-        print(result.stdout, end="")
-        child_stderr(result.stderr, "FLOW_CI_EXIT")
-        return result.returncode
-    if plan["status"] != "ok":
+    fallback = plan["fallback"]["would_trigger"]
+    if plan["status"] != "ok" and not fallback:
         print(f"flow-ci-status: {plan['reason']}; {REMEDY}", file=sys.stderr)
         print("FLOW_CI_SELECTION: unknown")
         print("FLOW_CI_PROVIDER: none")
         print("FLOW_CI_STATUS: unknown")
         return 2
-    lanes = [(item["provider"], item["lane"]) for item in plan["lanes"]]
-    # Capture mutable refs ONCE. Independent lanes must describe the same
-    # commit even if the checkout moves during dispatch or a long wait.
-    pinned = args.sha or "HEAD"
-    if re.fullmatch(r"[0-9a-fA-F]{40}", pinned):
-        pinned = pinned.lower()
-    else:
+    try:
+        pinned = pin_status_ref(args.path, args.sha)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        print("flow-ci-status: commit ref unreadable; name the full commit SHA", file=sys.stderr)
+        print("FLOW_CI_SELECTION: " + ("fallback (explicit provider probing)" if fallback else "recorded"))
+        print("FLOW_CI_PROVIDER: none")
+        print("FLOW_CI_STATUS: unknown")
+        return 2
+    if fallback:
+        env = {**os.environ, "CPP_FLOW_CI_BACKEND": "probe", "CPP_FLOW_CI_WORKER": "1"}
+        fallback_argv = ["bash", script, pinned, *backend_args, "--wait", str(args.wait)]
+        if args.exit_code:
+            fallback_argv.append("--exit-code")
+        print("FLOW_CI_SELECTION: fallback (explicit provider probing)")
         try:
-            resolved = command(["git", "-C", args.path, "rev-parse", "--verify", "--end-of-options",
-                                pinned + "^{commit}"], capture_output=True, text=True, timeout=10, check=True)
-            pinned = resolved.stdout.strip()
-            if not re.fullmatch(r"[0-9a-f]{40}", pinned):
-                raise ProviderError("commit ref did not resolve to a full SHA")
-        except (OSError, ValueError, subprocess.SubprocessError):
-            print("flow-ci-status: commit ref unreadable; name the full commit SHA", file=sys.stderr)
+            result = command(fallback_argv, env=env, capture_output=True, text=True,
+                             timeout=max(120, args.wait + 120))
+        except (OSError, subprocess.TimeoutExpired):
+            print("flow-ci-status: explicit provider-probe fallback unavailable or exceeded its wait budget",
+                  file=sys.stderr)
+            print("FLOW_CI_PROVIDER: none")
             print("FLOW_CI_STATUS: unknown")
             return 2
+        # A public run publishes exactly one planner decision, never a child's
+        # internal worker label or a second apparent public selection.
+        for line in result.stdout.splitlines():
+            if not line.startswith("FLOW_CI_SELECTION:"):
+                print(line)
+        child_stderr(result.stderr, "FLOW_CI_EXIT")
+        return result.returncode
+    lanes = [(item["provider"], item["lane"]) for item in plan["lanes"]]
     backend_args.insert(0, pinned)
     deadline = time.monotonic() + args.wait
     reports: list[tuple[str, str, dict[str, list[str]]]] = []
@@ -252,6 +262,7 @@ def status_main(script: str, argv: list[str]) -> int:
                 values = report.get("FLOW_CI_STATUS", [])
                 state = values[0] if len(values) == 1 and (
                     result.returncode == 0 or result.returncode == 1 and values[0] in {"failure", "stalled"}
+                    or result.returncode == 2 and values[0] in {"unknown", "not-found"}
                 ) else "unknown"
                 if report.get("FLOW_CI_REF") != [pinned] or report.get("FLOW_CI_PROVIDER") != [name]:
                     state = "unknown"
@@ -287,7 +298,7 @@ def status_main(script: str, argv: list[str]) -> int:
     # decisive diagnostics and publish every lane's independent population.
     decisive = next((item for item in reports if item[1] == verdict), reports[0])
     for key, values in decisive[2].items():
-        if key in {"FLOW_CI_STATUS", "FLOW_CI_PROVIDER", "FLOW_CI_WAIT"}:
+        if key in {"FLOW_CI_STATUS", "FLOW_CI_PROVIDER", "FLOW_CI_WAIT", "FLOW_CI_SELECTION"}:
             continue
         for value in values:
             print(f"{key}: {value}")

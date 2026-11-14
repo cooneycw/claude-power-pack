@@ -35,7 +35,7 @@ def exercise(gate, scenario):
         curl.chmod(0o755)
         env = {k: v for k, v in os.environ.items()
                if k not in {'WOODPECKER_API_TOKEN', 'WOODPECKER_SERVER', 'WOODPECKER_HOST'}}
-        env.update(CPP_FLOW_CI_BACKEND='probe', FLOW_CI_CURL=str(curl), FLOW_CI_AWS=str(aws),
+        env.update(CPP_FLOW_CI_WORKER='1', CPP_FLOW_CI_BACKEND='probe', FLOW_CI_CURL=str(curl), FLOW_CI_AWS=str(aws),
                    FLOW_CI_GH='/nonexistent/gh',
                    FLOW_CI_WPCLI='/nonexistent/woodpecker-cli', FLOW_CI_SLEEP='/nonexistent/sleep', HOME=str(root))
         supplied = {
@@ -67,12 +67,13 @@ def main():
     gate, case = map(Path, sys.argv[1:])
     scenario = (case / 'scenario.txt').read_text().strip()
     result, rows, called = exercise(gate, scenario)
-    assert result.returncode == 0, 'helper must retain fail-open behavior'
     if not rows:
+        assert result.returncode == 2, 'credential refusal must be unknown/2, not advisory success'
         assert scenario.startswith('bad-') and called
         assert 'FLOW_CI_STATUS: unknown' in result.stdout
         print('CREDENTIAL_PAIR: refused')
         return 1
+    assert result.returncode == 0, 'authenticated success remains exit 0'
     expected_server = SERVER_B if scenario == 'good-environment' else SERVER_A
     expected_token = TOKEN_B if scenario == 'good-environment' else TOKEN_A
     if scenario.startswith('good-'):

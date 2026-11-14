@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 #: NEGATIVE-CONTROL: controls/flow-ci-credential-pair
+#: NEGATIVE-CONTROL: controls/flow-ci-status-boundary
 # flow-ci-status.sh - Resolve the CI outcome for ONE commit SHA (issues #766, #768).
 #
 # Problem:
@@ -21,10 +22,11 @@
 # failed STEPS. By default it reads recorded providers through the canonical
 # registry, pins one SHA and examines each selected lane independently.
 # Woodpecker uses its HTTP API or authenticated CLI; Actions uses gh.
-# Unknown records or unexamined evidence exit 2 on the recorded path. Legacy
-# probing is available only with --fallback-provider-probes and reports its
-# advisory fallback scope; a single-shot fallback read exits 0 whatever it
-# found (fail-open), and only --wait or --exit-code make its exit code a claim.
+# Unknown records or unexamined evidence exit 2. Probing is available only
+# with --fallback-provider-probes; a preset backend alone grants no mode.
+# Single-shot unknown/not-found exits 2 on both paths. A valid-ref wait that
+# expires remains exit 5, before the unknown/not-found rule. Invalid refs exit
+# 2 immediately, before provider requests or polling.
 #
 # Complete environment credentials are used together. An incomplete pair may
 # use AWS Secrets Manager only when its supplied half matches the secret pair.
@@ -65,17 +67,16 @@
 #                  5. A pipeline that is FOUND but whose status cannot be read
 #                  yet, and a listing that fails mid-wait, are polled to the
 #                  deadline rather than ending the wait.
-#   --exit-code    Exit 1 on failure; on the recorded path also on stalled,
-#                  and recorded unknown exits 2. KNOWN DEFECT (issue #1758):
-#                  in fallback or pre-set-backend mode a STALLED pipeline
-#                  exits 0 under --exit-code. Read FLOW_CI_STATUS there.
+#   --exit-code    Exit 1 on failure or stalled in every mode. Unknown and
+#                  not-found exit 2 with or without this flag. A valid-ref
+#                  expired wait remains 5; invalid refs are immediate 2.
 #   --fallback-provider-probes  Permit labelled legacy probing ONLY when the
 #                  record cannot select lanes; valid records still win.
 #
 # Output ends with a machine-readable contract - the failed-step lines, when
 # present, immediately precede the verdict:
 #   FLOW_CI_PROVIDER: <selected provider names, comma separated> | none
-#   FLOW_CI_SELECTION: recorded | unknown | fallback (...)
+#   FLOW_CI_SELECTION: recorded | unknown | fallback (...) | worker (<lane>)
 #   FLOW_CI_LANES: <per-provider evidence JSON> (recorded dispatch)
 #   FLOW_CI_REF: <sha>
 #   FLOW_CI_REPO: <owner/name|->           (issue #1262)
@@ -139,25 +140,21 @@
 
 set -uo pipefail
 
-# Explicit compatibility probing does not need the project-record reader or
-# Python. Keep it available when those prerequisites themselves are missing.
+# A backend selector is internal only with explicit worker context. A legacy
+# preset alone cannot bypass recorded planning or authorize probing (#1758).
+trap 'printf "FLOW_CI_EXIT=%d\n" "$?" >&2' EXIT
+_ci_compat_fallback=0
 _ci_args=()
 for _ci_arg in "$@"; do
     if [[ "$_ci_arg" == "--fallback-provider-probes" ]] && ! command -v python3 >/dev/null 2>&1; then
-        export CPP_FLOW_CI_BACKEND=probe
+        export CPP_FLOW_CI_WORKER=1 CPP_FLOW_CI_BACKEND=probe
+        _ci_compat_fallback=1
     else
         _ci_args+=("$_ci_arg")
     fi
 done
 set -- "${_ci_args[@]}"
 _ci_original_args=("$@")
-if [[ "${CPP_FLOW_CI_BACKEND:-}" == "probe" ]]; then
-    echo "FLOW_CI_SELECTION: fallback (explicit provider probing)"
-fi
-
-
-# Exit status on stderr, last thing written, so it survives `| tail` (issue #1031).
-trap 'printf "FLOW_CI_EXIT=%d\n" "$?" >&2' EXIT
 
 SHA=""
 CHECK_PATH=""
@@ -224,9 +221,33 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Public mode is planned once. Workers identify their scope, and the public
+# dispatcher suppresses that child line before publishing its own selection.
+if [[ -n "${CPP_FLOW_CI_WORKER:-}" ]]; then
+    if [[ "$CPP_FLOW_CI_WORKER" != "1" ]] || ! [[ "${CPP_FLOW_CI_BACKEND:-}" =~ ^(probe|woodpecker|github-actions)$ ]]; then
+        echo "flow-ci-status: invalid internal CI worker context" >&2
+        echo "FLOW_CI_SELECTION: unknown"
+        echo "FLOW_CI_PROVIDER: none"
+        echo "FLOW_CI_STATUS: unknown"
+        exit 2
+    fi
+    if [[ "$_ci_compat_fallback" == "1" ]]; then
+        echo "FLOW_CI_SELECTION: fallback (explicit provider probing)"
+    else
+        echo "FLOW_CI_SELECTION: worker ($CPP_FLOW_CI_BACKEND)"
+    fi
+fi
+
 # Resolve CPP source, never parse project YAML in this consumer. Installed
 # helpers may be symlinks; generated mirrors can locate their containing checkout.
-if [[ -z "${CPP_FLOW_CI_BACKEND:-}" && "$*" != "--help" && "$*" != "-h" ]]; then
+if [[ "${CPP_FLOW_CI_WORKER:-}" != "1" && "$*" != "--help" && "$*" != "-h" ]]; then
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo "flow-ci-status: provider reader unavailable; restore Python or explicitly permit fallback probing" >&2
+        echo "FLOW_CI_SELECTION: unknown"
+        echo "FLOW_CI_PROVIDER: none"
+        echo "FLOW_CI_STATUS: unknown"
+        exit 2
+    fi
     exec python3 - "$0" "${_ci_original_args[@]}" <<'PYCODE'
 import os, sys
 from pathlib import Path
@@ -244,14 +265,16 @@ for root in candidates:
         from lib.cicd.flow import status_entry
         raise SystemExit(status_entry(str(script), sys.argv[2:]))
 print("flow-ci-status: CPP provider reader unavailable; restore the CPP installation", file=sys.stderr)
+print("FLOW_CI_SELECTION: unknown")
+print("FLOW_CI_PROVIDER: none")
 print("FLOW_CI_STATUS: unknown")
 print("FLOW_CI_EXIT=2", file=sys.stderr)
 raise SystemExit(2)
 PYCODE
 fi
 
-PROVIDER="${CPP_FLOW_CI_BACKEND:-none}"
-[[ "$PROVIDER" == "probe" ]] && PROVIDER="none"
+# Selection is not evidence that a provider answered.
+PROVIDER="none"
 PIPELINE="-"
 URL="-"
 STATUS="unknown"
@@ -418,22 +441,20 @@ emit() {
     fi
     [[ "$STATUS" == "unknown" && -n "$RETRYABLE" ]] && echo "FLOW_CI_RETRYABLE: $RETRYABLE"
     echo "FLOW_CI_STATUS: $STATUS"
-    if [[ "$WANT_EXIT_CODE" -eq 1 && "$STATUS" == "failure" ]]; then
+    if [[ "$WANT_EXIT_CODE" -eq 1 && ( "$STATUS" == "failure" || "$STATUS" == "stalled" ) ]]; then
         exit 1
     fi
     # A wait that was asked for and did not reach a terminal verdict must not
-    # exit 0 (issue #1684): a lock-hold script read exit 0 as "the wait ended"
-    # and released a merge lock under a running pipeline. Single-shot reads
-    # keep their fail-open exit 0; only --wait makes the exit code a claim.
+    # exit 0 (issue #1684). Expiry has priority over the unknown/not-found
+    # exit 2 below: a valid-ref wait that exhausted its window remains 5.
     if [[ "$WAIT_SECS" -gt 0 ]]; then
         if [[ "$WAIT_STATE" == expired* ]]; then
             echo "flow-ci-status: the --wait window of ${WAIT_SECS}s expired with status '$STATUS' (exit 5)" >&2
             exit 5
         fi
-        if [[ "$STATUS" == "unknown" ]]; then
-            echo "flow-ci-status: the wait ended on 'unknown', not on a CI result (exit 2)" >&2
-            exit 2
-        fi
+    fi
+    if [[ "$STATUS" == "unknown" || "$STATUS" == "not-found" ]]; then
+        exit 2
     fi
     exit 0
 }
@@ -441,20 +462,22 @@ emit() {
 # ── Resolve checkout, SHA, repo ────────────────────────────────────────────
 [[ -n "$CHECK_PATH" ]] || CHECK_PATH="$PWD"
 if [[ ! -d "$CHECK_PATH" ]]; then
-    echo "flow-ci-status: checkout not found: $CHECK_PATH (fail-open)" >&2
+    echo "flow-ci-status: checkout not found: $CHECK_PATH (unknown; exit 2)" >&2
     emit
 fi
 
-if [[ -z "$SHA" ]]; then
-    SHA="$(git -C "$CHECK_PATH" rev-parse HEAD 2>/dev/null)"
-    if [[ -z "$SHA" ]]; then
-        echo "flow-ci-status: not a git checkout: $CHECK_PATH (fail-open)" >&2
+# Full nonlocal SHAs are legitimate provider queries. Everything else must
+# resolve to a commit before any credential lookup, provider request or wait.
+if [[ "$SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    SHA="$(printf '%s' "$SHA" | tr 'A-F' 'a-f')"
+else
+    if ! FULL="$(git -C "$CHECK_PATH" rev-parse --verify --end-of-options "${SHA:-HEAD}^{commit}" 2>/dev/null)" \
+            || ! [[ "$FULL" =~ ^[0-9a-f]{40}$ ]]; then
+        echo "flow-ci-status: commit ref unreadable; name the full commit SHA" >&2
+        STATUS="unknown"
         emit
     fi
-else
-    # Accept a short SHA / ref and expand it, so `.commit` compares exactly.
-    FULL="$(git -C "$CHECK_PATH" rev-parse "$SHA" 2>/dev/null)"
-    [[ -n "$FULL" ]] && SHA="$FULL"
+    SHA="$FULL"
 fi
 
 # IN THE DECLARED CHECKOUT, never the caller's cwd (issue #1262). `gh repo
@@ -476,7 +499,7 @@ if [[ -z "$REPO" ]]; then
     [[ "$REPO" == "${ORIGIN%.git}" || "$REPO" == "$ORIGIN" ]] && REPO=""
 fi
 if [[ -z "$REPO" ]]; then
-    echo "flow-ci-status: could not resolve owner/name for $CHECK_PATH (fail-open)" >&2
+    echo "flow-ci-status: could not resolve owner/name for $CHECK_PATH (unknown; exit 2)" >&2
     emit
 fi
 
@@ -589,13 +612,10 @@ fi
 # output precisely so it needs no formatter. So this is a per-lane flag, NOT an
 # early exit: short-circuiting here would disable the one lane that still works.
 #
-# Without the flag a missing jq was silent: every `jq ... 2>/dev/null` yielded
-# empty, the lookup found no REPO_ID, and the script emitted
-# `FLOW_CI_STATUS: unknown` and exited 0 - indistinguishable from "no
-# credentials" or "no network", which is the reading Step 8 acts on by
-# proceeding. Name the real reason instead. It DEGRADES rather than exiting:
-# `unknown` is this helper's documented fail-open verdict and Step 8 is built on
-# it, so a missing formatter must never be the thing that stops a merge.
+# Missing jq leaves the API and Actions lanes unexamined. Name that gap and
+# still try the CLI lane, which does not need it. If no lane answers, unknown
+# exits 2 rather than allowing a caller to mistake absence of evidence for CI.
+
 HAVE_JQ=1
 if ! command -v jq >/dev/null 2>&1; then
     HAVE_JQ=0
@@ -629,7 +649,7 @@ if [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "github-actions" && "$HAVE_JQ" -eq 1 &&
                 if [[ ( -n "$WP_TOKEN" && "$WP_TOKEN" != "$SECRET_TOKEN" ) \
                    || ( -n "$WP_SERVER" && "${WP_SERVER%/}" != "${SECRET_SERVER%/}" ) ]]; then
                     unset SECRET_JSON SECRET_TOKEN SECRET_SERVER WP_TOKEN WP_SERVER
-                    echo "flow-ci-status: Woodpecker credential sources do not match (fail-open unknown)" >&2
+                    echo "flow-ci-status: Woodpecker credential sources do not match (unknown; exit 2)" >&2
                     emit
                 fi
                 WP_TOKEN="$SECRET_TOKEN"

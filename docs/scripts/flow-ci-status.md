@@ -4,6 +4,42 @@ Per-script history, indexed from [the scripts inventory](../scripts.md).
 
 ## `flow-ci-status`
 
+
+### Public boundary and migration (#1758)
+
+Recorded providers still select the public plan. `--fallback-provider-probes`
+is the only public opt-in to probing when no record selects lanes; a preset
+`CPP_FLOW_CI_BACKEND` alone does not bypass planning. Each reporting run emits
+one `FLOW_CI_SELECTION` line. Internal callers must set `CPP_FLOW_CI_WORKER=1`
+with a supported backend selector and receive `worker (<lane>)`. This marker is
+inheritable like any environment variable: an outside harness exporting both
+gets worker mode and `FLOW_CI_SELECTION: worker (<lane>)`. Public output
+suppresses those child labels. Workers start with provider `none` until a lane
+answers. The recorded public provider summary names selected providers, not
+independently authenticated provider identities; the existing ref/provider
+comparison remains a consistency check.
+
+| Condition | Exit |
+| --- | --- |
+| Invalid commit ref, before requests or waiting | 2 |
+| Valid-ref wait exhausted its window | 5 |
+| Unknown or not-found, before expiry or in a single read | 2 |
+| Failure or stalled with `--exit-code` | 1 |
+| Other settled/advisory result | 0 |
+
+Expiry takes precedence over unknown/not-found. Valid full nonlocal 40-hex SHAs
+are accepted and normalized to lowercase; other refs must resolve to commits
+before probing. Killed/canceled remains failure, and flow commands keep stopping
+on stalled. Consumers relying on fallback unknown/not-found exit 0 must handle
+2; harnesses relying on the backend shortcut must use explicit worker context.
+Regenerate installed helper copies from updated CPP before relying on this
+contract. `controls/flow-ci-status-boundary` freezes shell and dispatcher together
+for its blind anchor and proves all five changed boundary rows with owned
+provider stubs; its valid-ref expiry positive still requires 5. The six existing
+backend controls use the explicit marker without changing their case meaning.
+
+### Earlier behavior
+
 - flow-ci-status - SHA-anchored CI verification as ONE audited allowlistable helper (#766, the #581 pattern): `/flow:auto` Step 8 was the last un-helpered step, inlining a `curl`+`jq` Woodpecker lookup gated on `WOODPECKER_API_TOKEN` already being exported - which it usually is not, since the token lives in an AWS secret rather than a shell profile. With no helper the model improvises, and on kyle flow:auto #516 the improvisation was a grep over `woodpecker-cli pipeline ls` that matched an unrelated PR pipeline from a DIFFERENT concurrent fleet session and reported `STATUS=failure` while the run's own pipeline was still queued. With several sessions merging into one repo that shared list is mostly other people's runs, so any positional grep is a coin flip. This helper selects on `.commit == <sha>` and cannot make that mistake
 - flow-ci-status credentials + step naming - takes the token from `$WOODPECKER_API_TOKEN` when exported, else fetches it from AWS Secrets Manager (`essent-ai` / `us-east-1`, both overridable via `--secret-name` / `--region` / `CPP_WOODPECKER_SECRET`), and never lets it reach stdout, stderr, or a command line (`curl -H @-` feeds the header on stdin, so `ps` never sees it). A failure names the failed STEPS, because pipeline colour cannot separate a red test suite from a red deploy step - for kyle's push pipelines a transient SSH connect timeout in `deploy` and a genuine `test-unit` regression are the same colour and different problems
 - flow-ci-status contract - `FLOW_CI_PROVIDER` / `FLOW_CI_REF` / `FLOW_CI_PIPELINE` / `FLOW_CI_URL` / repeated `FLOW_CI_FAILED_STEP` / `FLOW_CI_STATUS: success|failure|running|pending|not-found|unknown`. `--wait [SECS]` (default 600, 15s interval) replaces the hand-rolled poll loops Step 8 used to carry, `--event` picks among pipelines sharing a SHA (a merge commit usually has both a `push` and a `pull_request` run), and `--exit-code` turns a `failure` verdict into exit 1. GitHub Actions is the fallback provider where there is no Woodpecker. Fail-open everywhere else: no credentials, no network, no provider, no checkout all yield `unknown` and exit 0, so CI verification can never block a flow it cannot assess. The checkout is DECLARED via `--path`, never inferred from the Bash cwd (the #614 rule)
