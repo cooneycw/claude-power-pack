@@ -18,7 +18,8 @@
 # raising one needs a reason in the PR.
 # #1809 adds the required delegated approval record, shared exact evidence
 # definition, lane review and close-time reporting. The three auto caps grow
-# by 1553 words each for that executable lifecycle; other caps stay unchanged.
+# only to the compact procedure counts below; rationale lives in the linked
+# delegated-plan-lanes reference. Other caps stay unchanged.
 464	browser/help.md
 1077	browser/session.md
 425	cicd/check.md
@@ -36,7 +37,7 @@
 242	claude-md/help.md
 1396	claude-md/lint.md
 1613	codex/ask.md
-9283	codex/auto.md
+8654	codex/auto.md
 6359	codex/code_review.md
 1134	codex/exec.md
 640	codex/help.md
@@ -69,7 +70,7 @@
 450	flow/status.md
 386	flow/sync.md
 11837	flow/wave.md
-11100	gemma/auto.md
+10471	gemma/auto.md
 1779	gemma/exec.md
 1859	gemma/help.md
 1831	gemma/status.md
@@ -91,7 +92,7 @@
 2443	project/next.md
 499	qa/help.md
 1279	qa/test.md
-10491	qwen/auto.md
+9862	qwen/auto.md
 1554	qwen/exec.md
 1521	qwen/help.md
 1243	qwen/status.md
