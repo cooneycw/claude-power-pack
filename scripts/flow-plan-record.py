@@ -422,8 +422,21 @@ def lane_answers(section: str, heading: re.Pattern[str]) -> dict[str, str] | Non
             for row in table_rows(block) if row and lane_key(row[0])}
 
 
+#: A phrase must END where the answer does (issue #1822): at the cell's end,
+#: whitespace or punctuation (a closing `*_ included), never at another letter
+#: or digit, so `not applicablewhatever` and `will testing` are no answer.
+LANE_ANSWER_RE = re.compile(r"^[`*_ ]*(" + "|".join(re.escape(a) for a in LANE_ANSWERS)
+                            + r")(?![^\W_])", re.I)
+
+
+def lane_answer(cell: str) -> str | None:
+    """The `LANE_ANSWERS` phrase this cell opens with, casefolded, or None."""
+    match = LANE_ANSWER_RE.match(cell)
+    return match.group(1).casefold() if match else None
+
+
 def answered(cell: str) -> bool:
-    return re.sub(r"^[`*_ ]+", "", cell).casefold().startswith(LANE_ANSWERS)
+    return lane_answer(cell) is not None
 
 
 def lanes_refusal(section: str, lanes: list[str]) -> tuple[str | None, str | None]:
@@ -447,7 +460,8 @@ def lanes_refusal(section: str, lanes: list[str]) -> tuple[str | None, str | Non
     if missing:
         return (f"the lanes table leaves these listed lanes unanswered: {', '.join(missing)}. "
                 f"Each needs a row whose first cell is the lane's name exactly as "
-                f"{LANE_FILE_REL} lists it and whose answer starts with one of: {choices}"), None
+                f"{LANE_FILE_REL} lists it and whose answer is one of: {choices}, "
+                f"ending there or followed by its how/why"), None
     return None, None
 
 
@@ -1085,7 +1099,7 @@ def will_test_lanes(section: str) -> list[str]:
         return []
     return [row[0] for row in table_rows(section[span[0]:span[1]])
             if len(row) > 1 and lane_key(row[0])
-            and re.sub(r"^[`*_ ]+", "", row[1]).casefold().startswith("will test")]
+            and lane_answer(row[1]) == "will test"]
 
 
 class LanesAtClose(NamedTuple):
