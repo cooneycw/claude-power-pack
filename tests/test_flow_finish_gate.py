@@ -3481,9 +3481,8 @@ def test_coordination_lease_says_what_it_is_for(tmp_path: Path, layout: str):
         extra["LC_ALL"] = layout.removeprefix("unicode-long-branch-")
     if layout == "no-timeout":
         extra["PATH"] = _path_without(tmp_path, "timeout")
-        probe = subprocess.run(["bash", "-c", "command -v timeout"], env={"PATH": extra["PATH"]},
-                               capture_output=True, text=True, timeout=30, check=False)
-        assert probe.returncode != 0, "precondition: timeout is off this PATH"
+        assert shutil.which("timeout", path=extra["PATH"]) is None, "precondition: timeout is off this PATH"
+        assert shutil.which("bash", path=extra["PATH"]), "precondition: the rest of PATH is still there"
     proc, _ = _run(tmp_path, cpp_dir="", make_exit=0, cwd=work, extra_env=extra)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     # surrogateescape: a purpose cut through a character must fail an
