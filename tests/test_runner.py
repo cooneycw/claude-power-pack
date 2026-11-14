@@ -3809,13 +3809,14 @@ class TestSubsumedGates:
 
         prereqs = make_prerequisites(str(root), "verify")
         assert prereqs is not None, "make could not be asked what `verify` runs"
-        assert len(prereqs) == 41, (
+        assert len(prereqs) == 42, (
             f"make reports {len(prereqs)} prerequisites for this repository's "
-            f"`verify` rule, not 41. If the Makefile genuinely changed, update "
+            f"`verify` rule, not 42. If the Makefile genuinely changed, update "
             f"the number; if it did not, something changed what make RESOLVES - "
             f"a conditional, an include, or a variable - and the subsumed set "
             f"moved with it (#1165)"
         )
+        assert "driver-parity-check" in prereqs, "the added prerequisite must survive make resolution"
         assert "\\" not in prereqs, "make never yields a line continuation as a prerequisite"
 
     @requires_make
