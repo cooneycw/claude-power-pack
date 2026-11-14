@@ -1246,3 +1246,26 @@ def test_a_damaged_lane_stamp_says_nothing_where_nothing_is_owed(tmp_path: Path,
     strip = lambda s: re.sub(r"FLOW_PLAN_RECORD_SELF: .*\n", "", s)   # noqa: E731
     assert "LANES" not in new.stdout
     assert strip(new.stdout) == strip(old.stdout) and new.stderr == old.stderr
+
+
+@pytest.mark.parametrize("where", ["bound_rows", "read_lanes_stamp", "read_text_file"])
+def test_an_unexpected_failure_in_the_lane_check_is_not_checked_never_shown(
+        repo: Path, monkeypatch: pytest.MonkeyPatch, where: str) -> None:
+    """Counter-model review, pass 3: a duplicated handler returned `all-shown`
+    for any exception, so a crash read as every lane demonstrated. Fault
+    injection: with a lane genuinely missing, a failure anywhere in the check
+    is NOT CHECKED - never shown, never silent."""
+    approved(repo)
+    (repo / SIBLING).write_text(bind(repo, DEMONSTRATED.replace("| Harness | tested through a symlink |\n", "")))
+    helper = _load_helper()
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-lanes")
+    assert helper.lanes_at_close("42").state == "missing", "precondition: a lane is genuinely missing"
+
+    def boom(*_a, **_k):
+        raise RuntimeError("injected")
+
+    monkeypatch.setattr(helper, where, boom)
+    at_close = helper.lanes_at_close("42")
+    assert at_close.state == "not-checked", at_close
+    assert helper.lanes_clause(at_close) == ", LANES NOT CHECKED"

@@ -1302,7 +1302,6 @@ def lanes_at_close(issue: str) -> LanesAtClose:
         if missing:
             return LanesAtClose("missing", lanes=missing, rel=rel, marker=marker)
         return LanesAtClose("all-shown", rel=rel, marker=marker)
-    except Exception as exc:        return LanesAtClose("all-shown", rel=rel)
     except Exception as exc:    # noqa: BLE001 - see the docstring
         return LanesAtClose("not-checked", why=f"the lane check failed ({type(exc).__name__})")
 
