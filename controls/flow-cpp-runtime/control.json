@@ -10,7 +10,7 @@
   "detect_signal": "^FLOW_CPP_RUNTIME_CONTROL: blocked$",
   "good_signal": "^FLOW_CPP_RUNTIME_CONTROL: ready$",
   "unavailable_signal": "^FLOW_CPP_RUNTIME_CONTROL: unavailable$",
-  "limits": "Actual shell dispatch and verdict with owned fake uv/make, no live git repository. uv argv models installed or absent 3.11; removing no-download writes an owned marker and returns fixture-ready, never fetches. Synthetic runner JSON is a fixture transcript, not real gate execution. Installed and Make-only populations are positive controls. Independent missing-tool/present127 classification is registered separately at controls/flow-finish-missing-tools, since selection anchors cannot be blind to that distinct refusal. Native dual-runtime behavior is tested separately. Existing-environment cases use owned pyvenv.cfg and executable interpreter doubles: mismatched 3.12 and broken interpreters must refuse before uv; matching 3.11 must run. A real 3.12 environment and its file fingerprint are covered by tests/test_cpp_environment_preservation.py. Successful interpreter doubles evaluate the supplied probe with fixture-owned version and executable facts; the constant-output broken executable must be refused. This control does not authenticate against a deliberately malicious executable.",
+  "limits": "Actual shell dispatch and verdict with owned fake uv/make, no live git repository. uv argv models installed or absent 3.11; removing no-download writes an owned marker and returns fixture-ready, never fetches. Synthetic runner JSON is a fixture transcript, not real gate execution. Installed and Make-only populations are positive controls. Independent missing-tool/present127 classification is registered separately at controls/flow-finish-missing-tools, since selection anchors cannot be blind to that distinct refusal. Native dual-runtime behavior is tested separately. Existing-environment cases use owned pyvenv.cfg and executable interpreter doubles: mismatched 3.12 and broken interpreters must refuse before uv; matching 3.11 must run. A real 3.12 environment and its file fingerprint are covered by tests/test_cpp_environment_preservation.py. Successful interpreter doubles evaluate the supplied probe with fixture-owned version and executable facts; the constant-output broken executable must be refused. This control does not authenticate against a deliberately malicious executable. Since #1824 a bare X.Y pyvenv.cfg value (uv built against its minor-version Python link) is minor-only evidence: matching 3.11 must run, while a disagreeing X.Y or an X.Y contradicting a full value must still refuse.",
   "cases": [
     {
       "name": "good-installed",
@@ -80,6 +80,21 @@
     {
       "name": "bad-contradictory-config-optin",
       "input": "cases/bad-contradictory-config-optin",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-major-minor-runtime",
+      "input": "cases/good-major-minor-runtime",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-major-minor-disagreeing",
+      "input": "cases/bad-major-minor-disagreeing",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-major-minor-contradictory",
+      "input": "cases/bad-major-minor-contradictory",
       "expect": "BAD"
     }
   ],
