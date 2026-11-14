@@ -42,7 +42,7 @@ with tempfile.TemporaryDirectory(prefix="bootstrap-control-") as raw:
     launcher.chmod(0o755)
     env = dict(os.environ, PATH=str(tools) + os.pathsep + os.environ["PATH"])
     env.pop("PYTHONPATH", None)
-    ready = subprocess.run([str(launcher), "-c", "import yaml"], cwd=caller, env=env,
+    ready = subprocess.run([str(launcher), "-c", "import yaml; print(yaml.__file__)"], cwd=caller, env=env,
                            capture_output=True, text=True, timeout=20)
     if ready.returncode != 0:
         if case.get("without_site"):
@@ -52,6 +52,27 @@ with tempfile.TemporaryDirectory(prefix="bootstrap-control-") as raw:
         raise SystemExit(3)
     if case.get("without_site"):
         raise AssertionError("without-site fixture unexpectedly imports PyYAML")
+    if case.get("installed_lib"):
+        # Own the interpreter site-packages; never write into CPP's environment.
+        owned_venv = top / "venv"
+        made = subprocess.run([python, "-m", "venv", "--without-pip", str(owned_venv)],
+                              capture_output=True, text=True, timeout=20)
+        if made.returncode != 0:
+            print("BOOTSTRAP_WRAPPER_CONTROL: unavailable - cannot create owned interpreter")
+            raise SystemExit(3)
+        site = next(owned_venv.glob("lib/python*/site-packages"))
+        # Retain the actual PyYAML already measured above, not a substitute.
+        (site / "real-pyyaml.pth").write_text(str(Path(ready.stdout.strip()).parent.parent) + "\n")
+        (site / "lib/cicd").mkdir(parents=True)
+        (site / "lib/__init__.py").write_text("")
+        (site / "lib/cicd/__init__.py").write_text("")
+        (site / "lib/cicd/bootstrap.py").write_text('print("installed checker substituted")\n')
+        assert (site / "lib/__init__.py").is_file(), "construct installed regular lib"
+        assert (site / "lib/cicd/bootstrap.py").is_file(), "construct installed substitute checker"
+        launcher.write_text("#!/bin/sh\nexec " + shlex.quote(str(owned_venv / "bin/python")) + ' "$@"\n')
+        available = subprocess.run([str(launcher), "-c", "import yaml"], cwd=caller, env=env,
+                                   capture_output=True, text=True, timeout=20)
+        assert available.returncode == 0, "owned interpreter must have real PyYAML: " + available.stderr
     if case.get("caller_shadow") in {"regular-lib", "pythonpath-lib"}:
         (caller / "lib").mkdir()
         (caller / "lib/__init__.py").write_text("# Caller-owned regular package.\n")
@@ -67,7 +88,10 @@ with tempfile.TemporaryDirectory(prefix="bootstrap-control-") as raw:
         assert (caller / "yaml.py").is_file(), "construct dependency shadow"
     done = subprocess.run(["bash", str(wrapper)], cwd=caller, env=env,
                           capture_output=True, text=True, timeout=20)
-    if "ModuleNotFoundError" in done.stderr or "ImportError" in done.stderr:
+    missing_file = (case.get("missing_module") and done.returncode == 2
+                    and "can't open file" in done.stderr
+                    and str(cpp / "lib/cicd/bootstrap.py") in done.stderr)
+    if missing_file or "ModuleNotFoundError" in done.stderr or "ImportError" in done.stderr:
         print("BOOTSTRAP_WRAPPER_CONTROL: unknown - unavailable wrapper cannot import its checker or dependency")
         raise SystemExit(3)
     if done.returncode == 1 and "bootstrap prerequisite(s) not satisfied" in done.stdout:

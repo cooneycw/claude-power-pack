@@ -55,7 +55,7 @@ case "${1:-}" in
         (
             cd "$REPO_ROOT"
             PYTHONPATH="$REPO_ROOT" \
-                python3 -m lib.cicd.bootstrap list --project-root "$REPO_ROOT"
+                python3 "$REPO_ROOT/lib/cicd/bootstrap.py" list --project-root "$REPO_ROOT"
         )
         exit $?
         ;;
@@ -63,7 +63,7 @@ case "${1:-}" in
         (
             cd "$REPO_ROOT"
             PYTHONPATH="$REPO_ROOT" \
-                python3 -m lib.cicd.bootstrap list --project-root "$REPO_ROOT"
+                python3 "$REPO_ROOT/lib/cicd/bootstrap.py" list --project-root "$REPO_ROOT"
         )
         exit $?
         ;;

@@ -1,4 +1,5 @@
 """The real shell wrapper loads CPP's configuration from an external cwd."""
+import ast
 import importlib.util
 import os
 import shlex
@@ -76,6 +77,8 @@ def test_real_wrapper_lists_cpp_from_outside_and_ignores_caller_lure(tmp_path, s
     ("good-caller-yaml-module", 0, "clean -", False),
     ("bad-caller-pythonpath-lib", 1, "finding -", False),
     ("good-caller-pythonpath-lib", 0, "clean -", False),
+    ("bad-installed-lib", 1, "finding -", False),
+    ("good-installed-lib", 0, "clean -", False),
     ("unknown-module-unimportable", 3, "unknown - unavailable", False),
     ("unknown-pyyaml-missing", 3, "unknown - unavailable", False),
     ("bad-blocking-unmet", 0, "clean -", True),
@@ -90,3 +93,42 @@ def test_committed_control_distinguishes_blockers_and_unavailable(tmp_path, case
                           capture_output=True, text=True, timeout=30)
     assert done.returncode == code, done.stdout + done.stderr
     assert "BOOTSTRAP_WRAPPER_CONTROL: " + signal in done.stdout
+
+
+def _assert_checker_has_no_lib_imports(source):
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            assert all(alias.name.split(".")[0] != "lib" for alias in node.names), "checker must not import lib.*"
+        elif isinstance(node, ast.ImportFrom):
+            assert not node.level and (node.module or "").split(".")[0] != "lib", "checker must remain standalone"
+
+
+def _assert_no_stdlib_shadow(directory):
+    names = {p.stem if p.is_file() and p.suffix == ".py" else p.name
+             for p in directory.iterdir() if p.is_dir() or p.suffix == ".py"}
+    assert not names.intersection(sys.stdlib_module_names), "checker directory must not shadow stdlib modules"
+
+
+def test_checker_file_has_no_lib_imports():
+    _assert_checker_has_no_lib_imports((ROOT / "lib/cicd/bootstrap.py").read_text())
+
+
+def test_checker_directory_has_no_stdlib_shadow():
+    _assert_no_stdlib_shadow(ROOT / "lib/cicd")
+
+
+def test_standalone_import_pin_rejects_internal_import(tmp_path):
+    source = tmp_path / "bootstrap.py"
+    source.write_text((ROOT / "lib/cicd/bootstrap.py").read_text() + "\nimport lib.cicd\n")
+    assert "import lib.cicd" in source.read_text(), "construct forbidden package import"
+    with pytest.raises(AssertionError, match="must not import lib"):
+        _assert_checker_has_no_lib_imports(source.read_text())
+
+
+def test_stdlib_shadow_pin_rejects_new_module(tmp_path):
+    directory = tmp_path / "cicd"
+    shutil.copytree(ROOT / "lib/cicd", directory, ignore=shutil.ignore_patterns("__pycache__"))
+    (directory / "subprocess.py").write_text("# Unintended local stdlib shadow.\n")
+    assert (directory / "subprocess.py").is_file() and "subprocess" in sys.stdlib_module_names
+    with pytest.raises(AssertionError, match="must not shadow stdlib"):
+        _assert_no_stdlib_shadow(directory)

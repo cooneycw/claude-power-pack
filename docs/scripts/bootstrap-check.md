@@ -11,12 +11,18 @@ Per-script history, indexed from [the scripts inventory](../scripts.md).
 The shell wrapper checks its own CPP checkout: `.claude/bootstrap.yaml` is read
 there and configured check commands run there. A configuration in the caller's
 working directory is not the target. `--list` executes no dependency commands.
-The Python import root is the parent of `lib/`, so the same wrapper can be
-invoked from outside CPP without relying on the caller's cwd for `lib.cicd`.
+The wrapper executes its exact `lib/cicd/bootstrap.py` file, so a regular `lib`
+package installed in the interpreter cannot substitute another checker. Tests
+pin that this checker has no internal `lib.*` or relative imports and that its
+directory has no module or package whose name shadows the Python standard library.
 Python starts in CPP's root, so caller-local packages such as `lib` and `yaml`
 do not shadow the checker or its dependencies. The wrapper sets `PYTHONPATH`
 to CPP alone, ignoring inherited search paths that could substitute a caller
-checker for CPP's namespace package. No empty search-path entry is appended.
+checker. No empty search-path entry is appended. If a caller supplied PyYAML
+only through inherited `PYTHONPATH`, it must instead make PyYAML available to
+the selected interpreter without that variable: the wrapper now exits 1 with
+`ModuleNotFoundError: No module named 'yaml'` in that setup. The control names
+unavailable imports as UNKNOWN; the wrapper does not add a new setup exit code.
 
 The interpreter remains ambient `python3` on PATH, with CPP's declared PyYAML
 runtime dependency. This fix neither selects CPP's virtualenv nor provisions or
@@ -30,7 +36,8 @@ fixing the wrapper does not retarget that plan. The committed
 checker on owned configurations. A failed blocking dependency is BAD, a
 satisfied one is GOOD, and unavailable imports/PyYAML are named unavailable,
 never clean. Its constructed blind anchor lists rather than checks, so it
-misses the unmet blocking dependency. No fake checker or YAML parser is used.
+misses the unmet blocking dependency. The subject remains the real CPP checker and real PyYAML; substitute checker
+modules are deliberate lures that the wrapper must ignore.
 
 The control invocation uses real `uv run --isolated --frozen --no-dev` to run
 with CPP's locked runtime dependencies, without syncing the project's `.venv`.
