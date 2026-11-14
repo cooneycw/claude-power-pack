@@ -132,3 +132,16 @@ def test_stdlib_shadow_pin_rejects_new_module(tmp_path):
     assert (directory / "subprocess.py").is_file() and "subprocess" in sys.stdlib_module_names
     with pytest.raises(AssertionError, match="must not shadow stdlib"):
         _assert_no_stdlib_shadow(directory)
+
+
+def test_missing_pyyaml_control_runs_a_candidate_that_accepts(tmp_path):
+    candidate = tmp_path / "candidate.sh"
+    candidate.write_text("#!/bin/sh\nexit 0\n")
+    assert "exit 0" in candidate.read_text(), "construct a candidate that wrongly accepts unavailable input"
+    control = ROOT / "controls/bootstrap-wrapper"
+    done = subprocess.run([sys.executable, str(control / "run-case.py"),
+                           str(control / "cases/unknown-pyyaml-missing"), str(candidate)],
+                          env=_test_python_env(tmp_path), capture_output=True, text=True, timeout=30)
+    # The manifest expects UNKNOWN, so observing this wrong GOOD must fail its case.
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "BOOTSTRAP_WRAPPER_CONTROL: clean -" in done.stdout

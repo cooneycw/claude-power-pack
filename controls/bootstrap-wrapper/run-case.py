@@ -44,14 +44,12 @@ with tempfile.TemporaryDirectory(prefix="bootstrap-control-") as raw:
     env.pop("PYTHONPATH", None)
     ready = subprocess.run([str(launcher), "-c", "import yaml; print(yaml.__file__)"], cwd=caller, env=env,
                            capture_output=True, text=True, timeout=20)
-    if ready.returncode != 0:
-        if case.get("without_site"):
-            assert "No module named 'yaml'" in ready.stderr, "construct actual PyYAML absence"
-        prefix = "unknown - unavailable" if case.get("without_site") else "unavailable -"
-        print("BOOTSTRAP_WRAPPER_CONTROL: " + prefix + " selected python3 cannot import PyYAML")
-        raise SystemExit(3)
     if case.get("without_site"):
-        raise AssertionError("without-site fixture unexpectedly imports PyYAML")
+        assert ready.returncode != 0 and "No module named 'yaml'" in ready.stderr, "construct actual PyYAML absence"
+        # Continue: the candidate must really run, even for a known-unavailable input.
+    elif ready.returncode != 0:
+        print("BOOTSTRAP_WRAPPER_CONTROL: unavailable - selected python3 cannot import PyYAML")
+        raise SystemExit(3)
     if case.get("installed_lib"):
         # Own the interpreter site-packages; never write into CPP's environment.
         owned_venv = top / "venv"
