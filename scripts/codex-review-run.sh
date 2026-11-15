@@ -539,6 +539,12 @@ codex_review_main() {
 }
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
-    codex_review_main "$@"
-    exit $?
+    # The family exit line (#1031), printed by THIS shell after main returns or
+    # a stage exits: main runs in a subshell, so a stage's `exit` and its own
+    # cleanup `trap ... EXIT` (review_collect_diff) end only the subshell and can
+    # neither skip nor replace this line.
+    ( codex_review_main "$@" )
+    codex_review_rc=$?
+    printf "CODEX_REVIEW_EXIT=%d\n" "$codex_review_rc" >&2
+    exit "$codex_review_rc"
 fi

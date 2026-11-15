@@ -432,6 +432,8 @@ def test_every_early_refusal_carries_a_verdict_line(tmp_path: Path, case: str) -
     assert proc.returncode == 3, proc.stdout + proc.stderr
     verdicts = [ln for ln in proc.stderr.splitlines() if ln.startswith("CODEX_REVIEW: ")]
     assert len(verdicts) == 1 and verdicts[0].startswith("CODEX_REVIEW: unavailable ("), proc.stderr
+    # The family exit line (#1031) survives a stage's own `exit` and cleanup trap.
+    assert proc.stderr.rstrip().splitlines()[-1] == "CODEX_REVIEW_EXIT=3", proc.stderr
 
 
 @pytest.mark.skipif(not Path("/dev/full").exists(), reason="needs /dev/full")
