@@ -356,6 +356,30 @@ def test_a_transcript_inside_the_work_tree_is_refused_before_the_review(tmp_path
 
 
 @requires_git
+@pytest.mark.parametrize("dangling", [False, True], ids=["to-a-tracked-file", "dangling"])
+def test_a_symlinked_transcript_is_refused(tmp_path: Path, dangling: bool) -> None:
+    """Counter-model review, pass 3: a link from outside into the checkout passed
+    the parent-directory check, and the relay overwrote the file it named."""
+    work, env = _fixture(tmp_path)
+    target = work / ("not-yet.md" if dangling else "a.txt")
+    before = None if dangling else target.read_bytes()
+    assert target.exists() is not dangling  # the precondition
+    link = tmp_path / "outside" / "t.md"
+    link.parent.mkdir()
+    link.symlink_to(target)
+    proc = subprocess.run(["bash", str(HELPER), "--transcript", str(link)], cwd=work, env=env,
+                          capture_output=True, text=True)
+    _cleanup_stream(proc.stdout)
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert "is a symlink" in proc.stderr
+    assert _calls(env) == [], "the review ran with a symlinked transcript"
+    if dangling:
+        assert not target.exists(), "the refusal created the file the link names"
+    else:
+        assert target.read_bytes() == before, "a tracked file was overwritten through the link"
+
+
+@requires_git
 def test_a_transcript_beside_the_checkout_is_not_inside_it(tmp_path: Path) -> None:
     """The other verdict: a sibling directory whose name extends the root's is outside."""
     work, env = _fixture(tmp_path)

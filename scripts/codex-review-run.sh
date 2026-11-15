@@ -486,6 +486,14 @@ codex_review_main() {
     # cannot be written would spend a model call and keep nothing a receipt can
     # parse. It is written only after the review.
     local tdir troot wroot relay_rc
+    # A SYMLINK IS REFUSED, dangling or not (counter-model review, pass 3): the
+    # in-tree check below resolves the parent directory only, so a link to a
+    # file in the checkout would pass it and the relay would overwrite that
+    # file. Kept after review on the owner's ruling, without a fourth pass.
+    if [ -L "$transcript" ]; then
+        echo "codex-review-run: transcript '$transcript' is a symlink; pass a plain path outside the checkout" >&2
+        return 2
+    fi
     tdir=$(dirname -- "$transcript")
     if [ -d "$transcript" ] \
         || { [ -e "$transcript" ] && [ ! -w "$transcript" ]; } \
