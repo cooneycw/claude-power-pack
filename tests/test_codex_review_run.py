@@ -197,7 +197,9 @@ def test_a_clean_review_runs_and_its_transcript_parses_clean(tmp_path: Path) -> 
         parsed = subprocess.run(["python3", str(RECEIPT), "parse", str(transcript)],
                                 capture_output=True, text=True)
         assert "COUNTER_MODEL_REVIEW: clean" in parsed.stdout, parsed.stdout + parsed.stderr
-        stream = re.search(r"^CODEX_REVIEW_STREAM: (\S+)$", text, re.M).group(1)
+        found = re.search(r"^CODEX_REVIEW_STREAM: (\S+)$", text, re.M)
+        assert found, text
+        stream = found.group(1)
         assert THREAD in Path(stream).read_text(encoding="utf-8"), "the stream file was not retained"
     finally:
         _cleanup_stream(proc.stdout)
@@ -288,6 +290,95 @@ def test_a_base_with_no_common_ancestor_is_unavailable_by_name(tmp_path: Path) -
 
 
 @requires_git
+def test_a_real_shallow_clone_with_no_reachable_ancestor_is_unavailable(tmp_path: Path) -> None:
+    """Clone shape, the real thing (counter-model review): a depth-1 clone whose
+    base moved on and was fetched shallow has no locally discoverable ancestor."""
+    work, env = _fixture(tmp_path)
+    upstream = tmp_path / "upstream.git"
+    shallow = tmp_path / "shallow"
+    _git("clone", "-q", "--depth", "1", f"file://{upstream}", str(shallow), cwd=tmp_path, env=env)
+    (shallow / "a.txt").write_text("mine\n", encoding="utf-8")
+    _git("commit", "-qam", "my change", cwd=shallow, env=env)
+    # The base advances by two commits, and the clone fetches it shallow.
+    _git("push", "-q", "origin", "main", cwd=work, env=env)
+    (work / "a.txt").write_text("a\nb\nc\n", encoding="utf-8")
+    _git("commit", "-qam", "base moves", cwd=work, env=env)
+    _git("push", "-q", "origin", "main", cwd=work, env=env)
+    _git("fetch", "-q", "--depth", "1", "origin", "main", cwd=shallow, env=env)
+    assert (shallow / ".git" / "shallow").is_file(), "precondition: a shallow clone"
+    no_ancestor = subprocess.run(["git", "merge-base", "HEAD", "origin/main"], cwd=shallow, env=env,
+                                 capture_output=True, text=True)
+    assert no_ancestor.returncode != 0, "precondition: no locally discoverable ancestor"
+    proc, _ = _review(shallow, env)
+    assert proc.returncode == 3, proc.stdout + proc.stderr
+    assert "no common ancestor" in proc.stderr and "git fetch --unshallow" in proc.stderr
+    assert "exec" not in _calls(env)
+
+
+@requires_git
+def test_a_linked_worktree_is_reviewed(tmp_path: Path) -> None:
+    """Checkout lane, the linked-worktree value (counter-model review)."""
+    work, env = _fixture(tmp_path)
+    linked = tmp_path / "linked"
+    _git("worktree", "add", "-q", "-b", "issue-1-x", str(linked), cwd=work, env=env)
+    (linked / "new.txt").write_text("new\n", encoding="utf-8")
+    assert (linked / ".git").is_file(), "precondition: a linked worktree, not a main checkout"
+    proc, transcript = _review(linked, env)
+    try:
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "Untracked files included in this diff: 1" in proc.stdout, proc.stdout
+        assert "CODEX_REVIEW_SCOPE: full" in transcript.read_text(encoding="utf-8")
+    finally:
+        _cleanup_stream(proc.stdout)
+
+
+@requires_git
+@requires_python3
+def test_a_checkout_local_transcript_does_not_block_an_enrolled_checkpoint(tmp_path: Path) -> None:
+    """Counter-model review: a transcript created BEFORE the diff stage was an
+    untracked file in the checkout, and the enrolled checkpoint check blocked a
+    clean checkpoint because of the helper's own output."""
+    work, env = _fixture(tmp_path)
+    (work / "docs" / "measurements" / "counter-model").mkdir(parents=True)
+    (work / "docs" / "measurements" / "counter-model" / ".keep").write_text("", encoding="utf-8")
+    _git("add", "-A", cwd=work, env=env)
+    _git("commit", "-qm", "enrol", cwd=work, env=env)
+    status = subprocess.run(["git", "status", "--porcelain"], cwd=work, env=env, capture_output=True, text=True)
+    assert status.stdout == "", "precondition: a clean implementation checkpoint"
+    transcript = work / "review-transcript.md"
+    proc = subprocess.run(["bash", str(HELPER), "--transcript", str(transcript)], cwd=work, env=env,
+                          capture_output=True, text=True)
+    try:
+        assert "CODEX_REVIEW: blocked" not in proc.stderr, proc.stderr
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "## Findings" in transcript.read_text(encoding="utf-8")
+    finally:
+        _cleanup_stream(proc.stdout)
+
+
+@pytest.mark.skipif(not Path("/dev/full").exists(), reason="needs /dev/full")
+def test_a_transcript_that_cannot_be_written_is_never_ran(tmp_path: Path) -> None:
+    """Counter-model review: writes that fail mid-relay used to end in `ran`.
+
+    /dev/full accepts the open and fails every write (ENOSPC), so it passes the
+    pre-review check and fails exactly where a disk filling up would. The stages
+    before the relay are stubbed; the relay and the verdict are the helper's own.
+    """
+    findings = tmp_path / "findings.md"
+    findings.write_text("## Findings\n\nNone - no defects found.\n", encoding="utf-8")
+    script = (
+        f'source "{HELPER}"\n'
+        "review_preflight() { :; }; review_collect_diff() { :; }; review_run() { :; }; review_model() { :; }\n"
+        f'FINDINGS="{findings}"; DIFF_FILE="{tmp_path / "d.patch"}"; STREAM=/nonexistent; CODEX_EXIT=0\n'
+        'codex_review_main --transcript /dev/full\n'
+    )
+    proc = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+    assert proc.returncode == 3, proc.stdout + proc.stderr
+    assert "CODEX_REVIEW: unavailable (the transcript '/dev/full' could not be written" in proc.stdout
+    assert "CODEX_REVIEW: ran" not in proc.stdout
+
+
+@requires_git
 def test_a_subdirectory_caller_reviews_the_whole_change(tmp_path: Path) -> None:
     work, env = _fixture(tmp_path)
     (work / "sub").mkdir()
@@ -350,7 +441,9 @@ def test_flow_autos_reader_gets_every_receipt_flag_from_a_real_transcript(tmp_pa
     try:
         assert proc.returncode == 0, proc.stdout + proc.stderr
         flags = _read_flags(transcript)
-        stream = re.search(r"^CODEX_REVIEW_STREAM: (\S+)$", proc.stdout, re.M).group(1)
+        found = re.search(r"^CODEX_REVIEW_STREAM: (\S+)$", proc.stdout, re.M)
+        assert found, proc.stdout
+        stream = found.group(1)
         assert flags == {"STREAM": stream, "SCOPE": "full", "BASE": "origin/main",
                          "NETWORK": "unverified", "LOCAL_CREDENTIALS": "absent"}, flags
     finally:

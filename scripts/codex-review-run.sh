@@ -479,9 +479,15 @@ codex_review_main() {
     if [ -z "$transcript" ]; then
         echo "codex-review-run: --transcript FILE is required" >&2; codex_review_usage; return 2
     fi
-    # Checked BEFORE the review: a transcript that cannot be written would
-    # spend a model call and keep nothing a receipt can parse.
-    if ! : > "$transcript"; then
+    # Checked BEFORE the review, but WITHOUT creating the file (counter-model
+    # review): a transcript inside an enrolled checkout, created this early, is
+    # an untracked file the diff stage marks intent-to-add, and the checkpoint
+    # check then blocks a clean checkpoint. It is written only after the review.
+    local tdir relay_rc
+    tdir=$(dirname -- "$transcript")
+    if [ -d "$transcript" ] \
+        || { [ -e "$transcript" ] && [ ! -w "$transcript" ]; } \
+        || { [ ! -e "$transcript" ] && { [ ! -d "$tdir" ] || [ ! -w "$tdir" ]; }; }; then
         echo "codex-review-run: cannot write transcript '$transcript'" >&2; return 2
     fi
 
@@ -490,7 +496,16 @@ codex_review_main() {
     review_collect_diff
     review_run
     review_model
-    review_relay > "$transcript"
+    # A transcript that could not be written is a review nobody can receipt, so
+    # it is never `ran` (counter-model review). errexit inside the subshell makes
+    # a failed write ANYWHERE in the relay its status, not only the redirect;
+    # it is deliberately not run as an `if` condition, which would disable it.
+    ( set -e; review_relay ) > "$transcript"
+    relay_rc=$?
+    if [ "$relay_rc" -ne 0 ] || [ ! -s "$transcript" ]; then
+        echo "CODEX_REVIEW: unavailable (the transcript '$transcript' could not be written, status $relay_rc; the findings were not kept)"
+        return 3
+    fi
     cat "$transcript"
     if [ "${CODEX_EXIT:-1}" -ne 0 ]; then
         echo "CODEX_REVIEW: unavailable (codex exec exited ${CODEX_EXIT:-unknown}; the transcript holds whatever it returned)"

@@ -728,11 +728,11 @@ instead.
    the skip (until #1513 lands); its free-form response is not a receipt.
 
    **1b. Run the review** (Claude sessions only - a Codex lane takes the skip
-   above) - `/codex:code_review` is one bare call (#1847). Its last line is the
-   verdict; the transcript holds findings, `## Red cases` (#1030) and markers:
+   above) - `/codex:code_review` is one bare call (#1847), passing 1a's BASE. Its
+   last line is the verdict; the transcript holds findings and markers:
 
    ```bash
-   ~/.claude/scripts/codex-review-run.sh --base origin/main --context "issue #42: <title>" --transcript /path/to/transcript.md
+   ~/.claude/scripts/codex-review-run.sh --base origin/<default-branch> --context "issue #42: <title>" --transcript /path/to/transcript.md
    ```
 
    **1c. Read the transcript's verdict before believing it:**
@@ -769,7 +769,7 @@ instead.
      exec selector is `--implementer-exec-log`.
    - **`--scope`** (REQUIRED on a Codex-exec `ran` write, #1400/#1461),
      **`--network`** (#1450), **`--local-credentials`** (#1459) and the stream:
-     read from the transcript, never carried by hand.
+     read from the transcript, not by hand.
 
    ```bash
    m() { sed -n "s/^CODEX_REVIEW_$1: //p" /path/to/transcript.md; }

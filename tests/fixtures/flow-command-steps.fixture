@@ -516,7 +516,7 @@
   },
   {
    "slug": "bash-0077-review-run",
-   "needle": "~/.claude/scripts/codex-review-run.sh --base origin/main --context \"issue #42: <title>\" --transcript /path/to/transcript.md",
+   "needle": "~/.claude/scripts/codex-review-run.sh --base origin/<default-branch> --context \"issue #42: <title>\" --transcript /path/to/transcript.md",
    "kind": "bash-line",
    "count": 1
   },

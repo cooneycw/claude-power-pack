@@ -35,7 +35,7 @@
 # trimming the same paragraph). Other caps unchanged.
 # #1847 moves /codex:code_review's six shell blocks into scripts/codex-review-run.sh:
 # codex/code_review.md drops to 2598, and flow/auto.md, reading the helper's
-# markers instead of carrying them, to 10405. Other caps unchanged.
+# markers instead of carrying them, to 10404. Other caps unchanged.
 464	browser/help.md
 1077	browser/session.md
 425	cicd/check.md
@@ -71,7 +71,7 @@
 1218	documentation/pptx.md
 457	evaluate/help.md
 2284	evaluate/issue.md
-10405	flow/auto.md
+10404	flow/auto.md
 1837	flow/check.md
 2258	flow/cleanup.md
 1561	flow/deploy.md
