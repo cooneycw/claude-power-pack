@@ -512,6 +512,50 @@ def mirror_charter(text: str, family: str, stem: str) -> str:
     return f"{head}{marker}\n{text[match.end():]}"
 
 
+_BLOCK_SCALAR_RE = re.compile(r"^[>|][+-]?$")
+
+
+def _strip_yaml_comment(value: str) -> str:
+    """Drop a trailing ` # comment` outside quotes, as YAML (and skillc) read it."""
+    quote = ""
+    for index, char in enumerate(value):
+        if quote:
+            if char == quote:
+                quote = ""
+        elif char in "'\"":
+            quote = char
+        elif char == "#" and (index == 0 or value[index - 1] in " \t"):
+            return value[:index].rstrip()
+    return value
+
+
+def charter_subject_value(text: str) -> str | None:
+    """The top-level `subject:` of a charter's YAML block, decoded the way
+    skillc's contract subset decodes a scalar: a trailing comment dropped,
+    quotes removed, and a `>`/`|` block joined. None when there is no such key.
+    Only `subject:` is read; the rest of the block is skillc's to validate."""
+    match = _CHARTER_BLOCK_RE.match(text)
+    if match is None:
+        return None
+    lines = match.group(0).split("\n")[1:-1]
+    for index, line in enumerate(lines):
+        if not line.startswith("subject:"):
+            continue
+        value = _strip_yaml_comment(line[len("subject:"):].strip())
+        if _BLOCK_SCALAR_RE.match(value):
+            body = []
+            for follow in lines[index + 1:]:
+                if follow.strip() and not follow.startswith((" ", "\t")):
+                    break
+                body.append(follow.strip())
+            joiner = " " if value.startswith(">") else "\n"
+            return joiner.join(part for part in body if part).strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+            return value[1:-1]
+        return value
+    return None
+
+
 def charter_errors() -> list[str]:
     """Layout gate for `charters/` (issue #1838). A misplaced charter is never
     mirrored and never read by its command's checks, and nothing else would
@@ -534,6 +578,17 @@ def charter_errors() -> list[str]:
 
     for dirpath, dirnames, filenames in os.walk(CHARTERS_ROOT, onerror=unreadable):
         dirnames.sort()
+        # `os.walk` does not descend a symlinked directory, but `generate_skill`
+        # reads through one, so a charter there would be mirrored unchecked
+        # (counter-model review). Refuse the link rather than follow it.
+        for name in list(dirnames):
+            link = Path(dirpath) / name
+            if link.is_symlink():
+                dirnames.remove(name)
+                errors.append(
+                    f"SYMLINKED charters dir: charters/{link.relative_to(CHARTERS_ROOT).as_posix()}"
+                    " (not followed; its charters would be mirrored unchecked)"
+                )
         for filename in sorted(filenames):
             path = Path(dirpath) / filename
             rel = path.relative_to(CHARTERS_ROOT)
@@ -559,7 +614,7 @@ def charter_errors() -> list[str]:
             if _CHARTER_BLOCK_RE.match(text) is None:
                 errors.append(f"CHARTER without a YAML block at the top: {shown}")
                 continue
-            subject = parse_frontmatter(text)[0].get("subject")
+            subject = charter_subject_value(text)
             if subject is None:
                 errors.append(f"CHARTER without subject: {shown} (expected subject: {expected})")
             elif subject != expected:
@@ -2322,6 +2377,19 @@ def mirrors_for(
             skill = f"{parts[2]}-{parts[3][: -len('.md')]}"
             if skill in outputs:
                 hits = [f"codex/skills/{skill}/{rel}" for rel in sorted(outputs[skill])]
+
+        #: A CHARTER (issue #1838) is the one source whose bundle path differs
+        #: from its repository path: `charters/<family>/<stem>/CHARTER.md` lands
+        #: at `codex/skills/<family>-<stem>/CHARTER.md` (counter-model review).
+        if (
+            not hits
+            and len(parts) == 4
+            and parts[0] == CHARTERS_ROOT.name
+            and parts[3] == CHARTER_NAME
+        ):
+            skill = f"{parts[1]}-{parts[2]}"
+            if CHARTER_NAME in outputs.get(skill, {}):
+                hits = [f"codex/skills/{skill}/{CHARTER_NAME}"]
 
         if not hits:
             #: THE MANIFEST TRAVELS WITH THE SCRIPT. A skill that bundles any

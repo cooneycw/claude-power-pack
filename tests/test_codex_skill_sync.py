@@ -3879,3 +3879,70 @@ def test_an_edited_charter_source_is_drift(tmp_repo, capsys):
     capsys.readouterr()
     assert codex_skill_sync.main(["--check"]) == 1
     assert "DRIFT: codex/skills/flow-auto/CHARTER.md" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "subject: .claude/commands/flow/auto.md # the command",
+        "subject: '.claude/commands/flow/auto.md'",
+        'subject: ".claude/commands/flow/auto.md"  # quoted, commented',
+        "subject: >\n  .claude/commands/flow/auto.md",
+        "subject: >-\n  .claude/commands/flow/auto.md",
+    ],
+)
+def test_a_subject_in_any_scalar_form_skillc_reads_is_accepted(tmp_repo, line):
+    """Counter-model review: the subject is decoded as skillc's YAML subset
+    decodes it, so a valid owner-written charter is not refused."""
+    _plant_charter(tmp_repo, text=_CHARTER.replace("subject: .claude/commands/flow/auto.md", line))
+    assert codex_skill_sync.charter_errors() == []
+
+
+def test_a_commented_subject_naming_another_command_still_reds(tmp_repo):
+    _plant_charter(tmp_repo, text=_CHARTER.replace(
+        "subject: .claude/commands/flow/auto.md", "subject: .claude/commands/qa/test.md # wrong"))
+    assert [e.split(" names")[0] for e in codex_skill_sync.charter_errors()] == [
+        "CHARTER subject mismatch: charters/flow/auto/CHARTER.md"
+    ]
+
+
+def test_a_symlinked_charters_dir_is_refused_not_mirrored_unchecked(tmp_repo):
+    """Counter-model review: os.walk does not descend a symlinked directory
+    while generation reads through it, so a subjectless charter behind a link
+    would be mirrored with a green --check. The link itself reds."""
+    draft = tmp_repo / "draft" / "auto"
+    draft.mkdir(parents=True)
+    (draft / "CHARTER.md").write_text(_CHARTER.replace("subject: .claude/commands/flow/auto.md\n", ""))
+    (tmp_repo / "charters").mkdir()
+    (tmp_repo / "charters" / "flow").symlink_to(tmp_repo / "draft", target_is_directory=True)
+    assert (tmp_repo / "charters" / "flow" / "auto" / "CHARTER.md").is_file()
+    errors = codex_skill_sync.charter_errors()
+    assert [e.split(" (")[0] for e in errors] == ["SYMLINKED charters dir: charters/flow"]
+    codex_skill_sync.main(["--write"])
+    assert codex_skill_sync.main(["--check"]) == 1
+
+
+def test_list_mirrors_names_a_charters_mirror(tmp_repo, capsys):
+    _plant_charter(tmp_repo)
+    capsys.readouterr()
+    assert codex_skill_sync.main(["--list-mirrors", "charters/flow/auto/CHARTER.md"]) == 0
+    assert capsys.readouterr().out.split() == ["codex/skills/flow-auto/CHARTER.md"]
+
+
+def test_list_mirrors_does_not_name_a_charter_for_an_ungenerated_command(tmp_repo, capsys):
+    """Negative control for the test above: a charter whose command is not
+    generated has no mirror, and --list-mirrors says so rather than naming one."""
+    path = _plant_charter(tmp_repo, "qa", "smoke", _CHARTER.replace("flow/auto.md", "qa/smoke.md"))
+    assert path.is_file()
+    assert codex_skill_sync.main(["--list-mirrors", "charters/qa/smoke/CHARTER.md"]) == 1
+
+
+def test_install_publishes_the_mirrored_charter(tmp_repo, tmp_home):
+    """The Codex-install lane: the charter reaches the installed skill as the
+    generated copy, not only the checkout's build tree."""
+    _plant_charter(tmp_repo)
+    assert codex_skill_sync.main(["--write"]) == 0
+    assert codex_skill_sync.main(["--install"]) == 0
+    built = (tmp_repo / "codex" / "skills" / "flow-auto" / "CHARTER.md").read_text()
+    assert (tmp_home / "flow-auto" / "CHARTER.md").read_text() == built
+    assert not (tmp_home / "qa-test" / "CHARTER.md").exists()
