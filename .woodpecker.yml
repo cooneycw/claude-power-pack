@@ -225,6 +225,14 @@ steps:
     commands:
       - python3 scripts/delegated-core-vendor.py check
 
+  # Flags a command document passes a helper must exist in it (#1835).
+  # Stdlib-only and git-free. Same command `make doc-helper-flags-check` wraps.
+  doc-helper-flags-check:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan]
+    commands:
+      - python3 scripts/check-doc-helper-flags.py
+
   # Static cross-driver parity; generated flow-auto is the only packaged mirror.
   driver-parity-check:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
