@@ -71,13 +71,21 @@ def make_repo(tmp_path: Path) -> Path:
 WRITE_HEADING = "#### First, write the plan record (issue #1080)"
 
 
-def extract_write_snippet() -> str:
-    """The bash block that WRITES the record, or raise.
+PLAN_PLACEHOLDER = ("<the numbered per-file change list, the scope estimate and the named risk(s),\n"
+                    " exactly as approved>")
+
+
+def extract_write_snippet(plan_dir: Path) -> str:
+    """The bash blocks that WRITE the record, or raise.
 
     The squash case used to create its own hardcoded record, so deleting the
     documented write left every case green - the tests would have kept passing
     over a procedure that no longer wrote anything (counter-model review,
-    gpt-6-astra). Running the documented block is what ties them to it.
+    gpt-6-astra). Running the documented blocks is what ties them to it.
+
+    Since #1849 the write is two blocks: the plan file, then `approve --plan`.
+    The Section C placeholder is filled in as a run would fill it, because
+    `approve --plan` refuses a plan with no file line.
     """
     text = AUTO_MD.read_text()
     if text.count(WRITE_HEADING) != 1:
@@ -85,18 +93,19 @@ def extract_write_snippet() -> str:
             f"expected exactly one {WRITE_HEADING!r}, found {text.count(WRITE_HEADING)}"
         )
     after = text.split(WRITE_HEADING, 1)[1]
-    m = re.search(r"```bash\n(.*?)```", after, re.DOTALL)
-    if not m:
-        raise AssertionError("no fenced bash block follows the write heading")
-    snippet = m.group(1)
-    if RECORD_REL not in snippet:
-        raise AssertionError(
-            f"the documented write no longer targets {RECORD_REL}:\n{snippet}"
-        )
-    return snippet
+    blocks = re.findall(r"```bash\n(.*?)```", after, re.DOTALL)[:2]
+    if len(blocks) != 2:
+        raise AssertionError("the write heading is not followed by the plan and approve blocks")
+    snippet = "\n".join(blocks)
+    if "approve 42 --plan" not in snippet:
+        raise AssertionError(f"the documented write no longer calls `approve --plan`:\n{snippet}")
+    if PLAN_PLACEHOLDER not in snippet or "/path/outside/checkout" not in snippet:
+        raise AssertionError(f"the documented plan template changed shape:\n{snippet}")
+    return (snippet.replace(PLAN_PLACEHOLDER, "1. `code.py` - the change")
+            .replace("/path/outside/checkout", str(plan_dir)))
 
 
-def run_snippet(repo: Path, snippet: str) -> None:
+def run_snippet(repo: Path, snippet: str, ok: tuple[int, ...] = (0,)) -> None:
     """Run a documented snippet and REQUIRE it to succeed.
 
     The status used to be discarded, so a snippet that mutated the tree and then
@@ -105,7 +114,7 @@ def run_snippet(repo: Path, snippet: str) -> None:
     proc = subprocess.run(
         ["bash", "-c", snippet], cwd=repo, capture_output=True, text=True
     )
-    assert proc.returncode == 0, (
+    assert proc.returncode in ok, (
         f"the documented snippet exited {proc.returncode}\n"
         f"stdout: {proc.stdout}\nstderr: {proc.stderr}"
     )
@@ -125,10 +134,14 @@ def run_documented_write(repo: Path) -> None:
     helper, or the test would measure the installed copy instead of the change.
     """
     run_reconcile(repo)
-    snippet = extract_write_snippet().replace("~/.claude/scripts/flow-plan-record.py",
+    plan_dir = repo.parent / "plan-outside-checkout"
+    plan_dir.mkdir(exist_ok=True)
+    snippet = extract_write_snippet(plan_dir).replace("~/.claude/scripts/flow-plan-record.py",
                                               f"python3 {HELPER}")
     assert f"python3 {HELPER}" in snippet, "the documented write no longer calls the helper"
-    run_snippet(repo, snippet)
+    # 4 is `AS_READ: unresolved`: this fixture never read the issue, and the
+    # procedure proceeds on it. The record must still be written and stamped.
+    run_snippet(repo, snippet, ok=(0, 4))
 
 
 def staged_paths(repo: Path) -> list[str]:
@@ -410,7 +423,7 @@ def test_auto_md_invokes_the_helper_and_carries_no_copy() -> None:
     signatures of the old pasted programs are gone.
     """
     text = AUTO_MD.read_text()
-    for sub in ("reconcile", "read-issue", "approve", "drift", "compliance", "head-check"):
+    for sub in ("start", "approve", "finish"):
         assert f"flow-plan-record.py {sub} " in text, f"auto.md never invokes `{sub}`"
     for pasted in ('git cat-file -e "HEAD:$REC"', "def unknown(why)", "def unresolved(why)",
                    "mapfile -d '' -t UNTRACKED", "raw = body_p.read_bytes()"):

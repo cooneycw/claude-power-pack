@@ -190,23 +190,19 @@ found. See `docs/agents/shared-stash-stack.md`.
 
 Report: `Step 1/9: Start complete - worktree at {path}, verified on branch {branch}`
 
-#### Reconcile the plan record, and record what this run read (issues #1080, #1081)
+#### Start the plan record (issues #1080, #1081, #1849)
 
-Run both, bare, on EVERY lane including `current-branch` and `resume`, before
+Run it bare on EVERY lane, including `current-branch` and `resume`, before
 Step 2:
 
 ```bash
-~/.claude/scripts/flow-plan-record.py reconcile 42
-~/.claude/scripts/flow-plan-record.py read-issue 42
+~/.claude/scripts/flow-plan-record.py start 42
 ```
 
-- `reconcile` leaves `docs/flow-runs/issue-<N>.md` as the last COMMITTED
-  record for this issue, or absent, and prints
-  `FLOW_PLAN_RECORD: restored|removed|absent`, exit 0. Do not hand-edit the
-  record between runs.
-- `read-issue` stores the issue body as this run read it. `AS_READ: recorded`
-  is exit 0. `AS_READ: unresolved` (exit 4): continue; the Step-4 snapshot
-  will say unresolved.
+It leaves `docs/flow-runs/issue-<N>.md` as the last COMMITTED record (or
+absent) and stores the issue body as read. Do not hand-edit the record
+between runs. `AS_READ: unresolved` (exit 4): continue. Any other non-zero
+exit: **STOP**.
 
 Background:
 [the plan-record reference](../../../docs/agents/flow-plan-record.md).
@@ -410,12 +406,13 @@ needed` verdict writes NO record. **Only after approval is granted, and never
 before**, and only after the two checks above, write THIS RUN's approved plan.
 
 **The record is APPEND-ONLY and each run owns one section (issue #1320).**
-`begin-run` appends this run's `## Run <n>` header. Then APPEND this run's
-fields - never rewrite the file or edit an earlier run's section:
+Write this run's fields to a scratch file OUTSIDE the checkout, then, before
+any implementation edit, hand it to `approve`: it checks the plan, appends it
+under this run's header and stamps the baseline in one call. Never edit the
+record by hand. A refused plan writes nothing; fix the file and re-run.
 
 ```bash
-~/.claude/scripts/flow-plan-record.py begin-run 42
-cat >> "docs/flow-runs/issue-42.md" <<'RECORD'
+cat > /path/outside/checkout/plan-42.md <<'RECORD'
 - Issue:             #42
 - Base SHA:          <SHA this plan was formed against>
 - Necessity verdict: Still needed | Partially addressed | Needs reframing
@@ -433,16 +430,26 @@ cat >> "docs/flow-runs/issue-42.md" <<'RECORD'
 RECORD
 ```
 
-`begin-run` exits 1 when this worktree has no run identity - run Step 1's
-`reconcile` first.
+```bash
+~/.claude/scripts/flow-plan-record.py approve 42 --plan /path/outside/checkout/plan-42.md
+```
+
+Each Section C line is ``N. `path` - gist``, one file per line: Step 6
+compares the diff against exactly those paths. Do NOT list this record, its
+`.as-read.md` snapshot or the counter-model receipt (issue #1267), and name
+only the SOURCE of a `codex/skills/**` mirror (#1670). The approver field
+comes from the actual approval event (issue #775). Exit 0 or 4
+(`AS_READ: unresolved`, the issue could not be read) proceeds; exit 1 names
+what to fix.
 
 **Adopting found or dirty work (issue #1504).** Only if you deliberately
 preserved pre-existing or dirty work by committing it unmodified as its own
-commit, run `declare-salvage` with that commit's sha right after `begin-run`
-(it refuses a sha that is not an ancestor of HEAD; never infer one from
-history):
+commit, declare that commit's sha BEFORE `approve` (a salvage line added
+after the stamp reads as a changed plan at Step 6). It refuses a sha that is
+not an ancestor of HEAD; never infer one from history:
 
 ```bash
+~/.claude/scripts/flow-plan-record.py begin-run 42
 ~/.claude/scripts/flow-plan-record.py declare-salvage 42 <sha> --reason "<why>"
 ```
 
@@ -450,27 +457,6 @@ If this run ends with deliberately preserved unfinished work pushed to origin,
 follow `/flow:cleanup`'s **Preserved-WIP handoff** procedure before yielding
 (#1614) and relay its URL. A failed publication leaves the handoff incomplete;
 keep the branch/worktree and report that blocker.
-
-Keep Section C as one numbered line per file, in the form ``N. `path` - gist``:
-Step 6 compares the diff against exactly those paths. Markdown only -
-`.gitignore` carries a blanket `*.json`. The approver field comes from the
-actual approval event (issue #775). Do NOT list this record, its `.as-read.md`
-snapshot or the counter-model receipt (issue #1267). `codex/skills/**` mirrors
-are ignored build output (#1670): name only the SOURCE.
-
-**Then, before any implementation edit**, write the as-read snapshot and stamp
-the approval baseline (issues #1081, #1082):
-
-```bash
-~/.claude/scripts/flow-plan-record.py approve 42
-```
-
-- exit 0 - the snapshot `docs/flow-runs/issue-42.as-read.md` is written and
-  the Step-6 baseline is stamped.
-- exit 4 (`AS_READ: unresolved`) - the baseline is stamped but the issue could
-  not be read. Proceed; Step 6 will report drift as unresolved, never clean.
-- exit 1 - no plan record section for THIS run (#1320). Run `begin-run` and
-  append it first.
 
 **Worktree path-resolution rule (issue #486).** Resolve every edit path from
 the active worktree root - `git rev-parse --show-toplevel` - never a hand-built
@@ -896,44 +882,29 @@ instead.
    - PR body: Summary of changes + test plan + `${ISSUE_REF}`
    - Analyze all commits on the branch to draft the summary.
 
-6. **Check whether the issue moved under this run** (issue #1081):
+6. **Close the plan record** (issues #1080, #1081, #1082, #1849). It runs all
+   three checks and prints each one's own verdict line; the exit is only the
+   worst of them, so act on the LINES (`--base <ref>` replaces the
+   `git merge-base HEAD origin/main` compliance base):
    ```bash
-   ~/.claude/scripts/flow-plan-record.py drift 42
+   ~/.claude/scripts/flow-plan-record.py finish 42
    ```
-   - `ISSUE_DRIFT: clean` (exit 0) - body digest unchanged since Step 1.
-   - `ISSUE_DRIFT: drift` (exit 3) - the body changed; it prints the
-     diff. Resolve it under the EXISTING authority model - newer bytes do not by
-     themselves override a constraint or a plan already accepted on the issue -
-     and say in the PR how.
-   - `ISSUE_DRIFT: unresolved` (exit 4) - NOT clean: report it unchecked.
-
-7. **Compare the diff against the approved plan** (issue #1082). It REPORTS; it
-   never blocks:
-   ```bash
-   ~/.claude/scripts/flow-plan-record.py compliance 42
-   ```
-   Base: `git merge-base HEAD origin/main` unless `--base <ref>`.
-   - `PLAN_COMPLIANCE: agreement` (exit 0) - the FILE SET matches Section C
-     (file names only).
-   - `PLAN_COMPLIANCE: divergence` (exit 3) - names each `TOUCHED BUT NOT
-     PLANNED`, `PLANNED BUT NOT TOUCHED` and underivable mirror. Write the
-     reason in the PR; never edit the plan to make it agree.
-   - `PLAN_COMPLIANCE: unknown` (exit 4) - never report it as agreement.
-   - A `, LANES NOT ...` clause: follow its stderr note, commit, re-run.
-   - `PLAN_RECORD_STABILITY: THE PLAN RECORD CHANGED` (exit 3) - the approved
-     plan moved after Step 4; read the record's own diff first. `unknown`: no
+   - `ISSUE_DRIFT: drift` - the body changed (the diff is printed). Resolve it
+     under the EXISTING authority model - newer bytes do not by themselves
+     override a constraint or a plan already accepted on the issue - and say
+     in the PR how. `unresolved` is NOT clean: report it unchecked.
+   - `PLAN_COMPLIANCE` reports, never blocks. `agreement` compares FILE NAMES
+     only. `divergence` names each `TOUCHED BUT NOT PLANNED`, `PLANNED BUT NOT
+     TOUCHED` and underivable mirror: write the reason in the PR; never edit
+     the plan to make it agree. `unknown` is never agreement. A `, LANES NOT
+     ...` clause: follow its stderr note, commit, re-run.
+     `PLAN_RECORD_STABILITY: THE PLAN RECORD CHANGED` - the approved plan
+     moved after Step 4; read the record's own diff first. `unknown`: no
      baseline stamped.
-
-8. **Confirm the plan record reached the PR** (issue #1080). Skip this only when
-   the run wrote no record:
-   ```bash
-   ~/.claude/scripts/flow-plan-record.py head-check 42
-   ```
-   - `FLOW_PLAN_RECORD: present` (exit 0) - proceed.
-   - `FLOW_PLAN_RECORD: absent` (exit 1) - **STOP.** Recover by
-     `git add docs/flow-runs/issue-<N>.md`, commit, push, and re-run this check.
-   - `FLOW_PLAN_RECORD: unverified` (exit 4) - **STOP.** The PR head could not
-     be read; check `gh auth status` and the network, then re-run.
+   - `FLOW_PLAN_RECORD: absent` - **STOP** (expected only when the run wrote
+     no record): `git add docs/flow-runs/issue-<N>.md`, commit, push, re-run.
+     `unverified` - **STOP**: the PR head could not be read; check
+     `gh auth status` and the network, then re-run.
 
 Report: `Step 6/9: Finish complete - PR #XX created`
 

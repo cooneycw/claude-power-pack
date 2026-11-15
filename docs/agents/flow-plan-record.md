@@ -25,6 +25,37 @@ stops calling the helper or starts carrying a pasted copy again.
 Every "cannot answer" state has its own verdict and exit code. None of them is
 ever rendered as clean, agreement or present (#1014, #800).
 
+## The three run verbs (issue #1849)
+
+`/flow:auto` calls the helper three times, not eight. Each wrapper runs the
+verbs above and prints their own lines; the delegated drivers still call the
+verbs directly (#1809, #1811). `COMPOSITE_VERBS` in the helper is the one table
+the wrappers dispatch from, and `scripts/check-driver-parity.py` expands a
+wrapper call by the same table, so parity still compares verb by verb.
+
+| Wrapper | Runs | Exit |
+|---|---|---|
+| `start N` | `reconcile`, then `read-issue` (not after a failed reconcile) | worst of the two |
+| `approve N --plan FILE` | checks FILE in memory, then `begin-run` (if this run has no section yet), appends FILE, `approve` | 1 and nothing written on a refused plan |
+| `finish N [--base REF] [--head SHA]` | `drift`, `compliance`, `head-check`, every one, whatever the others said | worst of the three |
+
+Worst-of means error (1, or any code not below) over unknown (4) over finding
+(3) over ok (0), so a wrapper never reports success over a failed or
+unavailable inner result; an inner crash is an error, and the summary line
+(`FLOW_PLAN_START:` / `FLOW_PLAN_FINISH:`) names each inner exit. The exit is
+lossy by construction - `drift` 4 is report-and-continue, `head-check` 4 is a
+STOP - so the procedure acts on the inner LINES, never on the wrapper's exit.
+
+`approve --plan` refuses, before writing anything: a plan carrying its own run
+marker or `## Run` heading; no Section C heading; a Section C with no
+numbered line, or with a line compliance cannot turn into a path (the format
+that plain `approve` only warns about on stderr, #1713); a lanes table the
+project's lane file would refuse (#1731); and a run that already has a
+Section C (the record is append-only). Plain `approve` is unchanged. Only new
+plan input is validated, so existing records are never re-judged. A salvage
+declaration goes BEFORE `approve --plan` (`begin-run`, `declare-salvage`,
+then `approve --plan`): added after the stamp, it reads as a changed plan.
+
 ## Reconcile (`reconcile`, Step 1, issue #1080)
 
 A previous run in this worktree may have left a plan record at

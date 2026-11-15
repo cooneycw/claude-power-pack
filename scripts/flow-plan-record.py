@@ -14,6 +14,14 @@ the reasoning behind each rule lives in `docs/agents/flow-plan-record.md`.
     compliance ISSUE [--base REF]       Step 6: does the diff's file set match the approved plan?
     head-check ISSUE [--head SHA]       Step 6: does the record exist at the PR head?
 
+The three run verbs /flow:auto calls (issue #1849) wrap the ones above,
+dispatching from COMPOSITE_VERBS; each inner verdict line is still printed:
+
+    start      ISSUE                    Step 1: reconcile, then read-issue
+    approve    ISSUE --plan FILE        Step 4: validate the plan in memory, then
+                                        begin-run, append FILE, approve
+    finish     ISSUE [--base] [--head]  Step 6: drift, compliance, head-check; worst-of exit
+
 Run every subcommand from inside the run's worktree. `--body-file`,
 `--live-file` and `--head` replace the `gh` call so the decision can be
 controlled with real local inputs instead of a stubbed `gh`.
@@ -2031,13 +2039,158 @@ def cmd_head_check(issue: str, head: str | None) -> int:
     return OK
 
 
+# ---------------------------------------------------------------- run verbs (#1849)
+
+#: What each run verb runs, in order. The wrappers below dispatch FROM this
+#: table, and scripts/check-driver-parity.py reads it to expand a wrapper into
+#: the verbs it stands for, so the two cannot disagree. Plain `approve` (no
+#: `--plan`) is unchanged and is not a composite.
+COMPOSITE_VERBS: dict[str, tuple[str, ...]] = {
+    "start": ("reconcile", "read-issue"),
+    "approve --plan": ("begin-run", "approve"),
+    "finish": ("drift", "compliance", "head-check"),
+}
+
+#: Worst-of order for a wrapper's exit: a failure outranks "could not look",
+#: which outranks a finding. Any code not listed (usage, a crash) is an error.
+_SEVERITY = {OK: 0, FINDING: 1, UNKNOWN: 2}
+
+
+def worst(codes: list[int]) -> int:
+    return max(codes, key=lambda c: _SEVERITY.get(c, 3)) if codes else ERROR
+
+
+def run_inner(verb: str, call: Any) -> int:
+    """One inner verb's exit. A crash is an ERROR, never a missing result."""
+    try:
+        return int(call())
+    except Verdict as v:
+        return v.code
+    except Exception:                    # noqa: BLE001 - reported, then counted as failure
+        traceback.print_exc()
+        print(f"FLOW_PLAN_RECORD: error - `{verb}` failed unexpectedly; its result is NOT available.")
+        return ERROR
+
+
+def cmd_start(issue: str) -> int:
+    """`reconcile` then `read-issue`. A failed reconcile stops before the read."""
+    verbs = COMPOSITE_VERBS["start"]
+    calls = {"reconcile": lambda: cmd_reconcile(issue),
+             "read-issue": lambda: cmd_read_issue(issue, None)}
+    codes: list[str] = []
+    results: list[int] = []
+    for verb in verbs:
+        rc = run_inner(verb, calls[verb])
+        results.append(rc)
+        codes.append(f"{verb}={rc}")
+        if verb == "reconcile" and rc != OK:
+            codes += [f"{v}=not-run" for v in verbs[len(results):]]
+            break
+    print("FLOW_PLAN_START: " + " ".join(codes))
+    return worst(results)
+
+
+_PLAN_MARKER_RE = re.compile(r"<!--\s*flow-run\b|^##\s+Run\b", re.M)
+
+
+def approve_plan_refusal(root: pathlib.Path, plan_text: str, prior: str) -> str | None:
+    """Why this plan cannot be appended, decided before anything is written."""
+    if _PLAN_MARKER_RE.search(plan_text):
+        return ("the plan file carries its own run marker or `## Run` heading; the run's "
+                "header is written by this command, never by the plan")
+    if "## Section C" not in plan_text:
+        return "the plan file has no `### Section C` heading"
+    items = section_c_items(plan_text)
+    if not items:
+        return "Section C has no numbered lines; write one ``N. `path` - gist`` line per file"
+    bad = [line.strip() for line in items if not parse_plan_paths(line)]
+    if bad:
+        return ("these Section C lines name no file compliance can read (write "
+                "``N. `path` - gist``): " + " | ".join(bad))
+    try:
+        lanes = project_lanes(root)
+    except LanesUnusable as exc:
+        return f"unknown: {exc}. The lanes table cannot be checked. Run /lane:update"
+    if lanes is not None:
+        refusal, _waiver = lanes_refusal(prior + plan_text, lanes, project_lane_values(root))
+        if refusal:
+            return refusal
+    return None
+
+
+def cmd_approve_plan(issue: str, plan_file: str) -> int:
+    """Begin the run, append the approved plan from a file, then `approve`.
+
+    Every check runs on the plan IN MEMORY first, so a refused plan leaves the
+    record exactly as it was. The plan must exist before the stamp (#775).
+    """
+    try:
+        plan_text = pathlib.Path(plan_file).read_text()
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"FLOW_PLAN_RECORD: error - could not read the plan file {plan_file}: {exc}. "
+              "Nothing was written.")
+        return ERROR
+    run_id = current_run_id(issue)
+    if run_id is None or run_id == MALFORMED_RUN:
+        print("FLOW_PLAN_RECORD: error - this worktree has no usable run identity. Run "
+              f"`flow-plan-record.py start {issue}` (Step 1) first. Nothing was written.")
+        return ERROR
+    root = toplevel()
+    rec = root / record_rel(issue)
+    text = rec.read_text() if rec.exists() else ""
+    runs = split_runs(text) if text.strip() else []
+    prior = next((sec for _n, rid, sec in runs if rid == run_id), None)
+    if prior is not None and "## Section C" in prior:
+        print(f"FLOW_PLAN_RECORD: error - run {run_id} already has an approved plan in "
+              f"{record_rel(issue)}; the record is append-only. To stamp it as it stands, "
+              f"run `flow-plan-record.py approve {issue}`. Nothing was written.")
+        return ERROR
+    if prior is not None and runs[-1][1] != run_id:
+        print(f"FLOW_PLAN_RECORD: error - run {run_id}'s section is not the last in "
+              f"{record_rel(issue)}, so appending would land in another run's section. "
+              "Nothing was written.")
+        return ERROR
+    refusal = approve_plan_refusal(root, plan_text, prior or "")
+    if refusal:
+        print(f"FLOW_PLAN_RECORD: error - {refusal}. Nothing was written.")
+        return ERROR
+    if prior is None:
+        rc = run_inner("begin-run", lambda: cmd_begin_run(issue))
+        if rc != OK:
+            return rc
+        text = rec.read_text()
+    if not text.endswith("\n"):
+        text += "\n"
+    rec.write_text(text + plan_text + ("" if plan_text.endswith("\n") else "\n"))
+    print(f"FLOW_PLAN_RECORD: appended the plan from {plan_file} to run {run_id}")
+    return run_inner("approve", lambda: cmd_approve(issue))
+
+
+def cmd_finish(issue: str, base: str | None, head: str | None) -> int:
+    """`drift`, `compliance`, `head-check`: every one runs, each line stays visible."""
+    calls = {"drift": lambda: cmd_drift(issue, None),
+             "compliance": lambda: cmd_compliance(issue, base),
+             "head-check": lambda: cmd_head_check(issue, head)}
+    results = [(verb, run_inner(verb, calls[verb])) for verb in COMPOSITE_VERBS["finish"]]
+    print("FLOW_PLAN_FINISH: " + " ".join(f"{verb}={rc}" for verb, rc in results)
+          + " (each line above is its own verdict; this exit is only the worst of them)")
+    return worst([rc for _verb, rc in results])
+
+
 # ---------------------------------------------------------------- entry point
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="flow-plan-record.py", description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("reconcile", "approve", "begin-run"):
+    for name in ("reconcile", "begin-run", "start"):
         sub.add_parser(name).add_argument("issue")
+    p = sub.add_parser("approve")
+    p.add_argument("issue")
+    p.add_argument("--plan")
+    p = sub.add_parser("finish")
+    p.add_argument("issue")
+    p.add_argument("--base")
+    p.add_argument("--head")
     p = sub.add_parser("read-issue")
     p.add_argument("issue")
     p.add_argument("--body-file")
@@ -2070,7 +2223,13 @@ def main(argv: list[str]) -> int:
             return cmd_reconcile(args.issue)
         if args.cmd == "read-issue":
             return cmd_read_issue(args.issue, args.body_file)
+        if args.cmd == "start":
+            return cmd_start(args.issue)
+        if args.cmd == "finish":
+            return cmd_finish(args.issue, args.base, args.head)
         if args.cmd == "approve":
+            if args.plan is not None:
+                return cmd_approve_plan(args.issue, args.plan)
             return cmd_approve(args.issue)
         if args.cmd == "begin-run":
             return cmd_begin_run(args.issue)

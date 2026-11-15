@@ -477,3 +477,93 @@ def test_original_alias_assignment_spelling_must_be_literal(value: str, assignme
 def test_helper_probes_apply_the_same_literal_path_rule(probe: str) -> None:
     with pytest.raises(parity.Unknown):
         parity.inventory("## Instructions\n```bash\n" + probe + "\n```\n")
+
+
+# ------------------------------------------------- plan-record run verbs (#1849)
+
+RUN_VERB_CALLS = {
+    "reconcile 42": "start 42",
+    "read-issue 42": "",
+    "begin-run 42": "",
+    "approve 42": "approve 42 --plan /outside/plan-42.md",
+    "drift 42": "",
+    "compliance 42": "finish 42",
+    "head-check 42": "",
+}
+
+
+def use_run_verbs(root: Path, *, keep_finish: bool = True) -> None:
+    """Rewrite both flow surfaces to the #1849 wrappers, line for line, so the
+    fixture's line-pinned citations stay valid; install the real helper."""
+    (root / "scripts").mkdir(exist_ok=True)
+    (root / "scripts/flow-plan-record.py").write_text((ROOT / "scripts/flow-plan-record.py").read_text())
+    for surface in (root / parity.FLOW, root / "codex/skills/flow-auto/SKILL.md"):
+        lines = surface.read_text().split("\n")
+        for i, line in enumerate(lines):
+            for old, new in RUN_VERB_CALLS.items():
+                if line.rstrip().endswith("flow-plan-record.py " + old):
+                    if new == "finish 42" and not keep_finish:
+                        new = ""
+                    lines[i] = line.replace("flow-plan-record.py " + old, "flow-plan-record.py " + new) if new else ""
+        surface.write_text("\n".join(lines))
+        assert "flow-plan-record.py compliance" not in surface.read_text()
+        assert "flow-plan-record.py drift" not in surface.read_text()
+
+
+def test_run_verbs_expand_to_the_verbs_they_run(tmp_path: Path) -> None:
+    root = tree(tmp_path)
+    use_run_verbs(root)
+    derived = parity.inventory(
+        (root / parity.FLOW).read_text(), composites=parity.composite_verbs(root)
+    )
+    assert "flow-plan-record.py finish" not in derived
+    for verb in ("reconcile", "read-issue", "begin-run", "approve", "drift", "compliance", "head-check"):
+        assert f"flow-plan-record.py {verb}" in derived, verb
+    result = outcome(root)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "DRIVER_PARITY: ok" in result.stdout
+
+
+def test_dropping_finish_loses_compliance_and_is_never_ok(tmp_path: Path) -> None:
+    """Negative control: the expansion cannot stand in for a call that is gone."""
+    root = tree(tmp_path)
+    use_run_verbs(root, keep_finish=False)
+    result = outcome(root)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "DRIVER_PARITY: unknown" in result.stdout
+    assert "DRIVER_PARITY: ok" not in result.stdout
+
+
+def test_wrappers_without_the_helper_table_are_never_ok(tmp_path: Path) -> None:
+    root = tree(tmp_path)
+    use_run_verbs(root)
+    (root / "scripts/flow-plan-record.py").unlink()
+    result = outcome(root)
+    assert result.returncode == 2 and "DRIVER_PARITY: ok" not in result.stdout, result.stdout
+
+
+@pytest.mark.parametrize(
+    "table",
+    ["COMPOSITE_VERBS: dict = {}", "COMPOSITE_VERBS: dict = {'finish': ('Drift X',)}",
+     "COMPOSITE_VERBS: dict = {'finish': ('finish',)}", "COMPOSITE_VERBS: dict = make()"],
+)
+def test_a_malformed_composite_table_is_unknown(tmp_path: Path, table: str) -> None:
+    root = tree(tmp_path)
+    use_run_verbs(root)
+    helper = root / "scripts/flow-plan-record.py"
+    text = helper.read_text()
+    start = text.index("COMPOSITE_VERBS: dict[str, tuple[str, ...]] = {")
+    end = text.index("}\n", start) + 2
+    helper.write_text(text[:start] + table + "\n" + text[end:])
+    result = outcome(root)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "composite verbs" in result.stdout
+
+
+def test_plain_approve_is_not_the_composite() -> None:
+    composites = parity.composite_verbs(ROOT)
+    text = "## Instructions\n\n```bash\n~/.claude/scripts/flow-plan-record.py approve 42\n```\n"
+    assert set(parity.inventory(text, composites=composites)) == {"flow-plan-record.py approve"}
+    text = text.replace("approve 42", "approve 42 --plan /p.md")
+    assert set(parity.inventory(text, composites=composites)) == {
+        "flow-plan-record.py begin-run", "flow-plan-record.py approve"}

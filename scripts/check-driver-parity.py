@@ -388,8 +388,13 @@ def inventory(
     helper_names: set[str] | None = None,
     nonexecuting: list[dict[str, object]] | None = None,
     source: str = "document",
+    composites: dict[str, tuple[str, ...]] | None = None,
 ) -> dict[str, list[int]]:
-    """Derive calls inside Instructions, retaining their physical source lines."""
+    """Derive calls inside Instructions, retaining their physical source lines.
+
+    With `composites` (`composite_verbs`), a plan-record run verb counts as the
+    verbs it runs (#1849): `finish` is `drift`, `compliance` and `head-check`.
+    """
     found: dict[str, list[int]] = {}
     helper_names = set(helper_names or ()) | set(re.findall(r"scripts/([\w-]+\.(?:py|sh))", text))
     assigned: set[str] = set()
@@ -419,15 +424,20 @@ def inventory(
             name, verb, address = result
             if name == "flow-plan-record.py" and not re.fullmatch(r"[a-z][a-z0-9-]*", verb):
                 raise Unknown("plan-record invocation has no unambiguous verb")
-            key = f"{name} {verb}" if name == "flow-plan-record.py" else name
-            if bundled_exempt is not None:
-                bundled = re.fullmatch(r"\$\{CPP_SKILL_DIR(?::-[^}]*)?\}/scripts/[\w-]+\.(?:py|sh)", address)
-                checkout_only = name in bundled_exempt and address == "scripts/" + name
-                if (bundled or checkout_only) and bundled_gates is not None:
-                    bundled_gates.add(key)
-                if bundled and bundled_helpers is not None:
-                    bundled_helpers.add(name)
-            found.setdefault(key, []).append(line)
+            keys = [f"{name} {verb}" if name == "flow-plan-record.py" else name]
+            if name == "flow-plan-record.py" and composites is not None:
+                form = f"{verb} --plan" if verb == "approve" and re.search(r"\s--plan(?:[\s=]|$)", value) else verb
+                if form in composites:
+                    keys = [f"{name} {inner}" for inner in composites[form]]
+            for key in keys:
+                if bundled_exempt is not None:
+                    bundled = re.fullmatch(r"\$\{CPP_SKILL_DIR(?::-[^}]*)?\}/scripts/[\w-]+\.(?:py|sh)", address)
+                    checkout_only = name in bundled_exempt and address == "scripts/" + name
+                    if (bundled or checkout_only) and bundled_gates is not None:
+                        bundled_gates.add(key)
+                    if bundled and bundled_helpers is not None:
+                        bundled_helpers.add(name)
+                found.setdefault(key, []).append(line)
 
     for number, line in enumerate(text.splitlines(), 1):
         stripped = line.strip()
@@ -579,6 +589,40 @@ def policies(root: Path, gates: set[str]) -> dict[tuple[str, str], dict]:
     return result
 
 
+def composite_verbs(root: Path) -> dict[str, tuple[str, ...]]:
+    """`COMPOSITE_VERBS` as scripts/flow-plan-record.py declares it (#1849).
+
+    Read from the helper itself, never restated here: the wrappers dispatch
+    from the same table, so expanding by it cannot claim a verb they skip.
+    A tree without the helper expands nothing; that fails safe, because a
+    wrapper left unexpanded drops `approve`/`compliance` below the VERBS floor.
+    """
+    helper = root / "scripts/flow-plan-record.py"
+    if not helper.exists():
+        return {}
+    try:
+        tree = ast.parse(read(helper))
+        value = next(
+            ast.literal_eval(node.value)
+            for node in tree.body
+            if isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "COMPOSITE_VERBS"
+            and node.value is not None
+        )
+    except (SyntaxError, ValueError, StopIteration) as exc:
+        raise Unknown("cannot establish plan-record composite verbs") from exc
+    if not isinstance(value, dict) or not value or any(
+        not isinstance(k, str)
+        or not isinstance(v, tuple)
+        or not v
+        or any(not isinstance(i, str) or not re.fullmatch(r"[a-z][a-z0-9-]*", i) or i in value for i in v)
+        for k, v in value.items()
+    ):
+        raise Unknown("malformed plan-record composite verbs")
+    return value
+
+
 def unpackaged(root: Path) -> set[str]:
     try:
         declared = ast.parse(read(root / "scripts/delegated-core-vendor.py"))
@@ -624,7 +668,8 @@ def unpackaged(root: Path) -> set[str]:
 def evaluate(
     root: Path, generated: Path, *, nonexecuting: list[dict[str, object]] | None = None
 ) -> tuple[list[str], int]:
-    derived = inventory(read(root / FLOW), source=FLOW, nonexecuting=nonexecuting)
+    composites = composite_verbs(root)
+    derived = inventory(read(root / FLOW), source=FLOW, nonexecuting=nonexecuting, composites=composites)
     gates = set(derived)
     if len(derived) < FLOOR or not {f"flow-plan-record.py {v}" for v in VERBS} <= set(derived):
         raise Unknown(f"implausible inventory: {len(derived)} items (floor {FLOOR})")
@@ -637,6 +682,7 @@ def evaluate(
             helper_names={key.split()[0] for key in gates},
             source=f".claude/commands/{driver}/auto.md",
             nonexecuting=nonexecuting,
+            composites=composites,
         )
         for gate in sorted(gates):
             entry = table.get((gate, driver))
@@ -664,6 +710,7 @@ def evaluate(
         bundled_gates=bundled_gates,
         source="generated-flow-auto",
         nonexecuting=nonexecuting,
+        composites=composites,
     )
     if set(rendered) - bundled_gates:
         raise Invalid(
