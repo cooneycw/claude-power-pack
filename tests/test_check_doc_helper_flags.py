@@ -276,3 +276,57 @@ def test_fences_are_found_indented_with_tildes_and_after_a_closed_block(tmp_path
     }.items():
         res = run(tree(tmp_path / name, doc))
         assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout, (name, res.stdout)
+
+
+def fenced(body: str) -> str:
+    return "```bash\n" + body + "```\n"
+
+
+def test_a_backtick_substitution_inside_double_quotes_is_an_invocation(tmp_path: Path) -> None:
+    """Issue #1842: in shell, a backtick inside double quotes still runs a
+    command, as `$(` does; the helper inside it must be checked."""
+    doc = fenced('~/.claude/scripts/mailbox.sh --to o\nX="`~/.claude/scripts/mailbox.sh --kind m`"\n')
+    res = run(tree(tmp_path, doc))
+    assert res.returncode == 1 and "cmd.md:3: mailbox.sh --kind" in res.stdout, res.stdout
+
+
+def test_a_backtick_substitution_inside_a_dollar_paren_is_an_invocation(tmp_path: Path) -> None:
+    doc = fenced('X="$(echo `~/.claude/scripts/mailbox.sh --kind m`)"\n')
+    res = run(tree(tmp_path, doc))
+    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout, res.stdout
+
+
+def test_a_backtick_at_the_command_level_nests_instead_of_ending_the_command(tmp_path: Path) -> None:
+    """Issue #1842: inside a fence a backtick argument is a nested command, so a
+    flag after it still belongs to the helper; the helper inside one is checked."""
+    for name, body in {
+        "inside": "X=`~/.claude/scripts/mailbox.sh --kind m`\n",
+        "after": "~/.claude/scripts/mailbox.sh --to `whoami` --kind m\n",
+    }.items():
+        res = run(tree(tmp_path / name, fenced(body)))
+        assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout, (name, res.stdout)
+
+
+def test_the_closing_backtick_ends_the_helpers_command(tmp_path: Path) -> None:
+    """A flag after the closing backtick belongs to the outer command (`echo`)."""
+    doc = fenced('echo "`~/.claude/scripts/mailbox.sh --to o`" --kind m\n')
+    res = run(tree(tmp_path, doc))
+    assert res.returncode == 0, res.stdout
+    assert "ok - 1 flag(s) on 1 invocation(s)" in res.stdout  # read as an invocation, --to only
+
+
+def test_an_escaped_backtick_inside_double_quotes_stays_message_text(tmp_path: Path) -> None:
+    doc = fenced('~/.claude/scripts/mailbox.sh --to o --body "see \\`~/.claude/scripts/mailbox.sh --kind m\\`"\n')
+    res = run(tree(tmp_path, doc))
+    assert res.returncode == 0, res.stdout
+    assert "1 helper path(s) inside a quoted argument" in res.stderr
+
+
+def test_prose_backticks_stay_inline_code_span_edges(tmp_path: Path) -> None:
+    """In prose a backtick is a span edge, never a nested command: words in a
+    LATER span are not the helper's flags (the false failure #1842 could add)."""
+    doc = ("Run `~/.claude/scripts/mailbox.sh --to o` and never pass `--kind`.\n"
+           'Say "`~/.claude/scripts/mailbox.sh --body b`" then `--kind` stays prose.\n')
+    res = run(tree(tmp_path, doc))
+    assert res.returncode == 0, res.stdout
+    assert "ok - 2 flag(s) on 2 invocation(s)" in res.stdout
