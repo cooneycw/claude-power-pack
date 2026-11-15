@@ -34,7 +34,7 @@
 # sentence says a will-test answer names its values (5 words, 3 absorbed by
 # trimming the same paragraph). Other caps unchanged.
 # #1847 moves /codex:code_review's six shell blocks into scripts/codex-review-run.sh:
-# codex/code_review.md drops to 2598, and flow/auto.md, reading the helper's
+# codex/code_review.md drops to 2593, and flow/auto.md, reading the helper's
 # markers instead of carrying them, to 10404. Other caps unchanged.
 464	browser/help.md
 1077	browser/session.md
@@ -54,7 +54,7 @@
 1396	claude-md/lint.md
 1613	codex/ask.md
 8689	codex/auto.md
-2598	codex/code_review.md
+2593	codex/code_review.md
 1134	codex/exec.md
 640	codex/help.md
 537	codex/status.md

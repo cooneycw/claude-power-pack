@@ -36,6 +36,7 @@ from tests.isolated_env import ISOLATED_PATH
 REPO = Path(__file__).resolve().parent.parent
 HELPER = REPO / "scripts" / "codex-review-run.sh"
 RECEIPT = REPO / "scripts" / "counter-model-receipt.py"
+FLOW_AUTO = REPO / ".claude" / "commands" / "flow" / "auto.md"
 
 requires_git = pytest.mark.skipif(shutil.which("git") is None, reason="requires git")
 requires_python3 = pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3")
@@ -333,27 +334,80 @@ def test_a_linked_worktree_is_reviewed(tmp_path: Path) -> None:
 
 
 @requires_git
-@requires_python3
-def test_a_checkout_local_transcript_does_not_block_an_enrolled_checkpoint(tmp_path: Path) -> None:
-    """Counter-model review: a transcript created BEFORE the diff stage was an
-    untracked file in the checkout, and the enrolled checkpoint check blocked a
-    clean checkpoint because of the helper's own output."""
+@pytest.mark.parametrize("enrolled", [True, False], ids=["enrolled", "not-enrolled"])
+def test_a_transcript_inside_the_work_tree_is_refused_before_the_review(tmp_path: Path, enrolled: bool) -> None:
+    """Counter-model review, passes 1 and 2: a transcript in the checkout is an
+    untracked file the NEXT run's diff stage marks - an enrolled repository then
+    blocks a clean checkpoint, and any other reviews its own previous report."""
     work, env = _fixture(tmp_path)
-    (work / "docs" / "measurements" / "counter-model").mkdir(parents=True)
-    (work / "docs" / "measurements" / "counter-model" / ".keep").write_text("", encoding="utf-8")
-    _git("add", "-A", cwd=work, env=env)
-    _git("commit", "-qm", "enrol", cwd=work, env=env)
-    status = subprocess.run(["git", "status", "--porcelain"], cwd=work, env=env, capture_output=True, text=True)
-    assert status.stdout == "", "precondition: a clean implementation checkpoint"
-    transcript = work / "review-transcript.md"
-    proc = subprocess.run(["bash", str(HELPER), "--transcript", str(transcript)], cwd=work, env=env,
+    if enrolled:
+        (work / "docs" / "measurements" / "counter-model").mkdir(parents=True)
+        (work / "docs" / "measurements" / "counter-model" / ".keep").write_text("", encoding="utf-8")
+        _git("add", "-A", cwd=work, env=env)
+        _git("commit", "-qm", "enrol", cwd=work, env=env)
+    (work / "sub").mkdir()
+    for inside in (work / "review-transcript.md", work / "sub" / "t.md"):
+        proc = subprocess.run(["bash", str(HELPER), "--transcript", str(inside)], cwd=work, env=env,
+                              capture_output=True, text=True)
+        assert proc.returncode == 2, proc.stdout + proc.stderr
+        assert "is inside the work tree" in proc.stderr
+        assert not inside.exists(), "the refusal created the file it refused"
+    assert _calls(env) == [], "the review ran with a transcript inside the work tree"
+
+
+@requires_git
+def test_a_transcript_beside_the_checkout_is_not_inside_it(tmp_path: Path) -> None:
+    """The other verdict: a sibling directory whose name extends the root's is outside."""
+    work, env = _fixture(tmp_path)
+    sibling = tmp_path / "work-reviews"
+    sibling.mkdir()
+    proc = subprocess.run(["bash", str(HELPER), "--transcript", str(sibling / "t.md")], cwd=work, env=env,
                           capture_output=True, text=True)
     try:
-        assert "CODEX_REVIEW: blocked" not in proc.stderr, proc.stderr
         assert proc.returncode == 0, proc.stdout + proc.stderr
-        assert "## Findings" in transcript.read_text(encoding="utf-8")
     finally:
         _cleanup_stream(proc.stdout)
+
+
+@requires_git
+@requires_python3
+def test_the_verdict_decides_before_the_parse(tmp_path: Path) -> None:
+    """Counter-model review, pass 2: a failed exec can leave a clean report.
+
+    The parse alone reads it `clean`; only the verdict line says the review did
+    not run. /flow:auto 1b must therefore branch on the verdict first.
+    """
+    work, env = _fixture(tmp_path)
+    proc, transcript = _review(work, env, STUB_EXEC_RC="1")
+    try:
+        assert proc.returncode == 3 and "CODEX_REVIEW: unavailable (codex exec exited 1" in proc.stdout
+        parsed = subprocess.run(["python3", str(RECEIPT), "parse", str(transcript)], capture_output=True, text=True)
+        assert "COUNTER_MODEL_REVIEW: clean" in parsed.stdout, "precondition: the report itself looks clean"
+        step = FLOW_AUTO.read_text(encoding="utf-8")
+        step = " ".join(step[step.index("**1b. Run the review**"):step.index("**1c.")].split())
+        assert "parse only `ran`" in step and "`unavailable` is a `reviewer-unavailable` skip" in step, step
+    finally:
+        _cleanup_stream(proc.stdout)
+
+
+@requires_git
+@pytest.mark.parametrize("case", ["no-ancestor", "outside-checkout"])
+def test_every_early_refusal_carries_a_verdict_line(tmp_path: Path, case: str) -> None:
+    """Counter-model review, pass 2: an early refusal's verdict is its
+    `CODEX_REVIEW:` line on stderr, which a hint line may follow - never assume
+    the last line."""
+    work, env = _fixture(tmp_path)
+    cwd = work
+    if case == "no-ancestor":
+        _git("checkout", "-q", "--orphan", "unrelated", cwd=work, env=env)
+        _git("commit", "-qm", "unrelated root", cwd=work, env=env)
+    else:
+        cwd = tmp_path / "not-a-checkout"
+        cwd.mkdir()
+    proc, _ = _review(work, env, cwd=cwd)
+    assert proc.returncode == 3, proc.stdout + proc.stderr
+    verdicts = [ln for ln in proc.stderr.splitlines() if ln.startswith("CODEX_REVIEW: ")]
+    assert len(verdicts) == 1 and verdicts[0].startswith("CODEX_REVIEW: unavailable ("), proc.stderr
 
 
 @pytest.mark.skipif(not Path("/dev/full").exists(), reason="needs /dev/full")
@@ -413,7 +467,6 @@ def test_an_unwritable_transcript_is_refused(tmp_path: Path) -> None:  # binary-
 # The reader: /flow:auto Step 6 1d reads every receipt flag from the transcript.
 # --------------------------------------------------------------------------- #
 
-FLOW_AUTO = REPO / ".claude" / "commands" / "flow" / "auto.md"
 RECEIPT_FLAGS = ("STREAM", "SCOPE", "BASE", "NETWORK", "LOCAL_CREDENTIALS")
 
 

@@ -55,24 +55,23 @@ it as a stage), perform these steps:
 
 ### Step 1: Run the review
 
-Invoke the helper bare, with literal values, and capture its transcript to a
-file. Deep reviews of large diffs run for many minutes; for anything
-non-trivial run it in the background, as `/codex:ask` documents under
-"Long-running delegations".
+Invoke the helper bare, with literal values. It runs for minutes: run it in
+the background (`/codex:ask`, "Long-running delegations").
 
 ```bash
 ~/.claude/scripts/codex-review-run.sh --base origin/main --context "issue #42: <title>" --transcript /path/to/transcript.md
 ```
 
 On exit 127, use `scripts/codex-review-run.sh` in the CPP checkout and tell the
-user to run **`/flow:repair`**. The last line is the verdict:
+user to run **`/flow:repair`**. The `CODEX_REVIEW:` line is the verdict (stderr
+for an early refusal); read it before the findings:
 
-| Last line | Exit | Meaning |
+| Verdict | Exit | Meaning |
 |---|---|---|
 | `CODEX_REVIEW: ran` | 0 | The review ran; the transcript holds the markers, the banner and the findings |
 | `CODEX_REVIEW: blocked (...)` | 1 | The patch is over Codex's input limit, or an enrolled repository has no committed checkpoint. Never a skip: split the change, or commit the bulk that needs no review separately, or commit the checkpoint |
 | `CODEX_REVIEW: unavailable (...)` | 3 | No codex, no common ancestor with BASE (a shallow clone), an untracked-file listing or diff that failed, a refused `CODEX_REVIEW_SANDBOX`, no empty HOME for the reviewer, a failed `codex exec`, or an unwritable transcript. A caller degrades and continues; standalone, report it and stop |
-| (usage) | 2 | A bad argument or an unwritable transcript path |
+| (usage) | 2 | A bad argument, or a transcript path unwritable or inside the checkout |
 
 **An empty diff is still handed to the reviewer (issue #1015).** It parses as
 `clean` and records an ordinary `ran` receipt: the ONLY condition that skips a

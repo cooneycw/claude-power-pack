@@ -7,6 +7,7 @@
 #
 # Usage:
 #   codex-review-run.sh [--base REF] [--context TEXT] --transcript FILE
+#   (FILE outside the checkout)
 #
 # The review mode runs five stages in order, each a function below whose body
 # is the former document block, unchanged except where noted:
@@ -22,12 +23,14 @@
 # probe lines on stdout as they are measured; then the relay (the
 # CODEX_REVIEW_BASE / STREAM / MODEL / SCOPE / NETWORK / LOCAL_CREDENTIALS
 # markers, the banner and the findings), which is ALSO written to the
-# transcript FILE that `counter-model-receipt.py parse` reads; last, one
-# verdict line:
+# transcript FILE that `counter-model-receipt.py parse` reads. The verdict is
+# the `CODEX_REVIEW:` line - on stdout after a review, on stderr (possibly
+# followed by a hint) for an early refusal. Read it BEFORE parsing: a failed
+# `codex exec` can leave a clean-looking report in the transcript.
 #   CODEX_REVIEW: ran                               exit 0
 #   CODEX_REVIEW: blocked (...)                     exit 1  never a skip
 #   CODEX_REVIEW: unavailable (...)                 exit 3  a skip: reviewer-unavailable
-#   (usage error)                                   exit 2
+#   (usage error, or a transcript inside the work tree) exit 2
 # A nonzero `codex exec` is `unavailable (codex exec exited N)`: the relay is
 # still written, so the transcript shows what came back, but no findings are
 # vouched for.
@@ -479,16 +482,28 @@ codex_review_main() {
     if [ -z "$transcript" ]; then
         echo "codex-review-run: --transcript FILE is required" >&2; codex_review_usage; return 2
     fi
-    # Checked BEFORE the review, but WITHOUT creating the file (counter-model
-    # review): a transcript inside an enrolled checkout, created this early, is
-    # an untracked file the diff stage marks intent-to-add, and the checkpoint
-    # check then blocks a clean checkpoint. It is written only after the review.
-    local tdir relay_rc
+    # Checked BEFORE the review, without creating the file: a transcript that
+    # cannot be written would spend a model call and keep nothing a receipt can
+    # parse. It is written only after the review.
+    local tdir troot wroot relay_rc
     tdir=$(dirname -- "$transcript")
     if [ -d "$transcript" ] \
         || { [ -e "$transcript" ] && [ ! -w "$transcript" ]; } \
         || { [ ! -e "$transcript" ] && { [ ! -d "$tdir" ] || [ ! -w "$tdir" ]; }; }; then
         echo "codex-review-run: cannot write transcript '$transcript'" >&2; return 2
+    fi
+    # NEVER INSIDE THE WORK TREE (counter-model review, pass 2). There it is an
+    # untracked file the diff stage marks intent-to-add on the NEXT run: an
+    # enrolled repository then blocks a clean checkpoint, and any other reviews
+    # its own previous report as part of the change. Compared on physical paths;
+    # outside a checkout there is no tree to protect (the diff stage refuses).
+    if wroot=$(git rev-parse --show-toplevel 2>/dev/null) && wroot=$(cd "$wroot" && pwd -P) \
+        && troot=$(cd "$tdir" && pwd -P); then
+        case "$troot/" in
+            "$wroot"/*)
+                echo "codex-review-run: transcript '$transcript' is inside the work tree $wroot; put it outside the checkout" >&2
+                return 2 ;;
+        esac
     fi
 
     # Each stage exits the script on its own refusal, with its own marker.

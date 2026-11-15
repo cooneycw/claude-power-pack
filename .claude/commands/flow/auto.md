@@ -713,9 +713,8 @@ instead.
    fi
    ```
 
-   **The probe is ADDITIVE, never a replacement**: a codex
-   that is installed but cannot review must still land in
-   `reviewer-unavailable` via 1c. **An empty diff is NOT a skip (owner ruling,
+   **The probe is ADDITIVE, never a replacement**: an installed codex
+   that cannot review lands in `reviewer-unavailable`. **An empty diff is NOT a skip (owner ruling,
    2026-09-16)**: the review runs and records an ordinary `ran` receipt.
 
    **Select evidence independently of runtime (issue #1584).** The reviewer
@@ -728,8 +727,9 @@ instead.
    the skip (until #1513 lands); its free-form response is not a receipt.
 
    **1b. Run the review** (Claude sessions only - a Codex lane takes the skip
-   above) - `/codex:code_review` is one bare call (#1847), passing 1a's BASE. Its
-   last line is the verdict; the transcript holds findings and markers:
+   above) - `/codex:code_review` is one bare call (#1847): 1a's BASE, a transcript
+   OUTSIDE the checkout. Its `CODEX_REVIEW:` line decides: parse only `ran`;
+   `unavailable` is a `reviewer-unavailable` skip; `blocked` stops:
 
    ```bash
    ~/.claude/scripts/codex-review-run.sh --base origin/<default-branch> --context "issue #42: <title>" --transcript /path/to/transcript.md
