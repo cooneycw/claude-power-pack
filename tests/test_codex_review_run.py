@@ -113,8 +113,11 @@ def _fixture(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     ]
     (rollout_dir / f"rollout-{THREAD}.jsonl").write_text(
         "".join(json.dumps(r) + "\n" for r in rollout), encoding="utf-8")
+    # python3's own directory is added: the helper's model lookup runs
+    # counter-model-receipt.py, and CI's image keeps python3 outside /usr/bin.
+    python_dir = Path(shutil.which("python3") or "/usr/bin/python3").parent
     # negative-fixture: allow PATH is isolation plus the stubs, not an absence
-    env = {**os.environ, "HOME": str(home), "PATH": f"{stub_dir}:{ISOLATED_PATH}",
+    env = {**os.environ, "HOME": str(home), "PATH": f"{stub_dir}:{python_dir}:{ISOLATED_PATH}",
            "CODEX_HOME": str(codex_home), "CM_RECEIPT": str(RECEIPT),
            "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
            "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x",
