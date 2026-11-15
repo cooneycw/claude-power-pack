@@ -70,6 +70,38 @@ what makes it **challengeable on the merits** rather than by preference.
   Silent reclassification is the failure this section exists to prevent: an agent may
   argue a constraint away, but never quietly treat it as optional.
 
+## Supported scope and proportional prevention
+
+Approve the intended outcome and supported scope before choosing safeguards. Name
+material exclusions and how unsupported cases are reported. Supporting additional
+inputs or environments is additional scope; discovering them during review does
+not automatically make them requirements.
+
+A new mandatory gate, hook, or standing directive needs a justification beyond a
+reproducible defect: observed recurrence or a credible severe consequence within
+supported use, and an explanation of why permanent prevention is preferable to a
+local correction. Include the maintenance and false-blocking costs. A red case
+proves discrimination; a severity label expresses a judgment. Neither alone
+establishes that permanent prevention is worthwhile.
+
+A valid finding may be **accepted as a limitation**: its consequence is
+understood, it remains unimplemented, and no future fix is promised. Record the
+reason and decision authority in the existing plan, review disposition, or PR.
+Reconsider it when evidence materially changes its frequency, consequence, or
+supported scope.
+
+Accepting a limitation cannot silently discharge an existing promise. If it
+changes agreed acceptance or constraints, record the authorized revision or
+withdrawal. Assess completion against that revised agreement.
+
+**It is a disposition for a finding, not a fourth delivery state.** The three
+dispositions under [Accounting for what was delivered](#accounting-for-what-was-delivered)
+stay three: when accepting a limitation changes an acceptance item, that item is
+Revised and needs the agreement a revision always needs. It grants no new
+authority either. Only the existing decision authority accepts a limitation; an
+agent still cannot waive a requirement, bypass a failing mandatory check, or call
+an unexamined input a pass.
+
 ## How much document
 
 | Tier | Shape of the work | What the contract lives in |
@@ -85,20 +117,14 @@ requirement - the same failure the
 [knowledge lifecycle](knowledge-lifecycle.md) prevents after delivery.
 
 **Declare the tier as a line in the issue, not only as an inferred shape
-(Nit Store #864, absorbed into #1499).** `#934` proposed binding counter-model
-review to tier and was closed by binding it to run-by-default instead - but
-the underlying gap outlives that one proposal: with no machine-readable tier
-signal anywhere, NO future acceptance criterion that wants to bind something
-to tier (a gate, a routing rule, a reviewer's scope) can be verified rather
-than eyeballed. An issue created or triaged by an agent session states its
-tier as a literal contract line, `Tier: 1` / `Tier: 2` / `Tier: 3`, near the
-top of the body - the same way `speckit-context`'s cache block states its own
-provenance. A human-filed issue through `.github/ISSUE_TEMPLATE/feature-request.yml`
-declares it through that template's own Tier field. Neither mechanism is a
-GitHub label: a label is a repository-wide, outward-facing object this
-document does not create or delete, and an issue's tier is a property of its
-own body, re-derivable by reading the issue the same way every other
-distinction here is.
+(Nit Store #864, absorbed into #1499).** With no tier written down, no acceptance
+criterion that binds something to tier (a gate, a routing rule, a reviewer's
+scope) can be verified rather than eyeballed. An issue created or triaged by an
+agent session states its tier as a literal contract line, `Tier: 1` / `Tier: 2` /
+`Tier: 3`, near the top of the body. A human-filed issue through
+`.github/ISSUE_TEMPLATE/feature-request.yml` declares it through that template's
+own Tier field. Neither mechanism is a GitHub label: an issue's tier is a property
+of its own body, re-derivable by reading the issue.
 
 **The one exception is a machine-generated cache, and it is narrow.** An issue
 created by `scripts/speckit-tasks-to-issues.sh` carries a `speckit-context` block:

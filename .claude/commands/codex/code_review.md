@@ -514,6 +514,8 @@ Before inspecting the change, if repository execution is available, execute exac
 
 Review for: correctness bugs, security issues, missed edge cases, broken or missing tests, and meaningful simplifications. Do NOT restyle working code or comment on formatting.
 
+Judge the change against its approved scope: the review intent above and, when the diff carries a plan record (docs/flow-runs/issue-<N>.md), the plan approved there. State each finding's consequence within that scope. If a concern is about an input or environment the scope does not claim to support, still report it as a finding, and say in its Issue text that it proposes a scope expansion. Never withhold a finding for being out of scope, and never read an unstated scope as a narrow one.
+
 If the diff adds or changes a check, gate, guard, tripwire or allowlist, ask two further questions of it and report a failure of either as a finding: (1) does its success message claim more than its input population supports - can a zero distinguish 'I looked and found nothing' from 'there was nothing to look at'; and (2) can a non-zero distinguish 'our thing changed' from 'a neighbour changed'. Widening the detector is not always the remedy: where the narrow answer is deliberately correct, say so and say where the larger question should be answered instead.
 
 If a LANE LIST is given above and the diff changes behaviour, report: (1) each listed lane that the plan's 'Lanes for this change' table in this diff does not answer - with no such table, say so once; (2) each lane the plan marks 'will test' that no test in the diff exercises. With no LANE LIST, skip (1) and (2).
@@ -590,6 +592,10 @@ own assessment. Then, standalone, add your own labeled triage: for each finding,
 agree (worth fixing), disagree (with the reason), or defer (real but out of
 scope). Do not apply fixes in this command - it is read-only by design; fixing
 is the caller's decision (`/flow:auto` Step 6 item 1c does exactly that).
+A finding the reviewer marks as a proposed scope expansion is still a finding:
+whether it becomes a requirement, or ends as an accepted limitation, is decided
+under [the issue contract](../../../docs/agents/issue-contract.md#supported-scope-and-proportional-prevention),
+by the approver.
 
 State the `CODEX_REVIEW_SCOPE`, `CODEX_REVIEW_NETWORK` and
 `CODEX_REVIEW_LOCAL_CREDENTIALS` with the findings.

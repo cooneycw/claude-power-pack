@@ -217,7 +217,18 @@ after it:
 1. It is backed out, and the finding goes to its own issue.
 2. It stays as a commit after the receipt, and the PR names it, in words, as
    not reviewed by the second model.
+3. It is backed out, or was never made, and the finding is
+   [accepted as a limitation](issue-contract.md#supported-scope-and-proportional-prevention):
+   no successor issue, and no fix promised. The PR records the approver's
+   ruling and its reason.
 
 A finding of medium severity or higher takes the first route unless the
-approver reads the fix themselves and says so in the PR. There is never a
-receipt for the unreviewed head, never a false count, and never silence.
+approver reads the fix themselves and says so in the PR, or accepts the
+limitation in their own words. There is never a receipt for the unreviewed
+head, never a false count, and never silence.
+
+**An accepted limitation is not a clean review and not a rejected finding.**
+The receipt has no count of its own for one, so it is counted under
+`deferred`, the only count for a valid finding left unfixed, and the PR's
+review block says in words which of those were accepted as limitations and by
+whom. The same holds when the ruling comes at triage, before any fix is made.
