@@ -931,6 +931,7 @@ def tmp_repo(tmp_path, monkeypatch):
     monkeypatch.setattr(codex_skill_sync, "SOURCE_ROOT", src)
     monkeypatch.setattr(codex_skill_sync, "SCRIPTS_ROOT", scripts)
     monkeypatch.setattr(codex_skill_sync, "OUTPUT_ROOT", out)
+    monkeypatch.setattr(codex_skill_sync, "CHARTERS_ROOT", tmp_path / "charters")
     monkeypatch.setattr(codex_skill_sync, "FAMILIES", ["flow", "qa"])
     monkeypatch.setattr(codex_skill_sync, "EXCLUDE", {})
     return tmp_path
@@ -2662,7 +2663,9 @@ def test_every_bundle_with_code_or_docs_carries_a_provenance_note():
         byte_identical = [
             f for f in skill_dir.rglob("*")
             if f.is_file()
-            and f.name not in ("SKILL.md", "reference.md", MANIFEST_NAME, codex_skill_sync.PROVENANCE_NAME)
+            and f.name not in (
+                "SKILL.md", "reference.md", "CHARTER.md", MANIFEST_NAME, codex_skill_sync.PROVENANCE_NAME
+            )
             and "__pycache__" not in f.parts
         ]
         if not byte_identical:
@@ -2687,7 +2690,9 @@ def test_the_provenance_note_lists_exactly_what_it_covers():
             f.relative_to(skill_dir).as_posix()
             for f in skill_dir.rglob("*")
             if f.is_file()
-            and f.name not in ("SKILL.md", "reference.md", MANIFEST_NAME, codex_skill_sync.PROVENANCE_NAME)
+            and f.name not in (
+                "SKILL.md", "reference.md", "CHARTER.md", MANIFEST_NAME, codex_skill_sync.PROVENANCE_NAME
+            )
             and "__pycache__" not in f.parts
         }
         assert listed == present, (
@@ -2699,7 +2704,7 @@ def test_the_provenance_note_lists_exactly_what_it_covers():
 def test_the_provenance_note_does_not_list_itself_or_the_self_naming_files():
     for note in sorted((ROOT / "codex" / "skills").glob("*/" + codex_skill_sync.PROVENANCE_NAME)):
         rows = [line for line in note.read_text().splitlines() if line.startswith("- `")]
-        for excluded in ("SKILL.md", "reference.md", codex_skill_sync.PROVENANCE_NAME):
+        for excluded in ("SKILL.md", "reference.md", "CHARTER.md", codex_skill_sync.PROVENANCE_NAME):
             assert all(excluded not in line for line in rows), (
                 f"{note} names {excluded}, which already signs itself"
             )
@@ -3744,3 +3749,220 @@ def test_a_launch_failure_and_a_usage_error_print_no_verdict_line(tmp_path: Path
     assert unset.returncode in (126, 127) and usage.returncode == 2
     assert "FLOW_FINISH_GATE_EXIT=2" in usage.stderr, usage.stderr
 
+
+
+# --- Charters mirrored from charters/ (issue #1838) --------------------------
+#
+# `charters/<family>/<command>/CHARTER.md` is the promise a slash command makes,
+# kept outside `.claude/commands/` because Claude Code registers every `.md`
+# there as a command. The generator copies it into the command's skill with a
+# GENERATED marker AFTER the YAML block (skillc's parser needs the block on line
+# 1), and `--check` reds a charter whose path, command and `subject:` disagree.
+
+_CHARTER = (
+    "---\n"
+    "contract: flow-auto\n"
+    "version: 1\n"
+    "subject: .claude/commands/flow/auto.md\n"
+    "---\n"
+    "\n"
+    "The composite. See [the command](../../../.claude/commands/flow/auto.md).\n"
+)
+
+
+def _plant_charter(root: Path, family: str = "flow", stem: str = "auto", text: str = _CHARTER) -> Path:
+    path = root / "charters" / family / stem / "CHARTER.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    return path
+
+
+def test_a_charter_is_mirrored_with_its_yaml_block_first(tmp_repo):
+    _plant_charter(tmp_repo)
+    assert codex_skill_sync.main(["--write"]) == 0
+    mirrored = (tmp_repo / "codex" / "skills" / "flow-auto" / "CHARTER.md").read_text()
+    lines = mirrored.splitlines()
+    # The YAML block still opens the file, byte for byte, so skillc can read it.
+    assert mirrored.startswith(_CHARTER.split("\n\n", 1)[0] + "\n")
+    assert lines[0] == "---" and lines[4] == "---"
+    assert lines[5] == (
+        f"{codex_skill_sync.MARKER_PREFIX} edit charters/flow/auto/CHARTER.md instead -->"
+    )
+    # The prose is the source's, with its repository link routed upstream
+    # because the command file is not inside the bundle.
+    assert lines[6] == ""
+    assert lines[7].startswith("The composite. See [the command](https://github.com/")
+    assert lines[7].endswith("/.claude/commands/flow/auto.md).")
+    # It signs itself, so the byte-identical provenance note must not list it.
+    note = tmp_repo / "codex" / "skills" / "flow-auto" / codex_skill_sync.PROVENANCE_NAME
+    assert not note.is_file() or "CHARTER.md" not in note.read_text()
+    # Only the command it covers gets it.
+    assert not (tmp_repo / "codex" / "skills" / "qa-test" / "CHARTER.md").exists()
+    assert codex_skill_sync.main(["--check"]) == 0
+
+
+def test_without_a_charter_nothing_is_mirrored(tmp_repo):
+    assert not (tmp_repo / "charters").exists()
+    assert codex_skill_sync.main(["--write"]) == 0
+    assert list((tmp_repo / "codex" / "skills").rglob("CHARTER.md")) == []
+    assert codex_skill_sync.charter_errors() == []
+    assert codex_skill_sync.main(["--check"]) == 0
+
+
+def test_a_planted_charter_is_not_registered_as_a_command(tmp_repo):
+    before = set(codex_skill_sync.expected_outputs(["flow", "qa"]))
+    _plant_charter(tmp_repo)
+    (tmp_repo / "charters" / "README.md").write_text("# Charters\n")
+    assert set(codex_skill_sync.expected_outputs(["flow", "qa"])) == before
+    assert codex_skill_sync.completeness_errors() == []
+    assert codex_skill_sync.charter_errors() == []
+
+
+def test_control_a_charter_beside_the_commands_is_registered(tmp_repo):
+    """Negative control for the test above: the same file put beside the
+    commands IS discovered as a command, `flow-CHARTER`, so the unchanged name
+    set above is evidence rather than a blind comparison."""
+    before = set(codex_skill_sync.expected_outputs(["flow", "qa"]))
+    beside = tmp_repo / ".claude" / "commands" / "flow" / "CHARTER.md"
+    beside.write_text(_CHARTER)
+    after = set(codex_skill_sync.expected_outputs(["flow", "qa"]))
+    assert after - before == {"flow-CHARTER"}
+
+
+@pytest.mark.parametrize(
+    ("rel", "text", "expected"),
+    [
+        ("flow/nope/CHARTER.md", _CHARTER.replace("auto.md", "nope.md"),
+         "ORPHAN charter: charters/flow/nope/CHARTER.md"),
+        ("flow/auto/notes.md", "stray\n", "STRAY charters file: charters/flow/auto/notes.md"),
+        ("flow/CHARTER.md", _CHARTER, "STRAY charters file: charters/flow/CHARTER.md"),
+        ("flow/auto/CHARTER.md", _CHARTER.replace("subject: .claude/commands/flow/auto.md\n", ""),
+         "CHARTER without subject: charters/flow/auto/CHARTER.md"),
+        ("flow/auto/CHARTER.md", "No block.\n",
+         "CHARTER without a YAML block at the top: charters/flow/auto/CHARTER.md"),
+    ],
+)
+def test_a_misplaced_charter_reds_the_check(tmp_repo, rel, text, expected):
+    path = tmp_repo / "charters" / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    assert path.is_file()
+    errors = codex_skill_sync.charter_errors()
+    assert len(errors) == 1 and errors[0].startswith(expected), errors
+    codex_skill_sync.main(["--write"])
+    assert codex_skill_sync.main(["--check"]) == 1
+
+
+def test_an_orphan_charter_clears_once_its_command_exists(tmp_repo):
+    _plant_charter(tmp_repo, "qa", "smoke", _CHARTER.replace("flow/auto.md", "qa/smoke.md"))
+    assert [e.split(" (")[0] for e in codex_skill_sync.charter_errors()] == [
+        "ORPHAN charter: charters/qa/smoke/CHARTER.md"
+    ]
+    (tmp_repo / ".claude" / "commands" / "qa" / "smoke.md").write_text("# QA Smoke\n\nBody.\n")
+    assert codex_skill_sync.charter_errors() == []
+
+
+def test_a_charter_naming_another_command_reds_the_check(tmp_repo):
+    _plant_charter(tmp_repo, text=_CHARTER.replace("flow/auto.md", "qa/test.md"))
+    errors = codex_skill_sync.charter_errors()
+    assert errors == [
+        "CHARTER subject mismatch: charters/flow/auto/CHARTER.md names"
+        " '.claude/commands/qa/test.md', its path says '.claude/commands/flow/auto.md'"
+    ]
+
+
+def test_an_edited_charter_source_is_drift(tmp_repo, capsys):
+    charter = _plant_charter(tmp_repo)
+    assert codex_skill_sync.main(["--write"]) == 0
+    assert codex_skill_sync.main(["--check"]) == 0
+    charter.write_text(_CHARTER + "\nA new promise.\n")
+    capsys.readouterr()
+    assert codex_skill_sync.main(["--check"]) == 1
+    assert "DRIFT: codex/skills/flow-auto/CHARTER.md" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "subject: .claude/commands/flow/auto.md # the command",
+        "subject: '.claude/commands/flow/auto.md'",
+        'subject: ".claude/commands/flow/auto.md"  # quoted, commented',
+        "subject: >\n  .claude/commands/flow/auto.md",
+        "subject: >-\n  .claude/commands/flow/auto.md",
+    ],
+)
+def test_a_subject_in_any_scalar_form_skillc_reads_is_accepted(tmp_repo, line):
+    """Counter-model review: the subject is decoded as skillc's YAML subset
+    decodes it, so a valid owner-written charter is not refused."""
+    _plant_charter(tmp_repo, text=_CHARTER.replace("subject: .claude/commands/flow/auto.md", line))
+    assert codex_skill_sync.charter_errors() == []
+
+
+def test_a_commented_subject_naming_another_command_still_reds(tmp_repo):
+    _plant_charter(tmp_repo, text=_CHARTER.replace(
+        "subject: .claude/commands/flow/auto.md", "subject: .claude/commands/qa/test.md # wrong"))
+    assert [e.split(" names")[0] for e in codex_skill_sync.charter_errors()] == [
+        "CHARTER subject mismatch: charters/flow/auto/CHARTER.md"
+    ]
+
+
+def test_a_symlinked_charters_dir_is_refused_not_mirrored_unchecked(tmp_repo):
+    """Counter-model review: os.walk does not descend a symlinked directory
+    while generation reads through it, so a subjectless charter behind a link
+    would be mirrored with a green --check. The link itself reds."""
+    draft = tmp_repo / "draft" / "auto"
+    draft.mkdir(parents=True)
+    (draft / "CHARTER.md").write_text(_CHARTER.replace("subject: .claude/commands/flow/auto.md\n", ""))
+    (tmp_repo / "charters").mkdir()
+    (tmp_repo / "charters" / "flow").symlink_to(tmp_repo / "draft", target_is_directory=True)
+    assert (tmp_repo / "charters" / "flow" / "auto" / "CHARTER.md").is_file()
+    errors = codex_skill_sync.charter_errors()
+    assert [e.split(" (")[0] for e in errors] == ["SYMLINKED charters dir: charters/flow"]
+    codex_skill_sync.main(["--write"])
+    assert codex_skill_sync.main(["--check"]) == 1
+
+
+def test_list_mirrors_names_a_charters_mirror(tmp_repo, capsys):
+    _plant_charter(tmp_repo)
+    capsys.readouterr()
+    assert codex_skill_sync.main(["--list-mirrors", "charters/flow/auto/CHARTER.md"]) == 0
+    assert capsys.readouterr().out.split() == ["codex/skills/flow-auto/CHARTER.md"]
+
+
+def test_list_mirrors_does_not_name_a_charter_for_an_ungenerated_command(tmp_repo, capsys):
+    """Negative control for the test above: a charter whose command is not
+    generated has no mirror, and --list-mirrors says so rather than naming one."""
+    path = _plant_charter(tmp_repo, "qa", "smoke", _CHARTER.replace("flow/auto.md", "qa/smoke.md"))
+    assert path.is_file()
+    assert codex_skill_sync.main(["--list-mirrors", "charters/qa/smoke/CHARTER.md"]) == 1
+
+
+def test_install_publishes_the_mirrored_charter(tmp_repo, tmp_home):
+    """The Codex-install lane: the charter reaches the installed skill as the
+    generated copy, not only the checkout's build tree."""
+    _plant_charter(tmp_repo)
+    assert codex_skill_sync.main(["--write"]) == 0
+    assert codex_skill_sync.main(["--install"]) == 0
+    built = (tmp_repo / "codex" / "skills" / "flow-auto" / "CHARTER.md").read_text()
+    assert (tmp_home / "flow-auto" / "CHARTER.md").read_text() == built
+    assert not (tmp_home / "qa-test" / "CHARTER.md").exists()
+
+
+def test_list_mirrors_does_not_hand_a_charter_its_hyphen_neighbours_mirror(tmp_repo, monkeypatch, capsys):
+    """Counter-model review pass 2: `<family>-<stem>` loses the boundary, so
+    `charters/second/opinion-help/CHARTER.md` composed to the real skill
+    `second-opinion-help` (generated from `second-opinion/help`) and was
+    handed that skill's mirror with exit 0."""
+    src = tmp_repo / ".claude" / "commands" / "second-opinion"
+    src.mkdir()
+    (src / "help.md").write_text("# Second Opinion Help\n\nBody.\n")
+    monkeypatch.setattr(codex_skill_sync, "FAMILIES", ["flow", "qa", "second-opinion"])
+    _plant_charter(tmp_repo, "second-opinion", "help",
+                   _CHARTER.replace("flow/auto.md", "second-opinion/help.md"))
+    neighbour = _plant_charter(tmp_repo, "second", "opinion-help",
+                               _CHARTER.replace("flow/auto.md", "second/opinion-help.md"))
+    assert neighbour.is_file()
+    capsys.readouterr()
+    assert codex_skill_sync.main(["--list-mirrors", "charters/second-opinion/help/CHARTER.md"]) == 0
+    assert capsys.readouterr().out.split() == ["codex/skills/second-opinion-help/CHARTER.md"]
+    assert codex_skill_sync.main(["--list-mirrors", "charters/second/opinion-help/CHARTER.md"]) == 1

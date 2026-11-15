@@ -78,6 +78,13 @@ SOURCE_ROOT = REPO_ROOT / ".claude" / "commands"
 SCRIPTS_ROOT = REPO_ROOT / "scripts"
 DOCS_ROOT = REPO_ROOT / "docs"
 OUTPUT_ROOT = REPO_ROOT / "codex" / "skills"
+#: Charters for slash commands (issue #1838): `charters/<family>/<command>/CHARTER.md`
+#: is the promise `.claude/commands/<family>/<command>.md` makes, read by
+#: skillc's skill-gauntlet. It lives outside `.claude/commands/` because Claude
+#: Code registers every `.md` there as a command. The mirror copies it into the
+#: generated skill; the mirror is never its source.
+CHARTERS_ROOT = REPO_ROOT / "charters"
+CHARTER_NAME = "CHARTER.md"
 
 # Claude command families exposed to Codex, minus `codex`: those commands
 # orchestrate the Codex CLI itself, so shipping them INTO Codex as skills would
@@ -470,6 +477,151 @@ def marker_for(family: str, base: str) -> str:
     return (
         f"{MARKER_PREFIX} edit .claude/commands/{family}/{base} instead -->"
     )
+
+
+def charter_marker(family: str, stem: str) -> str:
+    return f"{MARKER_PREFIX} edit charters/{family}/{stem}/{CHARTER_NAME} instead -->"
+
+
+def charter_source(family: str, stem: str) -> Path:
+    return CHARTERS_ROOT / family / stem / CHARTER_NAME
+
+
+def charter_subject(family: str, stem: str) -> str:
+    """The `subject:` value a charter at this path must carry: its command file."""
+    return f".claude/commands/{family}/{stem}.md"
+
+
+#: A charter's YAML block opens the file and closes on a line that is exactly
+#: `---` (skillc's contract parser refuses anything else). The marker goes AFTER
+#: that line: above it, skillc would no longer find the block at all.
+_CHARTER_BLOCK_RE = re.compile(r"\A---[ \t]*\n.*?\n---[ \t]*(?:\n|\Z)", re.S)
+
+
+def mirror_charter(text: str, family: str, stem: str) -> str:
+    """The generated copy of one charter: the source bytes with the GENERATED
+    marker inserted on the line after the YAML block. A charter with no block
+    gets the marker on top; `charter_errors` reds that charter in `--check`."""
+    marker = charter_marker(family, stem)
+    match = _CHARTER_BLOCK_RE.match(text)
+    if match is None:
+        return f"{marker}\n\n{text}"
+    head = match.group(0)
+    if not head.endswith("\n"):
+        head += "\n"
+    return f"{head}{marker}\n{text[match.end():]}"
+
+
+_BLOCK_SCALAR_RE = re.compile(r"^[>|][+-]?$")
+
+
+def _strip_yaml_comment(value: str) -> str:
+    """Drop a trailing ` # comment` outside quotes, as YAML (and skillc) read it."""
+    quote = ""
+    for index, char in enumerate(value):
+        if quote:
+            if char == quote:
+                quote = ""
+        elif char in "'\"":
+            quote = char
+        elif char == "#" and (index == 0 or value[index - 1] in " \t"):
+            return value[:index].rstrip()
+    return value
+
+
+def charter_subject_value(text: str) -> str | None:
+    """The top-level `subject:` of a charter's YAML block, decoded the way
+    skillc's contract subset decodes a scalar: a trailing comment dropped,
+    quotes removed, and a `>`/`|` block joined. None when there is no such key.
+    Only `subject:` is read; the rest of the block is skillc's to validate."""
+    match = _CHARTER_BLOCK_RE.match(text)
+    if match is None:
+        return None
+    lines = match.group(0).split("\n")[1:-1]
+    for index, line in enumerate(lines):
+        if not line.startswith("subject:"):
+            continue
+        value = _strip_yaml_comment(line[len("subject:"):].strip())
+        if _BLOCK_SCALAR_RE.match(value):
+            body = []
+            for follow in lines[index + 1:]:
+                if follow.strip() and not follow.startswith((" ", "\t")):
+                    break
+                body.append(follow.strip())
+            joiner = " " if value.startswith(">") else "\n"
+            return joiner.join(part for part in body if part).strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+            return value[1:-1]
+        return value
+    return None
+
+
+def charter_errors() -> list[str]:
+    """Layout gate for `charters/` (issue #1838). A misplaced charter is never
+    mirrored and never read by its command's checks, and nothing else would
+    say so, so `--check` reds on each of:
+
+    - a file that is neither `charters/README.md` nor `charters/<family>/<command>/CHARTER.md`;
+    - a charter whose command file `.claude/commands/<family>/<command>.md` does not exist;
+    - a charter whose `subject:` is missing or names a different command file;
+    - a directory under `charters/` that could not be read (unexamined, never clean).
+
+    No `charters/` directory is a project that has not adopted charters: no errors.
+    """
+    if not CHARTERS_ROOT.is_dir():
+        return []
+    errors: list[str] = []
+
+    def unreadable(exc: OSError) -> None:
+        name = Path(exc.filename).relative_to(REPO_ROOT).as_posix() if exc.filename else "charters"
+        errors.append(f"UNREADABLE charters dir: {name} ({type(exc).__name__}) - its charters are unexamined")
+
+    for dirpath, dirnames, filenames in os.walk(CHARTERS_ROOT, onerror=unreadable):
+        dirnames.sort()
+        # `os.walk` does not descend a symlinked directory, but `generate_skill`
+        # reads through one, so a charter there would be mirrored unchecked
+        # (counter-model review). Refuse the link rather than follow it.
+        for name in list(dirnames):
+            link = Path(dirpath) / name
+            if link.is_symlink():
+                dirnames.remove(name)
+                errors.append(
+                    f"SYMLINKED charters dir: charters/{link.relative_to(CHARTERS_ROOT).as_posix()}"
+                    " (not followed; its charters would be mirrored unchecked)"
+                )
+        for filename in sorted(filenames):
+            path = Path(dirpath) / filename
+            rel = path.relative_to(CHARTERS_ROOT)
+            shown = f"charters/{rel.as_posix()}"
+            if rel.as_posix() == "README.md":
+                continue
+            if len(rel.parts) != 3 or rel.parts[2] != CHARTER_NAME:
+                errors.append(
+                    f"STRAY charters file: {shown} (only charters/README.md and"
+                    f" charters/<family>/<command>/{CHARTER_NAME} belong here)"
+                )
+                continue
+            family, stem = rel.parts[0], rel.parts[1]
+            expected = charter_subject(family, stem)
+            if not (REPO_ROOT / expected).is_file():
+                errors.append(f"ORPHAN charter: {shown} (no command file {expected})")
+                continue
+            try:
+                text = path.read_text()
+            except (OSError, UnicodeDecodeError) as exc:
+                errors.append(f"UNREADABLE charter: {shown} ({type(exc).__name__})")
+                continue
+            if _CHARTER_BLOCK_RE.match(text) is None:
+                errors.append(f"CHARTER without a YAML block at the top: {shown}")
+                continue
+            subject = charter_subject_value(text)
+            if subject is None:
+                errors.append(f"CHARTER without subject: {shown} (expected subject: {expected})")
+            elif subject != expected:
+                errors.append(
+                    f"CHARTER subject mismatch: {shown} names {subject!r}, its path says {expected!r}"
+                )
+    return errors
 
 
 def parse_frontmatter(content: str) -> tuple[dict[str, str], str]:
@@ -1687,6 +1839,7 @@ def provenance_note(files: dict[str, str]) -> str | None:
     """List every bundled path that cannot carry its own in-file stamp.
 
     Excludes `SKILL.md`/`reference.md` (already self-naming via `marker_for`),
+    the mirrored `CHARTER.md` (self-naming via `charter_marker`, issue #1838),
     `scripts/<MANIFEST_NAME>` (itself generated, not a copy of anything), and
     this note's own name - never listing itself, for the same reason
     `scripts_manifest` does not (counter-model review, #1185).
@@ -1698,7 +1851,7 @@ def provenance_note(files: dict[str, str]) -> str | None:
     """
     named = sorted(
         rel for rel in files
-        if rel not in ("SKILL.md", "reference.md", f"scripts/{MANIFEST_NAME}", PROVENANCE_NAME)
+        if rel not in ("SKILL.md", "reference.md", CHARTER_NAME, f"scripts/{MANIFEST_NAME}", PROVENANCE_NAME)
     )
     if not named:
         return None
@@ -1869,12 +2022,17 @@ def generate_skill(
         # Preserve source layout so links between bundled docs stay relative.
         # Links out of the bundle are rewritten after all members are known.
         files[f"docs/{doc}"] = (DOCS_ROOT / doc).read_text()
+    charter = charter_source(family, source_file.stem)
+    if charter.is_file():
+        files[CHARTER_NAME] = mirror_charter(charter.read_text(), family, source_file.stem)
     mirrored = set(files)
     for rel in list(files):
         if not rel.endswith(".md"):
             continue
         if rel in ("SKILL.md", "reference.md"):
             source = source_file
+        elif rel == CHARTER_NAME:
+            source = charter
         else:
             source = REPO_ROOT / rel
         files[rel] = rewrite_mirror_links(files[rel], source, rel, mirrored)
@@ -2015,7 +2173,7 @@ def run_check(selected: list[str]) -> int:
         return NOT_GENERATED_EXIT
     outputs = expected_outputs(selected)
     drift = 0
-    for error in completeness_errors():
+    for error in completeness_errors() + charter_errors():
         print(error)
         drift = 1
     for skill, files in outputs.items():
@@ -2040,7 +2198,7 @@ def run_check(selected: list[str]) -> int:
     if drift:
         print(
             "\ncodex-skill-sync: DRIFT detected. Edit the SOURCE"
-            " (.claude/commands/<family>/), then run:"
+            " (.claude/commands/<family>/, or charters/ for a CHARTER.md), then run:"
             " scripts/codex-skill-sync.py --write",
             file=sys.stderr,
         )
@@ -2219,6 +2377,24 @@ def mirrors_for(
             skill = f"{parts[2]}-{parts[3][: -len('.md')]}"
             if skill in outputs:
                 hits = [f"codex/skills/{skill}/{rel}" for rel in sorted(outputs[skill])]
+
+        #: A CHARTER (issue #1838) is the one source whose bundle path differs
+        #: from its repository path: `charters/<family>/<stem>/CHARTER.md` lands
+        #: at `codex/skills/<family>-<stem>/CHARTER.md` (counter-model review).
+        if (
+            not hits
+            and len(parts) == 4
+            and parts[0] == CHARTERS_ROOT.name
+            and parts[3] == CHARTER_NAME
+            #: The family is validated and the command file must exist, for the
+            #: reason the command branch above gives: `second/opinion-help`
+            #: and `second-opinion/help` compose to the same skill name.
+            and parts[1] in FAMILIES
+            and (SOURCE_ROOT / parts[1] / f"{parts[2]}.md").is_file()
+        ):
+            skill = f"{parts[1]}-{parts[2]}"
+            if CHARTER_NAME in outputs.get(skill, {}):
+                hits = [f"codex/skills/{skill}/{CHARTER_NAME}"]
 
         if not hits:
             #: THE MANIFEST TRAVELS WITH THE SCRIPT. A skill that bundles any
