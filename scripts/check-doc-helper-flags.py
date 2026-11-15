@@ -104,6 +104,13 @@ def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool =
     in_word = False
     i = start
     while i < end:
+        if not stack and not in_word and text[i] == "#" and not whole_command:
+            # A comment runs to its newline, and a `\` inside it joins no lines
+            # (counter-model review on #1839): skip it whole, so its quotes and
+            # its trailing backslash never reach the next command.
+            newline = text.find("\n", i, end)
+            i = end if newline == -1 else newline
+            continue
         cont = CONTINUATION.match(text, i)
         if cont:
             i = cont.end()

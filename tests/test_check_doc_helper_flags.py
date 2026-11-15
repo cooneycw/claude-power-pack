@@ -188,3 +188,15 @@ def test_a_quoted_paren_inside_a_substitution_does_not_swallow_the_command(tmp_p
     doc = "~/.claude/scripts/mailbox.sh send --to o --body \"$(printf ')')\" --kind message\n"
     res = run(tree(tmp_path / "b", doc))
     assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout
+
+
+def test_a_comment_ending_in_a_backslash_continues_nothing(tmp_path: Path) -> None:
+    """Counter-model review on #1839: a comment's `\\` joins no lines, so its quotes
+    must not reach the next command."""
+    doc = "# owner's instructions \\\n~/.claude/scripts/mailbox.sh --kind message\n"
+    res = run(tree(tmp_path / "a", doc))
+    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout
+    doc = ('# a "quoted note \\\n'
+           '~/.claude/scripts/mailbox.sh send --to o --body "run ~/.claude/scripts/mailbox.sh --kind m"\n')
+    res = run(tree(tmp_path / "b", doc))
+    assert res.returncode == 0, res.stdout
