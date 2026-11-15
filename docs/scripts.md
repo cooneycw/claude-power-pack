@@ -158,3 +158,4 @@ legitimately about something other than one script is declared on the marker bel
 - Persistent-context checks and knowledge graduation. [reference](scripts/persistent-context-checks.md)
 
 - `check-driver-parity` - derives flow:auto helper/plan-record-verb membership across delegated drivers and the generated flow-auto mirror (#1810). [reference](scripts/check-driver-parity.md)
+- `check-doc-helper-flags` - flags a command document passes a `~/.claude/scripts/` helper must exist in that helper's source (#1835). [reference](scripts/check-doc-helper-flags.md)
