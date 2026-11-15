@@ -18,9 +18,13 @@ source under `scripts/`, or in a sibling the helper hands off to through a
 `$..._DIR/<name>` path (`flow-preflight.sh` runs `flow-preflight.py`).
 
 What the command is, for this gate: the rest of the line, joined across `\\`
-continuations, cut at the first `|`, `;`, `&`, backtick, `#` comment or next
-helper path, with every `$(...)` substitution removed first - the flags inside
-`--path "$(git rev-parse --show-toplevel)"` belong to git, not the helper.
+continuations, with every `$(...)` substitution removed first - the flags inside
+`--path "$(git rev-parse --show-toplevel)"` belong to git, not the helper. It is
+then read as shell words, QUOTE-AWARE: it ends at the first UNQUOTED `|`, `;`,
+`&`, backtick, word-initial `#` or next helper path, and a flag is an unquoted
+word starting `--`. So `--body "remove --kind; see #1835"` is one argument, and
+a flag written after it is still checked. An unterminated quote swallows the
+rest of the command, which can hide a flag but never invent one.
 
 THE MATCH IS DELIBERATELY PERMISSIVE. A flag counts as known when the literal
 `--flag` appears anywhere in the helper's source, comments included, so a flag
@@ -53,8 +57,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 SURFACES = (".claude/commands", ".claude/skills", "templates")
 HELPER_PATH = re.compile(r"~/\.claude/scripts/([A-Za-z0-9_.-]+)")
-FLAG_TOKEN = re.compile(r"(?:(?<=\s)|^)(--[a-z][a-z0-9-]*)")
-STOP = re.compile(r"[|;&`]|(?:^|\s)#|~/\.claude/scripts/")
+FLAG_WORD = re.compile(r"^(--[a-z][a-z0-9-]*)(?:=|$)")
 DELEGATE = re.compile(r"\$\{?[A-Z_]*DIR\}?/([A-Za-z0-9_.-]+)")
 
 
@@ -96,9 +99,54 @@ def command_tail(text: str, start: int) -> str:
             continue
         parts.append(line)
         break
-    tail = strip_substitutions(" ".join(parts))
-    cut = STOP.search(tail)
-    return tail[: cut.start()] if cut else tail
+    return strip_substitutions(" ".join(parts))
+
+
+def command_words(tail: str) -> list[str]:
+    """Shell words up to the first unquoted separator; quoted words are omitted.
+
+    A word with any quoted part is never a flag for this gate (it is an
+    argument's value), so only fully unquoted words are returned.
+    """
+    words: list[str] = []
+    word: list[str] = []
+    quoted = False
+    quote = ""
+    i = 0
+    n = len(tail)
+
+    def flush() -> None:
+        nonlocal quoted
+        if word and not quoted:
+            words.append("".join(word))
+        word.clear()
+        quoted = False
+
+    while i < n:
+        ch = tail[i]
+        if quote:
+            if ch == quote:
+                quote = ""
+            elif ch == "\\" and quote == '"' and i + 1 < n:
+                i += 1
+            i += 1
+            continue
+        if ch in "'\"":
+            quote, quoted = ch, True
+        elif ch == "\\" and i + 1 < n:
+            word.append(tail[i + 1])
+            i += 1
+        elif ch.isspace():
+            flush()
+        elif ch in "|;&`" or (ch == "#" and not word):
+            break
+        elif tail.startswith("~/.claude/scripts/", i):
+            break
+        else:
+            word.append(ch)
+        i += 1
+    flush()
+    return words
 
 
 def helper_source(scripts: Path, name: str, seen: set[str] | None = None) -> list[tuple[str, str]] | None:
@@ -166,9 +214,13 @@ def check(root: Path) -> int:
                 continue
             invocations += 1
             line = text.count("\n", 0, match.start()) + 1
-            for flag in FLAG_TOKEN.findall(command_tail(text, match.end())):
+            for word in command_words(command_tail(text, match.end())):
+                m = FLAG_WORD.match(word)
+                if not m:
+                    continue
+                flag = m.group(1)
                 flags_checked += 1
-                if not any(flag_known(flag, text, python=file.endswith(".py")) for file, text in source):
+                if not any(flag_known(flag, body, python=file.endswith(".py")) for file, body in source):
                     findings.append(f"UNKNOWN_FLAG: {doc.relative_to(root)}:{line}: {name} {flag}")
     for finding in findings:
         print(finding)

@@ -38,10 +38,16 @@
       "why": "The same unknown flag on a backslash-continued line. Most multi-line helper invocations in the command documents take this shape; a gate reading one physical line would pass it."
     },
     {
+      "name": "bad-flag-after-quoted-separator",
+      "input": "cases/bad-flag-after-quoted-separator",
+      "expect": "BAD",
+      "why": "The unknown flag sits after a quoted argument holding '#' and ';'. The first cut of the gate split at punctuation without reading quotes and passed this; counter-model review found it. If it scores GOOD, any quoted message with a hash or semicolon hides every flag after it."
+    },
+    {
       "name": "good-known-flags",
       "input": "cases/good-known-flags",
       "expect": "GOOD",
-      "why": "THE HALF THAT MATTERS for a gate in make verify: every shape the live documents use that a naive extractor misreads - substitution, pipe, delegated parser with computed option names, prose after an inline span. A gate that flags any of them blocks every merge."
+      "why": "THE HALF THAT MATTERS for a gate in make verify: every shape the live documents use that a naive extractor misreads - substitution, pipe, delegated parser with computed option names, prose after an inline span. A gate that flags any of them blocks every merge. It also holds a quoted --body whose TEXT contains --kind, '#' and ';': reading quoted text as flags would block a valid command over its message wording."
     }
   ],
   "anchors": [

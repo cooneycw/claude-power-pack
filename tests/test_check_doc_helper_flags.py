@@ -110,3 +110,26 @@ def test_runs_from_another_directory(tmp_path: Path) -> None:
 def test_the_live_repository_is_clean() -> None:
     res = subprocess.run([sys.executable, str(GATE)], capture_output=True, text=True, check=False)
     assert res.returncode == 0, res.stdout
+
+
+def test_flag_like_text_inside_a_quoted_argument_is_not_a_flag(tmp_path: Path) -> None:
+    """Counter-model review on #1835: message wording must not block verify."""
+    doc = '~/.claude/scripts/mailbox.sh send --to o --body "please drop --kind message"\n'
+    res = run(tree(tmp_path, doc))
+    assert res.returncode == 0, res.stdout
+
+
+def test_quoted_hash_or_semicolon_does_not_end_the_command(tmp_path: Path) -> None:
+    """Counter-model review on #1835: a flag after a quoted `#` or `;` is still checked."""
+    for i, body in enumerate(('"waiting #1835"', '"a; b"', "'x | y'")):
+        doc = f"~/.claude/scripts/mailbox.sh send --to o --body {body} --kind m\n"
+        res = run(tree(tmp_path / str(i), doc))
+        assert res.returncode == 1, (body, res.stdout)
+        assert "mailbox.sh --kind" in res.stdout
+
+
+def test_unquoted_separator_and_comment_still_end_the_command(tmp_path: Path) -> None:
+    doc = "~/.claude/scripts/mailbox.sh send --to o # --kind is not passed\n"
+    assert run(tree(tmp_path / "a", doc)).returncode == 0
+    doc = "~/.claude/scripts/mailbox.sh send --to o; other --kind\n"
+    assert run(tree(tmp_path / "b", doc)).returncode == 0

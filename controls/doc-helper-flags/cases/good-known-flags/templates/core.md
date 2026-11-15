@@ -13,3 +13,9 @@ attribute to the helper at all.
 ```
 
 Inline too: `~/.claude/scripts/mailbox.sh send --to x --body y` then `--kind` in prose.
+
+A flag-like word inside a quoted argument is the argument's text, not a flag:
+
+```bash
+~/.claude/scripts/mailbox.sh send --to orchestrator --body "please drop --kind message; see #1835"
+```
