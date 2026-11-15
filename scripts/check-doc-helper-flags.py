@@ -29,7 +29,10 @@ An unescaped backtick is a substitution too, inside double quotes as well
 is an invocation, as it is inside `X="$(...)"`. In prose a
 backtick is an inline code span's edge instead, so it ends the command there;
 only inside a fenced block does a backtick argument nest and leave the words
-after it to the helper.
+after it to the helper. A backtick substitution holding a backslash or `#` is
+NOT read (#1844): bash strips a backslash layer inside it and a `#` there can
+start a comment, and modelling either kept producing new edge cases. A helper
+path inside one is counted in its own stderr note as unchecked.
 A flag is an unquoted word starting `--`, or the unquoted `--name=` prefix of a
 word whose value is quoted or substituted. So `--body "remove --kind; see #1835"` is one
 argument and a flag after it is still checked. A helper path inside a quoted
@@ -84,9 +87,6 @@ SEPARATORS = "|;&)"
 #: because the same character also closes it.
 SUBSTITUTIONS = ("$(", "<(", ">(")
 BACKTICK = "`"
-#: A plain `(` subshell inside a nested command. Unlike a substitution's `)`,
-#: its `)` ends a word, so a `#` straight after it starts a comment.
-SUBSHELL = "s("
 
 
 def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool = True,
@@ -126,14 +126,8 @@ def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool =
     stack: list[str] = []
     end = len(text) if stop is None else stop
     in_word = False
-    # Whether the previous character ended a word inside a backtick level, where
-    # a `#` then starts a comment: after unescaped whitespace or `;|&`, the
-    # opening backtick, or a subshell's `)` - never after an escaped space or a
-    # substitution's `)`, which leave the word open (counter-model review on #1842).
-    boundary = False
     i = start
     while i < end:
-        was_boundary, boundary = boundary, False
         if not stack and not in_word and text[i] == "#" and not whole_command:
             # A comment runs to its newline, and a `\` inside it joins no lines
             # (counter-model review on #1839): skip it whole, so its quotes and
@@ -147,7 +141,6 @@ def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool =
             continue
         cont = CONTINUATION.match(text, i)
         if cont:
-            boundary = was_boundary
             i = cont.end()
             continue
         ch = text[i]
@@ -169,25 +162,10 @@ def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool =
                 stack.pop()
             elif ch == BACKTICK:
                 stack.append(BACKTICK)
-                boundary = True
             elif text.startswith("$(", i):
                 stack.append("(")
                 i += 1
-        elif top in ("(", SUBSHELL, BACKTICK):
-            if top == BACKTICK and ch == "#" and was_boundary:
-                # A comment inside a backtick substitution ends at the closing
-                # backtick, which still closes the level: in X="<bt>printf ok
-                # # h.sh --x<bt>" the helper never runs, so it is comment text
-                # (counter-model review on #1842).
-                close = i
-                while close < end and text[close] not in "`\n":
-                    close += 2 if text[close] == "\\" else 1
-                if close >= end:
-                    # Reading stopped inside the comment: what follows is its text.
-                    stack.append("#")
-                    break
-                i = close
-                continue
+        elif top in ("(", BACKTICK):
             if ch == "\\":
                 i += 1
             elif ch == BACKTICK:
@@ -195,18 +173,15 @@ def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool =
                     stack.pop()
                 else:
                     stack.append(BACKTICK)
-                    boundary = True
             elif ch in "'\"":
                 stack.append(ch)
             elif text.startswith(SUBSTITUTIONS, i):
                 stack.append("(")
                 i += 1
             elif ch == "(":
-                stack.append(SUBSHELL)
-            elif ch == ")" and top in ("(", SUBSHELL):
-                boundary = stack.pop() == SUBSHELL
-            elif top == BACKTICK and (ch.isspace() or ch in ";|&"):
-                boundary = True
+                stack.append("(")
+            elif ch == ")" and top == "(":
+                stack.pop()
         else:
             # The command's own level: the only place a word or a stop is read.
             if ch in "'\"":
@@ -218,7 +193,6 @@ def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool =
                 break
             elif ch == BACKTICK:
                 stack.append(BACKTICK)
-                boundary = True
             elif whole_command and (ch in SEPARATORS or (ch == "#" and not in_word)
                                     or text.startswith("~/.claude/scripts/", i)):
                 break
@@ -303,6 +277,28 @@ def is_escaped(text: str, pos: int) -> bool:
     while pos - run - 1 >= 0 and text[pos - run - 1] == "\\":
         run += 1
     return run % 2 == 1
+
+
+#: What makes a backtick substitution too complex to read (issue #1844). Inside
+#: one, bash first strips a backslash layer and a `#` may start a comment that
+#: ends at the closing backtick; this gate models neither. It reads only the
+#: simple shape and counts the rest as unchecked: it never blocks such a
+#: document, and never claims to have checked it.
+BACKTICK_COMPLEX = ("\\", "#")
+
+
+def backtick_body(text: str, pos: int) -> str:
+    """The text of the backtick substitution holding `pos`: from the nearest
+    unescaped backtick before it to the next one after it (or the line's end).
+    Bash finds an old-style substitution's end the same way, ignoring quotes."""
+    open_ = text.rfind(BACKTICK, 0, pos)
+    while open_ != -1 and is_escaped(text, open_):
+        open_ = text.rfind(BACKTICK, 0, open_)
+    close = pos
+    while close < len(text) and text[close] != "\n" and not (
+            text[close] == BACKTICK and not is_escaped(text, close)):
+        close += 1
+    return text[open_ + 1:close]
 
 
 def path_context(text: str, pos: int) -> str:
@@ -406,7 +402,7 @@ def check(root: Path) -> int:
     cache: dict[str, list[tuple[str, str]] | None] = {}
     findings: list[str] = []
     unresolved: set[str] = set()
-    flags_checked = invocations = quoted_paths = commented_paths = 0
+    flags_checked = invocations = quoted_paths = commented_paths = complex_paths = 0
     for doc in docs:
         try:
             text = doc.read_text(encoding="utf-8")
@@ -421,6 +417,9 @@ def check(root: Path) -> int:
                 continue
             if context == "comment":
                 commented_paths += 1
+                continue
+            if context == "backtick" and any(c in backtick_body(text, match.start()) for c in BACKTICK_COMPLEX):
+                complex_paths += 1
                 continue
             if name not in cache:
                 cache[name] = helper_source(scripts, name)
@@ -447,6 +446,9 @@ def check(root: Path) -> int:
     if commented_paths:
         print(f"note - {commented_paths} helper path(s) inside a shell comment, not invocations, unchecked",
               file=sys.stderr)
+    if complex_paths:
+        print(f"note - {complex_paths} helper path(s) inside a backtick substitution holding a backslash "
+              "or '#', not read, unchecked", file=sys.stderr)
     if unresolved:
         print(f"note - {len(unresolved)} helper name(s) not under scripts/, unchecked: "
               + ", ".join(sorted(unresolved)), file=sys.stderr)

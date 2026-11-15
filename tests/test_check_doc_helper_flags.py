@@ -332,32 +332,22 @@ def test_prose_backticks_stay_inline_code_span_edges(tmp_path: Path) -> None:
     assert "ok - 2 flag(s) on 2 invocation(s)" in res.stdout
 
 
-def test_a_comment_inside_a_backtick_substitution_is_comment_text(tmp_path: Path) -> None:
-    """Counter-model review on #1842: in X="`printf ok # helper --kind m`" the
-    comment ends at the closing backtick and the helper never runs; a helper
-    written BEFORE such a comment still runs and is still checked."""
-    doc = fenced('~/.claude/scripts/mailbox.sh --to o\nX="`printf ok # ~/.claude/scripts/mailbox.sh --kind m`"\n')
-    res = run(tree(tmp_path / "comment", doc), cwd=tmp_path)  # run location: outside the scanned tree
-    assert res.returncode == 0, res.stdout
-    assert "1 helper path(s) inside a shell comment" in res.stderr
-    doc = fenced('X="`~/.claude/scripts/mailbox.sh --kind m # note`"\n')
-    res = run(tree(tmp_path / "before", doc), cwd=tmp_path)
-    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout, res.stdout
-
-
-def test_a_comment_inside_backticks_starts_only_at_a_real_word_boundary(tmp_path: Path) -> None:
-    """Counter-model review on #1842: after a subshell's `)` a `#` starts a
-    comment (the helper never runs); after an ESCAPED space it is still part of
-    the word, so the `;` that follows starts a real helper invocation."""
+def test_a_backtick_substitution_with_a_backslash_or_hash_is_unchecked(tmp_path: Path) -> None:
+    """Issue #1844: inside a backtick substitution bash strips a backslash layer
+    and a `#` may start a comment; the gate models neither, so a helper there is
+    counted as unchecked - never blocked, never claimed as checked. The shapes
+    are the ones counter-model review on #1842 found the reader getting wrong."""
     known = "~/.claude/scripts/mailbox.sh --to o\n"
-    doc = fenced(known + 'X="`(printf ok)# ~/.claude/scripts/mailbox.sh --kind m`"\n')
-    res = run(tree(tmp_path / "subshell", doc))
-    assert res.returncode == 0, res.stdout
-    doc = fenced(known + 'X="`printf foo\\ #; ~/.claude/scripts/mailbox.sh --kind m`"\n')
-    res = run(tree(tmp_path / "escaped", doc))
-    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout, res.stdout
-    doc = fenced(known + 'X="`echo $(printf a)# ~/.claude/scripts/mailbox.sh --kind m`"\n')
-    # A substitution's `)` leaves the word open: not a comment, so the unquoted
-    # helper path is read as an invocation, as everywhere else in this gate.
-    res = run(tree(tmp_path / "substitution", doc))
-    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout, res.stdout
+    shapes = [
+        'X="`printf \'%s\' \\"run ~/.claude/scripts/mailbox.sh --kind m\\"`"',  # message text
+        'X="`printf foo\\\\ #; ~/.claude/scripts/mailbox.sh --kind m`"',  # bash runs it: a declared miss
+        'X="`printf ok # ~/.claude/scripts/mailbox.sh --kind m`"',
+        'X="`(printf ok)# ~/.claude/scripts/mailbox.sh --kind m`"',
+    ]
+    for n, shape in enumerate(shapes):
+        assert "\\" in shape or "#" in shape  # precondition: each shape is a complex substitution
+        res = run(tree(tmp_path / str(n), fenced(known + shape + "\n")), cwd=tmp_path)
+        assert res.returncode == 0, (shape, res.stdout)
+        assert "ok - 1 flag(s) on 1 invocation(s)" in res.stdout, (shape, res.stdout)
+        assert "1 helper path(s) inside a backtick substitution holding a backslash or '#'" in res.stderr, shape
+

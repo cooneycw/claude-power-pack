@@ -9,4 +9,5 @@ echo "`~/.claude/scripts/mailbox.sh --to o`" --kind m
 ~/.claude/scripts/mailbox.sh --to o --body "see \`~/.claude/scripts/mailbox.sh --kind m\`"
 X="`printf ok # ~/.claude/scripts/mailbox.sh --kind m`"
 Y="`(printf ok)# ~/.claude/scripts/mailbox.sh --kind m`"
+Z="`printf '%s' \"run ~/.claude/scripts/mailbox.sh --kind m\"`"
 ```
