@@ -1,0 +1,70 @@
+{
+  "branch": "issue-1842-check-doc-helper-flags-a-quoted-backtick-substitut",
+  "counts": {
+    "accepted": 4,
+    "deferred": 1,
+    "rejected": 3
+  },
+  "extra_passes_reason": "owner approved a third pass (interactive, 2026-11-15) after the re-review found two MEDIUM word-boundary edge cases in the pass-1 fix",
+  "head": "65fe0cb1dd9865293bae0eed201fd6578c97b48b",
+  "implementer": "claude/claude-opus-5-5",
+  "implementer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "9ea0b89a-dd90-4b66-94b1-a9a4b7889b2a",
+    "sources": [
+      {
+        "bytes": 2107560,
+        "path": "-home-user-Projects/9ea0b89a-dd90-4b66-94b1-a9a4b7889b2a.jsonl",
+        "sha256": "9d61a8cb3c1b7fc6211a5e37756f309929b485e7713efe2e6bcf75deb3206584"
+      }
+    ],
+    "transcript": "-home-user-Projects/9ea0b89a-dd90-4b66-94b1-a9a4b7889b2a.jsonl"
+  },
+  "issue": "1842",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 3,
+  "recorded_at": "2026-11-15T18:50:22Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 8
+  },
+  "reviewed_artifact": {
+    "base_sha": "19e24318f456e55ef3aa524ba6f85739c58c8f85",
+    "merge_base": "19e24318f456e55ef3aa524ba6f85739c58c8f85",
+    "method": "runtime-head",
+    "patch_sha256": "88eabe57be0650d0402f9fa27cf85390f28141d93c39655eb4ef95e0401ff441",
+    "report_record": 120,
+    "target_head": "65fe0cb1dd9865293bae0eed201fd6578c97b48b"
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "exec_log": "codex-review-stream.qAtbS1",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/15/rollout-2026-11-15T13-44-30-01a1e086-752d-71d3-b463-bfdfcc593c73.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 186347,
+        "path": "codex-review-stream.qAtbS1",
+        "sha256": "7e88062c99a4a4f027e585c16c105c3af2ff896f419d084a8ad8a11cac7db7a2"
+      },
+      {
+        "bytes": 758015,
+        "path": "2026/11/15/rollout-2026-11-15T13-44-30-01a1e086-752d-71d3-b463-bfdfcc593c73.jsonl",
+        "sha256": "ca3a7f2c74c1de9f790584d9e8df7a5c19e344d24156180e85eee419ff41ad61"
+      }
+    ],
+    "thread_id": "01a1e086-752d-71d3-b463-bfdfcc593c73"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}
