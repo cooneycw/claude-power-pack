@@ -330,3 +330,73 @@ def test_the_wrappers_dispatch_exactly_the_declared_composites() -> None:
         "approve --plan": ("begin-run", "approve"),
         "finish": ("drift", "compliance", "head-check"),
     }
+
+
+def recorded_calls(module, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    calls: list[str] = []
+    for verb, fn in {"reconcile": "cmd_reconcile", "read-issue": "cmd_read_issue",
+                     "begin-run": "cmd_begin_run", "approve": "cmd_approve",
+                     "drift": "cmd_drift", "compliance": "cmd_compliance",
+                     "head-check": "cmd_head_check"}.items():
+        monkeypatch.setattr(module, fn, lambda *_a, _v=verb: calls.append(_v) or module.OK)
+    return calls
+
+
+def test_each_wrapper_runs_exactly_what_its_table_entry_says(
+        repo: Path, fake_gh: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Counter-model finding (#1849): `approve --plan` once hard-coded its calls,
+    so editing the table changed what parity credited and not what ran. The
+    actual calls are recorded, against the real table and an edited one."""
+    module = load_module()
+    calls = recorded_calls(module, monkeypatch)
+    assert module.cmd_start("42") == 0 and module.cmd_finish("42", None, None) == 0
+    assert calls == [*module.COMPOSITE_VERBS["start"], *module.COMPOSITE_VERBS["finish"]]
+
+    calls.clear()
+    monkeypatch.setitem(module.COMPOSITE_VERBS, "finish", ("head-check", "drift"))
+    monkeypatch.setitem(module.COMPOSITE_VERBS, "start", ("read-issue",))
+    assert module.cmd_start("42") == 0 and module.cmd_finish("42", None, None) == 0
+    assert calls == ["read-issue", "head-check", "drift"]
+
+    # approve --plan: the real helper's begin-run makes the section; record the rest.
+    assert helper(repo, fake_gh, "start", "42").returncode == 0
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", SESSION)
+    real_begin = load_module().cmd_begin_run
+    calls.clear()
+    monkeypatch.setattr(module, "cmd_begin_run",
+                        lambda issue: calls.append("begin-run") or real_begin(issue))
+    monkeypatch.setitem(module.COMPOSITE_VERBS, "approve --plan", ("begin-run", "drift", "approve"))
+    assert module.cmd_approve_plan("42", str(plan_file(tmp_path, PLAN))) == 0
+    assert calls == ["begin-run", "drift", "approve"]
+
+
+def test_an_unknown_verb_in_the_table_is_an_error_not_a_silent_skip(
+        monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+    module = load_module()
+    recorded_calls(module, monkeypatch)
+    monkeypatch.setitem(module.COMPOSITE_VERBS, "finish", ("drift", "no-such-verb"))
+    assert module.cmd_finish("42", None, None) == module.ERROR
+    assert "names `no-such-verb`, which no subcommand implements" in capsys.readouterr().out
+
+
+def test_a_plan_over_another_sessions_committed_run_appends_run_two(
+        repo: Path, fake_gh: Path, tmp_path: Path) -> None:
+    """Project state with an adopted record: an earlier run, committed by another
+    session, is kept byte for byte and this run's plan becomes Run 2."""
+    assert helper(repo, fake_gh, "start", "42").returncode == 0
+    assert helper(repo, fake_gh, "approve", "42", "--plan",
+                  str(plan_file(tmp_path, PLAN))).returncode == 0
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "run 1")
+    run_one = record(repo).read_text()
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CODE_SESSION_ID"}
+    env["CLAUDE_CODE_SESSION_ID"] = "another-session"
+    env["PATH"] = f"{fake_gh}{os.pathsep}{env.get('PATH', '')}"
+    for args in (["start", "42"], ["approve", "42", "--plan", str(plan_file(tmp_path, PLAN, "p2.md"))]):
+        proc = subprocess.run(["python3", str(HELPER), *args], cwd=repo, capture_output=True,
+                              text=True, env=env)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+    text = record(repo).read_text()
+    assert text.startswith(run_one) and "## Run 2" in text
+    assert text.count("<!-- flow-run ") == 2

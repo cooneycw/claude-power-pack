@@ -2072,18 +2072,33 @@ def run_inner(verb: str, call: Any) -> int:
         return ERROR
 
 
-def cmd_start(issue: str) -> int:
-    """`reconcile` then `read-issue`. A failed reconcile stops before the read."""
-    verbs = COMPOSITE_VERBS["start"]
+def inner(verb: str, issue: str, base: str | None = None, head: str | None = None) -> int:
+    """Run one verb a wrapper names in `COMPOSITE_VERBS`. An unknown name is an
+    error, so an edited table can never be credited with a verb nothing ran."""
     calls = {"reconcile": lambda: cmd_reconcile(issue),
-             "read-issue": lambda: cmd_read_issue(issue, None)}
+             "read-issue": lambda: cmd_read_issue(issue, None),
+             "begin-run": lambda: cmd_begin_run(issue),
+             "approve": lambda: cmd_approve(issue),
+             "drift": lambda: cmd_drift(issue, None),
+             "compliance": lambda: cmd_compliance(issue, base),
+             "head-check": lambda: cmd_head_check(issue, head)}
+    if verb not in calls:
+        print(f"FLOW_PLAN_RECORD: error - the run-verb table names `{verb}`, which no "
+              "subcommand implements; nothing ran for it.")
+        return ERROR
+    return run_inner(verb, calls[verb])
+
+
+def cmd_start(issue: str) -> int:
+    """Each `start` verb in order; a failure (not a finding or an unread issue) stops."""
+    verbs = COMPOSITE_VERBS["start"]
     codes: list[str] = []
     results: list[int] = []
     for verb in verbs:
-        rc = run_inner(verb, calls[verb])
+        rc = inner(verb, issue)
         results.append(rc)
         codes.append(f"{verb}={rc}")
-        if verb == "reconcile" and rc != OK:
+        if rc not in (OK, FINDING, UNKNOWN):
             codes += [f"{v}=not-run" for v in verbs[len(results):]]
             break
     print("FLOW_PLAN_START: " + " ".join(codes))
@@ -2154,24 +2169,40 @@ def cmd_approve_plan(issue: str, plan_file: str) -> int:
     if refusal:
         print(f"FLOW_PLAN_RECORD: error - {refusal}. Nothing was written.")
         return ERROR
-    if prior is None:
-        rc = run_inner("begin-run", lambda: cmd_begin_run(issue))
-        if rc != OK:
-            return rc
-        text = rec.read_text()
-    if not text.endswith("\n"):
-        text += "\n"
-    rec.write_text(text + plan_text + ("" if plan_text.endswith("\n") else "\n"))
-    print(f"FLOW_PLAN_RECORD: appended the plan from {plan_file} to run {run_id}")
-    return run_inner("approve", lambda: cmd_approve(issue))
+    verbs = COMPOSITE_VERBS["approve --plan"]
+    if "approve" not in verbs:
+        print("FLOW_PLAN_RECORD: error - the run-verb table gives `approve --plan` no "
+              "`approve`, so nothing could stamp the plan. Nothing was written.")
+        return ERROR
+    codes: list[str] = []
+    for verb in verbs:
+        if verb == "begin-run" and prior is not None:
+            codes.append("begin-run=kept")   # this run already has its header
+            continue
+        if verb == "approve":
+            # The plan goes in immediately before the stamp, after every verb that
+            # prepares the section, so the stamp always covers it.
+            text = rec.read_text() if rec.exists() else ""
+            if not any(rid == run_id for _n, rid, _s in (split_runs(text) if text.strip() else [])):
+                print(f"FLOW_PLAN_RECORD: error - run {run_id} has no section in "
+                      f"{record_rel(issue)} to append the plan to. Nothing was stamped.")
+                codes.append(f"approve={ERROR}")
+                break
+            if not text.endswith("\n"):
+                text += "\n"
+            rec.write_text(text + plan_text + ("" if plan_text.endswith("\n") else "\n"))
+            print(f"FLOW_PLAN_RECORD: appended the plan from {plan_file} to run {run_id}")
+        rc = inner(verb, issue)
+        codes.append(f"{verb}={rc}")
+        if rc not in (OK, UNKNOWN):
+            break
+    print("FLOW_PLAN_APPROVE: " + " ".join(codes))
+    return worst([int(c.split("=")[1]) for c in codes if c.split("=")[1].isdigit()])
 
 
 def cmd_finish(issue: str, base: str | None, head: str | None) -> int:
-    """`drift`, `compliance`, `head-check`: every one runs, each line stays visible."""
-    calls = {"drift": lambda: cmd_drift(issue, None),
-             "compliance": lambda: cmd_compliance(issue, base),
-             "head-check": lambda: cmd_head_check(issue, head)}
-    results = [(verb, run_inner(verb, calls[verb])) for verb in COMPOSITE_VERBS["finish"]]
+    """Every `finish` verb runs, whatever the others said; each line stays visible."""
+    results = [(verb, inner(verb, issue, base, head)) for verb in COMPOSITE_VERBS["finish"]]
     print("FLOW_PLAN_FINISH: " + " ".join(f"{verb}={rc}" for verb, rc in results)
           + " (each line above is its own verdict; this exit is only the worst of them)")
     return worst([rc for _verb, rc in results])
