@@ -1,3 +1,5 @@
+<!-- lanes-demonstrated run=8090ef6e5a5049b0a8f762c08afcec3a plan=4df2a6498b2706e49b14f900c3d2b8e57bad6f4233d26bb8bfa9d0cc87551935 -->
+
 | Lane | Result | Evidence |
 |---|---|---|
 | Harness | passed | Claude install sources: `tests/test_check_doc_helper_flags.py::test_the_live_repository_is_clean` scans `.claude/commands`, `.claude/skills`, `templates` (the checkout `~/.claude` links). Codex install not run: the generated `codex/skills` mirrors are not scanned, as the plan stated |
