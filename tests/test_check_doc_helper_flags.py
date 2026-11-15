@@ -153,3 +153,38 @@ def test_helper_path_inside_a_quoted_argument_is_not_an_invocation(tmp_path: Pat
     doc = 'X="$(~/.claude/scripts/mailbox.sh --kind m)"\n'
     res = run(tree(tmp_path / "b", doc))
     assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout
+
+
+def test_flag_after_the_helpers_own_substitution_belongs_to_the_outer_command(tmp_path: Path) -> None:
+    """#1839 shape 1: reading past the helper's closing `)` credited `echo`'s flag to it."""
+    doc = "echo $(~/.claude/scripts/mailbox.sh send --to o --body b) --kind\n"
+    res = run(tree(tmp_path / "a", doc))
+    assert res.returncode == 0, res.stdout
+    # The helper's own flags inside the substitution are still checked.
+    doc = "echo $(~/.claude/scripts/mailbox.sh send --to o --kind b) --body\n"
+    res = run(tree(tmp_path / "b", doc))
+    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout
+
+
+def test_a_quote_continued_onto_the_next_line_stays_a_quote(tmp_path: Path) -> None:
+    """#1839 shape 2: quote state restarted at each physical line."""
+    doc = ('~/.claude/scripts/mailbox.sh send --to o --body "Please run \\\n'
+           '~/.claude/scripts/mailbox.sh --kind message"\n')
+    res = run(tree(tmp_path / "a", doc))
+    assert res.returncode == 0, res.stdout
+    assert "1 helper path(s) inside a quoted argument" in res.stderr
+    # A flag after the continued quote closes is still the helper's.
+    doc = ('~/.claude/scripts/mailbox.sh send --to o --body "Please \\\n'
+           'run" --kind message\n')
+    res = run(tree(tmp_path / "b", doc))
+    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout
+
+
+def test_a_quoted_paren_inside_a_substitution_does_not_swallow_the_command(tmp_path: Path) -> None:
+    """#1839 shape 3: parentheses counted without reading quotes hid --kind."""
+    doc = "~/.claude/scripts/mailbox.sh send --to o --body \"$(printf '(')\" --kind message\n"
+    res = run(tree(tmp_path / "a", doc))
+    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout
+    doc = "~/.claude/scripts/mailbox.sh send --to o --body \"$(printf ')')\" --kind message\n"
+    res = run(tree(tmp_path / "b", doc))
+    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout
