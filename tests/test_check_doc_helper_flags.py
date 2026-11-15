@@ -330,3 +330,16 @@ def test_prose_backticks_stay_inline_code_span_edges(tmp_path: Path) -> None:
     res = run(tree(tmp_path, doc))
     assert res.returncode == 0, res.stdout
     assert "ok - 2 flag(s) on 2 invocation(s)" in res.stdout
+
+
+def test_a_comment_inside_a_backtick_substitution_is_comment_text(tmp_path: Path) -> None:
+    """Counter-model review on #1842: in X="`printf ok # helper --kind m`" the
+    comment ends at the closing backtick and the helper never runs; a helper
+    written BEFORE such a comment still runs and is still checked."""
+    doc = fenced('~/.claude/scripts/mailbox.sh --to o\nX="`printf ok # ~/.claude/scripts/mailbox.sh --kind m`"\n')
+    res = run(tree(tmp_path / "comment", doc), cwd=tmp_path)  # run location: outside the scanned tree
+    assert res.returncode == 0, res.stdout
+    assert "1 helper path(s) inside a shell comment" in res.stderr
+    doc = fenced('X="`~/.claude/scripts/mailbox.sh --kind m # note`"\n')
+    res = run(tree(tmp_path / "before", doc), cwd=tmp_path)
+    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout, res.stdout

@@ -163,6 +163,20 @@ def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool =
                 stack.append("(")
                 i += 1
         elif top in ("(", BACKTICK):
+            if top == BACKTICK and ch == "#" and text[i - 1] in " \t;|&`(":
+                # A comment inside a backtick substitution ends at the closing
+                # backtick, which still closes the level: in X="<bt>printf ok
+                # # h.sh --x<bt>" the helper never runs, so it is comment text
+                # (counter-model review on #1842).
+                close = i
+                while close < end and text[close] not in "`\n":
+                    close += 2 if text[close] == "\\" else 1
+                if close >= end:
+                    # Reading stopped inside the comment: what follows is its text.
+                    stack.append("#")
+                    break
+                i = close
+                continue
             if ch == "\\":
                 i += 1
             elif ch == BACKTICK:

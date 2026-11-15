@@ -134,7 +134,7 @@
       "name": "good-inline-spans-near-backticks",
       "input": "cases/good-inline-spans-near-backticks",
       "expect": "GOOD",
-      "why": "THE HALF THAT MATTERS for #1842's change: backticks are also Markdown code-span edges. In prose a later span holding --kind must not be read as the helper's flag; in a fence the closing backtick ends the helper's command, so a flag after it belongs to the outer echo; and an escaped backtick in double quotes stays message text. Reading any of them as an invocation's flag would block valid documents in make verify."
+      "why": "THE HALF THAT MATTERS for #1842's change: backticks are also Markdown code-span edges. In prose a later span holding --kind must not be read as the helper's flag; in a fence the closing backtick ends the helper's command, so a flag after it belongs to the outer echo; and an escaped backtick in double quotes stays message text. Reading any of them as an invocation's flag would block valid documents in make verify. And a comment inside a backtick substitution (X=\"`printf ok # helper --kind m`\") ends at the closing backtick: the helper never runs (counter-model review on #1842)."
     }
   ],
   "anchors": [
