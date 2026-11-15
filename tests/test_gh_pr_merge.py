@@ -1080,7 +1080,16 @@ def test_flow_commands_wire_the_helper():
         # substitutes this placeholder, still passed (counter-model review).
         pins = re.findall(r"^\s*PIN_SHA=(.*?)(?:\s+#.*)?$", block, re.M)
         assert pins == ["<pr-head-sha>"], f"{rel}: PIN_SHA must be the caller's literal: {pins}"
-        assert re.search(r"\b11\b.*CLEAN STOP|exit 11", text), f"{rel} must document exit 11"
+        if "flow-auto" in rel or "flow/auto" in rel:
+            # #1848: /flow:auto relays the helper's own CLEAN STOP line (whose
+            # remedy is asserted by the exit tests) instead of restating each
+            # exit; it must still name the pin's stop marker and forbid an
+            # override the stop names.
+            assert "GH_PR_MERGE_HEAD_PIN:" in text, f"{rel} must name the head-pin stop marker"
+            assert "A `CLEAN STOP:` line leaves the PR open and untouched." in text, rel
+            assert "Never pass an override it names" in text, f"{rel} must forbid self-override"
+        else:
+            assert re.search(r"\b11\b.*CLEAN STOP|exit 11", text), f"{rel} must document exit 11"
 
 
 #: Candidate helper locations the merge block probes that a test cannot
