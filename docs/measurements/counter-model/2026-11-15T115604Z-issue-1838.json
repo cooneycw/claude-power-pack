@@ -1,0 +1,70 @@
+{
+  "branch": "issue-1838-reserve-charters-for-skill-gauntlet-charter-md-fil",
+  "counts": {
+    "accepted": 6,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "extra_passes_reason": "owner approved a third pass in-session: pass 2 found one MEDIUM (--list-mirrors hyphen-boundary collision) whose fix needed its own review before receipting",
+  "head": "a868c2e604e3ec4b947f1d2c39fca821d1ec0319",
+  "implementer": "claude/claude-opus-5-5",
+  "implementer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "1e4b838b-3319-4c09-b2b4-2de762118948",
+    "sources": [
+      {
+        "bytes": 2459902,
+        "path": "-home-user-Projects/1e4b838b-3319-4c09-b2b4-2de762118948.jsonl",
+        "sha256": "31994ea9237a782b4621eca12b302f591b4117878e8964ccc0d64affbca6bc7c"
+      }
+    ],
+    "transcript": "-home-user-Projects/1e4b838b-3319-4c09-b2b4-2de762118948.jsonl"
+  },
+  "issue": "1838",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 3,
+  "recorded_at": "2026-11-15T11:56:04Z",
+  "red_cases": {
+    "already_covered": 5,
+    "proposed": 5
+  },
+  "reviewed_artifact": {
+    "base_sha": "3ed254698f3e32fb99adf203c955308531729a75",
+    "merge_base": "3ed254698f3e32fb99adf203c955308531729a75",
+    "method": "runtime-head",
+    "patch_sha256": "93bd3ca9b0d83cac91c0a23deef00df4ad23cee589c77962dee050e7a831bf4e",
+    "report_record": 66,
+    "target_head": "a868c2e604e3ec4b947f1d2c39fca821d1ec0319"
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "exec_log": "codex-review-stream.dO72wu",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/15/rollout-2026-11-15T06-54-18-01a1df0e-e9e0-7eb1-bac4-9c9972d0d751.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 145654,
+        "path": "codex-review-stream.dO72wu",
+        "sha256": "1d8d6bce102127a705a7b032e4ac68ee1587d7d9a5e6cfe625be9f585035b1ad"
+      },
+      {
+        "bytes": 576745,
+        "path": "2026/11/15/rollout-2026-11-15T06-54-18-01a1df0e-e9e0-7eb1-bac4-9c9972d0d751.jsonl",
+        "sha256": "6d4cb7596e33179c2a657145f9d921f1645c7faf7be465e2965405d2251350d0"
+      }
+    ],
+    "thread_id": "01a1df0e-e9e0-7eb1-bac4-9c9972d0d751"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}
