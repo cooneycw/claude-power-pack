@@ -84,6 +84,9 @@ SEPARATORS = "|;&)"
 #: because the same character also closes it.
 SUBSTITUTIONS = ("$(", "<(", ">(")
 BACKTICK = "`"
+#: A plain `(` subshell inside a nested command. Unlike a substitution's `)`,
+#: its `)` ends a word, so a `#` straight after it starts a comment.
+SUBSHELL = "s("
 
 
 def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool = True,
@@ -123,8 +126,14 @@ def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool =
     stack: list[str] = []
     end = len(text) if stop is None else stop
     in_word = False
+    # Whether the previous character ended a word inside a backtick level, where
+    # a `#` then starts a comment: after unescaped whitespace or `;|&`, the
+    # opening backtick, or a subshell's `)` - never after an escaped space or a
+    # substitution's `)`, which leave the word open (counter-model review on #1842).
+    boundary = False
     i = start
     while i < end:
+        was_boundary, boundary = boundary, False
         if not stack and not in_word and text[i] == "#" and not whole_command:
             # A comment runs to its newline, and a `\` inside it joins no lines
             # (counter-model review on #1839): skip it whole, so its quotes and
@@ -138,6 +147,7 @@ def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool =
             continue
         cont = CONTINUATION.match(text, i)
         if cont:
+            boundary = was_boundary
             i = cont.end()
             continue
         ch = text[i]
@@ -159,11 +169,12 @@ def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool =
                 stack.pop()
             elif ch == BACKTICK:
                 stack.append(BACKTICK)
+                boundary = True
             elif text.startswith("$(", i):
                 stack.append("(")
                 i += 1
-        elif top in ("(", BACKTICK):
-            if top == BACKTICK and ch == "#" and text[i - 1] in " \t;|&`(":
+        elif top in ("(", SUBSHELL, BACKTICK):
+            if top == BACKTICK and ch == "#" and was_boundary:
                 # A comment inside a backtick substitution ends at the closing
                 # backtick, which still closes the level: in X="<bt>printf ok
                 # # h.sh --x<bt>" the helper never runs, so it is comment text
@@ -184,15 +195,18 @@ def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool =
                     stack.pop()
                 else:
                     stack.append(BACKTICK)
+                    boundary = True
             elif ch in "'\"":
                 stack.append(ch)
             elif text.startswith(SUBSTITUTIONS, i):
                 stack.append("(")
                 i += 1
             elif ch == "(":
-                stack.append("(")
-            elif ch == ")" and top == "(":
-                stack.pop()
+                stack.append(SUBSHELL)
+            elif ch == ")" and top in ("(", SUBSHELL):
+                boundary = stack.pop() == SUBSHELL
+            elif top == BACKTICK and (ch.isspace() or ch in ";|&"):
+                boundary = True
         else:
             # The command's own level: the only place a word or a stop is read.
             if ch in "'\"":
@@ -204,6 +218,7 @@ def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool =
                 break
             elif ch == BACKTICK:
                 stack.append(BACKTICK)
+                boundary = True
             elif whole_command and (ch in SEPARATORS or (ch == "#" and not in_word)
                                     or text.startswith("~/.claude/scripts/", i)):
                 break

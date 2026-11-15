@@ -343,3 +343,21 @@ def test_a_comment_inside_a_backtick_substitution_is_comment_text(tmp_path: Path
     doc = fenced('X="`~/.claude/scripts/mailbox.sh --kind m # note`"\n')
     res = run(tree(tmp_path / "before", doc), cwd=tmp_path)
     assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout, res.stdout
+
+
+def test_a_comment_inside_backticks_starts_only_at_a_real_word_boundary(tmp_path: Path) -> None:
+    """Counter-model review on #1842: after a subshell's `)` a `#` starts a
+    comment (the helper never runs); after an ESCAPED space it is still part of
+    the word, so the `;` that follows starts a real helper invocation."""
+    known = "~/.claude/scripts/mailbox.sh --to o\n"
+    doc = fenced(known + 'X="`(printf ok)# ~/.claude/scripts/mailbox.sh --kind m`"\n')
+    res = run(tree(tmp_path / "subshell", doc))
+    assert res.returncode == 0, res.stdout
+    doc = fenced(known + 'X="`printf foo\\ #; ~/.claude/scripts/mailbox.sh --kind m`"\n')
+    res = run(tree(tmp_path / "escaped", doc))
+    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout, res.stdout
+    doc = fenced(known + 'X="`echo $(printf a)# ~/.claude/scripts/mailbox.sh --kind m`"\n')
+    # A substitution's `)` leaves the word open: not a comment, so the unquoted
+    # helper path is read as an invocation, as everywhere else in this gate.
+    res = run(tree(tmp_path / "substitution", doc))
+    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout, res.stdout

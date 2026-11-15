@@ -95,6 +95,12 @@
       "why": "Issue #1842: X=\"`helper --kind m`\". A backtick inside double quotes still runs a command, as $( does; the #1839 reader opened a nested command on $( only, so it read the helper as message text and passed --kind. If this scores GOOD, a backtick substitution in a quoted assignment hides every flag on the helper inside it."
     },
     {
+      "name": "bad-escaped-space-before-hash-in-backticks",
+      "input": "cases/bad-escaped-space-before-hash-in-backticks",
+      "expect": "BAD",
+      "why": "Counter-model review on #1842: in X=\"`printf foo\\ #; helper --kind m`\" the escaped space keeps # inside its word, so the ; starts a real helper call. The first comment rule looked only at the previous character, read the rest as a comment and passed --kind. If this scores GOOD, an escaped space hides every helper after it."
+    },
+    {
       "name": "good-known-flags",
       "input": "cases/good-known-flags",
       "expect": "GOOD",
@@ -134,7 +140,7 @@
       "name": "good-inline-spans-near-backticks",
       "input": "cases/good-inline-spans-near-backticks",
       "expect": "GOOD",
-      "why": "THE HALF THAT MATTERS for #1842's change: backticks are also Markdown code-span edges. In prose a later span holding --kind must not be read as the helper's flag; in a fence the closing backtick ends the helper's command, so a flag after it belongs to the outer echo; and an escaped backtick in double quotes stays message text. Reading any of them as an invocation's flag would block valid documents in make verify. And a comment inside a backtick substitution (X=\"`printf ok # helper --kind m`\") ends at the closing backtick: the helper never runs (counter-model review on #1842)."
+      "why": "THE HALF THAT MATTERS for #1842's change: backticks are also Markdown code-span edges. In prose a later span holding --kind must not be read as the helper's flag; in a fence the closing backtick ends the helper's command, so a flag after it belongs to the outer echo; and an escaped backtick in double quotes stays message text. Reading any of them as an invocation's flag would block valid documents in make verify. And a comment inside a backtick substitution (X=\"`printf ok # helper --kind m`\") ends at the closing backtick: the helper never runs (counter-model review on #1842). So is a # straight after a subshell's ), as in Y=\"`(printf ok)# helper --kind m`\"."
     }
   ],
   "anchors": [

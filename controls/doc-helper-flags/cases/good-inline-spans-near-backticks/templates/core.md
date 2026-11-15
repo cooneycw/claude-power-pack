@@ -8,4 +8,5 @@ and never pass `--kind`. Say "`~/.claude/scripts/mailbox.sh --body b`" and
 echo "`~/.claude/scripts/mailbox.sh --to o`" --kind m
 ~/.claude/scripts/mailbox.sh --to o --body "see \`~/.claude/scripts/mailbox.sh --kind m\`"
 X="`printf ok # ~/.claude/scripts/mailbox.sh --kind m`"
+Y="`(printf ok)# ~/.claude/scripts/mailbox.sh --kind m`"
 ```
