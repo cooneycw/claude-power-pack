@@ -254,7 +254,7 @@ def test_a_comment_inside_a_fence_cannot_quote_the_next_line(tmp_path: Path) -> 
     doc = ("```bash\n~/.claude/scripts/mailbox.sh --to o\n"
            "# Use `printf` in the owner's note \\\n"
            "~/.claude/scripts/mailbox.sh --kind m\n```\n")
-    res = run(tree(tmp_path / "a", doc))
+    res = run(tree(tmp_path / "a", doc), cwd=tmp_path)  # run location: outside the scanned tree
     assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout
     doc = ("```bash\n~/.claude/scripts/mailbox.sh --to o\n"
            '# Use `printf` for the "note \\\n'
