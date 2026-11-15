@@ -44,10 +44,16 @@
       "why": "The unknown flag sits after a quoted argument holding '#' and ';'. The first cut of the gate split at punctuation without reading quotes and passed this; counter-model review found it. If it scores GOOD, any quoted message with a hash or semicolon hides every flag after it."
     },
     {
+      "name": "bad-quoted-option-value",
+      "input": "cases/bad-quoted-option-value",
+      "expect": "BAD",
+      "why": "An unknown option written as --kind=\"message\". The second cut of the gate dropped any word with a quoted part, so quoting the value hid the option; counter-model review found it. If this scores GOOD, quoting a value is a way past the gate."
+    },
+    {
       "name": "good-known-flags",
       "input": "cases/good-known-flags",
       "expect": "GOOD",
-      "why": "THE HALF THAT MATTERS for a gate in make verify: every shape the live documents use that a naive extractor misreads - substitution, pipe, delegated parser with computed option names, prose after an inline span. A gate that flags any of them blocks every merge. It also holds a quoted --body whose TEXT contains --kind, '#' and ';': reading quoted text as flags would block a valid command over its message wording."
+      "why": "THE HALF THAT MATTERS for a gate in make verify: every shape the live documents use that a naive extractor misreads - substitution, pipe, delegated parser with computed option names, prose after an inline span. A gate that flags any of them blocks every merge. It also holds a quoted --body whose TEXT contains --kind, '#' and ';': reading quoted text as flags would block a valid command over its message wording. And a helper path inside a quoted --body: read as an invocation, its message text would block verify."
     }
   ],
   "anchors": [

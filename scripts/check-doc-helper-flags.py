@@ -105,21 +105,27 @@ def command_tail(text: str, start: int) -> str:
 def command_words(tail: str) -> list[str]:
     """Shell words up to the first unquoted separator; quoted words are omitted.
 
-    A word with any quoted part is never a flag for this gate (it is an
-    argument's value), so only fully unquoted words are returned.
+    A word with a quoted part is an argument's value, not a flag - EXCEPT its
+    unquoted prefix up to the first quote, which is returned when it is a
+    `--name=` option: `--kind="message"` still passes `--kind` (counter-model
+    review on #1835).
     """
     words: list[str] = []
     word: list[str] = []
+    prefix = ""
     quoted = False
     quote = ""
     i = 0
     n = len(tail)
 
     def flush() -> None:
-        nonlocal quoted
+        nonlocal quoted, prefix
         if word and not quoted:
             words.append("".join(word))
+        elif quoted and FLAG_WORD.match(prefix) and prefix.endswith("="):
+            words.append(prefix)
         word.clear()
+        prefix = ""
         quoted = False
 
     while i < n:
@@ -132,6 +138,8 @@ def command_words(tail: str) -> list[str]:
             i += 1
             continue
         if ch in "'\"":
+            if not quoted:
+                prefix = "".join(word)
             quote, quoted = ch, True
         elif ch == "\\" and i + 1 < n:
             word.append(tail[i + 1])
@@ -147,6 +155,46 @@ def command_words(tail: str) -> list[str]:
         i += 1
     flush()
     return words
+
+
+def inside_quote(text: str, pos: int) -> bool:
+    """Whether `pos` sits inside a shell quote, read from where its command starts.
+
+    The command starts at the line's beginning, or just after the last backtick
+    before `pos` on that line (an inline code span), so prose apostrophes before
+    a span are not read as quotes. A `$(` opens an unquoted context even inside
+    double quotes: `X="$(~/.claude/scripts/h.sh --a)"` is an invocation. A path
+    inside a quoted argument (`--body "run ~/.claude/scripts/h.sh --x"`) is
+    message text, not an invocation (counter-model review on #1835).
+    """
+    start = text.rfind("\n", 0, pos) + 1
+    tick = text.rfind("`", start, pos)
+    if tick != -1:
+        start = tick + 1
+    stack = [""]
+    i = start
+    while i < pos:
+        ch = text[i]
+        top = stack[-1]
+        if top == "'":
+            if ch == "'":
+                stack.pop()
+        elif text.startswith("$(", i):
+            stack.append("")
+            i += 1
+        elif top == '"':
+            if ch == "\\":
+                i += 1
+            elif ch == '"':
+                stack.pop()
+        elif ch in "'\"":
+            stack.append(ch)
+        elif ch == ")" and len(stack) > 1:
+            stack.pop()
+        elif ch == "\\":
+            i += 1
+        i += 1
+    return stack[-1] != ""
 
 
 def helper_source(scripts: Path, name: str, seen: set[str] | None = None) -> list[tuple[str, str]] | None:
@@ -197,7 +245,7 @@ def check(root: Path) -> int:
     cache: dict[str, list[tuple[str, str]] | None] = {}
     findings: list[str] = []
     unresolved: set[str] = set()
-    flags_checked = invocations = 0
+    flags_checked = invocations = quoted_paths = 0
     for doc in docs:
         try:
             text = doc.read_text(encoding="utf-8")
@@ -206,6 +254,9 @@ def check(root: Path) -> int:
             return 2
         for match in HELPER_PATH.finditer(text):
             name = match.group(1)
+            if inside_quote(text, match.start()):
+                quoted_paths += 1
+                continue
             if name not in cache:
                 cache[name] = helper_source(scripts, name)
             source = cache[name]
@@ -224,6 +275,9 @@ def check(root: Path) -> int:
                     findings.append(f"UNKNOWN_FLAG: {doc.relative_to(root)}:{line}: {name} {flag}")
     for finding in findings:
         print(finding)
+    if quoted_paths:
+        print(f"note - {quoted_paths} helper path(s) inside a quoted argument, not invocations, unchecked",
+              file=sys.stderr)
     if unresolved:
         print(f"note - {len(unresolved)} helper name(s) not under scripts/, unchecked: "
               + ", ".join(sorted(unresolved)), file=sys.stderr)

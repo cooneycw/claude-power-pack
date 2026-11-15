@@ -133,3 +133,23 @@ def test_unquoted_separator_and_comment_still_end_the_command(tmp_path: Path) ->
     assert run(tree(tmp_path / "a", doc)).returncode == 0
     doc = "~/.claude/scripts/mailbox.sh send --to o; other --kind\n"
     assert run(tree(tmp_path / "b", doc)).returncode == 0
+
+
+def test_quoted_option_value_still_checks_the_option(tmp_path: Path) -> None:
+    """Counter-model review pass 2 on #1835: --kind="message" must not hide --kind."""
+    res = run(tree(tmp_path / "a", '~/.claude/scripts/mailbox.sh send --to o --kind="m" --body b\n'))
+    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout
+    res = run(tree(tmp_path / "b", '~/.claude/scripts/mailbox.sh send --to="o" --body b\n'))
+    assert res.returncode == 0, res.stdout
+
+
+def test_helper_path_inside_a_quoted_argument_is_not_an_invocation(tmp_path: Path) -> None:
+    """Counter-model review pass 2 on #1835: quoted message text names no command."""
+    doc = '~/.claude/scripts/mailbox.sh send --to o --body "run ~/.claude/scripts/mailbox.sh --kind m"\n'
+    res = run(tree(tmp_path / "a", doc))
+    assert res.returncode == 0, res.stdout
+    assert "1 helper path(s) inside a quoted argument" in res.stderr
+    # A substitution inside double quotes IS an invocation and is still checked.
+    doc = 'X="$(~/.claude/scripts/mailbox.sh --kind m)"\n'
+    res = run(tree(tmp_path / "b", doc))
+    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout

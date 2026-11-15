@@ -19,3 +19,10 @@ A flag-like word inside a quoted argument is the argument's text, not a flag:
 ```bash
 ~/.claude/scripts/mailbox.sh send --to orchestrator --body "please drop --kind message; see #1835"
 ```
+
+A helper path inside a quoted argument is message text, not a second
+invocation, and its flag-like words are not checked:
+
+```bash
+~/.claude/scripts/mailbox.sh send --to orchestrator --body "run ~/.claude/scripts/mailbox.sh --kind message yourself"
+```
