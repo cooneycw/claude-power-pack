@@ -22,6 +22,9 @@ Layout per skill:
     reference.md    # full command body (long commands, loaded on demand)
     scripts/<name>  # helper scripts the body references, bundled
                     # byte-identical from scripts/
+    CHARTER.md      # only when charters/<family>/<command>/CHARTER.md
+                    # exists: a copy with a GENERATED marker after its
+                    # YAML block (issue #1838). Edit charters/, never this.
 ```
 
 - Generator: `scripts/codex-skill-sync.py` (`make codex-skills` builds this
