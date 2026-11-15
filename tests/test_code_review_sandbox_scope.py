@@ -19,7 +19,6 @@ GREEN probe works   -> full, and the prompt offers the files
 from __future__ import annotations
 
 import os
-import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -27,9 +26,9 @@ from pathlib import Path
 import pytest
 
 from tests.isolated_env import ISOLATED_PATH
+from tests.test_codex_review_run import review_stage
 
 REPO = Path(__file__).resolve().parent.parent
-COMMAND = REPO / ".claude" / "commands" / "codex" / "code_review.md"
 
 requires_git = pytest.mark.skipif(shutil.which("git") is None, reason="requires git")
 
@@ -66,11 +65,8 @@ exit 1
 
 
 def _step3_block() -> str:
-    text = COMMAND.read_text(encoding="utf-8")
-    section = text[text.index("### Step 3: Run the review"):text.index("### Step 4:")]
-    m = re.search(r"```bash\n(.*?)```", section, re.S)
-    assert m, "no bash block in Step 3"
-    return m.group(1)
+    """The helper's Step 3 stage (run the review), executed for real (#1847)."""
+    return review_stage("review_run")
 
 
 def _run(tmp_path: Path, tracked: bool = True, subdir: bool = False, delete_first: bool = False,

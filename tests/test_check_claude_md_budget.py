@@ -285,9 +285,10 @@ def test_commands_mode_refuses_a_table_it_cannot_fully_read(tmp_path: Path, caps
 def test_the_real_repo_declares_the_argued_budget_for_flow_auto() -> None:
     """Pins the declared number, so raising it is a visible, reviewed edit.
 
-    The owner's starting target was 10,183 (#1669). 10,410 is the argued
-    budget: the document measures 10,402 with every instruction that the trim
-    to 10,182 had dropped restored. The reasoning is beside the number in
+    The owner's starting target was 10,183 (#1669). 10,410 was the argued
+    budget: the document measured 10,402 with every instruction that the trim
+    to 10,182 had dropped restored. #1847 lowered it to 10,404 when Step 6
+    stopped carrying the review's shell. The reasoning is beside the number in
     `.claude/command-word-budgets.tsv`.
     """
     root = SCRIPT.parents[1]
@@ -297,5 +298,5 @@ def test_the_real_repo_declares_the_argued_budget_for_flow_auto() -> None:
         for p in (root / budget.COMMANDS_DIR).rglob("*.md")
     }
 
-    assert budgets["flow/auto.md"] == 10_410
+    assert budgets["flow/auto.md"] == 10_404
     assert on_disk and on_disk == set(budgets), "every command document is declared, and nothing else"

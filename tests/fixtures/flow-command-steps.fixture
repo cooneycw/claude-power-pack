@@ -491,6 +491,36 @@
    "count": 1
   },
   {
+   "slug": "bash-0078-marker",
+   "needle": "--status ran --reviewer-exec-log \"$(m STREAM)\" --scope \"$(m SCOPE)\" \\",
+   "kind": "bash-line",
+   "count": 1
+  },
+  {
+   "slug": "bash-0079-marker",
+   "needle": "--review-base \"$(m BASE)\" --network \"$(m NETWORK)\" \\",
+   "kind": "bash-line",
+   "count": 1
+  },
+  {
+   "slug": "bash-0081-marker",
+   "needle": "--local-credentials \"$(m LOCAL_CREDENTIALS)\" \\",
+   "kind": "bash-line",
+   "count": 1
+  },
+  {
+   "slug": "bash-0081-marker-reader",
+   "needle": "m() { sed -n \"s/^CODEX_REVIEW_$1: //p\" /path/to/transcript.md; }",
+   "kind": "bash-line",
+   "count": 1
+  },
+  {
+   "slug": "bash-0077-review-run",
+   "needle": "~/.claude/scripts/codex-review-run.sh --base origin/<default-branch> --context \"issue #42: <title>\" --transcript /path/to/transcript.md",
+   "kind": "bash-line",
+   "count": 1
+  },
+  {
    "slug": "bash-0082",
    "needle": "--implementer-session-id \"$CLAUDE_CODE_SESSION_ID\" \\",
    "kind": "bash-line",
@@ -1728,6 +1758,10 @@
  ],
  "retirements": {
   "bash-0195": "Owner-approved #1801 PATH handoff replaces this exact launcher with bash-0195-caller-path; original baseline retained.",
-  "bash-0201": "Owner-approved #1801 PATH handoff replaces this exact launcher with bash-0201-caller-path; original baseline retained."
+  "bash-0201": "Owner-approved #1801 PATH handoff replaces this exact launcher with bash-0201-caller-path; original baseline retained.",
+  "bash-0078": "Owner-approved #1847 plan: /flow:auto 1d reads this receipt flag from the review transcript by its marker line instead of a hand-carried variable; replaced by bash-0078-marker; original baseline retained.",
+  "bash-0079": "Owner-approved #1847 plan: /flow:auto 1d reads this receipt flag from the review transcript by its marker line instead of a hand-carried variable; replaced by bash-0079-marker; original baseline retained.",
+  "bash-0080": "Owner-approved #1847 plan: /flow:auto 1d reads this receipt flag from the review transcript by its marker line instead of a hand-carried variable; replaced by bash-0079-marker; original baseline retained.",
+  "bash-0081": "Owner-approved #1847 plan: /flow:auto 1d reads this receipt flag from the review transcript by its marker line instead of a hand-carried variable; replaced by bash-0081-marker; original baseline retained."
  }
 }

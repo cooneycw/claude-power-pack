@@ -82,7 +82,13 @@ REVIEW_MARKERS = (
 # Surfaces that instruct review WITHOUT carrying a marker above, pinned by name.
 # `/flow:auto` implements directly rather than reviewing a delegate's diff, so
 # its detector guidance lives in its implement step and no marker applies.
-PINNED_SURFACES = (Path(".claude/commands/flow/auto.md"),)
+# `/codex:code_review` routes the triage of a cross-model review; its reviewer
+# prompt (and so the "Review for:" marker) moved into scripts/codex-review-run.sh
+# with the rest of the procedure (#1847), so the command is pinned here instead.
+PINNED_SURFACES = (
+    Path(".claude/commands/flow/auto.md"),
+    Path(".claude/commands/codex/code_review.md"),
+)
 
 # The reference every routed surface must carry.
 CONTRACT_LINK = "docs/agents/detector-contracts.md"
@@ -214,7 +220,6 @@ def test_discovery_is_not_vacuous() -> None:
     assert surfaces, "no review surface discovered - the markers have stopped matching"
     expected = {
         Path(".claude/commands/codex/auto.md"),
-        Path(".claude/commands/codex/code_review.md"),
         Path(".claude/commands/qwen/auto.md"),
         Path(".claude/commands/gemma/auto.md"),
     }

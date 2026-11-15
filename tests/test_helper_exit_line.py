@@ -100,6 +100,9 @@ NAMESPACES = {
     "delegated-run-check.sh": "DELEGATED_RUN_CHECK",
     "lane-serveability-check.sh": "LANE_SERVE",
     "nit-store-resolve.sh": "NIT_STORE",
+    # Runs its stages in a subshell and prints the line from the parent, so the
+    # diff stage's own cleanup trap cannot replace it (#1847).
+    "codex-review-run.sh": "CODEX_REVIEW",
     "cpp-commands-link.sh": "CPP_COMMANDS_LINK",
     "install-drift.sh": "INSTALL_DRIFT",
     "stash-worktree-guard.sh": "STASH_GUARD",
@@ -298,7 +301,7 @@ def test_a_clean_run_reports_zero(argv: list[str], name: str) -> None:
 
 @pytest.mark.parametrize(
     ("script", "expected"),
-    [("worktree-remove.sh", 1), ("gh-pr-merge.sh", 2), ("gate-lib.sh", 2)],
+    [("worktree-remove.sh", 1), ("gh-pr-merge.sh", 2), ("gate-lib.sh", 2), ("codex-review-run.sh", 2)],
 )
 def test_a_refusal_reports_its_own_status(script: str, expected: int) -> None:
     """BOTH DIRECTIONS. A line wedged at 0 would pass every zero-exit test above
