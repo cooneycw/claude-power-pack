@@ -27,7 +27,8 @@ included - the flags in `--path "$(git rev-parse --show-toplevel)"` are git's.
 A flag is an unquoted word starting `--`, or the unquoted `--name=` prefix of a
 word whose value is quoted or substituted. So `--body "remove --kind; see #1835"` is one
 argument and a flag after it is still checked. A helper path inside a quoted
-argument, read from where its command starts (back across continued lines), is
+argument, read forward from its fenced block's first line (in prose, from
+where its command starts, back across continued lines), is
 message text, not an invocation; so is one inside a shell comment. An unterminated quote swallows the rest of its
 line, which can hide a flag but never invent one. Each shape has a case under
 `controls/doc-helper-flags`; that directory and this docstring are the contract.
@@ -186,10 +187,45 @@ def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool =
     return events, stack
 
 
+FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})", re.MULTILINE)
+
+
+def fence_body_start(text: str, pos: int) -> int | None:
+    """The first character after the opening fence of the code block holding
+    `pos`, or None when `pos` is in prose. A closing fence is the same character,
+    at least as long as the opening one, with nothing else on its line."""
+    opening: str | None = None
+    body = 0
+    for fence in FENCE.finditer(text, 0, pos):
+        line_end = text.find("\n", fence.end())
+        line_end = len(text) if line_end == -1 else line_end
+        if line_end >= pos:
+            # `pos` is on the fence line itself: not inside a block's body.
+            return None
+        mark = fence.group(1)
+        if opening is None:
+            opening, body = mark, line_end + 1
+        elif mark[0] == opening[0] and len(mark) >= len(opening) \
+                and not text[fence.end():line_end].strip():
+            opening = None
+    return body if opening is not None else None
+
+
 def command_start(text: str, pos: int) -> int:
-    """Where the command holding `pos` begins: back across `\\`-continued lines,
-    then just after the last backtick before `pos` (an inline code span), so
-    prose apostrophes before a span are not read as quotes."""
+    """Where to start reading forward to learn what `pos` sits inside.
+
+    In a fenced code block: the block's first line. Reading forward from there
+    tracks comments, continuations and quotes in the order a shell meets them,
+    and a backtick in the block is shell text, never a code-span edge
+    (counter-model review on #1839: guessing the start backwards let a
+    comment's backtick and apostrophe hide the next invocation).
+
+    In prose: back across `\\`-continued lines, then just after the last
+    unescaped backtick before `pos` (an inline code span), so prose apostrophes
+    before a span are not read as quotes."""
+    body = fence_body_start(text, pos)
+    if body is not None:
+        return body
     start = text.rfind("\n", 0, pos) + 1
     while start > 0:
         prev = text.rfind("\n", 0, start - 1) + 1

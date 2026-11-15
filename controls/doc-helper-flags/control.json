@@ -79,6 +79,12 @@
       "why": "--kind=message$(printf '') passes --kind whatever its value holds. A reader that keeps an option name only when the quote or substitution starts right after '=' drops it and passes this (counter-model review on #1839)."
     },
     {
+      "name": "bad-comment-backtick-before-invocation",
+      "input": "cases/bad-comment-backtick-before-invocation",
+      "expect": "BAD",
+      "why": "A comment with a backtick, an apostrophe and a trailing backslash precedes an invocation with an unknown flag. A reader that guesses the command start backwards (across the backslash, after the last backtick) reads the apostrophe as a quote and passes --kind (counter-model review on #1839). Inside a fence the gate reads forward from the fence."
+    },
+    {
       "name": "good-known-flags",
       "input": "cases/good-known-flags",
       "expect": "GOOD",
@@ -107,6 +113,12 @@
       "input": "cases/good-helper-path-in-comment",
       "expect": "GOOD",
       "why": "PURPOSE CONTROL: a shell comment names a helper with a flag it lacks. A commented command never runs. A reader that counts a path inside a comment as an invocation blocks this valid document (counter-model review on #1839)."
+    },
+    {
+      "name": "good-comment-quote-before-message",
+      "input": "cases/good-comment-quote-before-message",
+      "expect": "GOOD",
+      "why": "PURPOSE CONTROL: the same comment shape with a double quote, before a --body that names a helper as message text. A reader that starts after the comment's backtick pairs the comment's quote with the --body quote and blocks this valid document on the message text (counter-model review on #1839)."
     }
   ],
   "anchors": [

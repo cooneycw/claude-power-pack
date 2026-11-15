@@ -246,3 +246,33 @@ def test_an_option_value_with_a_substitution_still_checks_the_option(tmp_path: P
     doc = "~/.claude/scripts/mailbox.sh --to o --kind=message$(printf '')\n"
     res = run(tree(tmp_path, doc))
     assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout
+
+
+def test_a_comment_inside_a_fence_cannot_quote_the_next_line(tmp_path: Path) -> None:
+    """Counter-model review on #1839: inside a fence the gate reads forward from
+    the fence, so a comment's backtick, quote and backslash reach nothing."""
+    doc = ("```bash\n~/.claude/scripts/mailbox.sh --to o\n"
+           "# Use `printf` in the owner's note \\\n"
+           "~/.claude/scripts/mailbox.sh --kind m\n```\n")
+    res = run(tree(tmp_path / "a", doc))
+    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout
+    doc = ("```bash\n~/.claude/scripts/mailbox.sh --to o\n"
+           '# Use `printf` for the "note \\\n'
+           '~/.claude/scripts/mailbox.sh --to o --body "run ~/.claude/scripts/mailbox.sh --kind m"\n```\n')
+    res = run(tree(tmp_path / "b", doc))
+    assert res.returncode == 0, res.stdout
+
+
+def test_fences_are_found_indented_with_tildes_and_after_a_closed_block(tmp_path: Path) -> None:
+    """The forward read needs the right fence: an indented list-item fence and a
+    `~~~` fence open blocks, and a closed block's state does not carry on."""
+    shape = ("~/.claude/scripts/mailbox.sh --to o\n"
+             "# Use `printf` in the owner's note \\\n"
+             "~/.claude/scripts/mailbox.sh --kind m\n")
+    for name, doc in {
+        "indented": "1. Step:\n\n   ```bash\n" + shape + "   ```\n",
+        "tilde": "~~~sh\n" + shape + "~~~\n",
+        "second": "```bash\necho \"open\n```\n\nThen:\n\n```bash\n" + shape + "```\n",
+    }.items():
+        res = run(tree(tmp_path / name, doc))
+        assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout, (name, res.stdout)
