@@ -3946,3 +3946,23 @@ def test_install_publishes_the_mirrored_charter(tmp_repo, tmp_home):
     built = (tmp_repo / "codex" / "skills" / "flow-auto" / "CHARTER.md").read_text()
     assert (tmp_home / "flow-auto" / "CHARTER.md").read_text() == built
     assert not (tmp_home / "qa-test" / "CHARTER.md").exists()
+
+
+def test_list_mirrors_does_not_hand_a_charter_its_hyphen_neighbours_mirror(tmp_repo, monkeypatch, capsys):
+    """Counter-model review pass 2: `<family>-<stem>` loses the boundary, so
+    `charters/second/opinion-help/CHARTER.md` composed to the real skill
+    `second-opinion-help` (generated from `second-opinion/help`) and was
+    handed that skill's mirror with exit 0."""
+    src = tmp_repo / ".claude" / "commands" / "second-opinion"
+    src.mkdir()
+    (src / "help.md").write_text("# Second Opinion Help\n\nBody.\n")
+    monkeypatch.setattr(codex_skill_sync, "FAMILIES", ["flow", "qa", "second-opinion"])
+    _plant_charter(tmp_repo, "second-opinion", "help",
+                   _CHARTER.replace("flow/auto.md", "second-opinion/help.md"))
+    neighbour = _plant_charter(tmp_repo, "second", "opinion-help",
+                               _CHARTER.replace("flow/auto.md", "second/opinion-help.md"))
+    assert neighbour.is_file()
+    capsys.readouterr()
+    assert codex_skill_sync.main(["--list-mirrors", "charters/second-opinion/help/CHARTER.md"]) == 0
+    assert capsys.readouterr().out.split() == ["codex/skills/second-opinion-help/CHARTER.md"]
+    assert codex_skill_sync.main(["--list-mirrors", "charters/second/opinion-help/CHARTER.md"]) == 1

@@ -2386,6 +2386,11 @@ def mirrors_for(
             and len(parts) == 4
             and parts[0] == CHARTERS_ROOT.name
             and parts[3] == CHARTER_NAME
+            #: The family is validated and the command file must exist, for the
+            #: reason the command branch above gives: `second/opinion-help`
+            #: and `second-opinion/help` compose to the same skill name.
+            and parts[1] in FAMILIES
+            and (SOURCE_ROOT / parts[1] / f"{parts[2]}.md").is_file()
         ):
             skill = f"{parts[1]}-{parts[2]}"
             if CHARTER_NAME in outputs.get(skill, {}):
