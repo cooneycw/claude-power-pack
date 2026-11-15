@@ -61,6 +61,18 @@
       "why": "The unknown flag follows \"$(printf '(')\". The pre-#1839 reader counted parentheses without reading quotes, never saw the substitution close, swallowed --kind and passed this. If it scores GOOD, a quoted paren in a substitution hides every flag after it."
     },
     {
+      "name": "bad-process-substitution",
+      "input": "cases/bad-process-substitution",
+      "expect": "BAD",
+      "why": "The unknown flag follows <(printf x). A reader that opens only $( reads the process substitution's ')' as the end of the command, swallows --kind and passes this (counter-model review on #1839). If it scores GOOD, every flag after a <( or >( is unchecked."
+    },
+    {
+      "name": "bad-comment-after-separator",
+      "input": "cases/bad-comment-after-separator",
+      "expect": "BAD",
+      "why": "A comment straight after ';' holds an apostrophe and a trailing backslash. A reader that takes ';#' for one word reads the apostrophe as an open quote, the next invocation as message text, and passes its --kind (counter-model review on #1839)."
+    },
+    {
       "name": "good-known-flags",
       "input": "cases/good-known-flags",
       "expect": "GOOD",
@@ -77,6 +89,12 @@
       "input": "cases/good-quote-continued-across-lines",
       "expect": "GOOD",
       "why": "PURPOSE CONTROL: a quoted --body continued with a backslash onto a line holding a helper path. That path is message text. The pre-#1839 reader restarted quote state at each physical line, read it as a second invocation and blocked this valid command."
+    },
+    {
+      "name": "good-escaped-backtick-in-continued-quote",
+      "input": "cases/good-escaped-backtick-in-continued-quote",
+      "expect": "GOOD",
+      "why": "PURPOSE CONTROL: a quoted --body with escaped backticks, continued onto a line holding a helper path. That path is message text. A reader that takes the escaped backtick for a code-span edge drops the opening quote and blocks this valid command (counter-model review on #1839)."
     }
   ],
   "anchors": [

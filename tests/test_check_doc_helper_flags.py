@@ -200,3 +200,32 @@ def test_a_comment_ending_in_a_backslash_continues_nothing(tmp_path: Path) -> No
            '~/.claude/scripts/mailbox.sh send --to o --body "run ~/.claude/scripts/mailbox.sh --kind m"\n')
     res = run(tree(tmp_path / "b", doc))
     assert res.returncode == 0, res.stdout
+
+
+def test_a_process_substitution_does_not_end_the_command(tmp_path: Path) -> None:
+    """Counter-model review on #1839: the `)` of `<(...)` closes the substitution,
+    not the helper's command, so the flag after it is still checked."""
+    doc = "~/.claude/scripts/mailbox.sh --body <(printf x) --kind message\n"
+    res = run(tree(tmp_path / "a", doc))
+    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout
+    doc = "~/.claude/scripts/mailbox.sh --body >(cat) --to o\n"
+    res = run(tree(tmp_path / "b", doc))
+    assert res.returncode == 0, res.stdout
+
+
+def test_a_comment_right_after_a_separator_is_a_comment(tmp_path: Path) -> None:
+    """Counter-model review on #1839: `;#` starts a comment, so its apostrophe
+    and trailing backslash do not quote the next invocation."""
+    doc = ("~/.claude/scripts/mailbox.sh --to o;# owner's note \\\n"
+           "~/.claude/scripts/mailbox.sh --kind message\n")
+    res = run(tree(tmp_path, doc))
+    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout
+
+
+def test_an_escaped_backtick_is_not_a_code_span_edge(tmp_path: Path) -> None:
+    """Counter-model review on #1839: an escaped backtick inside a quoted argument
+    is shell text, so the quote still covers the continued line."""
+    doc = ('~/.claude/scripts/mailbox.sh --to o --body "Please run \\`example\\` \\\n'
+           '~/.claude/scripts/mailbox.sh --kind message"\n')
+    res = run(tree(tmp_path, doc))
+    assert res.returncode == 0, res.stdout

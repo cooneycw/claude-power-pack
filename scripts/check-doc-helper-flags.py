@@ -71,6 +71,8 @@ DELEGATE = re.compile(r"\$\{?[A-Z_]*DIR\}?/([A-Za-z0-9_.-]+)")
 LITERAL, QUOTED, GAP, END = "literal", "quoted", "gap", "end"
 CONTINUATION = re.compile(r"\\[ \t]*\n")
 SEPARATORS = "|;&`)"
+#: What opens a nested command: `$(` command and `<(` / `>(` process substitution.
+SUBSTITUTIONS = ("$(", "<(", ">(")
 
 
 def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool = True
@@ -140,7 +142,7 @@ def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool =
                 i += 1
             elif ch in "'\"":
                 stack.append(ch)
-            elif text.startswith("$(", i):
+            elif text.startswith(SUBSTITUTIONS, i):
                 stack.append("(")
                 i += 1
             elif ch == "(":
@@ -151,13 +153,15 @@ def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool =
             # The command's own level: the only place a word or a stop is read.
             if ch in "'\"":
                 stack.append(ch)
-            elif text.startswith("$(", i):
+            elif text.startswith(SUBSTITUTIONS, i):
                 stack.append("(")
                 i += 1
             elif whole_command and (ch in SEPARATORS or (ch == "#" and not in_word)
                                     or text.startswith("~/.claude/scripts/", i)):
                 break
-            elif ch.isspace():
+            elif ch.isspace() or ch in "|;&":
+                # An operator ends a word as whitespace does, so a `#` right
+                # after `;` starts a comment (counter-model review on #1839).
                 events.append((GAP, ch))
                 in_word = False
                 i += 1
@@ -188,7 +192,19 @@ def command_start(text: str, pos: int) -> int:
             break
         start = prev
     tick = text.rfind("`", start, pos)
+    # A backslash-escaped backtick is shell text inside the command, not the
+    # edge of a code span (counter-model review on #1839).
+    while tick != -1 and is_escaped(text, tick):
+        tick = text.rfind("`", start, tick)
     return start if tick == -1 else tick + 1
+
+
+def is_escaped(text: str, pos: int) -> bool:
+    """Whether an odd run of backslashes precedes `pos`."""
+    run = 0
+    while pos - run - 1 >= 0 and text[pos - run - 1] == "\\":
+        run += 1
+    return run % 2 == 1
 
 
 def inside_quote(text: str, pos: int) -> bool:
