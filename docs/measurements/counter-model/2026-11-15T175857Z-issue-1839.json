@@ -1,0 +1,75 @@
+{
+  "branch": "issue-1839-check-doc-helper-flags-three-shell-quoting-shapes",
+  "counts": {
+    "accepted": 8,
+    "deferred": 1,
+    "rejected": 1
+  },
+  "escalation": {
+    "raised_cap": 5,
+    "reference": "https://github.com/cooneycw/claude-power-pack/issues/1839#issuecomment-6898802022",
+    "ruled_by": "owner (cooneycw), in-session ruling"
+  },
+  "extra_passes_reason": "each pass from 2 to 5 found real regressions in the gate's shell reader; passes 4 and 5 were requested by the owner in-session",
+  "head": "d49308caf4882ce570c009e75abe42764109e9eb",
+  "implementer": "claude/claude-opus-5-5",
+  "implementer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "2eb7c6c0-e954-426e-9bc3-8f17baee2bb9",
+    "sources": [
+      {
+        "bytes": 3359848,
+        "path": "-home-user-Projects/2eb7c6c0-e954-426e-9bc3-8f17baee2bb9.jsonl",
+        "sha256": "7fec22aa1465d81bfe900023c1fc611dbd098631ba9954480bc5c07509e7110a"
+      }
+    ],
+    "transcript": "-home-user-Projects/2eb7c6c0-e954-426e-9bc3-8f17baee2bb9.jsonl"
+  },
+  "issue": "1839",
+  "local_credentials": "absent",
+  "network": "blocked",
+  "passes": 5,
+  "recorded_at": "2026-11-15T17:58:57Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 7
+  },
+  "reviewed_artifact": {
+    "base_sha": "8f7d0e936e56f44a893f3a42848354b23e84b31e",
+    "merge_base": "c16af56e8528f290daa44b1993ee8eebbeead527",
+    "method": "runtime-head",
+    "patch_sha256": "0180650be57652eb1e04ca4d39738ddd26bb6857fef2c02b79af7070d423c9a0",
+    "report_record": 90,
+    "target_head": "d49308caf4882ce570c009e75abe42764109e9eb"
+  },
+  "reviewer": "codex/gpt-6.1-sol",
+  "reviewer_evidence": {
+    "exec_log": "codex-review-stream.8F35kk",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/15/rollout-2026-11-15T12-49-41-01a1e054-43f1-7272-8f88-6dc21e43b395.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 174469,
+        "path": "codex-review-stream.8F35kk",
+        "sha256": "eed2baa0a244fc199f306fed0d0a9204fa99b73ceddfa23287940421880ed15d"
+      },
+      {
+        "bytes": 762421,
+        "path": "2026/11/15/rollout-2026-11-15T12-49-41-01a1e054-43f1-7272-8f88-6dc21e43b395.jsonl",
+        "sha256": "0d8ca94c9d60228708cfc823985830fec854995112858c3b999c75ecdedb231c"
+      }
+    ],
+    "thread_id": "01a1e054-43f1-7272-8f88-6dc21e43b395"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}
