@@ -160,6 +160,9 @@ def test_occupied_and_dirty_refused_despite_force(tmp_path: Path, occupant) -> N
         f"expected the #888 in-use refusal (exit 5), got {res.returncode}\n"
         f"stdout:\n{res.stdout}\nstderr:\n{res.stderr}"
     )
+    # #1848: flow/auto.md relays this refusal instead of restating the exit;
+    # the remedy and its override must be in the helper's own output.
+    assert "pass --steal" in res.stderr
     assert wt.exists(), "worktree was removed out from under a live process"
     assert (wt / "spec.md").read_text() == "work that exists nowhere else\n"
     assert "WORKTREE_REMOVE_OCCUPANCY: occupied-dirty" in res.stderr
@@ -245,6 +248,9 @@ def test_idle_and_dirty_is_refused_despite_force(tmp_path: Path) -> None:
     assert wt.exists(), "the worktree must survive a refusal"
     assert (wt / "leftover.txt").exists(), "the work must survive a refusal"
     assert "WORKTREE_REMOVE_DIRTY: refused" in res.stderr
+    # #1848: flow/auto.md relays this refusal instead of restating the exit;
+    # the remedy and its override must be in the helper's own output.
+    assert "pass --allow-dirty" in res.stderr
 
     allowed = _run_remove(
         main, str(wt), "--force", "--delete-branch", "--allow-dirty"
@@ -388,6 +394,9 @@ def test_live_parseable_flow_claim_is_still_refused(
     assert wt.exists()
     assert "Another /flow session is driving this checkout" in res.stderr
     assert f"issue #1032, pid {owner.pid}, session held-test" in res.stderr
+    # #1848: flow/auto.md relays this refusal instead of restating the exit;
+    # the remedy and its override must be in the helper's own output.
+    assert "Wait for that session to finish, or pass --steal" in res.stderr
 
 
 @requires_git
@@ -477,6 +486,10 @@ def test_unpushed_commits_are_refused_despite_force(tmp_path: Path) -> None:
     assert res.returncode == 7, f"unpushed work must not be destroyed:\n{res.stderr}"
     assert wt.exists()
     assert "WORKTREE_REMOVE_UNPUSHED: refused" in res.stderr
+    # #1848: flow/auto.md relays this refusal instead of restating the exit;
+    # the remedy and its override must be in the helper's own output.
+    assert "Push the branch, or pass" in res.stderr
+    assert "--allow-unpushed" in res.stderr
     assert "WORKTREE_REMOVE_DIRTY: clean" in res.stderr, (
         "the tree IS clean - which is exactly why status --porcelain could not "
         "see this and why the check had to be separate"
@@ -844,6 +857,9 @@ def test_a_directory_named_for_another_issue_is_attributed_to_its_branch(
     assert "issue=980" in attribution, attribution
     assert "dirname-issue=971" in attribution, attribution
     assert "DISAGREE" in attribution, attribution
+    # #1848: flow/auto.md relays this refusal instead of restating the exit;
+    # the remedy and its override must be in the helper's own output.
+    assert "Re-run WITHOUT --delete-branch" in res.stderr
 
     # The point of the refusal: the wrong issue's branch is still there.
     branches = _git(main, "branch", "--list", "issue-980-*")
