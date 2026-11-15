@@ -37,12 +37,11 @@ If review finds CRITICAL issues that Codex cannot fix via re-prompt (e.g., funda
 <!-- slot: STEP5_RECEIPT -->
 4. **Record the review as a counter-model receipt (issue #1383).** This review
    IS the cross-model review for this lane - Codex implemented, this Claude
-   session reviewed - and the finish gate (`flow-finish-gate.sh`) refuses a PR
+   session reviewed - and the finish gate refuses a PR
    whose branch carries no receipt. Select independent per-role evidence (schema 5): the
    implementer is derived from the Step 4 exec stream and the rollout its thread
    names, the reviewer from this session's transcript. Never record it as a skip
-   (no reviewer was absent) and never as a `/codex:code_review` run (that would
-   be Codex reviewing its own code). Only in a repository that already keeps
+   and never as a `/codex:code_review` run. Only in a repository that already keeps
    receipts - writing one elsewhere would enrol it:
 
    ```bash
@@ -62,6 +61,7 @@ If review finds CRITICAL issues that Codex cannot fix via re-prompt (e.g., funda
 
    A refusal (non-zero, no file) means an identity could not be derived - say
    so in the PR body; do not hand-write a receipt to get past the gate.
+   On the approver's ruling only, a valid finding left unfixed may be an [accepted limitation](../../../docs/agents/issue-contract.md#supported-scope-and-proportional-prevention).
 <!-- slot: FIX_REEXEC -->
 3. **Re-execute Codex** with the fix prompt, under the same sandbox as Step 4:
    `workspace-write` unless the caller supplied `CODEX_AUTO_SANDBOX` (issue
