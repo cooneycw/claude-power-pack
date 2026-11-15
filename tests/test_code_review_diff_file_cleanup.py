@@ -20,7 +20,6 @@ GREEN      a normal, successful run - the temp file MUST survive (the trap's
 
 from __future__ import annotations
 
-import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -28,20 +27,18 @@ from pathlib import Path
 import pytest
 
 from tests.isolated_env import ISOLATED_PATH
+from tests.test_codex_review_run import review_stage
 
 REPO = Path(__file__).resolve().parent.parent
-COMMAND = REPO / ".claude" / "commands" / "codex" / "code_review.md"
 
 requires_git = pytest.mark.skipif(shutil.which("git") is None, reason="requires git")
 
 
 def _extract_diff_block() -> str:
-    text = COMMAND.read_text(encoding="utf-8")
-    blocks = re.findall(r"```bash\n(.*?)\n```", text, re.DOTALL)
-    for block in blocks:
-        if "mktemp /tmp/codex-review-diff" in block:
-            return block
-    raise AssertionError("code_review.md no longer carries the DIFF_FILE mktemp block")
+    """The helper's Step 2 stage, which creates $DIFF_FILE (#1847)."""
+    block = review_stage("review_collect_diff")
+    assert "mktemp /tmp/codex-review-diff" in block, "the Step 2 stage no longer creates $DIFF_FILE"
+    return block
 
 
 def _git(*args: str, cwd: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -97,12 +94,12 @@ def _run_block(
 
 
 def test_the_block_installs_and_disarms_a_trap() -> None:
-    text = COMMAND.read_text(encoding="utf-8")
+    text = _extract_diff_block()
     assert 'trap \'rm -f "$DIFF_FILE"\' EXIT' in text, (
-        "code_review.md no longer installs a cleanup trap for $DIFF_FILE"
+        "the Step 2 stage no longer installs a cleanup trap for $DIFF_FILE"
     )
     assert "trap - EXIT" in text, (
-        "code_review.md installs the cleanup trap but never disarms it - "
+        "the Step 2 stage installs the cleanup trap but never disarms it - "
         "a successful run would delete $DIFF_FILE before the later blocks "
         "that need to read it"
     )

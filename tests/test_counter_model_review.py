@@ -1355,7 +1355,9 @@ def test_the_REVIEWER_COMMAND_does_not_skip_an_empty_diff_either() -> None:
     )
     assert "An empty diff is still handed to the reviewer" in review
     # The shallow-clone guard is a DIFFERENT exit and must survive this change.
-    assert "no common ancestor" in review, (
+    # It moved into the helper with the rest of the procedure (#1847).
+    helper = (ROOT / "scripts" / "codex-review-run.sh").read_text(encoding="utf-8")
+    assert "no common ancestor" in helper, (
         "the merge-base guard was removed along with the empty-diff exit; an "
         "unresolvable base must still exit 3, not reach the reviewer"
     )

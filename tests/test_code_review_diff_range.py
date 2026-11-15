@@ -40,15 +40,17 @@ from pathlib import Path
 import pytest
 
 from tests.isolated_env import ISOLATED_PATH
+from tests.test_codex_review_run import HELPER, review_stage
 
 REPO = Path(__file__).resolve().parent.parent
-COMMAND = REPO / ".claude" / "commands" / "codex" / "code_review.md"
+# The review procedure moved out of code_review.md into the helper (#1847).
+COMMAND = HELPER
 
 
 def test_the_command_diffs_against_a_merge_base() -> None:
     text = COMMAND.read_text(encoding="utf-8")
     assert "git merge-base HEAD" in text, (
-        "code_review.md no longer resolves a merge base; a two-dot diff against "
+        "codex-review-run.sh no longer resolves a merge base; a two-dot diff against "
         "a refreshed BASE renders a sibling's additions as this author's deletions"
     )
     # The bare two-dot form must not be what builds the reviewed diff.
@@ -69,7 +71,7 @@ def test_the_command_states_what_the_fix_does_not_cover() -> None:
     """
     text = COMMAND.read_text(encoding="utf-8")
     assert "PREDATES ITS PARENT" in text, (
-        "code_review.md no longer says the range fix cannot see a commit whose "
+        "codex-review-run.sh no longer says the range fix cannot see a commit whose "
         "tree predates its parent"
     )
 
@@ -159,7 +161,7 @@ def test_a_failed_merge_base_does_not_become_an_empty_clean_review() -> None:
     """
     text = COMMAND.read_text(encoding="utf-8")
     assert "no common ancestor" in text, (
-        "code_review.md does not handle a failed merge-base resolution, so an "
+        "codex-review-run.sh does not handle a failed merge-base resolution, so an "
         "unresolvable base yields an empty diff read as 'nothing to review'"
     )
     assert re.search(r"if ! MERGE_BASE=|\[ -z \"\$MERGE_BASE\" \]", text), (
@@ -178,7 +180,7 @@ def test_a_failed_merge_base_does_not_become_an_empty_clean_review() -> None:
 def test_the_command_stages_untracked_files_before_diffing() -> None:
     text = COMMAND.read_text(encoding="utf-8")
     assert re.search(r"git add -N \.", text), (
-        "code_review.md no longer stages untracked files as intent-to-add "
+        "codex-review-run.sh no longer stages untracked files as intent-to-add "
         "before diffing, so a brand-new file is invisible to the review"
     )
 
@@ -342,15 +344,15 @@ def test_the_contract_requires_a_red_cases_section_not_only_findings() -> None:
     # section legitimately quotes as historical context for why this changed -
     # a blanket "not in text" check would false-positive on that quote.
     assert "Return ONLY a findings report in exactly this format:" not in text, (
-        "code_review.md's prompt still tells the reviewer to return ONLY "
+        "codex-review-run.sh's prompt still tells the reviewer to return ONLY "
         "findings, so a caller relying on this document alone gets no red "
         "cases (issue #1030)"
     )
     assert "Return a findings report AND a red cases section" in text, (
-        "code_review.md's prompt no longer asks for both outputs"
+        "codex-review-run.sh's prompt no longer asks for both outputs"
     )
     assert "## Red cases" in text, (
-        "code_review.md's own prompt no longer asks for a '## Red cases' section"
+        "codex-review-run.sh's own prompt no longer asks for a '## Red cases' section"
     )
 
 
@@ -366,7 +368,7 @@ def test_the_empty_red_cases_case_is_expressible_not_merely_absent() -> None:
     """
     text = COMMAND.read_text(encoding="utf-8")
     assert "None - no instrument changed." in text, (
-        "code_review.md's prompt no longer gives the reviewer an explicit "
+        "codex-review-run.sh's prompt no longer gives the reviewer an explicit "
         "empty-case sentinel for '## Red cases', so a considered zero and a "
         "missing section become indistinguishable"
     )
@@ -389,12 +391,8 @@ def test_the_empty_red_cases_case_is_expressible_not_merely_absent() -> None:
 
 
 def _step2_block() -> str:
-    """The Step 2 'Collect the diff' bash block, executed for real."""
-    text = COMMAND.read_text(encoding="utf-8")
-    section = text[text.index("### Step 2: Collect the diff") : text.index("### Step 3:")]
-    match = re.search(r"```bash\n(.*?)```", section, re.S)
-    assert match, "no bash block in Step 2"
-    return match.group(1)
+    """The helper's Step 2 stage (collect the diff), executed for real."""
+    return review_stage("review_collect_diff")
 
 
 requires_git = pytest.mark.skipif(shutil.which("git") is None, reason="requires git")
@@ -590,7 +588,7 @@ def test_the_failure_guard_actually_guards_something(tmp_path: Path) -> None:
     )
     assert "2>/dev/null || true" in swallowed_block, (
         "the substitution did not match the current guard shape - update this "
-        "test's pattern to match code_review.md's Step 2 block"
+        "test's pattern to match codex-review-run.sh's Step 2 stage"
     )
 
     (work / ".git" / "index.lock").touch()

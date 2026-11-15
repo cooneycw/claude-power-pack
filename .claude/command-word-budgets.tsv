@@ -33,6 +33,9 @@
 # flow/eli5.md grows by 2: its lane
 # sentence says a will-test answer names its values (5 words, 3 absorbed by
 # trimming the same paragraph). Other caps unchanged.
+# #1847 moves /codex:code_review's six shell blocks into scripts/codex-review-run.sh:
+# codex/code_review.md drops to 2598, and flow/auto.md, reading the helper's
+# markers instead of carrying them, to 10405. Other caps unchanged.
 464	browser/help.md
 1077	browser/session.md
 425	cicd/check.md
@@ -51,7 +54,7 @@
 1396	claude-md/lint.md
 1613	codex/ask.md
 8689	codex/auto.md
-6359	codex/code_review.md
+2598	codex/code_review.md
 1134	codex/exec.md
 640	codex/help.md
 537	codex/status.md
@@ -68,7 +71,7 @@
 1218	documentation/pptx.md
 457	evaluate/help.md
 2284	evaluate/issue.md
-10410	flow/auto.md
+10405	flow/auto.md
 1837	flow/check.md
 2258	flow/cleanup.md
 1561	flow/deploy.md

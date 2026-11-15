@@ -60,6 +60,11 @@
       "consumer": "tests/test_tool_risk_drift.py",
       "reason": "the canonical risk tier behind the allow-rule candidates /security:permissions proposes"
     },
+    "codex-review-run.sh": {
+      "class": "tested",
+      "consumer": "tests/test_codex_review_run.py",
+      "reason": "runs /codex:code_review's cross-model review end to end and prints its markers (#1847); its stages are the former command blocks, each still driven by tests/test_code_review_*.py. Called by /codex:code_review and /flow:auto Step 6"
+    },
     "codex-skill-resync.sh": {
       "class": "tested",
       "consumer": "tests/test_codex_skill_resync.py",

@@ -488,10 +488,22 @@ def test_the_real_flow_auto_fixture_is_substantial_and_satisfied() -> None:
     steps, retirements = behavior._load_fixture(root / behavior.COMMAND_STEP_FIXTURES[_STEP_DOC])
 
     assert len(steps) >= 300, "the pre-trim flow/auto.md held 300 recorded steps"
-    assert set(retirements) == {"bash-0195", "bash-0201"}
+    # #1847: 1d reads its receipt flags from the review transcript; each retired
+    # hand-carried line names the obligation that replaced it.
+    marker_retirements = {
+        "bash-0078": "bash-0078-marker", "bash-0079": "bash-0079-marker",
+        "bash-0080": "bash-0079-marker", "bash-0081": "bash-0081-marker",
+    }
+    assert set(retirements) == {"bash-0195", "bash-0201", *marker_retirements}
     mapping = dict(steps)
     raw = json.loads((root / behavior.COMMAND_STEP_FIXTURES[_STEP_DOC]).read_text())
     entries = {item["slug"]: item for item in raw["obligations"]}
+    for slug, replacement in marker_retirements.items():
+        reason = retirements.pop(slug)
+        assert "#1847" in reason and f"replaced by {replacement};" in reason, reason
+        assert "original baseline retained" in reason
+        assert entries[replacement]["kind"] == "bash-line"
+        assert "$(m " in mapping[replacement], "the replacement does not read the transcript"
     addition = ('"CPP_RUNNER_TARGET_PATH=${PATH-}" '
                 '"CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" ')
     for slug, reason in retirements.items():

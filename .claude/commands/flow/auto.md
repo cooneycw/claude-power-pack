@@ -713,8 +713,7 @@ instead.
    fi
    ```
 
-   When `codex` is not on PATH, record skipped / `codex-absent` (1d) and go to
-   the quality gates. **The probe is ADDITIVE, never a replacement**: a codex
+   **The probe is ADDITIVE, never a replacement**: a codex
    that is installed but cannot review must still land in
    `reviewer-unavailable` via 1c. **An empty diff is NOT a skip (owner ruling,
    2026-09-16)**: the review runs and records an ordinary `ran` receipt.
@@ -729,10 +728,12 @@ instead.
    the skip (until #1513 lands); its free-form response is not a receipt.
 
    **1b. Run the review** (Claude sessions only - a Codex lane takes the skip
-   above). Invoke `/codex:code_review` with that BASE and
-   `CONTEXT` = `"issue #<N>: <issue title>"`, and **capture the transcript to a
-   file**. It returns a findings report and a `## Red cases` section
-   (issue #1030).
+   above) - `/codex:code_review` is one bare call (#1847). Its last line is the
+   verdict; the transcript holds findings, `## Red cases` (#1030) and markers:
+
+   ```bash
+   ~/.claude/scripts/codex-review-run.sh --base origin/main --context "issue #42: <title>" --transcript /path/to/transcript.md
+   ```
 
    **1c. Read the transcript's verdict before believing it:**
 
@@ -759,7 +760,7 @@ instead.
    both identities and REFUSES to write when it cannot; never hand it a model
    name:
 
-   - **Reviewer (issue #1048):** derived from the codex exec stream `$STREAM`.
+   - **Reviewer (issue #1048):** derived from the codex exec stream.
      On a skip, pass no reviewer evidence (#1046).
    - **Implementer (issue #1047):** `--implementer-session-id
      "$CLAUDE_CODE_SESSION_ID"`, **on the skip path too**. In a CODEX session
@@ -767,17 +768,16 @@ instead.
      with both ids visible and neither flag, the writer refuses. The delegated
      exec selector is `--implementer-exec-log`.
    - **`--scope`** (REQUIRED on a Codex-exec `ran` write, #1400/#1461),
-     **`--network`** (#1450) and **`--local-credentials`** (#1459) carry
-     `/codex:code_review`'s `CODEX_REVIEW_SCOPE`, `CODEX_REVIEW_NETWORK` and
-     `CODEX_REVIEW_LOCAL_CREDENTIALS` markers, exactly as printed.
+     **`--network`** (#1450), **`--local-credentials`** (#1459) and the stream:
+     read from the transcript, never carried by hand.
 
    ```bash
+   m() { sed -n "s/^CODEX_REVIEW_$1: //p" /path/to/transcript.md; }
    python3 "$CM_RECEIPT" write --dir "$(git rev-parse --show-toplevel)/docs/measurements/counter-model" \
        --issue "$ISSUE_NUM" --branch "$BRANCH" \
-       --status ran --reviewer-exec-log "$STREAM" --scope "$CODEX_REVIEW_SCOPE" \
-       --review-base "$CODEX_REVIEW_BASE" \
-       --network "$CODEX_REVIEW_NETWORK" \
-       --local-credentials "$CODEX_REVIEW_LOCAL_CREDENTIALS" \
+       --status ran --reviewer-exec-log "$(m STREAM)" --scope "$(m SCOPE)" \
+       --review-base "$(m BASE)" --network "$(m NETWORK)" \
+       --local-credentials "$(m LOCAL_CREDENTIALS)" \
        --implementer-session-id "$CLAUDE_CODE_SESSION_ID" \
        --passes 2 --accepted 3 --rejected 1 --deferred 0 \
        --red-cases-proposed 4 --red-cases-already-covered 3

@@ -9,6 +9,27 @@
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
+      "gate": "codex-review-run.sh",
+      "driver": "codex",
+      "disposition": "exempt",
+      "reason": "flow:auto-only: a delegated driver's counter-model review is Claude reading the delegate's diff, never a /codex:code_review run, so this helper has no delegated call site.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1847"
+    },
+    {
+      "gate": "codex-review-run.sh",
+      "driver": "gemma",
+      "disposition": "exempt",
+      "reason": "flow:auto-only: a delegated driver's counter-model review is Claude reading the delegate's diff, never a /codex:code_review run, so this helper has no delegated call site.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1847"
+    },
+    {
+      "gate": "codex-review-run.sh",
+      "driver": "qwen",
+      "disposition": "exempt",
+      "reason": "flow:auto-only: a delegated driver's counter-model review is Claude reading the delegate's diff, never a /codex:code_review run, so this helper has no delegated call site.",
+      "issue": "https://github.com/cooneycw/claude-power-pack/issues/1847"
+    },
+    {
       "gate": "codex-skill-resync.sh",
       "driver": "codex",
       "disposition": "exempt",

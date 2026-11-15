@@ -55,6 +55,7 @@ legitimately about something other than one script is declared on the marker bel
 - `ci-stage-make` - stages a pinned GNU make into `.ci-bin` for CI steps. [reference](scripts/ci-stage-make.md)
 - `classify-tool-risk` - risk-grades observed Bash and MCP tool calls in session transcripts. [reference](scripts/classify-tool-risk.md)
 - `codex-global-agents` - builds Codex's global instructions from Claude's and reports drift (#1441). [reference](scripts/codex-global-agents.md)
+- `codex-review-run` - runs the cross-model review end to end and prints its markers (#1847). [reference](scripts/codex-review-run.md)
 - `codex-skill-resync` - re-syncs the generated Codex mirrors and says what drifted (#1136). [reference](scripts/codex-skill-resync.md)
 - `codex-skill-sync` - generates Codex `SKILL.md` skills from the single command source. [reference](scripts/codex-skill-sync.md)
 - `commands-mirror-sync` - keeps the repository's command mirrors in step. [reference](scripts/commands-mirror-sync.md)

@@ -27,6 +27,8 @@ REPO = Path(__file__).resolve().parent.parent
 CANONICAL = Path("docs/agents/lanes.md")
 LANE_FILE = Path(".claude/lanes.md")
 REVIEW_COMMAND = Path(".claude/commands/codex/code_review.md")
+#: The reviewer prompt and the lane-list hand-over moved here from the command (#1847).
+REVIEW_HELPER = Path("scripts/codex-review-run.sh")
 FIXTURES = REPO / "tests" / "fixtures" / "lanes"
 
 
@@ -142,11 +144,11 @@ QUESTION_SILENT = "With no LANE LIST, skip (1) and (2)."
 
 def review_prompt(text: str) -> str:
     start = text.index('"You are reviewing a code change as an independent reviewer.')
-    return text[start : text.index('| tee "$STREAM"', start)]
+    return text[start : text.index('> "$STREAM"', start)]
 
 
 def test_the_review_prompt_carries_the_lane_question() -> None:
-    prompt = normalized(review_prompt(read(REVIEW_COMMAND)))
+    prompt = normalized(review_prompt(read(REVIEW_HELPER)))
     assert QUESTION_OMITTED in prompt
     assert QUESTION_NO_TABLE in prompt
     assert QUESTION_EXEMPT in prompt
@@ -157,7 +159,7 @@ def test_the_review_prompt_carries_the_lane_question() -> None:
 
 def test_a_prompt_without_the_question_is_reported() -> None:
     """Negative control: dropping the question (the next trim's cheapest cut) is seen."""
-    text = read(REVIEW_COMMAND)
+    text = read(REVIEW_HELPER)
     start = text.index("If a LANE LIST is given above")
     trimmed = text[:start] + text[text.index("\n", start) :]
     assert QUESTION_OMITTED not in normalized(review_prompt(trimmed))
@@ -167,9 +169,9 @@ def test_a_prompt_without_the_question_is_reported() -> None:
 
 
 def lanes_block() -> str:
-    text = read(REVIEW_COMMAND)
+    text = read(REVIEW_HELPER)
     match = re.search(r'^LANES_LINE=""\n.*?^fi\n', text, re.DOTALL | re.MULTILINE)
-    assert match, "the LANES_LINE block is no longer in the review command"
+    assert match, "the LANES_LINE block is no longer in the review helper"
     return match.group(0)
 
 

@@ -36,6 +36,7 @@ from pathlib import Path
 import pytest
 
 from tests.isolated_env import ISOLATED_PATH
+from tests.test_codex_review_run import review_stage
 
 REPO = Path(__file__).resolve().parent.parent
 COMMAND = REPO / ".claude" / "commands" / "codex" / "code_review.md"
@@ -123,14 +124,6 @@ LOCAL_INSTEADOF_MARK = "marker-local-insteadof"
 LOCAL_HEADER_MARK = "marker-local-header"
 
 
-def _block(heading: str, end: str) -> str:
-    text = COMMAND.read_text(encoding="utf-8")
-    section = text[text.index(heading):text.index(end)]
-    m = re.search(r"```bash\n(.*?)```", section, re.S)
-    assert m, f"no bash block under {heading!r}"
-    return m.group(1)
-
-
 def _run(tmp_path: Path, local_cfg: tuple[tuple[str, str], ...] = (), repo: bool = True,
          worktree_cfg: tuple[tuple[str, str], ...] = (),
          **extra: str) -> tuple[subprocess.CompletedProcess[str], str, str]:
@@ -184,8 +177,8 @@ def _run(tmp_path: Path, local_cfg: tuple[tuple[str, str], ...] = (), repo: bool
               "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_PARAMETERS", "GIT_SSH_COMMAND"):
         if k not in extra:
             env.pop(k, None)
-    script = (_block("### Step 3: Run the review", "### Step 4:")
-              + _block("### Step 4: Relay the findings", "### Step 5:"))
+    # The helper's Step 3 and Step 4 stages, as the document's two blocks were (#1847).
+    script = review_stage("review_run") + review_stage("review_relay")
     proc = subprocess.run(["bash", "-c", script], cwd=work, env=env, capture_output=True, text=True)
     args = args_file.read_text(encoding="utf-8") if args_file.exists() else ""
     seen = env_file.read_text(encoding="utf-8") if env_file.exists() else ""
@@ -283,7 +276,7 @@ VERDICT_TABLE = [
 ]
 
 #: The exits the table calls network-class. Widening `blocked` must edit this,
-#: the doc table and the code's NET_BLOCKED_RCS together - pinned below.
+#: the doc table and the helper's NET_BLOCKED_RCS together - pinned below.
 BLOCKED_RCS = {"6", "7", "28"}
 
 
@@ -299,8 +292,8 @@ def test_the_network_verdict_follows_the_table(tmp_path: Path, sandbox_rc: str, 
 def test_only_the_tables_network_class_exits_are_blocked() -> None:
     blocked_rows = {inside for _, inside, outside, v in VERDICT_TABLE if v == "blocked"}
     assert blocked_rows == BLOCKED_RCS
+    assert 'NET_BLOCKED_RCS="6 7 28"' in review_stage("review_run")
     text = COMMAND.read_text(encoding="utf-8")
-    assert 'NET_BLOCKED_RCS="6 7 28"' in text
     table = text[text.index("<!-- network-verdict-table -->"):text.index("<!-- /network-verdict-table -->")]
     blocked = [row for row in table.splitlines() if row.rstrip().endswith("| `blocked` |")]
     expected = ("  | `curl` inside exited 6, 7 or 28 (resolve, connect, timeout) and the same GET"

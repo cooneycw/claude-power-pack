@@ -22,6 +22,8 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 CANONICAL = Path("docs/agents/changed-output-readers.md")
 REVIEW_COMMAND = Path(".claude/commands/codex/code_review.md")
+#: The reviewer prompt and the lane-list hand-over moved here from the command (#1847).
+REVIEW_HELPER = Path("scripts/codex-review-run.sh")
 PLAN_GATE = Path(".claude/commands/flow/eli5.md")
 FIXTURES = REPO / "tests" / "fixtures" / "readers"
 
@@ -135,11 +137,11 @@ TEST_QUESTION = (
 
 def review_prompt(text: str) -> str:
     start = text.index('"You are reviewing a code change as an independent reviewer.')
-    return text[start : text.index('| tee "$STREAM"', start)]
+    return text[start : text.index('> "$STREAM"', start)]
 
 
 def test_the_review_prompt_carries_both_questions() -> None:
-    prompt = normalized(review_prompt(read(REVIEW_COMMAND)))
+    prompt = normalized(review_prompt(read(REVIEW_HELPER)))
     assert READER_QUESTION in prompt
     assert TEST_QUESTION in prompt
 
@@ -151,7 +153,7 @@ def test_the_reader_question_is_not_inside_the_lane_list_condition() -> None:
     no LANE LIST, do not raise lanes." The reader question is its own paragraph
     after that, and says so in its own words.
     """
-    paragraphs = [normalized(p) for p in review_prompt(read(REVIEW_COMMAND)).split("\n\n")]
+    paragraphs = [normalized(p) for p in review_prompt(read(REVIEW_HELPER)).split("\n\n")]
     (reader,) = [p for p in paragraphs if p.startswith("If the diff changes an output another part reads")]
     assert "If a LANE LIST is given" not in reader
     assert "LANE LIST or not;" in reader
@@ -172,7 +174,7 @@ def test_the_exemption_is_stated_once_and_covers_lanes_and_readers() -> None:
     to the lane paragraph alone - which is where it sat when the reader
     question was added without it.
     """
-    prompt = review_prompt(read(REVIEW_COMMAND))
+    prompt = review_prompt(read(REVIEW_HELPER))
     exemption = "A missing table or row is no defect for Tier 1 or standalone review."
     assert normalized(prompt).count(exemption) == 1
     assert "no defect for Tier 1" not in normalized(prompt).replace(exemption, "")
@@ -182,8 +184,8 @@ def test_the_exemption_is_stated_once_and_covers_lanes_and_readers() -> None:
 
 
 def lanes_block() -> str:
-    match = re.search(r'^LANES_LINE=""\n.*?^fi\n', read(REVIEW_COMMAND), re.DOTALL | re.MULTILINE)
-    assert match, "the LANES_LINE block is no longer in the review command"
+    match = re.search(r'^LANES_LINE=""\n.*?^fi\n', read(REVIEW_HELPER), re.DOTALL | re.MULTILINE)
+    assert match, "the LANES_LINE block is no longer in the review helper"
     return match.group(0)
 
 
@@ -199,7 +201,7 @@ def test_the_reader_question_reaches_the_reviewer_with_and_without_a_lane_file(
         shutil.copy(REPO / "tests" / "fixtures" / "lanes" / "lanes.md", tmp_path / ".claude" / "lanes.md")
     else:
         assert not (tmp_path / ".claude").exists()  # the negative precondition
-    prompt_template = review_prompt(read(REVIEW_COMMAND))
+    prompt_template = review_prompt(read(REVIEW_HELPER))
     script = (
         'SCOPE_LINE="scope"; NETWORK_LINE="network"; CONTEXT="context"\n'
         + lanes_block()
@@ -214,7 +216,7 @@ def test_the_reader_question_reaches_the_reviewer_with_and_without_a_lane_file(
 
 def test_a_prompt_without_the_reader_question_is_reported() -> None:
     """Negative control: dropping either question (the next trim's cheapest cut) is seen."""
-    text = read(REVIEW_COMMAND)
+    text = read(REVIEW_HELPER)
     for opening, question in (
         ("If the diff changes an output another part reads", READER_QUESTION),
         ("For each row answered 'will test' or 'tested against real output'", TEST_QUESTION),
