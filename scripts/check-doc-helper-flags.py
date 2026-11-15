@@ -17,14 +17,21 @@ after it on the same command, and requires each flag to appear in the helper's
 source under `scripts/`, or in a sibling the helper hands off to through a
 `$..._DIR/<name>` path (`flow-preflight.sh` runs `flow-preflight.py`).
 
-What the command is, for this gate: the rest of the line, joined across `\\`
-continuations, with every `$(...)` substitution removed first - the flags inside
-`--path "$(git rev-parse --show-toplevel)"` belong to git, not the helper. It is
-then read as shell words, QUOTE-AWARE: it ends at the first UNQUOTED `|`, `;`,
-`&`, backtick, word-initial `#` or next helper path, and a flag is an unquoted
-word starting `--`. So `--body "remove --kind; see #1835"` is one argument, and
-a flag written after it is still checked. An unterminated quote swallows the
-rest of the command, which can hide a flag but never invent one.
+What the command is, for this gate: one shell reader, `lex`, reads it (#1839).
+It runs from the helper path to the first plain newline (a `\\` continuation
+joins lines), or to the first unquoted `|`, `;`, `&`, backtick, word-initial
+`#` or next helper path, or to the `)` closing the substitution the helper
+itself runs in: in `echo $(~/.claude/scripts/h.sh --a) --b`, `--b` is echo's.
+A `$(...)` the helper's own command holds is skipped whole, quotes inside it
+included - the flags in `--path "$(git rev-parse --show-toplevel)"` are git's.
+A flag is an unquoted word starting `--`, or the unquoted `--name=` prefix of a
+word whose value is quoted or substituted. So `--body "remove --kind; see #1835"` is one
+argument and a flag after it is still checked. A helper path inside a quoted
+argument, read forward from its fenced block's first line (in prose, from
+where its command starts, back across continued lines), is
+message text, not an invocation; so is one inside a shell comment. An unterminated quote swallows the rest of its
+line, which can hide a flag but never invent one. Each shape has a case under
+`controls/doc-helper-flags`; that directory and this docstring are the contract.
 
 THE MATCH IS DELIBERATELY PERMISSIVE. A flag counts as known when the literal
 `--flag` appears anywhere in the helper's source, comments included, so a flag
@@ -58,143 +65,233 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SURFACES = (".claude/commands", ".claude/skills", "templates")
 HELPER_PATH = re.compile(r"~/\.claude/scripts/([A-Za-z0-9_.-]+)")
 FLAG_WORD = re.compile(r"^(--[a-z][a-z0-9-]*)(?:=|$)")
+OPTION_PREFIX = re.compile(r"^(--[a-z][a-z0-9-]*=)")
 DELEGATE = re.compile(r"\$\{?[A-Z_]*DIR\}?/([A-Za-z0-9_.-]+)")
 
 
-def strip_substitutions(text: str) -> str:
-    """Remove every `$(...)`, nesting included; an unclosed one runs to the end."""
-    out: list[str] = []
-    i = 0
-    while i < len(text):
-        if text.startswith("$(", i):
-            depth = 1
-            i += 2
-            while i < len(text) and depth:
-                if text.startswith("$(", i):
-                    depth += 1
-                    i += 2
-                    continue
-                if text[i] == "(":
-                    depth += 1
-                elif text[i] == ")":
-                    depth -= 1
-                i += 1
-            out.append(" ")
-            continue
-        out.append(text[i])
-        i += 1
-    return "".join(out)
+#: What `lex` reports about each character of a command, at the command's own level.
+LITERAL, QUOTED, GAP, END = "literal", "quoted", "gap", "end"
+CONTINUATION = re.compile(r"\\[ \t]*\n")
+SEPARATORS = "|;&`)"
+#: What opens a nested command: `$(` command and `<(` / `>(` process substitution.
+SUBSTITUTIONS = ("$(", "<(", ">(")
 
 
-def command_tail(text: str, start: int) -> str:
-    """The command text after a helper path, joined across `\\` continuations."""
-    parts: list[str] = []
-    pos = start
-    while True:
-        end = text.find("\n", pos)
-        line = text[pos:] if end == -1 else text[pos:end]
-        if line.rstrip().endswith("\\") and end != -1:
-            parts.append(line.rstrip()[:-1])
-            pos = end + 1
-            continue
-        parts.append(line)
-        break
-    return strip_substitutions(" ".join(parts))
+def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool = True
+        ) -> tuple[list[tuple[str, str]], list[str]]:
+    """Read `text` from `start` as one shell command: THE ONLY SHELL READER here.
 
+    Both questions the gate asks go through it, so they cannot disagree (#1839):
+    whether a helper path is inside a quote or a comment (`path_context`), and which words
+    follow it (`command_words`). It tracks single and double quotes, `$(...)`
+    nesting with quotes and plain parentheses inside it, backslash escapes, and
+    `\\`-newline continuations in every state. The idea of one shlex-style
+    reader that records each word's quote state is borrowed from `skillc
+    inspect` (author cooneycw, https://github.com/cooneycw/skillc/pull/748 at
+    604084088cc9e11464c5cc263260f658836e400c, same-owner repository); the code
+    here is written for this gate.
 
-def command_words(tail: str) -> list[str]:
-    """Shell words up to the first unquoted separator; quoted words are omitted.
+    Returns `(events, stack)`. `events` is `(kind, char)` for each character
+    read at the command's OWN level: LITERAL (unquoted word text), QUOTED (inside
+    a quote or a substitution: word content that is not a flag), GAP (unquoted
+    whitespace), and a final END. `stack` is what is still open where reading
+    stopped: `'`, `"` or `(`, or `#` when the quote query stopped inside a comment.
 
-    A word with a quoted part is an argument's value, not a flag - EXCEPT its
-    unquoted prefix up to the first quote, which is returned when it is a
-    `--name=` option: `--kind="message"` still passes `--kind` (counter-model
-    review on #1835).
+    With `whole_command`, reading ends at a plain newline, an unquoted `|`, `;`,
+    `&`, backtick or word-initial `#`, the next helper path, or a `)` that closes
+    the substitution the command itself sits in. Without it (the quote query),
+    it reads to `stop` and only a plain newline resets the state.
     """
-    words: list[str] = []
-    word: list[str] = []
-    prefix = ""
-    quoted = False
-    quote = ""
-    i = 0
-    n = len(tail)
-
-    def flush() -> None:
-        nonlocal quoted, prefix
-        if word and not quoted:
-            words.append("".join(word))
-        elif quoted and FLAG_WORD.match(prefix) and prefix.endswith("="):
-            words.append(prefix)
-        word.clear()
-        prefix = ""
-        quoted = False
-
-    while i < n:
-        ch = tail[i]
-        if quote:
-            if ch == quote:
-                quote = ""
-            elif ch == "\\" and quote == '"' and i + 1 < n:
-                i += 1
-            i += 1
-            continue
-        if ch in "'\"":
-            if not quoted:
-                prefix = "".join(word)
-            quote, quoted = ch, True
-        elif ch == "\\" and i + 1 < n:
-            word.append(tail[i + 1])
-            i += 1
-        elif ch.isspace():
-            flush()
-        elif ch in "|;&`" or (ch == "#" and not word):
-            break
-        elif tail.startswith("~/.claude/scripts/", i):
-            break
-        else:
-            word.append(ch)
-        i += 1
-    flush()
-    return words
-
-
-def inside_quote(text: str, pos: int) -> bool:
-    """Whether `pos` sits inside a shell quote, read from where its command starts.
-
-    The command starts at the line's beginning, or just after the last backtick
-    before `pos` on that line (an inline code span), so prose apostrophes before
-    a span are not read as quotes. A `$(` opens an unquoted context even inside
-    double quotes: `X="$(~/.claude/scripts/h.sh --a)"` is an invocation. A path
-    inside a quoted argument (`--body "run ~/.claude/scripts/h.sh --x"`) is
-    message text, not an invocation (counter-model review on #1835).
-    """
-    start = text.rfind("\n", 0, pos) + 1
-    tick = text.rfind("`", start, pos)
-    if tick != -1:
-        start = tick + 1
-    stack = [""]
+    events: list[tuple[str, str]] = []
+    stack: list[str] = []
+    end = len(text) if stop is None else stop
+    in_word = False
     i = start
-    while i < pos:
+    while i < end:
+        if not stack and not in_word and text[i] == "#" and not whole_command:
+            # A comment runs to its newline, and a `\` inside it joins no lines
+            # (counter-model review on #1839): skip it whole, so its quotes and
+            # its trailing backslash never reach the next command.
+            newline = text.find("\n", i, end)
+            if newline == -1:
+                # Reading stopped inside the comment: what follows is its text.
+                stack.append("#")
+                break
+            i = newline
+            continue
+        cont = CONTINUATION.match(text, i)
+        if cont:
+            i = cont.end()
+            continue
         ch = text[i]
-        top = stack[-1]
+        top = stack[-1] if stack else ""
+        if ch == "\n":
+            if whole_command:
+                break
+            stack.clear()
+            in_word = False
+            i += 1
+            continue
         if top == "'":
             if ch == "'":
                 stack.pop()
-        elif text.startswith("$(", i):
-            stack.append("")
-            i += 1
         elif top == '"':
             if ch == "\\":
                 i += 1
             elif ch == '"':
                 stack.pop()
-        elif ch in "'\"":
-            stack.append(ch)
-        elif ch == ")" and len(stack) > 1:
-            stack.pop()
-        elif ch == "\\":
-            i += 1
+            elif text.startswith("$(", i):
+                stack.append("(")
+                i += 1
+        elif top == "(":
+            if ch == "\\":
+                i += 1
+            elif ch in "'\"":
+                stack.append(ch)
+            elif text.startswith(SUBSTITUTIONS, i):
+                stack.append("(")
+                i += 1
+            elif ch == "(":
+                stack.append("(")
+            elif ch == ")":
+                stack.pop()
+        else:
+            # The command's own level: the only place a word or a stop is read.
+            if ch in "'\"":
+                stack.append(ch)
+            elif text.startswith(SUBSTITUTIONS, i):
+                stack.append("(")
+                i += 1
+            elif whole_command and (ch in SEPARATORS or (ch == "#" and not in_word)
+                                    or text.startswith("~/.claude/scripts/", i)):
+                break
+            elif ch.isspace() or ch in "|;&":
+                # An operator ends a word as whitespace does, so a `#` right
+                # after `;` starts a comment (counter-model review on #1839).
+                events.append((GAP, ch))
+                in_word = False
+                i += 1
+                continue
+            else:
+                if ch == "\\" and i + 1 < len(text):
+                    i += 1
+                    ch = text[i]
+                events.append((LITERAL, ch))
+                in_word = True
+                i += 1
+                continue
+        events.append((QUOTED, ch))
+        in_word = True
         i += 1
-    return stack[-1] != ""
+    events.append((END, ""))
+    return events, stack
+
+
+FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})", re.MULTILINE)
+
+
+def fence_body_start(text: str, pos: int) -> int | None:
+    """The first character after the opening fence of the code block holding
+    `pos`, or None when `pos` is in prose. A closing fence is the same character,
+    at least as long as the opening one, with nothing else on its line."""
+    opening: str | None = None
+    body = 0
+    for fence in FENCE.finditer(text, 0, pos):
+        line_end = text.find("\n", fence.end())
+        line_end = len(text) if line_end == -1 else line_end
+        if line_end >= pos:
+            # `pos` is on the fence line itself: not inside a block's body.
+            return None
+        mark = fence.group(1)
+        if opening is None:
+            opening, body = mark, line_end + 1
+        elif mark[0] == opening[0] and len(mark) >= len(opening) \
+                and not text[fence.end():line_end].strip():
+            opening = None
+    return body if opening is not None else None
+
+
+def command_start(text: str, pos: int) -> int:
+    """Where to start reading forward to learn what `pos` sits inside.
+
+    In a fenced code block: the block's first line. Reading forward from there
+    tracks comments, continuations and quotes in the order a shell meets them,
+    and a backtick in the block is shell text, never a code-span edge
+    (counter-model review on #1839: guessing the start backwards let a
+    comment's backtick and apostrophe hide the next invocation).
+
+    In prose: back across `\\`-continued lines, then just after the last
+    unescaped backtick before `pos` (an inline code span), so prose apostrophes
+    before a span are not read as quotes."""
+    body = fence_body_start(text, pos)
+    if body is not None:
+        return body
+    start = text.rfind("\n", 0, pos) + 1
+    while start > 0:
+        prev = text.rfind("\n", 0, start - 1) + 1
+        if not text[prev:start - 1].rstrip().endswith("\\"):
+            break
+        start = prev
+    tick = text.rfind("`", start, pos)
+    # A backslash-escaped backtick is shell text inside the command, not the
+    # edge of a code span (counter-model review on #1839).
+    while tick != -1 and is_escaped(text, tick):
+        tick = text.rfind("`", start, tick)
+    return start if tick == -1 else tick + 1
+
+
+def is_escaped(text: str, pos: int) -> bool:
+    """Whether an odd run of backslashes precedes `pos`."""
+    run = 0
+    while pos - run - 1 >= 0 and text[pos - run - 1] == "\\":
+        run += 1
+    return run % 2 == 1
+
+
+def path_context(text: str, pos: int) -> str:
+    """What `pos` sits inside: "quote", "comment", or "" for a command word.
+
+    A `$(` opens an unquoted context even inside double quotes:
+    `X="$(~/.claude/scripts/h.sh --a)"` is an invocation; `--body "run
+    ~/.claude/scripts/h.sh --x"` is message text, and so is `# run
+    ~/.claude/scripts/h.sh --x`: a commented command never runs
+    (counter-model review on #1839)."""
+    _, stack = lex(text, command_start(text, pos), pos, whole_command=False)
+    top = stack[-1] if stack else ""
+    return "quote" if top in ("'", '"') else "comment" if top == "#" else ""
+
+
+def command_words(text: str, start: int) -> list[str]:
+    """The unquoted shell words of the command after a helper path.
+
+    A word with a quoted part is an argument's value, not a flag - EXCEPT when
+    its unquoted prefix starts with a `--name=` option, which is returned:
+    `--kind="message"` still passes `--kind` (counter-model review on #1835).
+    """
+    events, _ = lex(text, start)
+    words: list[str] = []
+    word: list[str] = []
+    prefix: str | None = None
+    for kind, ch in events:
+        if kind == LITERAL:
+            word.append(ch)
+        elif kind == QUOTED:
+            if prefix is None:
+                prefix = "".join(word)
+        else:
+            if prefix is None:
+                if word:
+                    words.append("".join(word))
+            else:
+                # The option name is known whatever its value holds after `=`:
+                # `--kind=message$(x)` still passes `--kind` (counter-model
+                # review on #1839).
+                option = OPTION_PREFIX.match(prefix)
+                if option:
+                    words.append(option.group(1))
+            word.clear()
+            prefix = None
+    return words
 
 
 def helper_source(scripts: Path, name: str, seen: set[str] | None = None) -> list[tuple[str, str]] | None:
@@ -245,7 +342,7 @@ def check(root: Path) -> int:
     cache: dict[str, list[tuple[str, str]] | None] = {}
     findings: list[str] = []
     unresolved: set[str] = set()
-    flags_checked = invocations = quoted_paths = 0
+    flags_checked = invocations = quoted_paths = commented_paths = 0
     for doc in docs:
         try:
             text = doc.read_text(encoding="utf-8")
@@ -254,8 +351,12 @@ def check(root: Path) -> int:
             return 2
         for match in HELPER_PATH.finditer(text):
             name = match.group(1)
-            if inside_quote(text, match.start()):
+            context = path_context(text, match.start())
+            if context == "quote":
                 quoted_paths += 1
+                continue
+            if context == "comment":
+                commented_paths += 1
                 continue
             if name not in cache:
                 cache[name] = helper_source(scripts, name)
@@ -265,7 +366,7 @@ def check(root: Path) -> int:
                 continue
             invocations += 1
             line = text.count("\n", 0, match.start()) + 1
-            for word in command_words(command_tail(text, match.end())):
+            for word in command_words(text, match.end()):
                 m = FLAG_WORD.match(word)
                 if not m:
                     continue
@@ -277,6 +378,9 @@ def check(root: Path) -> int:
         print(finding)
     if quoted_paths:
         print(f"note - {quoted_paths} helper path(s) inside a quoted argument, not invocations, unchecked",
+              file=sys.stderr)
+    if commented_paths:
+        print(f"note - {commented_paths} helper path(s) inside a shell comment, not invocations, unchecked",
               file=sys.stderr)
     if unresolved:
         print(f"note - {len(unresolved)} helper name(s) not under scripts/, unchecked: "

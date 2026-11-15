@@ -13,7 +13,12 @@
     "and the backslash-continued form most real invocations take. The GOOD case holds",
     "the shapes a naive extractor gets wrong: flags inside a $(...) substitution, a",
     "flag after a pipe, a .sh wrapper handing off to a .py parser that builds its",
-    "option names, and a flag mentioned in prose after an inline span closes."
+    "option names, and a flag mentioned in prose after an inline span closes.",
+    "",
+    "CHARTER (discussion #1830): the gate must never block a valid command - the GOOD",
+    "cases are its purpose controls - and must report a flag the helper lacks - the BAD",
+    "cases. #1839 added one shell reader for every question the gate asks, with one case",
+    "per shape the earlier three hand-written readers disagreed on."
   ],
   "gate": "scripts/check-doc-helper-flags.py",
   "invocation": [
@@ -50,10 +55,70 @@
       "why": "An unknown option written as --kind=\"message\". The second cut of the gate dropped any word with a quoted part, so quoting the value hid the option; counter-model review found it. If this scores GOOD, quoting a value is a way past the gate."
     },
     {
+      "name": "bad-paren-quoted-in-substitution",
+      "input": "cases/bad-paren-quoted-in-substitution",
+      "expect": "BAD",
+      "why": "The unknown flag follows \"$(printf '(')\". The pre-#1839 reader counted parentheses without reading quotes, never saw the substitution close, swallowed --kind and passed this. If it scores GOOD, a quoted paren in a substitution hides every flag after it."
+    },
+    {
+      "name": "bad-process-substitution",
+      "input": "cases/bad-process-substitution",
+      "expect": "BAD",
+      "why": "The unknown flag follows <(printf x). A reader that opens only $( reads the process substitution's ')' as the end of the command, swallows --kind and passes this (counter-model review on #1839). If it scores GOOD, every flag after a <( or >( is unchecked."
+    },
+    {
+      "name": "bad-comment-after-separator",
+      "input": "cases/bad-comment-after-separator",
+      "expect": "BAD",
+      "why": "A comment straight after ';' holds an apostrophe and a trailing backslash. A reader that takes ';#' for one word reads the apostrophe as an open quote, the next invocation as message text, and passes its --kind (counter-model review on #1839)."
+    },
+    {
+      "name": "bad-option-value-with-substitution",
+      "input": "cases/bad-option-value-with-substitution",
+      "expect": "BAD",
+      "why": "--kind=message$(printf '') passes --kind whatever its value holds. A reader that keeps an option name only when the quote or substitution starts right after '=' drops it and passes this (counter-model review on #1839)."
+    },
+    {
+      "name": "bad-comment-backtick-before-invocation",
+      "input": "cases/bad-comment-backtick-before-invocation",
+      "expect": "BAD",
+      "why": "A comment with a backtick, an apostrophe and a trailing backslash precedes an invocation with an unknown flag. A reader that guesses the command start backwards (across the backslash, after the last backtick) reads the apostrophe as a quote and passes --kind (counter-model review on #1839). Inside a fence the gate reads forward from the fence."
+    },
+    {
       "name": "good-known-flags",
       "input": "cases/good-known-flags",
       "expect": "GOOD",
       "why": "THE HALF THAT MATTERS for a gate in make verify: every shape the live documents use that a naive extractor misreads - substitution, pipe, delegated parser with computed option names, prose after an inline span. A gate that flags any of them blocks every merge. It also holds a quoted --body whose TEXT contains --kind, '#' and ';': reading quoted text as flags would block a valid command over its message wording. And a helper path inside a quoted --body: read as an invocation, its message text would block verify."
+    },
+    {
+      "name": "good-flag-after-helper-substitution",
+      "input": "cases/good-flag-after-helper-substitution",
+      "expect": "GOOD",
+      "why": "PURPOSE CONTROL: the helper runs inside $(...) and --kind belongs to the outer echo, after the substitution closes. The pre-#1839 reader read past the helper's own ')' and blocked this valid command."
+    },
+    {
+      "name": "good-quote-continued-across-lines",
+      "input": "cases/good-quote-continued-across-lines",
+      "expect": "GOOD",
+      "why": "PURPOSE CONTROL: a quoted --body continued with a backslash onto a line holding a helper path. That path is message text. The pre-#1839 reader restarted quote state at each physical line, read it as a second invocation and blocked this valid command."
+    },
+    {
+      "name": "good-escaped-backtick-in-continued-quote",
+      "input": "cases/good-escaped-backtick-in-continued-quote",
+      "expect": "GOOD",
+      "why": "PURPOSE CONTROL: a quoted --body with escaped backticks, continued onto a line holding a helper path. That path is message text. A reader that takes the escaped backtick for a code-span edge drops the opening quote and blocks this valid command (counter-model review on #1839)."
+    },
+    {
+      "name": "good-helper-path-in-comment",
+      "input": "cases/good-helper-path-in-comment",
+      "expect": "GOOD",
+      "why": "PURPOSE CONTROL: a shell comment names a helper with a flag it lacks. A commented command never runs. A reader that counts a path inside a comment as an invocation blocks this valid document (counter-model review on #1839)."
+    },
+    {
+      "name": "good-comment-quote-before-message",
+      "input": "cases/good-comment-quote-before-message",
+      "expect": "GOOD",
+      "why": "PURPOSE CONTROL: the same comment shape with a double quote, before a --body that names a helper as message text. A reader that starts after the comment's backtick pairs the comment's quote with the --body quote and blocks this valid document on the message text (counter-model review on #1839)."
     }
   ],
   "anchors": [

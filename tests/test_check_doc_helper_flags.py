@@ -153,3 +153,126 @@ def test_helper_path_inside_a_quoted_argument_is_not_an_invocation(tmp_path: Pat
     doc = 'X="$(~/.claude/scripts/mailbox.sh --kind m)"\n'
     res = run(tree(tmp_path / "b", doc))
     assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout
+
+
+def test_flag_after_the_helpers_own_substitution_belongs_to_the_outer_command(tmp_path: Path) -> None:
+    """#1839 shape 1: reading past the helper's closing `)` credited `echo`'s flag to it."""
+    doc = "echo $(~/.claude/scripts/mailbox.sh send --to o --body b) --kind\n"
+    res = run(tree(tmp_path / "a", doc))
+    assert res.returncode == 0, res.stdout
+    # The helper's own flags inside the substitution are still checked.
+    doc = "echo $(~/.claude/scripts/mailbox.sh send --to o --kind b) --body\n"
+    res = run(tree(tmp_path / "b", doc))
+    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout
+
+
+def test_a_quote_continued_onto_the_next_line_stays_a_quote(tmp_path: Path) -> None:
+    """#1839 shape 2: quote state restarted at each physical line."""
+    doc = ('~/.claude/scripts/mailbox.sh send --to o --body "Please run \\\n'
+           '~/.claude/scripts/mailbox.sh --kind message"\n')
+    res = run(tree(tmp_path / "a", doc))
+    assert res.returncode == 0, res.stdout
+    assert "1 helper path(s) inside a quoted argument" in res.stderr
+    # A flag after the continued quote closes is still the helper's.
+    doc = ('~/.claude/scripts/mailbox.sh send --to o --body "Please \\\n'
+           'run" --kind message\n')
+    res = run(tree(tmp_path / "b", doc))
+    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout
+
+
+def test_a_quoted_paren_inside_a_substitution_does_not_swallow_the_command(tmp_path: Path) -> None:
+    """#1839 shape 3: parentheses counted without reading quotes hid --kind."""
+    doc = "~/.claude/scripts/mailbox.sh send --to o --body \"$(printf '(')\" --kind message\n"
+    res = run(tree(tmp_path / "a", doc))
+    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout
+    doc = "~/.claude/scripts/mailbox.sh send --to o --body \"$(printf ')')\" --kind message\n"
+    res = run(tree(tmp_path / "b", doc))
+    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout
+
+
+def test_a_comment_ending_in_a_backslash_continues_nothing(tmp_path: Path) -> None:
+    """Counter-model review on #1839: a comment's `\\` joins no lines, so its quotes
+    must not reach the next command."""
+    doc = "# owner's instructions \\\n~/.claude/scripts/mailbox.sh --kind message\n"
+    res = run(tree(tmp_path / "a", doc))
+    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout
+    doc = ('# a "quoted note \\\n'
+           '~/.claude/scripts/mailbox.sh send --to o --body "run ~/.claude/scripts/mailbox.sh --kind m"\n')
+    res = run(tree(tmp_path / "b", doc))
+    assert res.returncode == 0, res.stdout
+
+
+def test_a_process_substitution_does_not_end_the_command(tmp_path: Path) -> None:
+    """Counter-model review on #1839: the `)` of `<(...)` closes the substitution,
+    not the helper's command, so the flag after it is still checked."""
+    doc = "~/.claude/scripts/mailbox.sh --body <(printf x) --kind message\n"
+    res = run(tree(tmp_path / "a", doc))
+    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout
+    doc = "~/.claude/scripts/mailbox.sh --body >(cat) --to o\n"
+    res = run(tree(tmp_path / "b", doc))
+    assert res.returncode == 0, res.stdout
+
+
+def test_a_comment_right_after_a_separator_is_a_comment(tmp_path: Path) -> None:
+    """Counter-model review on #1839: `;#` starts a comment, so its apostrophe
+    and trailing backslash do not quote the next invocation."""
+    doc = ("~/.claude/scripts/mailbox.sh --to o;# owner's note \\\n"
+           "~/.claude/scripts/mailbox.sh --kind message\n")
+    res = run(tree(tmp_path, doc))
+    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout
+
+
+def test_an_escaped_backtick_is_not_a_code_span_edge(tmp_path: Path) -> None:
+    """Counter-model review on #1839: an escaped backtick inside a quoted argument
+    is shell text, so the quote still covers the continued line."""
+    doc = ('~/.claude/scripts/mailbox.sh --to o --body "Please run \\`example\\` \\\n'
+           '~/.claude/scripts/mailbox.sh --kind message"\n')
+    res = run(tree(tmp_path, doc))
+    assert res.returncode == 0, res.stdout
+
+
+def test_a_helper_path_inside_a_comment_is_not_an_invocation(tmp_path: Path) -> None:
+    """Counter-model review on #1839: a commented command never runs, so a flag
+    in it is not checked; the path is counted in its own note."""
+    doc = ("~/.claude/scripts/mailbox.sh --to o\n"
+           "# Don't run ~/.claude/scripts/mailbox.sh --kind m\n")
+    res = run(tree(tmp_path, doc))
+    assert res.returncode == 0, res.stdout
+    assert "1 helper path(s) inside a shell comment" in res.stderr
+
+
+def test_an_option_value_with_a_substitution_still_checks_the_option(tmp_path: Path) -> None:
+    """Counter-model review on #1839: `--kind=message$(x)` passes `--kind`."""
+    doc = "~/.claude/scripts/mailbox.sh --to o --kind=message$(printf '')\n"
+    res = run(tree(tmp_path, doc))
+    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout
+
+
+def test_a_comment_inside_a_fence_cannot_quote_the_next_line(tmp_path: Path) -> None:
+    """Counter-model review on #1839: inside a fence the gate reads forward from
+    the fence, so a comment's backtick, quote and backslash reach nothing."""
+    doc = ("```bash\n~/.claude/scripts/mailbox.sh --to o\n"
+           "# Use `printf` in the owner's note \\\n"
+           "~/.claude/scripts/mailbox.sh --kind m\n```\n")
+    res = run(tree(tmp_path / "a", doc), cwd=tmp_path)  # run location: outside the scanned tree
+    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout
+    doc = ("```bash\n~/.claude/scripts/mailbox.sh --to o\n"
+           '# Use `printf` for the "note \\\n'
+           '~/.claude/scripts/mailbox.sh --to o --body "run ~/.claude/scripts/mailbox.sh --kind m"\n```\n')
+    res = run(tree(tmp_path / "b", doc))
+    assert res.returncode == 0, res.stdout
+
+
+def test_fences_are_found_indented_with_tildes_and_after_a_closed_block(tmp_path: Path) -> None:
+    """The forward read needs the right fence: an indented list-item fence and a
+    `~~~` fence open blocks, and a closed block's state does not carry on."""
+    shape = ("~/.claude/scripts/mailbox.sh --to o\n"
+             "# Use `printf` in the owner's note \\\n"
+             "~/.claude/scripts/mailbox.sh --kind m\n")
+    for name, doc in {
+        "indented": "1. Step:\n\n   ```bash\n" + shape + "   ```\n",
+        "tilde": "~~~sh\n" + shape + "~~~\n",
+        "second": "```bash\necho \"open\n```\n\nThen:\n\n```bash\n" + shape + "```\n",
+    }.items():
+        res = run(tree(tmp_path / name, doc))
+        assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout, (name, res.stdout)
