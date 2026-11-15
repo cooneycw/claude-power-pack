@@ -18,7 +18,13 @@
     "CHARTER (discussion #1830): the gate must never block a valid command - the GOOD",
     "cases are its purpose controls - and must report a flag the helper lacks - the BAD",
     "cases. #1839 added one shell reader for every question the gate asks, with one case",
-    "per shape the earlier three hand-written readers disagreed on."
+    "per shape the earlier three hand-written readers disagreed on.",
+    "",
+    "#1842 taught the reader that an unescaped backtick opens a nested command inside a",
+    "fence, and added one BAD case (the shape it missed) and one GOOD case (the prose",
+    "span edges and closing backtick the new nesting must not misread).",
+    "#1844 bounded that reader: a backtick substitution holding a backslash or # is",
+    "not read but counted as unchecked, so the GOOD case holds those shapes too."
   ],
   "gate": "scripts/check-doc-helper-flags.py",
   "invocation": [
@@ -85,6 +91,12 @@
       "why": "A comment with a backtick, an apostrophe and a trailing backslash precedes an invocation with an unknown flag. A reader that guesses the command start backwards (across the backslash, after the last backtick) reads the apostrophe as a quote and passes --kind (counter-model review on #1839). Inside a fence the gate reads forward from the fence."
     },
     {
+      "name": "bad-backtick-in-double-quote",
+      "input": "cases/bad-backtick-in-double-quote",
+      "expect": "BAD",
+      "why": "Issue #1842: X=\"`helper --kind m`\". A backtick inside double quotes still runs a command, as $( does; the #1839 reader opened a nested command on $( only, so it read the helper as message text and passed --kind. If this scores GOOD, a backtick substitution in a quoted assignment hides every flag on the helper inside it."
+    },
+    {
       "name": "good-known-flags",
       "input": "cases/good-known-flags",
       "expect": "GOOD",
@@ -119,6 +131,12 @@
       "input": "cases/good-comment-quote-before-message",
       "expect": "GOOD",
       "why": "PURPOSE CONTROL: the same comment shape with a double quote, before a --body that names a helper as message text. A reader that starts after the comment's backtick pairs the comment's quote with the --body quote and blocks this valid document on the message text (counter-model review on #1839)."
+    },
+    {
+      "name": "good-inline-spans-near-backticks",
+      "input": "cases/good-inline-spans-near-backticks",
+      "expect": "GOOD",
+      "why": "THE HALF THAT MATTERS for #1842's change: backticks are also Markdown code-span edges. In prose a later span holding --kind must not be read as the helper's flag; in a fence the closing backtick ends the helper's command, so a flag after it belongs to the outer echo; and an escaped backtick in double quotes stays message text. It also holds backtick substitutions with a backslash or '#' (#1844), which the gate counts as unchecked instead of reading: an escaped quote inside one, a comment, and a comment straight after a subshell. Reading any of these as an invocation's flag would block valid documents in make verify."
     }
   ],
   "anchors": [

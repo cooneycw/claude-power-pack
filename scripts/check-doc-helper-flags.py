@@ -19,11 +19,20 @@ source under `scripts/`, or in a sibling the helper hands off to through a
 
 What the command is, for this gate: one shell reader, `lex`, reads it (#1839).
 It runs from the helper path to the first plain newline (a `\\` continuation
-joins lines), or to the first unquoted `|`, `;`, `&`, backtick, word-initial
-`#` or next helper path, or to the `)` closing the substitution the helper
+joins lines), or to the first unquoted `|`, `;`, `&`, word-initial `#` or
+next helper path, or to the `)` or backtick closing the substitution the helper
 itself runs in: in `echo $(~/.claude/scripts/h.sh --a) --b`, `--b` is echo's.
 A `$(...)` the helper's own command holds is skipped whole, quotes inside it
 included - the flags in `--path "$(git rev-parse --show-toplevel)"` are git's.
+An unescaped backtick is a substitution too, inside double quotes as well
+(#1842): a helper inside a backtick pair within a double-quoted assignment
+is an invocation, as it is inside `X="$(...)"`. In prose a
+backtick is an inline code span's edge instead, so it ends the command there;
+only inside a fenced block does a backtick argument nest and leave the words
+after it to the helper. A backtick substitution holding a backslash or `#` is
+NOT read (#1844): bash strips a backslash layer inside it and a `#` there can
+start a comment, and modelling either kept producing new edge cases. A helper
+path inside one is counted in its own stderr note as unchecked.
 A flag is an unquoted word starting `--`, or the unquoted `--name=` prefix of a
 word whose value is quoted or substituted. So `--body "remove --kind; see #1835"` is one
 argument and a flag after it is still checked. A helper path inside a quoted
@@ -72,13 +81,16 @@ DELEGATE = re.compile(r"\$\{?[A-Z_]*DIR\}?/([A-Za-z0-9_.-]+)")
 #: What `lex` reports about each character of a command, at the command's own level.
 LITERAL, QUOTED, GAP, END = "literal", "quoted", "gap", "end"
 CONTINUATION = re.compile(r"\\[ \t]*\n")
-SEPARATORS = "|;&`)"
+SEPARATORS = "|;&)"
 #: What opens a nested command: `$(` command and `<(` / `>(` process substitution.
+#: An unescaped backtick opens one too (issue #1842); it is handled on its own,
+#: because the same character also closes it.
 SUBSTITUTIONS = ("$(", "<(", ">(")
+BACKTICK = "`"
 
 
-def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool = True
-        ) -> tuple[list[tuple[str, str]], list[str]]:
+def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool = True,
+        backtick_ends: bool = True) -> tuple[list[tuple[str, str]], list[str]]:
     """Read `text` from `start` as one shell command: THE ONLY SHELL READER here.
 
     Both questions the gate asks go through it, so they cannot disagree (#1839):
@@ -95,7 +107,15 @@ def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool =
     read at the command's OWN level: LITERAL (unquoted word text), QUOTED (inside
     a quote or a substitution: word content that is not a flag), GAP (unquoted
     whitespace), and a final END. `stack` is what is still open where reading
-    stopped: `'`, `"` or `(`, or `#` when the quote query stopped inside a comment.
+    stopped: `'`, `"`, `(`, a backtick, or `#` when the quote query stopped
+    inside a comment.
+
+    An unescaped backtick opens a nested command inside double quotes, inside
+    `$(...)` and inside another backtick level, and is closed by the next
+    unescaped backtick (issue #1842). At the command's OWN level it nests too,
+    unless `backtick_ends`: then it ends the command, as it must in prose,
+    where a backtick is an inline code span's edge, and when the helper itself
+    sits inside a backtick level, whose closing backtick ends its command.
 
     With `whole_command`, reading ends at a plain newline, an unquoted `|`, `;`,
     `&`, backtick or word-initial `#`, the next helper path, or a `)` that closes
@@ -140,12 +160,19 @@ def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool =
                 i += 1
             elif ch == '"':
                 stack.pop()
+            elif ch == BACKTICK:
+                stack.append(BACKTICK)
             elif text.startswith("$(", i):
                 stack.append("(")
                 i += 1
-        elif top == "(":
+        elif top in ("(", BACKTICK):
             if ch == "\\":
                 i += 1
+            elif ch == BACKTICK:
+                if top == BACKTICK:
+                    stack.pop()
+                else:
+                    stack.append(BACKTICK)
             elif ch in "'\"":
                 stack.append(ch)
             elif text.startswith(SUBSTITUTIONS, i):
@@ -153,7 +180,7 @@ def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool =
                 i += 1
             elif ch == "(":
                 stack.append("(")
-            elif ch == ")":
+            elif ch == ")" and top == "(":
                 stack.pop()
         else:
             # The command's own level: the only place a word or a stop is read.
@@ -162,6 +189,10 @@ def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool =
             elif text.startswith(SUBSTITUTIONS, i):
                 stack.append("(")
                 i += 1
+            elif ch == BACKTICK and whole_command and backtick_ends:
+                break
+            elif ch == BACKTICK:
+                stack.append(BACKTICK)
             elif whole_command and (ch in SEPARATORS or (ch == "#" and not in_word)
                                     or text.startswith("~/.claude/scripts/", i)):
                 break
@@ -248,8 +279,31 @@ def is_escaped(text: str, pos: int) -> bool:
     return run % 2 == 1
 
 
+#: What makes a backtick substitution too complex to read (issue #1844). Inside
+#: one, bash first strips a backslash layer and a `#` may start a comment that
+#: ends at the closing backtick; this gate models neither. It reads only the
+#: simple shape and counts the rest as unchecked: it never blocks such a
+#: document, and never claims to have checked it.
+BACKTICK_COMPLEX = ("\\", "#")
+
+
+def backtick_body(text: str, pos: int) -> str:
+    """The text of the backtick substitution holding `pos`: from the nearest
+    unescaped backtick before it to the next one after it (or the line's end).
+    Bash finds an old-style substitution's end the same way, ignoring quotes."""
+    open_ = text.rfind(BACKTICK, 0, pos)
+    while open_ != -1 and is_escaped(text, open_):
+        open_ = text.rfind(BACKTICK, 0, open_)
+    close = pos
+    while close < len(text) and text[close] != "\n" and not (
+            text[close] == BACKTICK and not is_escaped(text, close)):
+        close += 1
+    return text[open_ + 1:close]
+
+
 def path_context(text: str, pos: int) -> str:
-    """What `pos` sits inside: "quote", "comment", or "" for a command word.
+    """What `pos` sits inside: "quote", "comment", "backtick" for a command word
+    inside a backtick substitution (issue #1842), or "" for any other command word.
 
     A `$(` opens an unquoted context even inside double quotes:
     `X="$(~/.claude/scripts/h.sh --a)"` is an invocation; `--body "run
@@ -258,17 +312,23 @@ def path_context(text: str, pos: int) -> str:
     (counter-model review on #1839)."""
     _, stack = lex(text, command_start(text, pos), pos, whole_command=False)
     top = stack[-1] if stack else ""
-    return "quote" if top in ("'", '"') else "comment" if top == "#" else ""
+    if top in ("'", '"'):
+        return "quote"
+    return "comment" if top == "#" else "backtick" if top == BACKTICK else ""
 
 
-def command_words(text: str, start: int) -> list[str]:
+def command_words(text: str, start: int, *, backtick_ends: bool = True) -> list[str]:
     """The unquoted shell words of the command after a helper path.
+
+    `backtick_ends` is `lex`'s: True in prose and inside a backtick level, False
+    for a helper at its own level in a fenced block, where a backtick argument
+    is a nested command and the words after it are still the helper's.
 
     A word with a quoted part is an argument's value, not a flag - EXCEPT when
     its unquoted prefix starts with a `--name=` option, which is returned:
     `--kind="message"` still passes `--kind` (counter-model review on #1835).
     """
-    events, _ = lex(text, start)
+    events, _ = lex(text, start, backtick_ends=backtick_ends)
     words: list[str] = []
     word: list[str] = []
     prefix: str | None = None
@@ -342,7 +402,7 @@ def check(root: Path) -> int:
     cache: dict[str, list[tuple[str, str]] | None] = {}
     findings: list[str] = []
     unresolved: set[str] = set()
-    flags_checked = invocations = quoted_paths = commented_paths = 0
+    flags_checked = invocations = quoted_paths = commented_paths = complex_paths = 0
     for doc in docs:
         try:
             text = doc.read_text(encoding="utf-8")
@@ -358,6 +418,9 @@ def check(root: Path) -> int:
             if context == "comment":
                 commented_paths += 1
                 continue
+            if context == "backtick" and any(c in backtick_body(text, match.start()) for c in BACKTICK_COMPLEX):
+                complex_paths += 1
+                continue
             if name not in cache:
                 cache[name] = helper_source(scripts, name)
             source = cache[name]
@@ -366,7 +429,8 @@ def check(root: Path) -> int:
                 continue
             invocations += 1
             line = text.count("\n", 0, match.start()) + 1
-            for word in command_words(text, match.end()):
+            backtick_ends = context == "backtick" or fence_body_start(text, match.start()) is None
+            for word in command_words(text, match.end(), backtick_ends=backtick_ends):
                 m = FLAG_WORD.match(word)
                 if not m:
                     continue
@@ -382,6 +446,9 @@ def check(root: Path) -> int:
     if commented_paths:
         print(f"note - {commented_paths} helper path(s) inside a shell comment, not invocations, unchecked",
               file=sys.stderr)
+    if complex_paths:
+        print(f"note - {complex_paths} helper path(s) inside a backtick substitution holding a backslash "
+              "or '#', not read, unchecked", file=sys.stderr)
     if unresolved:
         print(f"note - {len(unresolved)} helper name(s) not under scripts/, unchecked: "
               + ", ".join(sorted(unresolved)), file=sys.stderr)
