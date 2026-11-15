@@ -298,7 +298,7 @@ have not heard back after roughly 10-15 minutes of this session's own elapsed
 time, send one short follow-up naming what you are waiting on:
 
 ```bash
-~/.claude/scripts/flow-wave-mailbox.sh send --to orchestrator --from <your-role> --wave <wave> --kind message --body "Still waiting on Step 3 approval for <issue/role>, sent at <time>."
+~/.claude/scripts/flow-wave-mailbox.sh send --to orchestrator --from <your-role> --wave <wave> --body "Still waiting on Step 3 approval for <issue/role>, sent at <time>."
 ```
 
 Then keep waiting for the real verdict; this is a visibility check-in, not a

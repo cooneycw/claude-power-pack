@@ -1,0 +1,57 @@
+{
+  "_comment": [
+    "Registration for scripts/check-doc-helper-flags.py (issue #1835).",
+    "",
+    "WHY THIS GATE NEEDS A COMMITTED CASE (ADR 0008): it is a gate that lets work",
+    "THROUGH. make verify and the CI doc-helper-flags-check step read its green as",
+    "'no instruction document passes a helper a flag it lacks', and nothing",
+    "downstream re-derives that. A blind version prints the same ok line while a",
+    "driver tells a stuck worker to run a command that exits 2 - the #1835 state.",
+    "",
+    "THE CASES ARE MINIATURE TREES (--root): a fixture mailbox helper that accepts",
+    "--to/--from/--body, and one template. The BAD pair covers the single-line form",
+    "and the backslash-continued form most real invocations take. The GOOD case holds",
+    "the shapes a naive extractor gets wrong: flags inside a $(...) substitution, a",
+    "flag after a pipe, a .sh wrapper handing off to a .py parser that builds its",
+    "option names, and a flag mentioned in prose after an inline span closes."
+  ],
+  "gate": "scripts/check-doc-helper-flags.py",
+  "invocation": [
+    "python3",
+    "{gate}",
+    "--root",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^UNKNOWN_FLAG: ",
+  "cases": [
+    {
+      "name": "bad-unknown-flag",
+      "input": "cases/bad-unknown-flag",
+      "expect": "BAD",
+      "why": "The #1835 shape on one line: an escalation command passing --kind to a mailbox whose parser rejects it. If this scores GOOD the gate cannot see the defect it was written for."
+    },
+    {
+      "name": "bad-continuation-line",
+      "input": "cases/bad-continuation-line",
+      "expect": "BAD",
+      "why": "The same unknown flag on a backslash-continued line. Most multi-line helper invocations in the command documents take this shape; a gate reading one physical line would pass it."
+    },
+    {
+      "name": "good-known-flags",
+      "input": "cases/good-known-flags",
+      "expect": "GOOD",
+      "why": "THE HALF THAT MATTERS for a gate in make verify: every shape the live documents use that a naive extractor misreads - substitution, pipe, delegated parser with computed option names, prose after an inline span. A gate that flags any of them blocks every merge."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/check-doc-helper-flags.py",
+      "path": "anchors/constructed-helper-exists-only.py",
+      "sha256": "13d28cc83b32a4fbf11c25e993c9ab4aeec57af034cdac556e6b5b51d8bfbf96",
+      "why": "CONSTRUCTED: the gate is new. This is the weaker check the obvious framing produces - confirm each named helper exists. It misses both BAD cases, where the helper exists and the flag does not, and agrees with the gate on the GOOD case."
+    }
+  ]
+}

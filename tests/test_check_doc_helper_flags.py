@@ -1,0 +1,112 @@
+"""A command document must not pass a helper a flag it lacks (issue #1835).
+
+The delegated drivers' Step 3 escalation passed `--kind message` to
+`flow-wave-mailbox.sh`, which has no `--kind`, so the command exited 2 and the
+escalation never sent. `scripts/check-doc-helper-flags.py` compares the flags a
+document writes after a `~/.claude/scripts/<helper>` path with the helper's
+source. These tests pin what it reports and what it must not attribute to the
+helper. Hermetic and git-free: tmp_path trees only.
+"""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+GATE = ROOT / "scripts/check-doc-helper-flags.py"
+
+MAILBOX = """#!/usr/bin/env bash
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --to) shift ;;
+    --body) shift ;;
+    --*) echo "unknown option: $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+"""
+
+
+def tree(tmp_path: Path, doc: str, scripts: dict[str, str] | None = None) -> Path:
+    (tmp_path / "scripts").mkdir(parents=True)
+    for name, text in (scripts or {"mailbox.sh": MAILBOX}).items():
+        (tmp_path / "scripts" / name).write_text(text)
+    (tmp_path / ".claude/commands/x").mkdir(parents=True)
+    (tmp_path / ".claude/commands/x/cmd.md").write_text(doc)
+    return tmp_path
+
+
+def run(root: Path, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run([sys.executable, str(GATE), "--root", str(root)],
+                          capture_output=True, text=True, cwd=cwd, check=False)
+
+
+def test_unknown_flag_is_reported_with_doc_line_and_helper(tmp_path: Path) -> None:
+    root = tree(tmp_path, "intro\n~/.claude/scripts/mailbox.sh send --to o --kind message --body b\n")
+    assert "--kind" not in MAILBOX  # precondition: the flag really is unknown
+    res = run(root)
+    assert res.returncode == 1
+    assert "UNKNOWN_FLAG: .claude/commands/x/cmd.md:2: mailbox.sh --kind" in res.stdout
+
+
+def test_known_flags_pass_and_the_count_is_stated(tmp_path: Path) -> None:
+    res = run(tree(tmp_path, "~/.claude/scripts/mailbox.sh send --to o --body b\n"))
+    assert res.returncode == 0, res.stdout
+    assert "ok - 2 flag(s) on 1 invocation(s) in 1 doc(s) checked" in res.stdout
+
+
+def test_continuation_line_flags_are_checked(tmp_path: Path) -> None:
+    doc = "~/.claude/scripts/mailbox.sh send \\\n  --to o \\\n  --kind m --body b\n"
+    res = run(tree(tmp_path, doc))
+    assert res.returncode == 1
+    assert "mailbox.sh --kind" in res.stdout
+
+
+def test_substitution_pipe_and_inline_span_flags_belong_to_others(tmp_path: Path) -> None:
+    doc = (
+        '~/.claude/scripts/mailbox.sh send --to "$(git rev-parse --show-toplevel)" --body b\n'
+        "~/.claude/scripts/mailbox.sh send --to o | grep --count sent\n"
+        "Run `~/.claude/scripts/mailbox.sh send --to o` and never `--kind`.\n"
+    )
+    res = run(tree(tmp_path, doc))
+    assert res.returncode == 0, res.stdout
+
+
+def test_delegate_and_computed_python_option_names_are_followed(tmp_path: Path) -> None:
+    scripts = {
+        "pre.sh": 'SCRIPT_DIR="$(dirname "$0")"\npython3 "$SCRIPT_DIR/pre.py" "$@"\n',
+        "pre.py": "for name in ('repo', 'harness'):\n    p.add_argument('--' + name)\n",
+    }
+    res = run(tree(tmp_path, "~/.claude/scripts/pre.sh --repo . --harness auto\n", scripts))
+    assert res.returncode == 0, res.stdout
+    res = run(tree(tmp_path / "b", "~/.claude/scripts/pre.sh --nope\n", scripts))
+    assert res.returncode == 1 and "pre.sh --nope" in res.stdout
+
+
+def test_prefix_of_a_longer_flag_is_not_a_match(tmp_path: Path) -> None:
+    scripts = {"h.sh": 'case "$1" in --kinds) ;; esac\n'}
+    res = run(tree(tmp_path, "~/.claude/scripts/h.sh --kind\n", scripts))
+    assert res.returncode == 1
+
+
+def test_nothing_examined_is_unknown_not_ok(tmp_path: Path) -> None:
+    (tmp_path / "scripts").mkdir()
+    res = run(tmp_path)
+    assert res.returncode == 2 and res.stdout.startswith("UNKNOWN")
+    root = tree(tmp_path / "b", "~/.claude/scripts/absent.sh --x\n")
+    res = run(root)
+    assert res.returncode == 2 and "no resolvable helper invocation" in res.stdout
+
+
+def test_runs_from_another_directory(tmp_path: Path) -> None:
+    root = tree(tmp_path / "repo", "~/.claude/scripts/mailbox.sh --to o\n")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    assert run(root, cwd=elsewhere).returncode == 0
+
+
+def test_the_live_repository_is_clean() -> None:
+    res = subprocess.run([sys.executable, str(GATE)], capture_output=True, text=True, check=False)
+    assert res.returncode == 0, res.stdout
