@@ -25,10 +25,10 @@ itself runs in: in `echo $(~/.claude/scripts/h.sh --a) --b`, `--b` is echo's.
 A `$(...)` the helper's own command holds is skipped whole, quotes inside it
 included - the flags in `--path "$(git rev-parse --show-toplevel)"` are git's.
 A flag is an unquoted word starting `--`, or the unquoted `--name=` prefix of a
-word whose value is quoted. So `--body "remove --kind; see #1835"` is one
+word whose value is quoted or substituted. So `--body "remove --kind; see #1835"` is one
 argument and a flag after it is still checked. A helper path inside a quoted
 argument, read from where its command starts (back across continued lines), is
-message text, not an invocation. An unterminated quote swallows the rest of its
+message text, not an invocation; so is one inside a shell comment. An unterminated quote swallows the rest of its
 line, which can hide a flag but never invent one. Each shape has a case under
 `controls/doc-helper-flags`; that directory and this docstring are the contract.
 
@@ -64,6 +64,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SURFACES = (".claude/commands", ".claude/skills", "templates")
 HELPER_PATH = re.compile(r"~/\.claude/scripts/([A-Za-z0-9_.-]+)")
 FLAG_WORD = re.compile(r"^(--[a-z][a-z0-9-]*)(?:=|$)")
+OPTION_PREFIX = re.compile(r"^(--[a-z][a-z0-9-]*=)")
 DELEGATE = re.compile(r"\$\{?[A-Z_]*DIR\}?/([A-Za-z0-9_.-]+)")
 
 
@@ -80,7 +81,7 @@ def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool =
     """Read `text` from `start` as one shell command: THE ONLY SHELL READER here.
 
     Both questions the gate asks go through it, so they cannot disagree (#1839):
-    whether a helper path is inside a quote (`inside_quote`), and which words
+    whether a helper path is inside a quote or a comment (`path_context`), and which words
     follow it (`command_words`). It tracks single and double quotes, `$(...)`
     nesting with quotes and plain parentheses inside it, backslash escapes, and
     `\\`-newline continuations in every state. The idea of one shlex-style
@@ -93,7 +94,7 @@ def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool =
     read at the command's OWN level: LITERAL (unquoted word text), QUOTED (inside
     a quote or a substitution: word content that is not a flag), GAP (unquoted
     whitespace), and a final END. `stack` is what is still open where reading
-    stopped: `'`, `"` or `(`.
+    stopped: `'`, `"` or `(`, or `#` when the quote query stopped inside a comment.
 
     With `whole_command`, reading ends at a plain newline, an unquoted `|`, `;`,
     `&`, backtick or word-initial `#`, the next helper path, or a `)` that closes
@@ -111,7 +112,11 @@ def lex(text: str, start: int, stop: int | None = None, *, whole_command: bool =
             # (counter-model review on #1839): skip it whole, so its quotes and
             # its trailing backslash never reach the next command.
             newline = text.find("\n", i, end)
-            i = end if newline == -1 else newline
+            if newline == -1:
+                # Reading stopped inside the comment: what follows is its text.
+                stack.append("#")
+                break
+            i = newline
             continue
         cont = CONTINUATION.match(text, i)
         if cont:
@@ -207,21 +212,25 @@ def is_escaped(text: str, pos: int) -> bool:
     return run % 2 == 1
 
 
-def inside_quote(text: str, pos: int) -> bool:
-    """Whether `pos` sits inside a shell quote. A `$(` opens an unquoted context
-    even inside double quotes: `X="$(~/.claude/scripts/h.sh --a)"` is an
-    invocation; `--body "run ~/.claude/scripts/h.sh --x"` is message text."""
+def path_context(text: str, pos: int) -> str:
+    """What `pos` sits inside: "quote", "comment", or "" for a command word.
+
+    A `$(` opens an unquoted context even inside double quotes:
+    `X="$(~/.claude/scripts/h.sh --a)"` is an invocation; `--body "run
+    ~/.claude/scripts/h.sh --x"` is message text, and so is `# run
+    ~/.claude/scripts/h.sh --x`: a commented command never runs
+    (counter-model review on #1839)."""
     _, stack = lex(text, command_start(text, pos), pos, whole_command=False)
-    return bool(stack) and stack[-1] in "'\""
+    top = stack[-1] if stack else ""
+    return "quote" if top in ("'", '"') else "comment" if top == "#" else ""
 
 
 def command_words(text: str, start: int) -> list[str]:
     """The unquoted shell words of the command after a helper path.
 
-    A word with a quoted part is an argument's value, not a flag - EXCEPT its
-    unquoted prefix up to the first quote, which is returned when it is a
-    `--name=` option: `--kind="message"` still passes `--kind` (counter-model
-    review on #1835).
+    A word with a quoted part is an argument's value, not a flag - EXCEPT when
+    its unquoted prefix starts with a `--name=` option, which is returned:
+    `--kind="message"` still passes `--kind` (counter-model review on #1835).
     """
     events, _ = lex(text, start)
     words: list[str] = []
@@ -237,8 +246,13 @@ def command_words(text: str, start: int) -> list[str]:
             if prefix is None:
                 if word:
                     words.append("".join(word))
-            elif FLAG_WORD.match(prefix) and prefix.endswith("="):
-                words.append(prefix)
+            else:
+                # The option name is known whatever its value holds after `=`:
+                # `--kind=message$(x)` still passes `--kind` (counter-model
+                # review on #1839).
+                option = OPTION_PREFIX.match(prefix)
+                if option:
+                    words.append(option.group(1))
             word.clear()
             prefix = None
     return words
@@ -292,7 +306,7 @@ def check(root: Path) -> int:
     cache: dict[str, list[tuple[str, str]] | None] = {}
     findings: list[str] = []
     unresolved: set[str] = set()
-    flags_checked = invocations = quoted_paths = 0
+    flags_checked = invocations = quoted_paths = commented_paths = 0
     for doc in docs:
         try:
             text = doc.read_text(encoding="utf-8")
@@ -301,8 +315,12 @@ def check(root: Path) -> int:
             return 2
         for match in HELPER_PATH.finditer(text):
             name = match.group(1)
-            if inside_quote(text, match.start()):
+            context = path_context(text, match.start())
+            if context == "quote":
                 quoted_paths += 1
+                continue
+            if context == "comment":
+                commented_paths += 1
                 continue
             if name not in cache:
                 cache[name] = helper_source(scripts, name)
@@ -324,6 +342,9 @@ def check(root: Path) -> int:
         print(finding)
     if quoted_paths:
         print(f"note - {quoted_paths} helper path(s) inside a quoted argument, not invocations, unchecked",
+              file=sys.stderr)
+    if commented_paths:
+        print(f"note - {commented_paths} helper path(s) inside a shell comment, not invocations, unchecked",
               file=sys.stderr)
     if unresolved:
         print(f"note - {len(unresolved)} helper name(s) not under scripts/, unchecked: "

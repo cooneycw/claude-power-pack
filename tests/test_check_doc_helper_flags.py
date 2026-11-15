@@ -229,3 +229,20 @@ def test_an_escaped_backtick_is_not_a_code_span_edge(tmp_path: Path) -> None:
            '~/.claude/scripts/mailbox.sh --kind message"\n')
     res = run(tree(tmp_path, doc))
     assert res.returncode == 0, res.stdout
+
+
+def test_a_helper_path_inside_a_comment_is_not_an_invocation(tmp_path: Path) -> None:
+    """Counter-model review on #1839: a commented command never runs, so a flag
+    in it is not checked; the path is counted in its own note."""
+    doc = ("~/.claude/scripts/mailbox.sh --to o\n"
+           "# Don't run ~/.claude/scripts/mailbox.sh --kind m\n")
+    res = run(tree(tmp_path, doc))
+    assert res.returncode == 0, res.stdout
+    assert "1 helper path(s) inside a shell comment" in res.stderr
+
+
+def test_an_option_value_with_a_substitution_still_checks_the_option(tmp_path: Path) -> None:
+    """Counter-model review on #1839: `--kind=message$(x)` passes `--kind`."""
+    doc = "~/.claude/scripts/mailbox.sh --to o --kind=message$(printf '')\n"
+    res = run(tree(tmp_path, doc))
+    assert res.returncode == 1 and "mailbox.sh --kind" in res.stdout

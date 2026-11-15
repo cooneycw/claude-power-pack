@@ -73,6 +73,12 @@
       "why": "A comment straight after ';' holds an apostrophe and a trailing backslash. A reader that takes ';#' for one word reads the apostrophe as an open quote, the next invocation as message text, and passes its --kind (counter-model review on #1839)."
     },
     {
+      "name": "bad-option-value-with-substitution",
+      "input": "cases/bad-option-value-with-substitution",
+      "expect": "BAD",
+      "why": "--kind=message$(printf '') passes --kind whatever its value holds. A reader that keeps an option name only when the quote or substitution starts right after '=' drops it and passes this (counter-model review on #1839)."
+    },
+    {
       "name": "good-known-flags",
       "input": "cases/good-known-flags",
       "expect": "GOOD",
@@ -95,6 +101,12 @@
       "input": "cases/good-escaped-backtick-in-continued-quote",
       "expect": "GOOD",
       "why": "PURPOSE CONTROL: a quoted --body with escaped backticks, continued onto a line holding a helper path. That path is message text. A reader that takes the escaped backtick for a code-span edge drops the opening quote and blocks this valid command (counter-model review on #1839)."
+    },
+    {
+      "name": "good-helper-path-in-comment",
+      "input": "cases/good-helper-path-in-comment",
+      "expect": "GOOD",
+      "why": "PURPOSE CONTROL: a shell comment names a helper with a flag it lacks. A commented command never runs. A reader that counts a path inside a comment as an invocation blocks this valid document (counter-model review on #1839)."
     }
   ],
   "anchors": [
