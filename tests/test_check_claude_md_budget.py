@@ -288,7 +288,9 @@ def test_the_real_repo_declares_the_argued_budget_for_flow_auto() -> None:
     The owner's starting target was 10,183 (#1669). 10,410 was the argued
     budget: the document measured 10,402 with every instruction that the trim
     to 10,182 had dropped restored. #1847 lowered it to 10,404 when Step 6
-    stopped carrying the review's shell. The reasoning is beside the number in
+    stopped carrying the review's shell, and #1848 to 9,929 when it stated the
+    missing-helper fallback once and relayed helper stop lines instead of
+    restating exit codes. The reasoning is beside the number in
     `.claude/command-word-budgets.tsv`.
     """
     root = SCRIPT.parents[1]
@@ -298,5 +300,5 @@ def test_the_real_repo_declares_the_argued_budget_for_flow_auto() -> None:
         for p in (root / budget.COMMANDS_DIR).rglob("*.md")
     }
 
-    assert budgets["flow/auto.md"] == 10_404
+    assert budgets["flow/auto.md"] == 9_929
     assert on_disk and on_disk == set(budgets), "every command document is declared, and nothing else"

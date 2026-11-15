@@ -35,6 +35,16 @@ here**. In a `/flow:wave`, register with `--driver flow:auto`.
 
 When the user invokes `/flow:auto <ISSUE> [PROJECT]`, perform these steps sequentially. Stop immediately if any step fails.
 
+**Two rules for every helper in this file (#590, #1848):**
+
+- **Missing helper (exit 127):** try `${CLAUDE_PLUGIN_ROOT}/scripts/<name>`,
+  then the CPP-checkout copy, and tell the user to run **`/flow:repair`**. With
+  no copy, **STOP** and report it, unless the call site names another outcome.
+- **A helper that stops the run says why and what next.** Relay its lines
+  verbatim and do its remedy when it is within this run (sync, re-gate, push,
+  wait for green, reword, re-verify). Never pass an override it names
+  (`--admin`, `--allow-*`, `--steal`) yourself; that is the user's call.
+
 Report at the start:
 
 ```
@@ -70,9 +80,8 @@ before any STOP, via the fail-open capture helper:
   --scope <local|portable> --run "flow:auto #$ISSUE_NUM" --step "<N/9 Name>" --outcome "<retried|worked-around|corrected>"
 ```
 
-Never log the **permission-prompt** class by hand (issue #482). On exit 127
-fall back to `${CLAUDE_PLUGIN_ROOT}/scripts/friction-log.sh` (#590) or the
-CPP-checkout copy; if no copy exists, skip capture rather than stopping.
+Never log the **permission-prompt** class by hand (issue #482). Missing
+helper: skip capture rather than stopping.
 Capture only: fixes are proposed and applied in the retro, not here.
 
 ---
@@ -110,10 +119,8 @@ as its cwd VERBATIM as a literal path - never `$(pwd)`. Omitting it reports
 `SESSION_CWD_INFERRED=1` and risks only a misdetected `current-branch`/`resume`
 lane.
 
-On exit 127, fall back to `scripts/flow-start-resolve.sh` from the CPP checkout
-(issue #590; it may prompt once - tell the user to run **`/flow:repair`**). If
-no copy exists, **STOP** and report that flow needs a CPP checkout plus
-`/flow:repair`.
+Missing helper: the CPP-checkout copy only (it may prompt once); with none,
+**STOP** - flow needs a CPP checkout plus `/flow:repair`.
 
 The helper prints a `key=value` contract ending in `FLOW_START_RESOLVE: ok`.
 On `FLOW_START_RESOLVE: error` (with an `ERROR=` line): **STOP** and report it.
@@ -201,10 +208,7 @@ Step 2:
   is exit 0. `AS_READ: unresolved` (exit 4): continue; the Step-4 snapshot
   will say unresolved.
 
-**Helper resolution**, here and at Steps 4 and 6: the stable path first; on exit
-127, `${CLAUDE_PLUGIN_ROOT}/scripts/flow-plan-record.py`, else the CPP-checkout
-copy (tell the user to run **`/flow:repair`**). If no copy exists, **STOP** and
-report it. Background:
+Background:
 [the plan-record reference](../../../docs/agents/flow-plan-record.md).
 
 **Compose-project safety - RUN-WIDE (issue #626).** **Whenever any step
@@ -235,8 +239,8 @@ compose names a second, colliding stack after the worktree basename.
    ~/.claude/scripts/speckit-context.py check --body-file "$BODY_FILE" --root .
    ```
 
-   On exit 127: `${CLAUDE_PLUGIN_ROOT}/scripts/speckit-context.py`, else the
-   CPP-checkout copy. Inside a generated Codex skill, use the skill's own
+   Missing helper: read the source directly and report the block unchecked.
+   Inside a generated Codex skill, use the skill's own
    bundled copy, `${CPP_SKILL_DIR:-/dev/null}/scripts/<name>` (issue #1542) -
    never a `scripts/` directory in the target project.
 
@@ -388,8 +392,7 @@ rule); the emitted `FLOW_STALE_PATH:` line must name the run's worktree:
 ~/.claude/scripts/flow-stale-check.sh origin/main /path/to/worktree
 ```
 
-(Exit 127: `${CLAUDE_PLUGIN_ROOT}/scripts/flow-stale-check.sh` (#590), else
-the CPP-checkout copy; if none exists, note it and continue.)
+(Missing helper: note it and continue.)
 
 - `FLOW_STALE_BASE: collision` - or a file you are about to touch named under
   "Changed upstream": `git merge --no-edit origin/main` now and resolve any
@@ -479,7 +482,8 @@ guard in `--strict` mode (issue #576):
   ~/.claude/scripts/flow-worktree-guard.sh --strict
   ```
 
-**Read the `FLOW_WORKTREE_GUARD:` line (issue #1014)**, which is always printed:
+**Read the `FLOW_WORKTREE_GUARD:` line (issue #1014)**, which is always printed
+(listed here because it governs what the run may claim, which no helper enforces):
 
 - `no-leak` (exit 0): proceed.
 - `leak` (exit 3): **Exit 3 is a STOP.** It reports a SIGNATURE, not an author:
@@ -582,8 +586,7 @@ ISSUE_NUM=$(echo "$BRANCH" | grep -oP 'issue-\K[0-9]+' || echo "")
 ```
 
 **Stale-base pre-check (issue #473) - run BEFORE the quality gates and commit.**
-Bare (#581; exit 127: `${CLAUDE_PLUGIN_ROOT}/scripts/flow-stale-check.sh`
-(#590), else the CPP-checkout copy). Pass the worktree path as the trailing
+Bare (#581; missing helper: as in Step 4). Pass the worktree path as the trailing
 literal argument (issue #614); `FLOW_STALE_PATH:` must name this run's worktree:
 
 ```bash
@@ -816,9 +819,6 @@ instead.
    ~/.claude/scripts/flow-finish-gate.sh
    ```
 
-   (Exit 127: fall back to `${CLAUDE_PLUGIN_ROOT}/scripts/flow-finish-gate.sh`
-   (#590), else the CPP-checkout copy; tell the user to run **`/flow:repair`**.)
-
    If the project's gate needs the pushed head (it refuses unpushed commits),
    commit and `git push -u origin "$BRANCH"` first, then gate; same at Step 7
    (#1706).
@@ -830,7 +830,8 @@ instead.
    copy prints a verdict line, STOP and report that the gate did not run. It is
    NOT `skipped`, and the run never commits, pushes or merges on it.
 
-   Each verdict has its own exit code (issue #1027):
+   Each verdict has its own exit code (issue #1027), listed here because it
+   governs what the run may claim, which no helper enforces:
    - `FLOW_FINISH_GATE: ok` (exit 0): proceed to commit.
    - `FLOW_FINISH_GATE: warn` (exit 3, issue #621): a test step exited 0 having
      executed no tests. Proceed, but report the counts verbatim and say plainly
@@ -851,7 +852,7 @@ instead.
      a repository with no `verify:` target (issue #1147); it does not stop the
      flow. In a repo that DOES have one, check the Makefile.
 
-   **Ignored-additions guard** (issue #430). Invoke bare (on exit 127 skip it):
+   **Ignored-additions guard** (issue #430). Invoke bare (missing helper: skip it):
    ```bash
    ~/.claude/scripts/check-ignored-additions.sh
    ```
@@ -869,9 +870,7 @@ instead.
    ```bash
    ~/.claude/scripts/flow-worktree-guard.sh --strict
    ```
-   On exit 127 fall back to
-   `${CLAUDE_PLUGIN_ROOT}/scripts/flow-worktree-guard.sh --strict` (#590), else
-   the CPP-checkout copy; if no copy exists, note it and continue.
+   Missing helper: note it and continue.
 
 3. **Commit** - if there are uncommitted changes:
    - Conventional commit format, using the selected reference:
@@ -966,8 +965,7 @@ exactly "Nit Store" (#1272, #1273). Act on `NIT_STORE_STATUS`:
   Post nowhere. Say in the closing report that the finding is unrouted and
   carry it there verbatim, because `unknown` is not `none`.
 
-On exit 127 fall back to `scripts/nit-store-resolve.sh` in the CPP checkout, and
-tell the user to run **`/flow:repair`**.
+Missing helper: handle it as `unknown`.
 
 - **One finding per comment.** State the file and line (or the command), what is
   wrong, why it matters, and which issue or PR you were working. The comment is
@@ -1068,8 +1066,7 @@ Having nothing to store is an ordinary outcome. Do not manufacture a finding.
    ~/.claude/scripts/gh-pr-merge.sh 78 issue-42-fix-login
    ```
 
-   On exit 127, resolve the plugin copy, then the CPP-checkout copy. If none
-   exists, **REFUSE**. There is no raw-merge fallback (issue #1543): a plain
+   Missing helper: **REFUSE**. There is no raw-merge fallback (issue #1543): a plain
    `gh pr merge --squash` skips every guard the helper runs.
    <!-- merge-helper-resolution -->
    ```bash
@@ -1096,49 +1093,16 @@ Having nothing to store is an ordinary outcome. Do not manufacture a finding.
        MERGE_RC=12
    fi
    ```
-   Every CLEAN STOP below leaves the PR open and untouched. None is retried
-   blindly or escalated to `--admin` by the run.
-
+   - **A `CLEAN STOP:` line leaves the PR open and untouched.** Relay it under
+     the helper rule (top of file); never retry blindly. While a stop stands,
+     leave the worktree, branch and PR INTACT and run no cleanup. A review
+     stop (exit 3) ends the run. When the base moved (exit 6), resume Step 7
+     from sub-step 1. On exit 9, report it; never push or discard another
+     checkout's work.
+     Tests: `tests/test_gh_pr_merge.py` checks each stop's remedy line.
    - **`MERGE_RC` 12 is the MISSING-HELPER REFUSAL (issue #1543), and the
      helper never emits it.** Nothing was merged. **STOP** and report that
      `/flow:repair` must run. Never finish the merge by hand with `gh pr merge`.
-   - **Helper exit 11 is also a CLEAN STOP (issue #1543):** the PR's head is no
-     longer the pinned sha (`GH_PR_MERGE_HEAD_PIN:` names both). It is **never
-     retried and never escalated to `--admin`**. Re-verify the current head
-     (CI, review) and re-run with its sha.
-   - **Helper exit 3 is a FIRST-CLASS CLEAN STOP, not a failure (issue #579):**
-     the PR awaits a required human review (`REVIEW_REQUIRED` or
-     `CHANGES_REQUESTED`). Report the helper's handoff message and leave the
-     worktree, branch, and PR INTACT - do NOT run cleanup, do NOT retry, and
-     NEVER re-invoke with `--admin` yourself. End the run here.
-   - **Helper exit 4 is also a CLEAN STOP (issue #657):** the operator set
-     `GH_PR_MERGE_STRICT_DELETIONS=1` and the PR deletes files. Review the
-     `GH_PR_MERGE_DELETIONS:` paths; if intended, re-run without strict mode.
-     Flow itself never sets this variable.
-   - **Helper exit 5 is also a CLEAN STOP (issue #726):** the squash title,
-     body, or a commit subject has a NEGATED close keyword ("does not close
-     #N") that GitHub would still honor. Report the printed context, reword it and
-     re-run
-     (`--allow-negated-close` only after the user consciously confirms).
-   - **Helper exit 6 is also a CLEAN STOP, not a failure (issue #767):** the
-     base advanced during the check wait. Re-run Step 7 from sub-step 1: sync,
-     re-gate, push, merge again.
-   - **Helper exit 6 can also come from the final base re-read (issue #1300):**
-     `GH_PR_MERGE_BASE_AT_SQUASH: <sha>`. Same remedy.
-   - **Helper exit 7 is also a CLEAN STOP (issue #794):** as 5, but the keyword
-     is merely adjacent to `#N`. Report the printed context, reword and re-run
-     (`--allow-incidental-close`
-     only after the user consciously confirms).
-   - **Helper exit 8 means the incidental-close guard's own self-check failed
-     (issue #794):** a BROKEN CHECK, not a clean scan. Report it; there is no
-     override.
-   - **Helper exit 9 is also a CLEAN STOP (issue #1262):** a worktree on this
-     host holds the PR's branch at a commit that is NOT the PR's head. Report
-     the printed path and sha; push or discard that work, then re-run.
-     `--allow-local-divergence` is the user's call.
-   - **Helper exit 10 is also a CLEAN STOP (issue #1300):** the required-check
-     wait ran out (`GH_PR_MERGE_CI_WAIT:` reports why). It is NOT a red check:
-     do not re-sync or re-gate. Wait for green and re-run the merge.
    - **`GH_PR_MERGE_ALREADY_MERGED: <n>` with exit 0 is SUCCESS (issue
      #1262):** proceed to cleanup. Never re-gate on a `GH_PR_MERGE_BASE_STALE`
      without first checking this.
@@ -1147,6 +1111,9 @@ Having nothing to store is an ordinary outcome. Do not manufacture a finding.
      `GH_PR_MERGE_DELETIONS: <n> <paths...>|0|skipped` - read it: deletions the
      issue scope does not explain are a collapse onto a moved base; and
      `GH_PR_MERGE_COMPLETENESS: ok|violation|skipped` - REPORT a `violation`.
+     Stop markers to relay: `GH_PR_MERGE_HEAD_PIN:`, `GH_PR_MERGE_CI_WAIT:`,
+     `GH_PR_MERGE_BASE_AT_SQUASH: <sha>`, `GH_PR_MERGE_DELETIONS:`. Flow never
+     sets `GH_PR_MERGE_STRICT_DELETIONS=1`.
    - If the merge genuinely failed (conflicts, failing checks, PR not
      `MERGED`): **STOP**. A non-zero `gh` exit whose PR is nonetheless `MERGED`
      is NOT a failure - the helper treats it as success.
@@ -1191,29 +1158,14 @@ Having nothing to store is an ordinary outcome. Do not manufacture a finding.
    ```bash
    ~/.claude/scripts/worktree-remove.sh /path/to/worktree --force --delete-branch
    ```
-   Every refusal below is CORRECT, not a flow failure. Report it and stop;
-   never retry with an override reflexively, and never with `--steal` - that
-   is the user's call. `--force` overrides none of them.
-
-   | exit | meaning | override |
-   |---|---|---|
-   | 4 | claimed by another LIVE session (#597); the owner is printed | `--steal` |
-   | 5 | a live process's cwd is inside AND the tree is dirty | `--steal` |
-   | 6 | uncommitted work would be destroyed | `--allow-dirty` |
-   | 7 | commits here are on no remote ref | `--allow-unpushed` |
-   | 8 | `--delete-branch` asked, but directory name and checked-out branch name different issues | `--steal` |
-
-   - The helper **exits 4** for a sibling's claim; this session's own claim,
-     or a dead one, is released automatically.
-   - **Exit 5 is the same kind of clean STOP (issue #888):** report the printed
-     PIDs and dirty paths. `WORKTREE_REMOVE_OCCUPANCY: unknown` means
-     unchecked, not clean.
-   - Exits 6 and 7 (issue #899) mean something earlier did not finish - find
-     that. On 7, push the branch and re-run.
-   - **`worktree-remove.sh` exit 8 is a CLEAN STOP too (issue #1032).** It is
-     not `gh-pr-merge.sh`'s 8. Report the `WORKTREE_REMOVE_ATTRIBUTION:` line.
-     Re-run without `--delete-branch` to remove just the directory, or rename
-     the worktree first.
+   A refusal (exits 4 to 8) is CORRECT, not a flow failure: relay it under the
+   helper rule and stop. On unpushed commits (7), push this run's branch and
+   re-run. `--force` overrides none of them. A refusal over
+   uncommitted or unpushed work means something earlier did not finish - find
+   that; never `git stash` it (the stack is shared, #635).
+   `WORKTREE_REMOVE_OCCUPANCY: unknown` means unchecked, not clean; relay any
+   `WORKTREE_REMOVE_ATTRIBUTION:` line (its exit 8 is not `gh-pr-merge.sh`'s). Tests:
+   `tests/test_worktree_remove_occupied.py` checks each refusal's remedy line.
 
    If the helper is not installed, REFUSE rather than removing by hand
    (issue #973). Derive the paths in THIS call (`WORKTREE_PATH` must be set in
@@ -1369,9 +1321,7 @@ differently protected base. With `--exit-code`, failure/stalled exits 1.
 Unknown/not-found exits 2; valid-ref wait expiry takes precedence as 5.
 Invalid refs exit 2 before requests.
 
-On exit 127 fall back to `${CLAUDE_PLUGIN_ROOT}/scripts/flow-ci-status.sh`
-(#590), else the CPP-checkout copy; tell the user to run **`/flow:repair`**. If
-no copy exists, skip CI verification with a warning rather than improvising a
+Missing helper: skip CI verification with a warning rather than improvising a
 lookup, and say plainly in the final summary that CI was NOT verified.
 
 Report: `Step 8/9: Verify CI complete - pipeline #{N} passed` or

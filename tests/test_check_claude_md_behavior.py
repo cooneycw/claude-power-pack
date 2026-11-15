@@ -494,10 +494,25 @@ def test_the_real_flow_auto_fixture_is_substantial_and_satisfied() -> None:
         "bash-0078": "bash-0078-marker", "bash-0079": "bash-0079-marker",
         "bash-0080": "bash-0079-marker", "bash-0081": "bash-0081-marker",
     }
-    assert set(retirements) == {"bash-0195", "bash-0201", *marker_retirements}
+    # #1848: the per-exit-code headings for two helpers are withdrawn; each
+    # helper's own stop line carries the meaning, and a named test asserts it.
+    relay_retirements = {
+        **{f"exit-rule-{n:04d}": "tests/test_gh_pr_merge.py" for n in range(3, 12)},
+        "exit-rule-0012": "tests/test_worktree_remove_occupied.py",
+        "exit-rule-0013": "tests/test_worktree_remove_occupied.py",
+    }
+    assert set(retirements) == {
+        "bash-0195", "bash-0201", *marker_retirements, *relay_retirements,
+    }
     mapping = dict(steps)
     raw = json.loads((root / behavior.COMMAND_STEP_FIXTURES[_STEP_DOC]).read_text())
     entries = {item["slug"]: item for item in raw["obligations"]}
+    for slug, test_file in relay_retirements.items():
+        reason = retirements.pop(slug)
+        assert "#1848" in reason and test_file in reason, reason
+        assert "the stop itself is unchanged" in reason, reason
+        assert entries[slug]["kind"] == "text"
+        assert (root / test_file).is_file(), test_file
     for slug, replacement in marker_retirements.items():
         reason = retirements.pop(slug)
         assert "#1847" in reason and f"replaced by {replacement};" in reason, reason

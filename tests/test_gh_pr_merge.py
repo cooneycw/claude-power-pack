@@ -1080,7 +1080,16 @@ def test_flow_commands_wire_the_helper():
         # substitutes this placeholder, still passed (counter-model review).
         pins = re.findall(r"^\s*PIN_SHA=(.*?)(?:\s+#.*)?$", block, re.M)
         assert pins == ["<pr-head-sha>"], f"{rel}: PIN_SHA must be the caller's literal: {pins}"
-        assert re.search(r"\b11\b.*CLEAN STOP|exit 11", text), f"{rel} must document exit 11"
+        if "flow-auto" in rel or "flow/auto" in rel:
+            # #1848: /flow:auto relays the helper's own CLEAN STOP line (whose
+            # remedy is asserted by the exit tests) instead of restating each
+            # exit; it must still name the pin's stop marker and forbid an
+            # override the stop names.
+            assert "GH_PR_MERGE_HEAD_PIN:" in text, f"{rel} must name the head-pin stop marker"
+            assert "A `CLEAN STOP:` line leaves the PR open and untouched." in text, rel
+            assert "Never pass an override it names" in text, f"{rel} must forbid self-override"
+        else:
+            assert re.search(r"\b11\b.*CLEAN STOP|exit 11", text), f"{rel} must document exit 11"
 
 
 #: Candidate helper locations the merge block probes that a test cannot
@@ -1246,6 +1255,9 @@ def test_skillc_515_body_through_the_helper_is_a_clean_stop(tmp_path: Path):
     )
     result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-1543-fix")
     assert result.returncode == 5, result.stderr
+    # #1848: flow/auto.md relays this line instead of restating the exit; the
+    # remedy must be in the helper's own output.
+    assert "Reword without the literal trigger pattern" in result.stderr
     assert [c for c in _calls(stubs) if c.startswith("gh pr merge")] == []
 
 
@@ -1291,6 +1303,9 @@ def test_head_moved_after_ci_refuses_the_squash(tmp_path: Path):
     assert result.returncode == 11, result.stderr
     assert "CLEAN STOP" in result.stderr
     assert f"GH_PR_MERGE_HEAD_PIN: {verified} -> {PINNED}" in result.stdout
+    # #1848: flow/auto.md relays this line instead of restating the exit; the
+    # remedy must be in the helper's own output.
+    assert "Re-verify the current head (CI, review)" in result.stderr
     assert [c for c in _calls(stubs) if c.startswith("gh pr merge")] == []
 
 
@@ -1423,6 +1438,9 @@ def test_review_block_at_squash_clean_stops_never_admin(tmp_path: Path):
     assert result.returncode == 3, result.stderr
     assert "CLEAN STOP" in result.stderr
     assert "/flow:merge" in result.stderr
+    # #1848: flow/auto.md relays this line instead of restating the exit; the
+    # remedy must be in the helper's own output.
+    assert "Next: approve or merge the PR on GitHub" in result.stderr
     merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
     assert len(merge_calls) == 1, merge_calls
     assert not any("--admin" in c for c in merge_calls)
@@ -1658,6 +1676,9 @@ def test_required_check_that_never_reports_times_out_without_merging(tmp_path: P
     assert result.returncode == 10
     assert "never posted a status" in result.stderr
     assert "--admin" in result.stderr, "the stop must name the documented break-glass"
+    # #1848: flow/auto.md relays this line instead of restating the exit; the
+    # remedy must be in the helper's own output.
+    assert "Do NOT re-gate or re-sync for this" in result.stderr
     assert not any(c.startswith("gh pr merge") for c in _calls(stubs)), "must not merge"
 
 
@@ -1729,6 +1750,10 @@ def test_base_move_during_check_wait_clean_stops_before_merge(tmp_path: Path):
     )
     assert f"GH_PR_MERGE_BASE_MOVED: {BASE_TIP_OLD} -> {BASE_TIP_NEW}" in result.stdout
     assert "CLEAN STOP" in result.stderr
+    # #1848: flow/auto.md relays this line instead of restating the exit; the
+    # remedy must be in the helper's own output.
+    assert "Re-run the quality gate, push, and re-run the merge." in result.stderr
+    assert "Resume /flow:auto Step 7 from its sync sub-step" in result.stderr
     assert "git fetch origin main" in result.stderr
     assert "git merge origin/main" in result.stderr
     assert "--allow-base-move" in result.stderr
@@ -2258,6 +2283,9 @@ def test_strict_deletions_is_clean_pre_squash_stop(tmp_path: Path):
     assert result.returncode == 4, result.stderr
     assert "GH_PR_MERGE_DELETIONS: 1 lib/feature.py" in result.stdout
     assert "CLEAN STOP" in result.stderr
+    # #1848: flow/auto.md relays this line instead of restating the exit; the
+    # remedy must be in the helper's own output.
+    assert "re-run without strict mode" in result.stderr
     merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
     assert merge_calls == [], "strict stop must leave the PR untouched"
 
@@ -2497,6 +2525,9 @@ def test_incidental_close_keyword_refuses_adjective_in_commit_subject(tmp_path: 
     assert "resolved" in result.stderr
     merge_calls = [c for c in _calls(stubs) if c.startswith("gh pr merge")]
     assert merge_calls == [], "incidental-close stop must leave the PR untouched"
+    # #1848: flow/auto.md relays this line instead of restating the exit; the
+    # remedy must be in the helper's own output.
+    assert "reword the clause" in result.stderr
 
 
 def test_incidental_close_keyword_refuses_governs_different_noun_in_body(tmp_path: Path):
@@ -3647,6 +3678,9 @@ def test_a_worktree_holding_the_PR_branch_at_ANOTHER_sha_stops_the_merge(tmp_pat
     assert f"{tmp_path}/sibling-wt" in result.stderr
     assert "--allow-local-divergence" in result.stderr
     assert not any(c.startswith("gh pr merge") for c in _calls(stubs))
+    # #1848: flow/auto.md relays this line instead of restating the exit; the
+    # remedy must be in the helper's own output.
+    assert "Push it, or discard it, then re-run the merge." in result.stderr
 
 
 def test_a_worktree_AT_the_PR_head_does_not_stop_it(tmp_path: Path):
