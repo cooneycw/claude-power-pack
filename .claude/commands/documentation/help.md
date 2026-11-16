@@ -41,7 +41,7 @@ npx skills add anthropics/skills@pptx
 
 ### Makefile Integration
 
-Add an `update_docs` target to your Makefile to run C4 diagram generation and doc review as part of `/flow:auto` and `/flow:finish`.
+Documentation is not a `/flow:*` step (#1850): run `/documentation:c4` and review README.md / CLAUDE.md yourself when a change makes them stale.
 
 ### Related
 

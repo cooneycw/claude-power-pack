@@ -2,7 +2,7 @@
 	scripts-inventory-check instrument-census-check dep-audit dep-audit-selftest dep-audit-capture \
 	bandit-audit bandit-audit-selftest bandit-audit-capture \
 	undeclared-import-audit undeclared-import-audit-selftest \
-       oscillation update_docs clean \
+       oscillation clean \
        bootstrap-check drift-check deploy setup-woodpecker-cli \
        codex-init codex-skills codex-skills-check codex-install codex-global-agents codex-global-agents-check \
        eli5-check eli5-drift eli5-revendor \
@@ -914,13 +914,6 @@ skill-coverage-snapshot:
 qa-regression-demo:
 	@bash scripts/qa-regression-demo.sh
 	@bash scripts/qa-regression-demo.sh --negative-control
-
-## Documentation (used by /flow:auto and /flow:finish)
-
-## verify-coverage: utility update_docs - prints what to regenerate; it issues no verdict
-update_docs:
-	@echo "Run /documentation:c4 to regenerate C4 architecture diagrams"
-	@echo "Review CLAUDE.md and README.md for accuracy"
 
 ## Bootstrap dependency check (admin-only prerequisites)
 

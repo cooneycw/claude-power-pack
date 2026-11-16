@@ -92,7 +92,7 @@
    "slug": "bash-0015",
    "needle": "fi",
    "kind": "bash-line",
-   "count": 31
+   "count": 29
   },
   {
    "slug": "bash-0016",
@@ -722,7 +722,7 @@
    "slug": "bash-0115",
    "needle": "done",
    "kind": "bash-line",
-   "count": 3
+   "count": 2
   },
   {
    "slug": "bash-0116",
@@ -746,7 +746,7 @@
    "slug": "bash-0119",
    "needle": "else",
    "kind": "bash-line",
-   "count": 6
+   "count": 5
   },
   {
    "slug": "bash-0120",
@@ -1804,6 +1804,37 @@
   "bash-0038": "Owner-approved #1849 plan: /flow:auto calls the plan-record run verbs (start / approve --plan / finish), which dispatch from COMPOSITE_VERBS and print every inner verdict line; replaced by bash-0038-approve-plan; tests/test_flow_plan_record_wrappers.py runs the wrappers; original baseline retained.",
   "bash-0090": "Owner-approved #1849 plan: /flow:auto calls the plan-record run verbs (start / approve --plan / finish), which dispatch from COMPOSITE_VERBS and print every inner verdict line; replaced by bash-0091-finish; tests/test_flow_plan_record_wrappers.py runs the wrappers; original baseline retained.",
   "bash-0091": "Owner-approved #1849 plan: /flow:auto calls the plan-record run verbs (start / approve --plan / finish), which dispatch from COMPOSITE_VERBS and print every inner verdict line; replaced by bash-0091-finish; tests/test_flow_plan_record_wrappers.py runs the wrappers; original baseline retained.",
-  "bash-0092": "Owner-approved #1849 plan: /flow:auto calls the plan-record run verbs (start / approve --plan / finish), which dispatch from COMPOSITE_VERBS and print every inner verdict line; replaced by bash-0091-finish; tests/test_flow_plan_record_wrappers.py runs the wrappers; original baseline retained."
+  "bash-0092": "Owner-approved #1849 plan: /flow:auto calls the plan-record run verbs (start / approve --plan / finish), which dispatch from COMPOSITE_VERBS and print every inner verdict line; replaced by bash-0091-finish; tests/test_flow_plan_record_wrappers.py runs the wrappers; original baseline retained.",
+  "bash-0040": "#1850 Q4 owner ruling: Step 5 (documentation) removed from the flow",
+  "bash-0041": "#1850 Q4 owner ruling: Step 5 (documentation) removed from the flow",
+  "bash-0042": "#1850 Q4 owner ruling: Step 5 (documentation) removed from the flow",
+  "bash-0062": "#1850 G3-2 owner ruling: collapse recipe withdrawn as an accepted limitation; the merge helper's deletions marker and the receipt check cover it",
+  "bash-0063": "#1850 G3-2 owner ruling: collapse recipe withdrawn as an accepted limitation; the merge helper's deletions marker and the receipt check cover it",
+  "bash-0064": "#1850 G3-2 owner ruling: collapse recipe withdrawn as an accepted limitation; the merge helper's deletions marker and the receipt check cover it",
+  "bash-0065": "#1850 G3-2 owner ruling: collapse recipe withdrawn as an accepted limitation; the merge helper's deletions marker and the receipt check cover it",
+  "bash-0067": "#1850 group 1: receipt-helper resolution chain replaced by the file's missing-helper rule; CM_RECEIPT binding kept",
+  "bash-0068": "#1850 group 1: receipt-helper resolution chain replaced by the file's missing-helper rule; CM_RECEIPT binding kept",
+  "bash-0069": "#1850 group 1: receipt-helper resolution chain replaced by the file's missing-helper rule; CM_RECEIPT binding kept",
+  "bash-0070": "#1850 group 1: receipt-helper resolution chain replaced by the file's missing-helper rule; CM_RECEIPT binding kept",
+  "bash-0133": "#1850 G3-1 owner ruling: /flow:auto's marker-file refusal hand-off withdrawn as an accepted limitation; a missing worktree-remove.sh now STOPs; /flow:merge keeps the hand-off",
+  "bash-0134": "#1850 G3-1 owner ruling: /flow:auto's marker-file refusal hand-off withdrawn as an accepted limitation; a missing worktree-remove.sh now STOPs; /flow:merge keeps the hand-off",
+  "bash-0135": "#1850 G3-1 owner ruling: /flow:auto's marker-file refusal hand-off withdrawn as an accepted limitation; a missing worktree-remove.sh now STOPs; /flow:merge keeps the hand-off",
+  "bash-0136": "#1850 G3-1 owner ruling: /flow:auto's marker-file refusal hand-off withdrawn as an accepted limitation; a missing worktree-remove.sh now STOPs; /flow:merge keeps the hand-off",
+  "bash-0137": "#1850 G3-1 owner ruling: /flow:auto's marker-file refusal hand-off withdrawn as an accepted limitation; a missing worktree-remove.sh now STOPs; /flow:merge keeps the hand-off",
+  "bash-0138": "#1850 G3-1 owner ruling: /flow:auto's marker-file refusal hand-off withdrawn as an accepted limitation; a missing worktree-remove.sh now STOPs; /flow:merge keeps the hand-off",
+  "bash-0139": "#1850 G3-1 owner ruling: /flow:auto's marker-file refusal hand-off withdrawn as an accepted limitation; a missing worktree-remove.sh now STOPs; /flow:merge keeps the hand-off",
+  "bash-0140": "#1850 G3-1 owner ruling: /flow:auto's marker-file refusal hand-off withdrawn as an accepted limitation; a missing worktree-remove.sh now STOPs; /flow:merge keeps the hand-off",
+  "bash-0141": "#1850 G3-1 owner ruling: /flow:auto's marker-file refusal hand-off withdrawn as an accepted limitation; a missing worktree-remove.sh now STOPs; /flow:merge keeps the hand-off",
+  "bash-0142": "#1850 G3-1 owner ruling: /flow:auto's marker-file refusal hand-off withdrawn as an accepted limitation; a missing worktree-remove.sh now STOPs; /flow:merge keeps the hand-off",
+  "bash-0143": "#1850 G3-1 owner ruling: /flow:auto's marker-file refusal hand-off withdrawn as an accepted limitation; a missing worktree-remove.sh now STOPs; /flow:merge keeps the hand-off",
+  "bash-0144": "#1850 G3-1 owner ruling: /flow:auto's marker-file refusal hand-off withdrawn as an accepted limitation; a missing worktree-remove.sh now STOPs; /flow:merge keeps the hand-off",
+  "bash-0145": "#1850 G3-1 owner ruling: /flow:auto's marker-file refusal hand-off withdrawn as an accepted limitation; a missing worktree-remove.sh now STOPs; /flow:merge keeps the hand-off",
+  "bash-0146": "#1850 G3-1 owner ruling: /flow:auto's marker-file refusal hand-off withdrawn as an accepted limitation; a missing worktree-remove.sh now STOPs; /flow:merge keeps the hand-off",
+  "bash-0147": "#1850 G3-1 owner ruling: /flow:auto's marker-file refusal hand-off withdrawn as an accepted limitation; a missing worktree-remove.sh now STOPs; /flow:merge keeps the hand-off",
+  "bash-0148": "#1850 G3-1 owner ruling: /flow:auto's marker-file refusal hand-off withdrawn as an accepted limitation; a missing worktree-remove.sh now STOPs; /flow:merge keeps the hand-off",
+  "bash-0149": "#1850 G3-1 owner ruling: /flow:auto's marker-file refusal hand-off withdrawn as an accepted limitation; a missing worktree-remove.sh now STOPs; /flow:merge keeps the hand-off",
+  "bash-0150": "#1850 G3-1 owner ruling: /flow:auto's marker-file refusal hand-off withdrawn as an accepted limitation; a missing worktree-remove.sh now STOPs; /flow:merge keeps the hand-off",
+  "bash-0151": "#1850 G3-1 owner ruling: /flow:auto's marker-file refusal hand-off withdrawn as an accepted limitation; a missing worktree-remove.sh now STOPs; /flow:merge keeps the hand-off",
+  "bash-0152": "#1850 G3-1 owner ruling: /flow:auto's marker-file refusal hand-off withdrawn as an accepted limitation; a missing worktree-remove.sh now STOPs; /flow:merge keeps the hand-off"
  }
 }

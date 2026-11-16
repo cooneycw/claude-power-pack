@@ -291,7 +291,9 @@ def test_the_real_repo_declares_the_argued_budget_for_flow_auto() -> None:
     stopped carrying the review's shell, and #1848 to 9,929 when it stated the
     missing-helper fallback once and relayed helper stop lines instead of
     restating exit codes, and #1849 to 9,816 when the plan record's eight calls
-    and hand-built append became three run verbs. The reasoning is beside the number in
+    and hand-built append became three run verbs, and #1850 to 9,120 when
+    documentation left the flow and owner-ruled paragraphs were withdrawn or
+    moved to their references. The reasoning is beside the number in
     `.claude/command-word-budgets.tsv`.
     """
     root = SCRIPT.parents[1]
@@ -301,5 +303,5 @@ def test_the_real_repo_declares_the_argued_budget_for_flow_auto() -> None:
         for p in (root / budget.COMMANDS_DIR).rglob("*.md")
     }
 
-    assert budgets["flow/auto.md"] == 9_816
+    assert budgets["flow/auto.md"] == 9_120
     assert on_disk and on_disk == set(budgets), "every command document is declared, and nothing else"

@@ -207,9 +207,18 @@ DIRECTIONS = (DIRECTION_DEFAULT, DIRECTION_DELEGATED)
 #:   `explicit-opt-out` does NOT return on that trigger. It was removed for a
 #:   different reason (no producer), and re-adding a discretionary skip is the
 #:   swing this trigger exists to catch, not one it authorises.
+#:
+#: OWNER RULING 2026-11-16 (issue #1850, ruling Q5(b)) widens #1015 by exactly
+#: one member: `tier-1-docs-only`, for a change whose APPROVED plan is Tier 1,
+#: documentation-only and says "review skipped". It is NOT an inability, and it
+#: did not come back through the reversal trigger above - it is a named owner
+#: decision, bound to the approver's plan and otherwise on the honour system
+#: (nothing re-derives the tier). `explicit-opt-out` stays removed: a skip must
+#: still name which one, and an unnamed discretionary skip is still refused.
 SKIP_REASONS = (
     "codex-absent",           # the reviewer binary is not installed on this host
     "reviewer-unavailable",   # the second model could not be reached or run
+    "tier-1-docs-only",       # the approved Tier 1 docs-only plan skipped review (#1850)
 )
 
 COUNTS = ("accepted", "rejected", "deferred")
