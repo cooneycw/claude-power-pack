@@ -63,10 +63,11 @@ KNOWN_INVOKERS = {
     Path(".claude/commands/flow/wave.md"),
 }
 
-# The two surfaces that must carry the refusal, because they are the two that
-# REMOVE a worktree as part of closing a run.
+# The surfaces that must carry the continuing refusal (marker file + owner
+# TO-DO). /flow:auto withdrew it at #1850 (owner ruling G3-1, accepted
+# limitation): a missing helper there STOPs under the file's missing-helper
+# rule instead, and the raw-removal scan below still covers it.
 REFUSING_SURFACES = (
-    Path(".claude/commands/flow/auto.md"),
     Path(".claude/commands/flow/merge.md"),
 )
 
@@ -269,17 +270,6 @@ def _executable_lines(block: str) -> list[str]:
         for line in block.splitlines()
         if line.strip() and not line.strip().startswith("#")
     ]
-
-
-def test_both_surfaces_ship_the_same_form() -> None:
-    """Two refusal forms in a generated-mirror family read as a generator bug."""
-    blocks = {s: _executable_lines(refusal_block(s)) for s in REFUSING_SURFACES}
-    assert all(blocks.values()), "a refusal block with no executable line compares equal to nothing"
-    first, *rest = blocks.values()
-    assert all(b == first for b in rest), (
-        "the refusal forms have diverged between "
-        f"{', '.join(str(s) for s in blocks)}"
-    )
 
 
 def test_doctor_states_the_consequence_rather_than_a_fallback() -> None:

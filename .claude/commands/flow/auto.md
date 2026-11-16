@@ -5,6 +5,20 @@ Worktree → issue analysis → approved plan → implementation → PR → merg
 Why each rule exists (#1669):
 [flow:auto rationale](../../../docs/reference/flow-auto-rationale.md).
 
+**What this command promises, and what it declines, is its
+[charter](../../../charters/flow/auto/CHARTER.md) (#1850).** In short: one
+open issue, in a git repository with the CPP helpers, driven from a Claude or
+Codex session, implemented in a worktree. Work already in flight is refused.
+Open prerequisites, work that is no longer needed, and low-frequency,
+low-severity work are recommendations at Step 3, closed only with the
+approver's yes. Outside that scope this file carries no protective prose.
+
+**Tier 1 (`Tier: 1`, one concern, 1-3 files) is the same flow, answered
+briefly.** A documentation-only change answers lanes in one line
+(`Lanes: none - documentation only`), each `Reader:` row in one line, and may
+skip the second-model review when the approved plan says so (Step 6, item 1).
+The Step 3 approval is never skipped, at any tier (#775).
+
 ## Arguments
 
 - `ISSUE` (required): GitHub issue number (e.g., `42`)
@@ -16,7 +30,7 @@ Why each rule exists (#1669):
 
 | | |
 |---|---|
-| **Scope** | **general** - Claude implements directly, so the deliverable can be a diff, a written finding, a recommendation, or a decision |
+| **Scope** | **general** - the session's own model implements directly, so the deliverable can be a diff, a written finding, a recommendation, or a decision |
 | **Web** | **yes** - WebFetch / WebSearch are available for live sources |
 | **Container** | **yes** - the Bash tool reaches docker/kubectl/terraform directly, no sandbox denial (issue #835) |
 | **Cannot take** | nothing on these axes |
@@ -54,7 +68,7 @@ Step 1/9: Start (create worktree and branch)
 Step 2/9: Analyze (understand issue and codebase)
 Step 3/9: ELI5 (plain-language intent + necessity verdict + plan approval gate)
 Step 4/9: Implement (write the code)
-Step 5/9: Update Docs (regenerate C4 diagrams, review CLAUDE.md/README.md)
+Step 5/9: retired (documentation is not part of the flow, #1850)
 Step 6/9: Finish (lint, test, commit, push, create PR)
 Step 7/9: Merge (squash-merge PR, clean up worktree)
 Step 8/9: Verify CI (confirm pipeline passes on main)
@@ -241,32 +255,11 @@ compose names a second, colliding stack after the worktree basename.
    bundled copy, `${CPP_SKILL_DIR:-/dev/null}/scripts/<name>` (issue #1542) -
    never a `scripts/` directory in the target project.
 
-   Act on `SPECKIT_CONTEXT_STATE`:
-   - `current` - read the **Reference source** named in the block, including
-     the cross-cutting sections it lists, then plan.
-   - `changed-in-scope` / `changed-outside-scope` - source bytes changed, which
-     is NOT a ruling that acceptance changed. Read the source, decide whether
-     it matters under the existing authority model, and say so in the Step 3
-     report. Newer bytes do not by themselves override a constraint or plan
-     already accepted on the issue. Report any recorded `Acceptance-revision:`
-     line with the version it names, and resolve whether it predates the change.
-   - `changed-task` - re-read the task line and its story; treat the block's
-     requirement list as provisional.
-   - `tasks-missing` - plan from the issue body and the source if one resolves;
-     report that the task-side mapping could not be re-checked.
-   - `block-edited` / `block-damaged` - read the source directly; do not
-     refresh the block as a side effect of this run.
-   - `source-missing` / `source-unresolved` - plan from the issue body and
-     surface any material ambiguity.
-   - `absent` - an ordinary issue. Its body IS the contract (see
-     [the issue contract](../../../docs/agents/issue-contract.md)).
-
-   The block's **Task wording** line is the task's own sentence, not a ruling:
-   resolve whether it proposes an approach you may replace or restates a binding
-   constraint. Resolve what would change the work, surface the rest in the
-   Step 3 report, and plan from what you have.
-   An **Unresolved** or **Capped** note means the context is incomplete - never
-   that the task has no constraints. Missing optional structure is not a gate.
+   Act on its `SPECKIT_CONTEXT_STATE` as
+   [the speckit-context reference](../../../docs/scripts/speckit-context.md)
+   says. `absent` is an ordinary issue whose body IS the contract; any other
+   state means read the named source before planning, and a changed source is
+   never by itself a ruling that acceptance changed.
 
 2. **Explore the codebase:** read the files the issue references, learn the
    existing patterns, and identify every file to create or modify.
@@ -540,28 +533,14 @@ Report: `Step 4/9: Implement complete - {summary of changes}`
 
 ---
 
-### Step 5: Update Docs - Regenerate C4 Diagrams and Review Docs
+### Step 5: retired - documentation is not part of the flow
 
-If the Makefile has an `update_docs` target:
+Owner ruling, #1850: a run does not regenerate diagrams or review README.md /
+CLAUDE.md, and no `update_docs` Makefile target is read. A document the change
+makes wrong is part of the change itself, planned in Section C like any other
+file. The number is kept so the many citations of Steps 6-9 stay true.
 
-```bash
-if [[ -f "Makefile" ]] && grep -q "^update_docs:" Makefile; then
-    echo "Running: make update_docs"
-    make update_docs
-fi
-```
-
-1. **Regenerate C4 diagrams** - if `docs/architecture/` exists or significant
-   code changed, run the `/documentation:c4` workflow (L1-L4 diagrams to
-   `docs/architecture/`).
-2. **Review CLAUDE.md** and **README.md** - fix any reference, command or
-   description the change made stale.
-3. **Stage doc changes** - `git add` any modified documentation files.
-
-If no `update_docs` target exists in the Makefile, skip this step. A failure
-here is non-blocking: warn and continue.
-
-Report: `Step 5/9: Update Docs complete - {N} files updated` or `Step 5/9: Update Docs skipped (no Makefile target)`
+Report: `Step 5/9: retired (#1850)`
 
 ---
 
@@ -643,25 +622,10 @@ if [[ "$ACCEPTANCE_COMPLETE" == "yes" ]]; then
 fi
 ```
 
-**Collapsing the branch to one commit - the SAFE recipe (issue #657).** Prefer
-NO collapse at all: the merge helper passes an explicit `--subject`/`--body`
-(#655). If you collapse anyway, collapse onto your ORIGINAL base, never a moved
-`origin/main`; prove the staged deletions are empty (unless intended) before
-committing; THEN bring the moved base in:
-
-```bash
-git reset --soft "$(git merge-base HEAD origin/main)"
-git diff --staged --diff-filter=D --name-only   # MUST be empty unless intended
-git commit -m "type(scope): Description (${ISSUE_REF})"
-git merge --no-edit origin/main
-```
-
-**Never collapse AFTER the counter-model receipt (item 1 below) has been
-written for this branch's current commits (Nit Store #864).** The enrolment
-check accepts only the receipted commit or a descendant
-(`git merge-base --is-ancestor`). If you must collapse afterwards, re-run the
-review and write a fresh receipt; pick up a moved base with `git merge`
-instead.
+**Do not collapse the branch to one commit** (#657, #864): the merge helper
+passes an explicit `--subject`/`--body` (#655), its `GH_PR_MERGE_DELETIONS:`
+marker reports a collapse onto a moved base, and a collapse after the receipt
+is written voids it. Pick up a moved base with `git merge`.
 
 1. **Counter-model review** - a second model reads the branch, BEFORE the
    quality gates below (issue #934,
@@ -673,15 +637,12 @@ instead.
    **IT COMES BEFORE THE QUALITY GATES, deliberately**: accepted findings are
    fixed in the worktree, and the gates must see those fixes.
 
-   **1a. Resolve the helper FIRST** (same order as every flow helper,
-   #581/#590). A missing helper is a stated gap, not a silent one:
+   **1a. Resolve the receipt helper** under the missing-helper rule (then
+   `${CLAUDE_PLUGIN_ROOT}/scripts/`, then the CPP checkout); with no copy, say
+   in the PR body that the review is NOT receipted:
 
    ```bash
    CM_RECEIPT=~/.claude/scripts/counter-model-receipt.py
-   [ -f "$CM_RECEIPT" ] || CM_RECEIPT="${CLAUDE_PLUGIN_ROOT}/scripts/counter-model-receipt.py"
-   [ -f "$CM_RECEIPT" ] || CM_RECEIPT="$CPP_DIR/scripts/counter-model-receipt.py"
-   [ -f "$CM_RECEIPT" ] || { echo "NOTE: counter-model-receipt.py not installed - \
-       the run will be reported in the PR body and NOT recorded in a receipt."; CM_RECEIPT=""; }
    ```
 
    **Before review, commit an implementation checkpoint (schema 5).** Stage
@@ -692,8 +653,11 @@ instead.
    A collector `CODEX_REVIEW: blocked` or missing artifact binding is a failed
    precondition: correct what it names; retry. It is not a skip.
 
-   **Then probe the reviewer (issue #1015).** The ONLY condition that skips a
-   review is the inability to run codex:
+   **Then probe the reviewer (issue #1015).** A review is skipped only when
+   codex cannot run, or when the APPROVED plan is Tier 1, documentation-only,
+   and says "review skipped" (owner ruling, #1850): record `skipped` with
+   reason `tier-1-docs-only` (1d). The tier claim is the approver's, through
+   that plan; nothing else checks it:
 
    ```bash
    BASE="origin/${DEFAULT_BRANCH:-main}"
@@ -714,7 +678,7 @@ instead.
    record `reviewer-unavailable`; never fabricate a stream or copy a model from
    a banner. On that skip, run `/second-opinion-start` (or another non-Codex
    review) yourself and state its reviewer and verdict in the PR body alongside
-   the skip (until #1513 lands); its free-form response is not a receipt.
+   the skip (#1513 was declined); its free-form response is not a receipt.
 
    **1b. Run the review** (Claude sessions only - a Codex lane takes the skip
    above) - `/codex:code_review` is one bare call (#1847): 1a's BASE, a transcript
@@ -731,7 +695,10 @@ instead.
    python3 "$CM_RECEIPT" parse /path/to/transcript.md
    ```
 
-   - `COUNTER_MODEL_REVIEW: findings` - triage each as accepted (fix it now,
+   - `COUNTER_MODEL_REVIEW: findings` - first ask of each finding whether the
+     exposure is frequent or severe enough within supported use to justify a fix
+     ([proportionality](../../../docs/agents/issue-contract.md)).
+     Then triage each as accepted (fix it now,
      under the Step-4 rules), rejected (one-line reason), deferred (nit store),
      or, on the approver's ruling only, an [accepted limitation](../../../docs/agents/issue-contract.md#supported-scope-and-proportional-prevention).
      One re-review after the first accepted fix. Later accepted fixes: STOP,
@@ -1143,49 +1110,10 @@ Having nothing to store is an ordinary outcome. Do not manufacture a finding.
    `tests/test_worktree_remove_occupied.py` checks each refusal's remedy line.
 
    If the helper is not installed, REFUSE rather than removing by hand
-   (issue #973). Derive the paths in THIS call (`WORKTREE_PATH` must be set in
-   it too) and record the refusal in a per-worktree marker FILE:
-
-```bash
-MAIN_REPO="$(git rev-parse --show-toplevel)"   # Step 5a already cd'd here
-
-CLEANUP_REFUSED_DIR="$MAIN_REPO/.git/flow-cleanup-refused.d"
-CLEANUP_REFUSED_MARKER="$CLEANUP_REFUSED_DIR/$(basename "$WORKTREE_PATH")"
-mkdir -p "$CLEANUP_REFUSED_DIR"
-rm -f "$CLEANUP_REFUSED_MARKER"   # only THIS worktree's entry; a sibling's survives
-cleanup_refused=0
-if [[ -x ~/.claude/scripts/worktree-remove.sh ]]; then
-    ~/.claude/scripts/worktree-remove.sh "$WORKTREE_PATH" --force --delete-branch
-else
-    {
-        echo "REFUSING: worktree-remove.sh is missing; not removing $WORKTREE_PATH by hand." >&2
-        echo "  Every guard this lane relies on lives in that helper (issue #899)." >&2
-        echo "  Install it with /flow:repair, then re-run this step." >&2
-        false
-    } || cleanup_refused=1
-[[ "$cleanup_refused" -eq 1 ]] && printf '%s\n' "$WORKTREE_PATH" > "$CLEANUP_REFUSED_MARKER"
-fi
-```
-
-**The refusal is an OWNER ITEM, not a log line (issues #965, #973).** The
-closing-report step reads the marker DIRECTORY, in its own Bash call:
-
-```bash
-MAIN_REPO="$(git rev-parse --show-toplevel)"
-for m in "$MAIN_REPO"/.git/flow-cleanup-refused.d/*; do
-    [[ -e "$m" ]] || continue          # glob with no matches: nothing refused
-    echo "TO-DO: worktree $(cat "$m") was NOT removed (worktree-remove.sh missing)"
-    rm -f "$m"                          # consumed - do not re-report next run
-done
-```
-
-The run CONTINUES. The closing report's `## TO-DO (owner)` block carries,
-verbatim:
-
-> Worktree `$WORKTREE_PATH` was NOT removed - `worktree-remove.sh` is missing,
-> so every guard this lane relies on was unavailable. Install it with
-> `/flow:repair` and re-run this step, or remove the worktree yourself after
-> checking it holds no unpushed work.
+   (issue #973): **STOP** under the missing-helper rule and report that the
+   worktree was NOT removed. Never fall back to `git worktree remove`. (The
+   marker-file hand-off that let the run continue was withdrawn as an accepted
+   limitation, #1850 G3-1; `/flow:merge` keeps it.)
 
 With no worktree (a feature branch in the main repo), just delete the branch:
 `git branch -D <branch>`.
@@ -1241,28 +1169,8 @@ lane keeps the result running, and success requires every selected lane green.
 Probing is available only via the explicit `--fallback-provider-probes` flag
 and reports `FLOW_CI_SELECTION: fallback`.
 
-The helper prints a machine-readable contract, the failed-step lines (when any)
-immediately before the verdict:
-
-```
-FLOW_CI_PROVIDER: <selected name[,name...] or none>
-FLOW_CI_SELECTION: recorded | unknown | fallback (...)
-FLOW_CI_LANES: <per-provider JSON evidence for recorded dispatch>
-FLOW_CI_REF: <sha>
-FLOW_CI_REPO: <owner/name|->
-FLOW_CI_EVENT: <event> (flag | branch-protection on <branch>: <contexts> | default: <why>)
-FLOW_CI_PIPELINE: <number|->
-FLOW_CI_URL: <url|->
-FLOW_CI_WAIT: none | settled | expired (<N>s)
-FLOW_CI_RUNS: <n> (<id>:<workflow>:<event>:<result>, ...)   (GitHub Actions lane: every run aggregated, issue #1604)
-FLOW_CI_FAILED_STEP: <name>        (repeated, only on failure; `workflow / job / step` on GitHub Actions)
-FLOW_CI_PRECODE_FAILURE: <name>    (repeated, only on failure; a failed `clone`-type step, a `*-stage` step exiting 75 (#1411, fetch failed), or an image-pull failure (#1508))
-FLOW_CI_FAILURE_ORIGIN: precode | code | canceled | mixed | unknown   (only on failure)
-FLOW_CI_STALL_CHECK: checked | unavailable (<why>)   (Woodpecker HTTP and GitHub Actions lanes, issues #1552, #1604)
-FLOW_CI_STALLED: past-timeout (...) | terminal-pipeline-live-children
-FLOW_CI_STALLED_STEP: <name>       (repeated, a step the server still lists running)
-FLOW_CI_STATUS: success | failure | running | pending | stalled | not-found | unknown
-```
+The helper prints its own `FLOW_CI_*` contract, ending in `FLOW_CI_STATUS:`;
+its keys are listed in [its reference](../../../docs/scripts/flow-ci-status.md).
 
 Act on `FLOW_CI_STATUS`:
 
@@ -1460,7 +1368,6 @@ Flow Auto stopped at Step N/9: {Step Name}
     [investigate]    (if step 2 failed)
     /flow:eli5 N     (if step 3 failed)
     [implement]      (if step 4 failed)
-    /documentation:c4 (if step 5 failed)
     /flow:finish     (if step 6 failed)
     /flow:merge      (if step 7 failed)
     [check CI dashboard] (if step 8 failed)
@@ -1476,17 +1383,4 @@ report it, do not roll back.
 
 ### Codex fresh-flow attribution (#1557)
 
-If an original Codex thread has earlier unrelated model contexts, whole-thread
-attribution truthfully records all complete observed implementers in schema 4.
-The receipt writer may instead use
-`--implementer-thread-id THREAD --implementer-flow-run RUN` only when the
-original full rollout proves fresh creation, ordered mint/begin/approval, Git plan
-bindings and one model from the originating creation turn through snapshot EOF.
-Use the original review exec stream and actual review counts. The writer records
-schema 3 model-scope evidence, `approval_execution: "unverified"`, and
-measured-clean/unmeasured initial cleanliness; observed dirt
-refuses. Unsupported fresh-flow history falls back only to truthful whole-thread
-attribution; incomplete identity evidence remains a refusal. Never filter a rollout,
-choose a manual model window, invent a skip or bypass enrollment. `audit-flow RECEIPT` can
-re-derive the captured original prefix. See ADR 0007 for exact supported commands
-and the limit: byte hashes and visible model scope do not prove all authorship.
+Moved to [ADR 0007](../../../docs/decisions/0007-counter-model-review.md) (#1850).

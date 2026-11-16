@@ -481,3 +481,29 @@ Schemas 1-4 stay readable without migration. Full reviews retain the reviewer's
 successful pre-review HEAD tool probe; diff-only reviews bind exact captured
 input bytes against a freshly recomputed merge-base diff. This establishes the
 recorded artifact, not the thoroughness of review or coverage of later commits.
+
+## Codex fresh-flow attribution (#1557)
+
+Moved here from `/flow:auto`'s Notes (#1850, owner ruling G3-3).
+
+If an original Codex thread has earlier unrelated model contexts, whole-thread
+attribution truthfully records all complete observed implementers in schema 4.
+The receipt writer may instead use
+`--implementer-thread-id THREAD --implementer-flow-run RUN` only when the
+original full rollout proves fresh creation, ordered mint/begin/approval, Git plan
+bindings and one model from the originating creation turn through snapshot EOF.
+Use the original review exec stream and actual review counts. The writer records
+schema 3 model-scope evidence, `approval_execution: "unverified"`, and
+measured-clean/unmeasured initial cleanliness; observed dirt
+refuses. Unsupported fresh-flow history falls back only to truthful whole-thread
+attribution; incomplete identity evidence remains a refusal. Never filter a rollout,
+choose a manual model window, invent a skip or bypass enrollment. `audit-flow RECEIPT` can
+re-derive the captured original prefix. The exact supported commands and the limit: byte hashes and visible model scope do not prove all authorship.
+
+## Tier 1 documentation-only skip (#1850)
+
+Owner ruling, 2026-11-16: for a change whose APPROVED plan is Tier 1,
+documentation-only and says "review skipped", the review may be skipped and
+recorded as `skipped` with reason `tier-1-docs-only`. The tier claim is on the
+honour system: it is bound to the plan the approver approved, and no check
+re-derives it. A skip with no listed reason is still refused by the writer.
