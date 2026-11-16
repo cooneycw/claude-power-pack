@@ -128,6 +128,8 @@ def materialize(root: Path, mode: str) -> None:
             lines[hits[0]] = ""
         elif mode == "citation-ambiguous":
             lines.insert(hits[0], lines[hits[0]])
+        elif mode == "citation-same-line-repeat":
+            lines[hits[0]] += " " + cited
         else:
             assert mode == "citation-line-shift"
             lines.insert(1, "A prose sentence added above every citation.")

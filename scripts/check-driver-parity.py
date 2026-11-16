@@ -541,7 +541,8 @@ def check_citation(root: Path, citation: object) -> None:
     if not isinstance(expected, str) or not expected.strip() or "\n" in expected:
         raise Invalid(f"invalid citation text: {citation['file']}")
     path = safe_path(root, citation["file"])
-    hits = [n for n, line in enumerate(read(path).splitlines(), 1) if expected in line]
+    # Occurrences, not matching lines: twice on one line is still ambiguous.
+    hits = [n for n, line in enumerate(read(path).splitlines(), 1) for _ in range(line.count(expected))]
     near = f"; cited near line {hint}" if hint else ""
     if not hits:
         raise Invalid(f"stale citation: {citation['file']} (text not found{near})")

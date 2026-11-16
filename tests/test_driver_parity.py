@@ -188,6 +188,7 @@ def cited_lines(root: Path) -> list[int]:
     [
         ("citation-text-removed", 0, 1, "stale citation: .claude/commands/codex/auto.md (text not found"),
         ("citation-ambiguous", 2, 1, "ambiguous citation: .claude/commands/codex/auto.md (text on lines"),
+        ("citation-same-line-repeat", 1, 1, "ambiguous citation: .claude/commands/codex/auto.md (text on lines"),
         ("citation-line-shift", 1, 0, "DRIVER_PARITY: ok"),
     ],
 )

@@ -77,6 +77,12 @@
       "why": "The cited driver line is duplicated; an ambiguous citation must fail rather than pick one (#1851). The pre-fix line-pinned checker passed this."
     },
     {
+      "name": "bad-citation-same-line-repeat",
+      "input": "cases/bad-citation-same-line-repeat",
+      "expect": "BAD",
+      "why": "The cited text appears twice on its one line; ambiguity counts occurrences, not matching lines (#1851 review)."
+    },
+    {
       "name": "good-citation-line-shift",
       "input": "cases/good-citation-line-shift",
       "expect": "GOOD",
