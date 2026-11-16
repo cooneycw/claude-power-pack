@@ -525,6 +525,31 @@ def safe_path(root: Path, relative: object) -> Path:
     return path
 
 
+def check_citation(root: Path, citation: object) -> None:
+    """A citation resolves by its text, which must sit on exactly one line (#1851).
+
+    `line` is an optional hint, used only to say where the text was last seen:
+    an edit above a citation moves it without changing what it cites. Missing
+    text is stale; text on more than one line is ambiguous, never a pick.
+    """
+    if not isinstance(citation, dict) or not {"file", "text"} <= set(citation) <= {"file", "line", "text"}:
+        raise Invalid("invalid citation fields")
+    hint = citation.get("line")
+    if "line" in citation and (type(hint) is not int or hint < 1):
+        raise Invalid(f"invalid citation line hint: {citation['file']}")
+    expected = citation["text"]
+    if not isinstance(expected, str) or not expected.strip() or "\n" in expected:
+        raise Invalid(f"invalid citation text: {citation['file']}")
+    path = safe_path(root, citation["file"])
+    # Occurrences, not matching lines: twice on one line is still ambiguous.
+    hits = [n for n, line in enumerate(read(path).splitlines(), 1) for _ in range(line.count(expected))]
+    near = f"; cited near line {hint}" if hint else ""
+    if not hits:
+        raise Invalid(f"stale citation: {citation['file']} (text not found{near})")
+    if len(hits) > 1:
+        raise Invalid(f"ambiguous citation: {citation['file']} (text on lines {', '.join(map(str, hits))})")
+
+
 def policies(root: Path, gates: set[str]) -> dict[tuple[str, str], dict]:
     try:
         data = json.loads(read(root / POLICY), object_pairs_hook=pairs_unique)
@@ -568,20 +593,7 @@ def policies(root: Path, gates: set[str]) -> dict[tuple[str, str], dict]:
         ):
             raise Invalid("equivalent must cite its driver step")
         for citation in citations:
-            if not isinstance(citation, dict) or set(citation) != {"file", "line", "text"}:
-                raise Invalid("invalid citation fields")
-            path = safe_path(root, citation["file"])
-            number, expected = citation["line"], citation["text"]
-            lines = read(path).splitlines()
-            if (
-                type(number) is not int
-                or number < 1
-                or number > len(lines)
-                or not isinstance(expected, str)
-                or not expected.strip()
-                or expected not in lines[number - 1]
-            ):
-                raise Invalid(f"stale citation: {citation['file']}:{number}")
+            check_citation(root, citation)
         key = (gate, driver)
         if key in result:
             raise Invalid(f"duplicate gate/driver pair {key}")

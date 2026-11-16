@@ -174,6 +174,53 @@ def test_policy_refuses_ambiguous_or_invalid_decisions(tmp_path: Path, change: s
     assert "DRIVER_PARITY: fail" in result.stdout
 
 
+CITED = "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
+CODEX = ".claude/commands/codex/auto.md"
+
+
+def cited_lines(root: Path) -> list[int]:
+    lines = (root / CODEX).read_text().splitlines()
+    return [n for n, line in enumerate(lines, 1) if CITED in line]
+
+
+@pytest.mark.parametrize(
+    "mode, hits, code, signal",
+    [
+        ("citation-text-removed", 0, 1, "stale citation: .claude/commands/codex/auto.md (text not found"),
+        ("citation-ambiguous", 2, 1, "ambiguous citation: .claude/commands/codex/auto.md (text on lines"),
+        ("citation-same-line-repeat", 1, 1, "ambiguous citation: .claude/commands/codex/auto.md (text on lines"),
+        ("citation-line-shift", 1, 0, "DRIVER_PARITY: ok"),
+    ],
+)
+def test_citation_resolves_by_unique_text(tmp_path: Path, mode: str, hits: int, code: int, signal: str) -> None:
+    """#1851: a citation follows its text, not its line; gone or duplicated text fails."""
+    pinned = cited_lines(tree(tmp_path / "base"))
+    assert len(pinned) == 1
+    root = tree(tmp_path, mode)
+    assert len(cited_lines(root)) == hits
+    if mode == "citation-line-shift":
+        assert cited_lines(root) != pinned  # the line hint is now wrong
+    result = outcome(root)
+    assert result.returncode == code, result.stdout + result.stderr
+    assert signal in result.stdout
+
+
+def test_citation_line_hint_is_optional_and_typed(tmp_path: Path) -> None:
+    root = tree(tmp_path)
+    path = root / parity.POLICY
+    data = json.loads(path.read_text())
+    cited = [c for e in data["entries"] for c in e.get("citations", [])]
+    assert cited and all("line" in c for c in cited)
+    for citation in cited:
+        del citation["line"]
+    path.write_text(json.dumps(data))
+    assert outcome(root).returncode == 0
+    cited[0]["line"] = "992"
+    path.write_text(json.dumps(data))
+    result = outcome(root)
+    assert result.returncode == 1 and "invalid citation line hint" in result.stdout
+
+
 @pytest.fixture(scope="module")
 def generated(tmp_path_factory: pytest.TempPathFactory) -> Path:
     destination = tmp_path_factory.mktemp("driver-parity-generated")

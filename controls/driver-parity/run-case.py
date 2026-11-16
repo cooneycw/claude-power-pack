@@ -116,6 +116,24 @@ def materialize(root: Path, mode: str) -> None:
                     text = text.replace(call, "")
             path.write_text(text)
             assert "~/.claude/scripts/flow-plan-record.py approve 42" not in path.read_text()
+    elif mode.startswith("citation-"):
+        # The cited codex line is prose, so these edits move or remove only the
+        # citation target, never a helper call the inventory would also see.
+        path = root / ".claude/commands/codex/auto.md"
+        cited = "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
+        lines = path.read_text().split("\n")
+        hits = [i for i, line in enumerate(lines) if cited in line]
+        assert len(hits) == 1
+        if mode == "citation-text-removed":
+            lines[hits[0]] = ""
+        elif mode == "citation-ambiguous":
+            lines.insert(hits[0], lines[hits[0]])
+        elif mode == "citation-same-line-repeat":
+            lines[hits[0]] += " " + cited
+        else:
+            assert mode == "citation-line-shift"
+            lines.insert(1, "A prose sentence added above every citation.")
+        path.write_text("\n".join(lines))
     elif mode in {"stale-citation", "stale-entry"}:
         if mode == "stale-citation":
             entry = next(e for e in data["entries"] if e["disposition"] == "equivalent")

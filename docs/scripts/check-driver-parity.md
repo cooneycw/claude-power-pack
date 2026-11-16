@@ -11,7 +11,9 @@ it does not establish flags, ordering, live execution, or semantic equivalence.
 
 `docs/agents/driver-parity.json` records run, owner-approved equivalent and
 exempt dispositions. Every entry needs a reason and issue link. Equivalent
-citations must still match their exact file and line. Stale entries fail.
+citations resolve by their text, which must sit on exactly one line of the
+cited file; `line` is only a hint in the failure message (#1851). Missing text
+is stale and repeated text is ambiguous; both fail. Stale entries fail.
 Approval and compliance cannot be waived. Issue #1811 stays open to track the
 known omissions; the landing closes #1810, not those gaps.
 

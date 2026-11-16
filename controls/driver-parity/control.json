@@ -65,6 +65,30 @@
       "why": "Committed owned stale-citation source/policy fixture."
     },
     {
+      "name": "bad-citation-text-removed",
+      "input": "cases/bad-citation-text-removed",
+      "expect": "BAD",
+      "why": "The cited driver line is deleted; a citation whose text is gone must fail (#1851)."
+    },
+    {
+      "name": "bad-citation-ambiguous",
+      "input": "cases/bad-citation-ambiguous",
+      "expect": "BAD",
+      "why": "The cited driver line is duplicated; an ambiguous citation must fail rather than pick one (#1851). The pre-fix line-pinned checker passed this."
+    },
+    {
+      "name": "bad-citation-same-line-repeat",
+      "input": "cases/bad-citation-same-line-repeat",
+      "expect": "BAD",
+      "why": "The cited text appears twice on its one line; ambiguity counts occurrences, not matching lines (#1851 review)."
+    },
+    {
+      "name": "good-citation-line-shift",
+      "input": "cases/good-citation-line-shift",
+      "expect": "GOOD",
+      "why": "A prose line inserted above the citation moves it without changing its text (#1851). The pre-fix line-pinned checker failed this."
+    },
+    {
       "name": "bad-stale-entry",
       "input": "cases/bad-stale-entry",
       "expect": "BAD",
