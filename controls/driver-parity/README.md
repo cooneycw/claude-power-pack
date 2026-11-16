@@ -12,7 +12,7 @@ it does not attest generation or helper bundling. `tests/test_driver_parity.py`
 separately builds and reads the real flow-auto Codex mirror. The stub generator
 and driver declaration files state only the packaging population for fixtures.
 
-Fourteen BAD, eleven UNKNOWN and seven GOOD cases run through the real checker. The constructed
+Sixteen BAD, eleven UNKNOWN and eight GOOD cases run through the real checker. The constructed
 anchor checks a fixed helper list, omits all plan-record verbs and trusts waiver
 metadata. It misses all BAD/UNKNOWN cases and agrees on the GOOD cases. UNKNOWN cases
 explicitly declare the blind anchor clean with a reason. Its provenance is
@@ -25,7 +25,9 @@ The eventual landing closes #1810 while #1811 remains open.
 
 The fixture policy is frozen together with its fixture source documents; it is
 not a second current policy and is not synchronized with the live table when
-upstream driver lines move. Its citations bind to this owned snapshot. The
+upstream driver lines move. Its citations bind to this owned snapshot. A citation resolves by its text,
+which must sit on exactly one line; `line` is only a hint for the failure
+message (#1851). The citation cases delete, duplicate and move the cited line. The
 GOOD control cases validate that internal relationship, while the repository
 parity test independently validates the live policy against live sources.
 
