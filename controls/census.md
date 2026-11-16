@@ -315,7 +315,7 @@ another repo (the escalation clause); a row can be both.
 | `lib.cicd container`, `pipeline`, `infra-init`, `infra-discover`, `infra-pipeline`, `init-manifest` | generators; their output is a file the caller reviews, not a verdict |
 | `lib.creds` (8 subcommands) | `get`, `set`, `delete`, `list`, `rotate`, `run`, `ui` are actions, not verdicts. `validate` reports a credential usable; the use that follows re-derives it loudly (a bad credential fails at the call), which is the bound's own exclusion - it is the one entry in the universe excluded by re-derivation rather than by kind |
 | verification commands in docs | instructions to run an instrument, not instruments; the instrument they name is already a row above |
-| `make deploy`, `make update_docs`, `make format`, `make clean` and the other action targets | informative no-ops or actions in this repository |
+| `make deploy`, `make format`, `make clean` and the other action targets | informative no-ops or actions in this repository |
 
 **Subjects with no file under `scripts/`.** Fourteen rows above name a
 third-party binary or a Python module entry point - there is no file for a
