@@ -1304,6 +1304,40 @@ def test_a_removed_reason_is_REFUSED_on_a_receipt_ALREADY_ON_DISK(  # binary-gua
     assert removed in (proc.stdout + proc.stderr)
 
 
+def test_the_TIER_1_DOCS_ONLY_skip_is_written_and_validates(  # binary-guard: allow unscoped
+    tmp_path: Path,
+) -> None:
+    """#1850 Q5(b): the owner-ruled Tier 1 skip is a committed member.
+
+    The red half is the pre-#1850 writer, which refused `--reason
+    tier-1-docs-only` at argparse; the removed reasons above stay refused, so
+    widening the set by one name did not reopen the unnamed discretionary skip.
+    """
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
+    proc = _write(tmp_path, "--issue", "1850", "--branch", "b", "--status", "skipped",
+                  "--reason", "tier-1-docs-only",
+                  *_implementer_evidence_args(session_id, projects_dir))
+    assert proc.returncode == 0, proc.stderr
+    receipt = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["status"] == "skipped"
+    assert receipt["skip_reason"] == "tier-1-docs-only"
+    valid = subprocess.run(
+        [sys.executable, str(SCRIPT), "validate", "--dir", str(tmp_path)],
+        capture_output=True, text=True,
+    )
+    assert valid.returncode == 0, valid.stderr
+
+
+def test_an_UNLISTED_skip_reason_is_still_refused(tmp_path: Path) -> None:  # binary-guard: allow unscoped
+    """The negative control for the widened set: a reason nobody ruled on fails."""
+    session_id, projects_dir = _implementer_session_fixture(tmp_path, 'opus-5')
+    proc = _write(tmp_path, "--issue", "1850", "--branch", "b", "--status", "skipped",
+                  "--reason", "tier-2-docs-only",
+                  *_implementer_evidence_args(session_id, projects_dir))
+    assert proc.returncode != 0, "an unlisted skip reason was accepted"
+    assert list(tmp_path.glob("*.json")) == [], "a refused receipt was written anyway"
+
+
 def test_the_CAPABILITY_PROBE_precedes_the_invocation(tmp_path: Path) -> None:
     """#1015: the inability to run codex is established BEFORE the invocation,
     not inferred from its wreckage.

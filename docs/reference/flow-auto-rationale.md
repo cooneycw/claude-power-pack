@@ -1991,3 +1991,25 @@ Key failure scenarios:
 The Git plan and observed stamp join identifies the run; it does not verify approval
 helper execution. Aggregate output can contain auxiliary printed stamps. Creation
 has a stricter independent event shape, and every later model context is included.
+
+## Withdrawn at #1850 (charter and proportional path)
+
+Owner rulings on #1850 (2026-11-15/16) gave `/flow:auto` a
+[charter](../../charters/flow/auto/CHARTER.md). Each paragraph removed from the
+command document, with its group from the issue's sorting question:
+
+| Removed | Group | Ruling / where it went |
+|---|---|---|
+| Step 5 (`make update_docs`, C4 regeneration, README/CLAUDE.md review) | owner ruling Q4 | Documentation is not part of the flow. The step number is kept, retired, so citations of Steps 6-9 stay true; the renumbering was deferred (freeze-the-numbers ruling) |
+| Step 6 collapse recipe and the never-collapse-after-receipt rule (#657, #864) | 3 - accepted limitation (G3-2) | One line remains; the merge helper's `GH_PR_MERGE_DELETIONS:` marker and the receipt enrolment check cover the failure |
+| Step 6 1a receipt-helper resolution chain | 1 - enforced elsewhere | The file's missing-helper rule; the `CM_RECEIPT` binding stays |
+| Step 7 marker-file refusal hand-off when `worktree-remove.sh` is missing (#965, #973) | 3 - accepted limitation (G3-1) | A missing helper now STOPs under the missing-helper rule; `/flow:merge` keeps the hand-off and its executed tests |
+| Step 8 `FLOW_CI_*` key listing | 1 - the helper prints it | [flow-ci-status reference](../scripts/flow-ci-status.md#output-contract) |
+| Step 2 per-state `speckit-context` guidance (#858) | 3 - moved (G3-5) | [speckit-context reference](../scripts/speckit-context.md#what-a-run-does-with-each-state) |
+| Notes: Codex fresh-flow attribution (#1557) | 3 - moved (G3-3) | [ADR 0007](../decisions/0007-counter-model-review.md#codex-fresh-flow-attribution-1557) |
+
+Kept after review: Step 9's inline deploy block (G3-4 was accepted only if
+`/flow:deploy` carried the same guards; it lacks the #597 already-deployed check
+and the runner-environment isolation, so the block stays) and Step 7's
+merge-helper resolution block (its fallback loop is executed by
+`tests/test_gh_pr_merge.py`, so it is the enforcement, not prose about it).

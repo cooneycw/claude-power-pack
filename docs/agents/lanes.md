@@ -126,6 +126,29 @@ Tier 2 and Tier 3 work that changes behaviour. A typo, a docs-only change or
 anything else with no behavioural lanes says so in one line, for example
 `Lanes: none - documentation only`, and carries no table.
 
+**What a lane is, for selection (#1850).** A lane identifies a supported
+variation under which the same capability could behave differently. The lane
+file is an inventory of possibilities; a plan identifies the variations
+relevant to THIS change and says what evidence covers them. Listing a
+variation does not require exercising it on every change. The selection
+question is: what about this change could make the result differ between
+these settings? Root discovery makes main checkout versus linked worktree
+relevant; helper packaging makes Claude versus Codex install relevant;
+explanatory wording usually creates no lane obligation at all.
+
+Two worked examples:
+
+- *A documentation change* (rewording a command document, adding a reference
+  section): the plan carries one line, `Lanes: none - documentation only`, and
+  no table. If a generated mirror copies the file, that is a `Reader:` row for
+  the generator, not a lane.
+- *A behavioural change* (a helper that resolves the repository root): the
+  table answers every listed lane. Checkout is `will test` - main checkout and
+  linked worktree, by tests that build both layouts; Harness is `will test` -
+  Claude install, and Codex install through the generated mirror; the rest are
+  `not applicable` with one line each, because nothing about root discovery
+  differs between, say, CI providers.
+
 ## When the list was last reviewed
 
 The plan step runs `scripts/lane-file.py age` and relays its `LANE_FILE_AGE:`

@@ -51,3 +51,28 @@ backend controls use the explicit marker without changing their case meaning.
 - flow-ci-status (#1552) tells DEAD CI from SLOW CI. An agent restart mid-run strands a Woodpecker workflow `running` forever with the agent id persisted (measured on 3.19.0 in cooneycw/woodpecker-baseline#2: no reschedule, the timeout does not fire, an API cancel leaves it `running`), so `--wait` used to sit out its whole window and report `running`. The repo `timeout` is enforced by the AGENT, per WORKFLOW, so a workflow the server still lists `running` more than `FLOW_CI_STALL_GRACE_MIN` (default 10) minutes past it - measured from that workflow's own start, after reconciling with the pipeline detail's status - was lost by its agent: the HTTP lane now reports the terminal `FLOW_CI_STATUS: stalled` with `FLOW_CI_STALLED: past-timeout (...)` and one `FLOW_CI_STALLED_STEP` per step still listed running, and a `killed`/`failure`/`error` pipeline whose children still read `running` keeps `failure` and gains `FLOW_CI_STALLED: terminal-pipeline-live-children`. `FLOW_CI_STALL_CHECK: checked | unavailable (<why>)` says whether the check ran, so an unreadable timeout or detail is never read as "not stalled". It reports only - it never cancels - and the woodpecker-cli and GitHub Actions lanes run no stall check. Control: `controls/flow-ci-status-stalled` (the 3374 shape at 71 vs 59 minutes; the pre-change anchor misses it)
 - flow-ci-status (#1684) A `--wait` THAT DID NOT REACH A VERDICT IS NEVER EXIT 0. On kyle PR #2320 a 3000s wait returned with `FLOW_CI_STATUS: unknown`, `FLOW_CI_WAIT: none` and exit 0 while main's push pipeline ran; a lock-hold script read the exit code as "the wait ended" and released the merge lock. The output matches the `woodpecker-cli` lane's mid-wait re-listing failure, which ended the loop (read from the code, not reproduced); a found pipeline with an empty or unrecognised status ended it the same way on both Woodpecker lanes. Now both are polled to the deadline, and say why on a `FLOW_CI_RETRYABLE: <why>` line beside `unknown`. Every other `unknown` (no credentials, no provider, an all-skipped or capped Actions listing) is a final judgement and still ends the wait at once. Exit codes under `--wait` only: `unknown` exits 2, an expired wait exits 5 whatever it last saw (`running`, `pending`, `not-found`, a retryable `unknown`); without `--wait` the fail-open exit 0 is unchanged. The recorded dispatcher in `lib/cicd/flow.py` applies the same rule per lane, and its expired `not-found` moves from exit 2 to 5. `controls/flow-ci-status-wait` commits the case: an empty status that turns green must cost a second listing call; the pre-change script ends on the first look and is the blind anchor
 - flow-ci-status (#1711) THREE SMALL FIXES ON THE FALLBACK PATH, NO EXIT CODE CHANGED. (1) A failed step's error that spans lines is one step: the newline is folded to a space before the line-wise read, where the remainder used to be read as a second failed step with no type. (2) A stall-check answer is reset at the top of every poll, as the Actions loop already did; an earlier poll's `unavailable` was printed beside a later `success`. (3) The branch-protection reads keep stderr out of the list of required contexts; stderr is read only to recognise a 404. The header now says what `--exit-code` does today; that a STALLED pipeline exits 0 under `--exit-code` in fallback or pre-set-backend mode is a known defect, #1758. What fallback mode answers for a ref that is not a commit moved to #1758. Control case `bad-fetch-failure-multiline-error`.
+
+## Output contract
+
+Moved here from `/flow:auto` Step 8 (#1850); the failed-step lines (when any)
+come immediately before the verdict:
+
+```
+FLOW_CI_PROVIDER: <selected name[,name...] or none>
+FLOW_CI_SELECTION: recorded | unknown | fallback (...)
+FLOW_CI_LANES: <per-provider JSON evidence for recorded dispatch>
+FLOW_CI_REF: <sha>
+FLOW_CI_REPO: <owner/name|->
+FLOW_CI_EVENT: <event> (flag | branch-protection on <branch>: <contexts> | default: <why>)
+FLOW_CI_PIPELINE: <number|->
+FLOW_CI_URL: <url|->
+FLOW_CI_WAIT: none | settled | expired (<N>s)
+FLOW_CI_RUNS: <n> (<id>:<workflow>:<event>:<result>, ...)   (GitHub Actions lane: every run aggregated, issue #1604)
+FLOW_CI_FAILED_STEP: <name>        (repeated, only on failure; `workflow / job / step` on GitHub Actions)
+FLOW_CI_PRECODE_FAILURE: <name>    (repeated, only on failure; a failed `clone`-type step, a `*-stage` step exiting 75 (#1411, fetch failed), or an image-pull failure (#1508))
+FLOW_CI_FAILURE_ORIGIN: precode | code | canceled | mixed | unknown   (only on failure)
+FLOW_CI_STALL_CHECK: checked | unavailable (<why>)   (Woodpecker HTTP and GitHub Actions lanes, issues #1552, #1604)
+FLOW_CI_STALLED: past-timeout (...) | terminal-pipeline-live-children
+FLOW_CI_STALLED_STEP: <name>       (repeated, a step the server still lists running)
+FLOW_CI_STATUS: success | failure | running | pending | stalled | not-found | unknown
+```

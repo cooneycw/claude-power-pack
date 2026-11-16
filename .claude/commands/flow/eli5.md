@@ -238,28 +238,29 @@ convention collision, and the point of pointing here is that there is only one.
 
 ## CPP integration: challenge the plan, not just its freshness (issue #859)
 
-This section is CPP-owned and sits OUTSIDE the vendored core above. The core asks
-whether the issue is still NEEDED; CPP additionally asks whether it is still RIGHT.
+CPP-owned, OUTSIDE the vendored core: the core asks whether the issue is
+still NEEDED; this asks whether it is still RIGHT. Inside `/flow:auto`, Section C
+answers: could this requirement or approach undermine the outcome?
+Name it and an alternative; **"No material concern found" is complete**.
 
-When this gate runs inside `/flow:auto`, Section C also answers: could this
-requirement, or this proposed approach, undermine the intended outcome? Name the
-concern and a concrete alternative if there is one. **"No material concern found"
-is a complete answer** and is expected for most work - this is a question to
-consider, not a quota of objections to fill.
+Three recommendations, each closed only on the approver's yes (#1850):
+an open prerequisite is a warning; a duplicate already in the code, or an ADR
+that has moved another way, is evidence for `No longer needed`, never an
+automatic close; and an exposure neither frequent nor severe within supported
+use ([the proportionality test](../../../docs/agents/issue-contract.md#supported-scope-and-proportional-prevention))
+gets an offer to close until it recurs or proves severe, unless a security risk.
 
-This is the INITIAL approval point. What happens when implementation later surfaces
-evidence the review did not anticipate is Step 4's revision path in
-[auto.md](auto.md). That path adds no blanket gate for ordinary implementation
-choices - those never return here - but it does NOT remove the existing route for a
-consequential change: altering promised behaviour or crossing a deliberate boundary
-still needs agreement from the authority that already holds it.
+This is the INITIAL approval point. Step 4's revision path in [auto.md](auto.md)
+adds no blanket gate for ordinary implementation choices, but a consequential
+change still needs agreement from the authority that already holds it.
 
 ## CPP integration: lanes and readers (#1695, #1697)
 
 CPP-owned, OUTSIDE the vendored core. When the project has `.claude/lanes.md`,
 Section C answers EVERY listed lane - will test, will refuse, not applicable or
 not covered - per [the lanes reference](../../../docs/agents/lanes.md); will
-test names its values. No lane file, no rows. Lane file or not, Section C names each reader of a changed
+test names its values. A docs-only change answers `Lanes: none - documentation only`,
+no table. No lane file, no rows. Lane file or not, Section C names each reader of a changed
 output in a `Reader:` row
 ([readers](../../../docs/agents/changed-output-readers.md)).
 
