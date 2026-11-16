@@ -39,6 +39,9 @@
 # #1848 states the missing-helper fallback once and has a stopping helper's own
 # CLEAN STOP line relayed instead of restating its exit codes: flow/auto.md
 # drops from 10404 to 9929 (475 words). Other caps unchanged.
+# #1849 replaces the eight plan-record calls and the hand-built append with
+# start / approve --plan / finish: flow/auto.md drops from 9929 to 9816 (113
+# words). Other caps unchanged.
 464	browser/help.md
 1077	browser/session.md
 425	cicd/check.md
@@ -74,7 +77,7 @@
 1218	documentation/pptx.md
 457	evaluate/help.md
 2284	evaluate/issue.md
-9929	flow/auto.md
+9816	flow/auto.md
 1837	flow/check.md
 2258	flow/cleanup.md
 1561	flow/deploy.md

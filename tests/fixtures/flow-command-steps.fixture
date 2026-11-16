@@ -1754,6 +1754,30 @@
    "needle": "PYTHONPATH=\"$CPP_DIR:$PYTHONPATH\" env -u UV_PROJECT_ENVIRONMENT \"CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}\" \"CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}\" \"CPP_RUNNER_TARGET_PATH=${PATH-}\" \"CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}\" uv run --python 3.11 --no-python-downloads --project \"$CPP_DIR\" python -m lib.cicd verify",
    "kind": "bash-line",
    "count": 1
+  },
+  {
+   "slug": "bash-0009-start",
+   "needle": "~/.claude/scripts/flow-plan-record.py start 42",
+   "kind": "bash-line",
+   "count": 1
+  },
+  {
+   "slug": "bash-0025-plan-file",
+   "needle": "cat > /path/outside/checkout/plan-42.md <<'RECORD'",
+   "kind": "bash-line",
+   "count": 1
+  },
+  {
+   "slug": "bash-0038-approve-plan",
+   "needle": "~/.claude/scripts/flow-plan-record.py approve 42 --plan /path/outside/checkout/plan-42.md",
+   "kind": "bash-line",
+   "count": 1
+  },
+  {
+   "slug": "bash-0091-finish",
+   "needle": "~/.claude/scripts/flow-plan-record.py finish 42",
+   "kind": "bash-line",
+   "count": 1
   }
  ],
  "retirements": {
@@ -1773,6 +1797,13 @@
   "exit-rule-0010": "Owner-approved #1848 plan: gh-pr-merge.sh's own CLEAN STOP line now carries this exit's meaning and remedy, relayed under the file's one helper rule; tests/test_gh_pr_merge.py asserts the remedy line; the stop itself is unchanged.",
   "exit-rule-0011": "Owner-approved #1848 plan: gh-pr-merge.sh's own CLEAN STOP line now carries this exit's meaning and remedy, relayed under the file's one helper rule; tests/test_gh_pr_merge.py asserts the remedy line; the stop itself is unchanged.",
   "exit-rule-0012": "Owner-approved #1848 plan: worktree-remove.sh's own refusal now carries this exit's meaning and remedy, relayed under the file's one helper rule; tests/test_worktree_remove_occupied.py asserts the remedy line; the stop itself is unchanged.",
-  "exit-rule-0013": "Owner-approved #1848 plan: worktree-remove.sh's own refusal now carries this exit's meaning and remedy, relayed under the file's one helper rule; tests/test_worktree_remove_occupied.py asserts the remedy line; the stop itself is unchanged."
+  "exit-rule-0013": "Owner-approved #1848 plan: worktree-remove.sh's own refusal now carries this exit's meaning and remedy, relayed under the file's one helper rule; tests/test_worktree_remove_occupied.py asserts the remedy line; the stop itself is unchanged.",
+  "bash-0009": "Owner-approved #1849 plan: /flow:auto calls the plan-record run verbs (start / approve --plan / finish), which dispatch from COMPOSITE_VERBS and print every inner verdict line; replaced by bash-0009-start; tests/test_flow_plan_record_wrappers.py runs the wrappers; original baseline retained.",
+  "bash-0010": "Owner-approved #1849 plan: /flow:auto calls the plan-record run verbs (start / approve --plan / finish), which dispatch from COMPOSITE_VERBS and print every inner verdict line; replaced by bash-0009-start; tests/test_flow_plan_record_wrappers.py runs the wrappers; original baseline retained.",
+  "bash-0025": "Owner-approved #1849 plan: /flow:auto calls the plan-record run verbs (start / approve --plan / finish), which dispatch from COMPOSITE_VERBS and print every inner verdict line; replaced by bash-0025-plan-file; tests/test_flow_plan_record_wrappers.py runs the wrappers; original baseline retained.",
+  "bash-0038": "Owner-approved #1849 plan: /flow:auto calls the plan-record run verbs (start / approve --plan / finish), which dispatch from COMPOSITE_VERBS and print every inner verdict line; replaced by bash-0038-approve-plan; tests/test_flow_plan_record_wrappers.py runs the wrappers; original baseline retained.",
+  "bash-0090": "Owner-approved #1849 plan: /flow:auto calls the plan-record run verbs (start / approve --plan / finish), which dispatch from COMPOSITE_VERBS and print every inner verdict line; replaced by bash-0091-finish; tests/test_flow_plan_record_wrappers.py runs the wrappers; original baseline retained.",
+  "bash-0091": "Owner-approved #1849 plan: /flow:auto calls the plan-record run verbs (start / approve --plan / finish), which dispatch from COMPOSITE_VERBS and print every inner verdict line; replaced by bash-0091-finish; tests/test_flow_plan_record_wrappers.py runs the wrappers; original baseline retained.",
+  "bash-0092": "Owner-approved #1849 plan: /flow:auto calls the plan-record run verbs (start / approve --plan / finish), which dispatch from COMPOSITE_VERBS and print every inner verdict line; replaced by bash-0091-finish; tests/test_flow_plan_record_wrappers.py runs the wrappers; original baseline retained."
  }
 }

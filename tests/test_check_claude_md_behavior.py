@@ -501,8 +501,16 @@ def test_the_real_flow_auto_fixture_is_substantial_and_satisfied() -> None:
         "exit-rule-0012": "tests/test_worktree_remove_occupied.py",
         "exit-rule-0013": "tests/test_worktree_remove_occupied.py",
     }
+    # #1849: the plan record's eight calls and hand-built append became three
+    # run verbs; each retired line names the wrapper step that replaced it.
+    run_verb_retirements = {
+        "bash-0009": "bash-0009-start", "bash-0010": "bash-0009-start",
+        "bash-0025": "bash-0025-plan-file", "bash-0038": "bash-0038-approve-plan",
+        "bash-0090": "bash-0091-finish", "bash-0091": "bash-0091-finish",
+        "bash-0092": "bash-0091-finish",
+    }
     assert set(retirements) == {
-        "bash-0195", "bash-0201", *marker_retirements, *relay_retirements,
+        "bash-0195", "bash-0201", *marker_retirements, *relay_retirements, *run_verb_retirements,
     }
     mapping = dict(steps)
     raw = json.loads((root / behavior.COMMAND_STEP_FIXTURES[_STEP_DOC]).read_text())
@@ -519,6 +527,12 @@ def test_the_real_flow_auto_fixture_is_substantial_and_satisfied() -> None:
         assert "original baseline retained" in reason
         assert entries[replacement]["kind"] == "bash-line"
         assert "$(m " in mapping[replacement], "the replacement does not read the transcript"
+    for slug, replacement in run_verb_retirements.items():
+        reason = retirements.pop(slug)
+        assert "#1849" in reason and f"replaced by {replacement};" in reason, reason
+        assert "original baseline retained" in reason
+        assert entries[replacement]["kind"] == "bash-line"
+        assert "flow-plan-record.py" in mapping[replacement] or "plan-42.md" in mapping[replacement]
     addition = ('"CPP_RUNNER_TARGET_PATH=${PATH-}" '
                 '"CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" ')
     for slug, reason in retirements.items():
