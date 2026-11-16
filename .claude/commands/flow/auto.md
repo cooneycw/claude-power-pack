@@ -199,8 +199,9 @@ Step 2:
 ~/.claude/scripts/flow-plan-record.py start 42
 ```
 
-It leaves `docs/flow-runs/issue-<N>.md` as the last COMMITTED record (or
-absent) and stores the issue body as read. Do not hand-edit the record
+It leaves `docs/flow-runs/issue-<N>.md` as the last COMMITTED record, or
+absent (`FLOW_PLAN_RECORD: restored|removed|absent`), and stores the issue
+body as read. Do not hand-edit the record
 between runs. `AS_READ: unresolved` (exit 4): continue. Any other non-zero
 exit: **STOP**.
 
@@ -889,21 +890,24 @@ instead.
    ```bash
    ~/.claude/scripts/flow-plan-record.py finish 42
    ```
-   - `ISSUE_DRIFT: drift` - the body changed (the diff is printed). Resolve it
+   - `ISSUE_DRIFT: clean` - unchanged since Step 1. `ISSUE_DRIFT: drift` -
+     the body changed (the diff is printed). Resolve it
      under the EXISTING authority model - newer bytes do not by themselves
      override a constraint or a plan already accepted on the issue - and say
-     in the PR how. `unresolved` is NOT clean: report it unchecked.
-   - `PLAN_COMPLIANCE` reports, never blocks. `agreement` compares FILE NAMES
-     only. `divergence` names each `TOUCHED BUT NOT PLANNED`, `PLANNED BUT NOT
-     TOUCHED` and underivable mirror: write the reason in the PR; never edit
-     the plan to make it agree. `unknown` is never agreement. A `, LANES NOT
-     ...` clause: follow its stderr note, commit, re-run.
+     in the PR how. `ISSUE_DRIFT: unresolved` is NOT clean: report it unchecked.
+   - Compliance reports, never blocks. `PLAN_COMPLIANCE: agreement` - the
+     FILE SET matches Section C (file names only). `PLAN_COMPLIANCE: divergence`
+     - names each `TOUCHED BUT NOT PLANNED`, `PLANNED BUT NOT TOUCHED` and
+     underivable mirror: write the reason in the PR; never edit the plan to
+     make it agree. `PLAN_COMPLIANCE: unknown` is never agreement. A
+     `, LANES NOT ...` clause: follow its stderr note, commit, re-run.
      `PLAN_RECORD_STABILITY: THE PLAN RECORD CHANGED` - the approved plan
      moved after Step 4; read the record's own diff first. `unknown`: no
      baseline stamped.
-   - `FLOW_PLAN_RECORD: absent` - **STOP** (expected only when the run wrote
-     no record): `git add docs/flow-runs/issue-<N>.md`, commit, push, re-run.
-     `unverified` - **STOP**: the PR head could not be read; check
+   - `FLOW_PLAN_RECORD: present` - proceed. `FLOW_PLAN_RECORD: absent` -
+     **STOP** (expected only when the run wrote no record): `git add
+     docs/flow-runs/issue-<N>.md`, commit, push, re-run.
+     `FLOW_PLAN_RECORD: unverified` - **STOP**: the PR head could not be read; check
      `gh auth status` and the network, then re-run.
 
 Report: `Step 6/9: Finish complete - PR #XX created`

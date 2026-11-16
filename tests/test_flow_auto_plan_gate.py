@@ -41,10 +41,12 @@ def isolated_session_identity(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def step_seven() -> str:
-    """The compliance item of Step 6: from its heading to the next item."""
+    """The compliance bullet of Step 6's `finish` item (#1849 folded the three
+    plan-record items into one): from that bullet to the head-check bullet."""
     text = AUTO.read_text()
-    start = text.index("**Compare the diff against the approved plan**")
-    return text[start:text.index("**Confirm the plan record reached the PR**", start)]
+    item = text.index("**Close the plan record**")
+    start = text.index("Compliance reports, never blocks.", item)
+    return text[start:text.index("`FLOW_PLAN_RECORD: present`", start)]
 
 
 def documented_verdicts(passage: str) -> list[str]:
