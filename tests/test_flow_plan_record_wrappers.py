@@ -133,6 +133,12 @@ def test_start_reports_an_unreadable_issue_and_does_not_succeed(
     assert "FLOW_PLAN_START: reconcile=0 read-issue=4" in proc.stdout
 
 
+def note(calls: list[str], verb: str, result: int) -> int:
+    """Record that `verb` ran, then return what it returned."""
+    calls.append(verb)
+    return result
+
+
 def load_module():
     spec = importlib.util.spec_from_file_location("plan_record_wrappers", HELPER)
     assert spec and spec.loader
@@ -305,8 +311,8 @@ def test_a_crashing_inner_verb_is_a_failure_and_the_others_still_run(
 
     ran: list[str] = []
     monkeypatch.setattr(module, "cmd_drift", boom)
-    monkeypatch.setattr(module, "cmd_compliance", lambda *_a: ran.append("compliance") or module.OK)
-    monkeypatch.setattr(module, "cmd_head_check", lambda *_a: ran.append("head-check") or module.OK)
+    monkeypatch.setattr(module, "cmd_compliance", lambda *_a: note(ran, "compliance", module.OK))
+    monkeypatch.setattr(module, "cmd_head_check", lambda *_a: note(ran, "head-check", module.OK))
     assert module.cmd_finish("42", None, None) == module.ERROR
     out = capsys.readouterr().out
     assert ran == ["compliance", "head-check"]
@@ -338,7 +344,7 @@ def recorded_calls(module, monkeypatch: pytest.MonkeyPatch) -> list[str]:
                      "begin-run": "cmd_begin_run", "approve": "cmd_approve",
                      "drift": "cmd_drift", "compliance": "cmd_compliance",
                      "head-check": "cmd_head_check"}.items():
-        monkeypatch.setattr(module, fn, lambda *_a, _v=verb: calls.append(_v) or module.OK)
+        monkeypatch.setattr(module, fn, lambda *_a, _v=verb: note(calls, _v, module.OK))
     return calls
 
 
@@ -365,7 +371,7 @@ def test_each_wrapper_runs_exactly_what_its_table_entry_says(
     real_begin = load_module().cmd_begin_run
     calls.clear()
     monkeypatch.setattr(module, "cmd_begin_run",
-                        lambda issue: calls.append("begin-run") or real_begin(issue))
+                        lambda issue: note(calls, "begin-run", 0) + real_begin(issue))
     monkeypatch.setitem(module.COMPOSITE_VERBS, "approve --plan", ("begin-run", "drift", "approve"))
     assert module.cmd_approve_plan("42", str(plan_file(tmp_path, PLAN))) == 0
     assert calls == ["begin-run", "drift", "approve"]
