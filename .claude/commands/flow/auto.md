@@ -256,7 +256,7 @@ compose names a second, colliding stack after the worktree basename.
    never a `scripts/` directory in the target project.
 
    Act on its `SPECKIT_CONTEXT_STATE` as
-   [the speckit-context reference](../../../docs/scripts/speckit-context.md#what-a-run-does-with-each-state)
+   [the speckit-context reference](../../../docs/scripts/speckit-context.md)
    says. `absent` is an ordinary issue whose body IS the contract; any other
    state means read the named source before planning, and a changed source is
    never by itself a ruling that acceptance changed.
@@ -697,7 +697,7 @@ is written voids it. Pick up a moved base with `git merge`.
 
    - `COUNTER_MODEL_REVIEW: findings` - first ask of each finding whether the
      exposure is frequent or severe enough within supported use to justify a fix
-     ([the proportionality test](../../../docs/agents/issue-contract.md#supported-scope-and-proportional-prevention)).
+     ([proportionality](../../../docs/agents/issue-contract.md)).
      Then triage each as accepted (fix it now,
      under the Step-4 rules), rejected (one-line reason), deferred (nit store),
      or, on the approver's ruling only, an [accepted limitation](../../../docs/agents/issue-contract.md#supported-scope-and-proportional-prevention).
@@ -1170,7 +1170,7 @@ Probing is available only via the explicit `--fallback-provider-probes` flag
 and reports `FLOW_CI_SELECTION: fallback`.
 
 The helper prints its own `FLOW_CI_*` contract, ending in `FLOW_CI_STATUS:`;
-its keys are listed in [its reference](../../../docs/scripts/flow-ci-status.md#output-contract).
+its keys are listed in [its reference](../../../docs/scripts/flow-ci-status.md).
 
 Act on `FLOW_CI_STATUS`:
 
@@ -1383,4 +1383,4 @@ report it, do not roll back.
 
 ### Codex fresh-flow attribution (#1557)
 
-Moved to [ADR 0007](../../../docs/decisions/0007-counter-model-review.md#codex-fresh-flow-attribution-1557) (#1850).
+Moved to [ADR 0007](../../../docs/decisions/0007-counter-model-review.md) (#1850).

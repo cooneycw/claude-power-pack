@@ -247,7 +247,7 @@ Three recommendations, each closed only on the approver's yes (#1850):
 an open prerequisite is a warning; a duplicate already in the code, or an ADR
 that has moved another way, is evidence for `No longer needed`, never an
 automatic close; and an exposure neither frequent nor severe within supported
-use ([the proportionality test](../../../docs/agents/issue-contract.md#supported-scope-and-proportional-prevention))
+use ([proportionality](../../../docs/agents/issue-contract.md))
 gets an offer to close until it recurs or proves severe, unless a security risk.
 
 This is the INITIAL approval point. Step 4's revision path in [auto.md](auto.md)

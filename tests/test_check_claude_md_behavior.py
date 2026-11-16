@@ -509,8 +509,18 @@ def test_the_real_flow_auto_fixture_is_substantial_and_satisfied() -> None:
         "bash-0090": "bash-0091-finish", "bash-0091": "bash-0091-finish",
         "bash-0092": "bash-0091-finish",
     }
+    # #1850: owner rulings withdrew Step 5 (Q4), the collapse recipe (G3-2), the
+    # receipt-helper resolution chain (group 1) and /flow:auto's marker-file
+    # refusal hand-off (G3-1); each reason names its ruling.
+    withdrawal_retirements = {
+        **{f"bash-{n:04d}": "Q4" for n in (40, 41, 42)},
+        **{f"bash-{n:04d}": "G3-2" for n in range(62, 66)},
+        **{f"bash-{n:04d}": "group 1" for n in range(67, 71)},
+        **{f"bash-{n:04d}": "G3-1" for n in range(133, 153)},
+    }
     assert set(retirements) == {
         "bash-0195", "bash-0201", *marker_retirements, *relay_retirements, *run_verb_retirements,
+        *withdrawal_retirements,
     }
     mapping = dict(steps)
     raw = json.loads((root / behavior.COMMAND_STEP_FIXTURES[_STEP_DOC]).read_text())
@@ -533,6 +543,10 @@ def test_the_real_flow_auto_fixture_is_substantial_and_satisfied() -> None:
         assert "original baseline retained" in reason
         assert entries[replacement]["kind"] == "bash-line"
         assert "flow-plan-record.py" in mapping[replacement] or "plan-42.md" in mapping[replacement]
+    for slug, ruling in withdrawal_retirements.items():
+        reason = retirements.pop(slug)
+        assert reason.startswith(f"#1850 {ruling}"), reason
+        assert entries[slug]["kind"] == "bash-line"
     addition = ('"CPP_RUNNER_TARGET_PATH=${PATH-}" '
                 '"CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" ')
     for slug, reason in retirements.items():

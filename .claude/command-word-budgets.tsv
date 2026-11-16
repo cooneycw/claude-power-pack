@@ -46,8 +46,8 @@
 # (documentation), the collapse recipe, the marker-file refusal hand-off and the
 # Codex attribution note (moved to ADR 0007), and moves the speckit-context and
 # FLOW_CI_* listings to their script references: flow/auto.md drops from 9816 to
-# 9122 (694 words), flow/finish.md from 4744 to 4648 (Step 2d), and flow/eli5.md
-# absorbs the three Step 3 recommendations within its cap (2653 to 2652).
+# 9120 (696 words), flow/finish.md from 4744 to 4648 (Step 2d), and flow/eli5.md
+# absorbs the three Step 3 recommendations within its cap (2653 to 2650).
 464	browser/help.md
 1077	browser/session.md
 425	cicd/check.md
@@ -83,12 +83,12 @@
 1218	documentation/pptx.md
 457	evaluate/help.md
 2284	evaluate/issue.md
-9122	flow/auto.md
+9120	flow/auto.md
 1837	flow/check.md
 2258	flow/cleanup.md
 1561	flow/deploy.md
 3686	flow/doctor.md
-2652	flow/eli5.md
+2650	flow/eli5.md
 4648	flow/finish.md
 984	flow/help.md
 4082	flow/merge.md
