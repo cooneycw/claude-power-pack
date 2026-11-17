@@ -645,6 +645,19 @@ def test_a_capture_is_NUL_free_text_so_an_API_checkout_keeps_it_byte_exact(tmp_p
     assert len(moves) == 2, f"the NUL-free capture no longer parses: {moves}"
 
 
+def test_a_lone_CR_in_a_committed_line_cannot_fake_a_header_on_the_LIVE_path(tmp_path: Path) -> None:
+    """#1860 pass-2 finding, live half: `subprocess.run(text=True)` applies
+    universal newlines, so a committed `note\\rOSCILLATION-COMMIT <sha>` line
+    became a fake commit header before the parser saw it and hid the reversal."""
+    fake = "note\r" + CHECK.COMMIT_MARKER + "0" * 40 + " fake\n"
+    repo = _repo(tmp_path / "cr", [fake + "timeout = 30\n", fake + "timeout = 60\n", fake + "timeout = 30\n"])
+    raw = (repo / "config.py").read_bytes()
+    assert b"\r" + CHECK.COMMIT_MARKER.encode() in raw, "precondition: the lone CR did not reach the file"
+    moves, commits = CHECK.collect_moves(repo, "HEAD")
+    assert commits == 3, f"a fake header was counted as a commit: {commits}"
+    assert _findings(repo) == ["config.py:timeout"]
+
+
 def test_git_ABSENT_is_unknown_and_not_a_traceback(tmp_path: Path) -> None:
     """The failure that broke CI, pinned.
 

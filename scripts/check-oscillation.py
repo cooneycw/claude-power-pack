@@ -262,8 +262,11 @@ def collect_moves(root: Path, rev_range: str) -> tuple[list[Move], int]:
     # PRESENCE instead and says outright that an argv assertion is a guard on
     # intent, not on behaviour.
     try:
+        # BYTES, decoded here, never text=True: universal-newline decoding turns
+        # a lone CR in diff content into LF, and `+x\rOSCILLATION-COMMIT ...`
+        # would then split into a fake header before _git_lines saw it (#1860).
         proc = subprocess.run([*GIT_LOG_ARGS, rev_range], cwd=root,
-                              capture_output=True, text=True)
+                              capture_output=True)
     except OSError:
         # git ABSENT, not git failing. The CI image ships without it - a fact
         # this repository has recorded as forgotten three times - and an
@@ -276,7 +279,7 @@ def collect_moves(root: Path, rev_range: str) -> tuple[list[Move], int]:
     if proc.returncode != 0:
         return [], 0
 
-    return parse_log(proc.stdout)
+    return parse_log(proc.stdout.decode("utf-8"))
 
 
 def parse_log(text: str) -> tuple[list[Move], int]:
@@ -613,7 +616,8 @@ def main() -> int:
     if args.from_log:
         log_path = Path(args.from_log)
         try:
-            captured = log_path.read_text(encoding="utf-8")
+            # Bytes then decode, for the same lone-CR reason as collect_moves.
+            captured = log_path.read_bytes().decode("utf-8")
         except OSError as exc:
             print(f"check-oscillation: cannot read {log_path}: {exc}", file=sys.stderr)
             print(f"OSCILLATION_SOURCE: {log_path}")

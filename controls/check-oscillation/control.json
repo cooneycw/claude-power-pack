@@ -59,7 +59,7 @@
       "sha": "n/a",
       "origin": "scripts/check-oscillation.py",
       "path": "anchors/constructed-single-commit-check-oscillation.py",
-      "sha256": "3b27760593f0476e9eb825e456aa94269d1b9676c75a7aebd204ea6e373bbcdc",
+      "sha256": "282d067caba504861afd09d492856ffa9101cb6bd17d8926fecbe45f218c5208",
       "why": "CONSTRUCTED rather than historical, and the distinction is stated because every other anchor in this repo is a real past commit. This gate is new, so there is no previous blind version to vendor - the honest 'before' is 'no detector at all', which cannot be run. This variant keeps only the NEWEST commit of the log, so it observes at most one move per knob and can never see a sequence reverse, which is exactly the insight the real gate encodes. It MISSES the known-bad input and AGREES with the current gate on the known-good one."
     }
   ]

@@ -14,6 +14,7 @@ CI never saw, with no error anywhere.
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 
@@ -68,3 +69,26 @@ def test_a_diff_line_cannot_impersonate_a_commit_header(sep: str) -> None:
     assert gate.find_oscillations(gate.parse_log(bad)[0], gate.DEFAULT_WINDOW), "precondition: BAD case reports"
     assert [(m.path, m.key, m.before, m.after) for m in moves] == \
            [(m.path, m.key, m.before, m.after) for m in clean], f"separator {sep!r} split a diff line"
+
+
+def test_a_lone_CR_cannot_impersonate_a_header_through_the_CLI(tmp_path: Path) -> None:
+    """The pass-2 counter-model finding on #1860, through the real --from-log path.
+
+    A parser-level test cannot see this: `Path.read_text()` converts a lone CR
+    into LF BEFORE the parser runs, so `+note\\rOSCILLATION-COMMIT ...` became a
+    fake header on the way in and the BAD case reported `none`, exit 0.
+    """
+    gate = _gate()
+    bad = (ROOT / "controls/check-oscillation/cases/bad-reversed/history.log").read_bytes()
+    injected = b"+note\r" + gate.COMMIT_MARKER.encode() + b"0" * 40 + b" fake\n+timeout = 60\n"
+    poisoned = bad.replace(b"+timeout = 60\n", injected, 1)
+    assert poisoned != bad and b"\r" + gate.COMMIT_MARKER.encode() in poisoned, "precondition: no lone CR injected"
+    log = tmp_path / "poisoned.log"
+    log.write_bytes(poisoned)
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "check-oscillation.py"), "--from-log", str(log), "--exit-on-finding"],
+        capture_output=True, text=True,
+    )
+    assert "OSCILLATION_FINDING: knob.conf:timeout" in proc.stdout, proc.stdout
+    assert "OSCILLATION_COMMITS: 3" in proc.stdout, f"a fake header was counted:\n{proc.stdout}"
+    assert proc.returncode == 1, proc.stdout
