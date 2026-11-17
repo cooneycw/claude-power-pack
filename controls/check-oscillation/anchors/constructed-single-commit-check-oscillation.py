@@ -206,8 +206,18 @@ def _knobs(line: str) -> dict[str, float]:
     return out
 
 
+# THE COMMIT HEADER IS PRINTABLE, and that is a transport requirement (#1860).
+# It was `%x00%H%x00%s`, so every captured control case carried NUL bytes, and
+# GitHub GraphQL `Blob.text` - the only file transport on a network that blocks
+# git smart-HTTP - returns such a file as text with each NUL rewritten to `^@`:
+# an API-built checkout ran the control on input CI never saw, with no error.
+# A line-start marker is as unambiguous as the NUL was: after the header, every
+# line of `git log -p --unified=0` is a diff header (`diff --git`, `index`,
+# `---`, `+++`, `@@`, mode/rename/similarity lines, `Binary files`, `\ No
+# newline`) or a `+`/`-`/space-prefixed content line, so none can begin with it.
+COMMIT_MARKER = "OSCILLATION-COMMIT "
 GIT_LOG_ARGS = ["git", "log", "--reverse", "--unified=0", "--first-parent",
-                "--diff-merges=first-parent", "--format=%x00%H%x00%s", "-p"]
+                "--diff-merges=first-parent", f"--format={COMMIT_MARKER}%H %s", "-p"]
 
 
 def collect_moves(root: Path, rev_range: str) -> tuple[list[Move], int]:
@@ -276,7 +286,7 @@ def parse_log(text: str) -> tuple[list[Move], int]:
     # encodes. It is the honest "before" for a detector that did not previously
     # exist: looking at a single change tells you nothing about oscillation.
     _lines = text.splitlines(keepends=True)
-    _starts = [i for i, ln in enumerate(_lines) if ln.startswith("\x00")]
+    _starts = [i for i, ln in enumerate(_lines) if ln.startswith(COMMIT_MARKER)]
     if _starts:
         text = "".join(_lines[_starts[-1]:])
 
@@ -306,9 +316,9 @@ def parse_log(text: str) -> tuple[list[Move], int]:
         added.clear()
 
     for raw in text.splitlines():
-        if raw.startswith("\x00"):
+        if raw.startswith(COMMIT_MARKER):
             flush()
-            _, sha, subject = raw.split("\x00", 2)
+            sha, _, subject = raw[len(COMMIT_MARKER):].partition(" ")
             ordinal += 1
             path = ""
             continue
