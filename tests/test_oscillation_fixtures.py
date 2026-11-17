@@ -71,7 +71,9 @@ def test_a_diff_line_cannot_impersonate_a_commit_header(sep: str) -> None:
            [(m.path, m.key, m.before, m.after) for m in clean], f"separator {sep!r} split a diff line"
 
 
-def test_a_lone_CR_cannot_impersonate_a_header_through_the_CLI(tmp_path: Path) -> None:
+def test_a_lone_CR_cannot_impersonate_a_header_through_the_CLI(  # binary-guard: allow --from-log never runs git
+    tmp_path: Path,
+) -> None:
     """The pass-2 counter-model finding on #1860, through the real --from-log path.
 
     A parser-level test cannot see this: `Path.read_text()` converts a lone CR
