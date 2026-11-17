@@ -620,6 +620,44 @@ def test_a_captured_log_gives_the_SAME_answer_as_the_live_repo(tmp_path: Path) -
         assert proc.returncode == CHECK.EXIT_REPORTED
 
 
+def test_a_capture_is_NUL_free_text_so_an_API_checkout_keeps_it_byte_exact(tmp_path: Path) -> None:
+    """The capture format must survive a checkout built through the GitHub API (#1860).
+
+    On a network that blocks git smart-HTTP, the only way in is to fetch each
+    file through GraphQL `Blob.text`. That field reports a file holding NUL
+    bytes as NOT binary and hands it back with every NUL rewritten to the
+    literal two characters `^@` - no error, just a different file. The control
+    cases are captures made with GIT_LOG_ARGS, so a NUL in the format string
+    became a NUL in every case, and an API-built checkout ran the control
+    against input CI never saw.
+
+    Asserted on a real capture rather than on the format string, because the
+    format string is not the output: `%x00` is five printable characters.
+    """
+    env = _env(tmp_path)
+    repo = _repo(tmp_path / "cap", ["timeout = 30\n", "timeout = 60\n", "timeout = 30\n"])
+    raw = subprocess.run([*CHECK.GIT_LOG_ARGS, "HEAD"], cwd=repo,
+                         capture_output=True, env=env, check=True).stdout
+    assert raw.strip(), "the capture is empty, so this proves nothing"
+    assert b"\x00" not in raw, "a GIT_LOG_ARGS capture carries a NUL byte"
+    raw.decode("utf-8")  # raises on anything the text API cannot return exactly
+    moves, _ = CHECK.parse_log(raw.decode("utf-8"))
+    assert len(moves) == 2, f"the NUL-free capture no longer parses: {moves}"
+
+
+def test_a_lone_CR_in_a_committed_line_cannot_fake_a_header_on_the_LIVE_path(tmp_path: Path) -> None:
+    """#1860 pass-2 finding, live half: `subprocess.run(text=True)` applies
+    universal newlines, so a committed `note\\rOSCILLATION-COMMIT <sha>` line
+    became a fake commit header before the parser saw it and hid the reversal."""
+    fake = "note\r" + CHECK.COMMIT_MARKER + "0" * 40 + " fake\n"
+    repo = _repo(tmp_path / "cr", [fake + "timeout = 30\n", fake + "timeout = 60\n", fake + "timeout = 30\n"])
+    raw = (repo / "config.py").read_bytes()
+    assert b"\r" + CHECK.COMMIT_MARKER.encode() in raw, "precondition: the lone CR did not reach the file"
+    moves, commits = CHECK.collect_moves(repo, "HEAD")
+    assert commits == 3, f"a fake header was counted as a commit: {commits}"
+    assert _findings(repo) == ["config.py:timeout"]
+
+
 def test_git_ABSENT_is_unknown_and_not_a_traceback(tmp_path: Path) -> None:
     """The failure that broke CI, pinned.
 
