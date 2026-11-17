@@ -13,6 +13,8 @@ CI never saw, with no error anywhere.
 
 from __future__ import annotations
 
+import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
@@ -33,3 +35,36 @@ def test_committed_case_is_NUL_free_utf8(log: Path) -> None:
     raw = log.read_bytes()
     assert b"\x00" not in raw, f"{log.relative_to(ROOT)} carries a NUL byte"
     raw.decode("utf-8")
+
+
+def _gate():
+    spec = importlib.util.spec_from_file_location(
+        "check_oscillation_fx", ROOT / "scripts" / "check-oscillation.py")
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod  # dataclasses resolve their module through sys.modules
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@pytest.mark.parametrize("sep", ["\v", "\f", "\x1c", "\x1e", "\x85", "\u2028"])
+def test_a_diff_line_cannot_impersonate_a_commit_header(sep: str) -> None:
+    """A printable marker is unambiguous only on git's own LF boundaries (#1860).
+
+    `str.splitlines()` also breaks on VT, FF, the C0 separators, NEL and the
+    Unicode separators. A committed line holding one of those and then the
+    marker text became a fake header that reset the current file and dropped
+    the reversal after it. The NUL format was immune, because a NUL-bearing file
+    is binary to git and never reaches a text hunk. Parser-level, so no git.
+    """
+    gate = _gate()
+    bad = (ROOT / "controls/check-oscillation/cases/bad-reversed/history.log").read_text(encoding="utf-8")
+    injected = f"+note{sep}{gate.COMMIT_MARKER}{'0' * 40} fake\n+timeout = 60\n"
+    assert "+timeout = 60\n" in bad, "the BAD case no longer has the line this injects before"
+    poisoned = bad.replace("+timeout = 60\n", injected, 1)
+    assert poisoned != bad, "precondition: the injection did not apply"
+    clean, _ = gate.parse_log(bad)
+    moves, _ = gate.parse_log(poisoned)
+    assert gate.find_oscillations(gate.parse_log(bad)[0], gate.DEFAULT_WINDOW), "precondition: BAD case reports"
+    assert [(m.path, m.key, m.before, m.after) for m in moves] == \
+           [(m.path, m.key, m.before, m.after) for m in clean], f"separator {sep!r} split a diff line"

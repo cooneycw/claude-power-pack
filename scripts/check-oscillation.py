@@ -220,6 +220,18 @@ GIT_LOG_ARGS = ["git", "log", "--reverse", "--unified=0", "--first-parent",
                 "--diff-merges=first-parent", f"--format={COMMIT_MARKER}%H %s", "-p"]
 
 
+def _git_lines(text: str) -> list[str]:
+    """Split a `git log -p` capture on git's own record boundary, LF, only.
+
+    NOT `str.splitlines()`, which also breaks on VT, FF, the C0 separators, NEL
+    and U+2028/U+2029: a committed line holding one of those and then the
+    COMMIT_MARKER text would become a fake commit header, reset the current
+    file and drop the moves after it (#1860 counter-model finding). A trailing
+    CR is removed so CRLF content still reads as splitlines() read it.
+    """
+    return [ln[:-1] if ln.endswith("\r") else ln for ln in text.split("\n")]
+
+
 def collect_moves(root: Path, rev_range: str) -> tuple[list[Move], int]:
     """Walk history and derive every knob move. Returns (moves, commits_seen)."""
     # --first-parent IS THE LINEAGE, and it is not a performance flag.
@@ -305,7 +317,7 @@ def parse_log(text: str) -> tuple[list[Move], int]:
         removed.clear()
         added.clear()
 
-    for raw in text.splitlines():
+    for raw in _git_lines(text):
         if raw.startswith(COMMIT_MARKER):
             flush()
             sha, _, subject = raw[len(COMMIT_MARKER):].partition(" ")
