@@ -221,24 +221,32 @@ The table itself is not machine-checked for truth. A plan can answer every
 lane `will test` and test none of them. Two readers check that:
 
 1. The approver, at plan approval. A plan that should carry the table and does
-   not is not approvable.
+   not is not approvable, and `flow-plan-record.py approve` refuses a record
+   with no table or with a listed lane unanswered (#1731).
 2. The counter-model review. `/codex:code_review` hands the reviewer the lane
-   file and asks it to report a listed lane the plan does not answer, and a
-   lane marked `will test` that no test in the diff exercises. The delegated
-   drivers' Step 5 gives the same question to their Claude reviewer, preserving
+   file and asks it to report a lane marked `will test` that no test in the
+   diff exercises. The close-time check cannot see this: it reads that a
+   demonstrated row names a test, not that the test exists. The delegated
+   drivers' Step 5 gives their Claude reviewer the lane question, preserving
    the independent review direction instead of asking Codex to review itself.
 
-**The second reader is a model, so its red case is an observation, not a
-repeatable check.** `tests/fixtures/lanes/` holds an example lane list, a plan that omits a listed
-lane and the same plan answering every lane, each with the tests it adds. The
-question was put to Codex (`gpt-6.1-sol`) over both, four times, on 2026-11-11.
-It reported the omitted lane for the first plan all four times. For the second
-plan it reported no lane finding three times; the first time it reported a
-loosely worded answer in the example itself, which was then tightened. To
-repeat it, hand the reviewer the fixture lane list and each plan with the lane
-question from `/codex:code_review`, and read whether the omitted lane is
-reported for the first and not for the second. One run does not
-establish that the next run answers the same way.
+**The review no longer asks for an unanswered lane (#1863).** Until then it
+also asked the reviewer to report a listed lane the plan did not answer, which
+`approve` already refuses. `tests/test_review_prompt_parity.py` holds the
+split: every question the prompt dropped has a fixture `approve` refuses, and
+every question it keeps has a fixture the helper lets through. The questions
+are dropped only when the helper catches what they ask.
+
+**The review is a model, so its red case is an observation, not a repeatable
+check.** `tests/fixtures/lanes/` holds an example lane list, a plan that omits
+a listed lane and the same plan answering every lane, each with the tests it
+adds. On 2026-11-11, before #1863, the omitted-lane question was put to Codex
+(`gpt-6.1-sol`) over both, four times. It reported the omitted lane for the
+first plan all four times. For the second plan it reported no lane finding
+three times; the first time it reported a loosely worded answer in the example
+itself, which was then tightened. One run does not establish that the next run
+answers the same way. That question now belongs to `approve`, which refuses the
+first plan by name and accepts the second; the parity test runs both.
 
 **Delegated approval and close have recorded-path coverage (#1809).** The
 three `controls/delegated-*-plan-lanes` registrations exercise each rendered
