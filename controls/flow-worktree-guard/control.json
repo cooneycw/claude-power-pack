@@ -1,7 +1,7 @@
 {
   "_comment": [
     "Registration for scripts/flow-worktree-guard.sh (issue #1014).",
-    "WHY A COMMITTED CASE (ADR 0008): /flow:auto Steps 4 and 6 read this guard's verdict",
+    "WHY A COMMITTED CASE (ADR 0008): /flow:auto Steps 4 and 5 read this guard's verdict",
     "before commit and nothing downstream re-derives that no edit leaked into main.",
     "The cases force the guard's THIRD states - could-not-look and nothing-to-look-at - which",
     "were byte-identical to a clean pass before #1014. run-case.sh builds a real repository",

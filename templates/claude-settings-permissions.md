@@ -19,7 +19,7 @@ whether the allowlist is installed.
 |-------|-------|---------|
 | GitHub reads | `gh issue view/list`, `gh pr view/list/checks`, `gh run view/list`, `gh repo view` | issue fetch (flow Step 1), ELI5 staleness check, CI verification |
 | Git reads | `git status/log/diff/show/branch/rev-parse`, `git config --get`, `git remote -v` | analysis, ELI5 anchored history check, verification gates |
-| Git plumbing | `git fetch`, `git worktree` | worktree create/list/remove (flow Steps 1 and 7) |
+| Git plumbing | `git fetch`, `git worktree` | worktree create/list/remove (flow Steps 1 and 6) |
 | Text pipeline | `echo/tr/cut/sed/basename` | the branch-slug sanitization pipeline in flow Step 1 |
 | Filesystem reads | `grep/rg/ls/find/wc`, `cd`, `pwd` | codebase exploration, directory verification gates |
 | Flow helper scripts | `~/.claude/scripts/{flow-start-resolve, flow-stale-check, flow-worktree-guard, flow-live-driver-guard, flow-worktree-claim, flow-finish-gate, gh-pr-merge, worktree-remove}.sh` | the audited flow helper family (issue #581): Step-1 resolve + verify gate, stale-base / leaked-edit / live-driver guards (Steps 4 and 6), the deterministic quality-gate runner invocation (Step 6 and the merge re-gate, #613), PR squash-merge + worktree cleanup (Step 7) |

@@ -2,7 +2,7 @@
 
 Before this, "I looked and main is clean" and "I could not look" were
 byte-identical on stdout AND exit code: every could-not-look path ended in a
-silent `exit 0`, and `/flow:auto` Steps 4 and 6 read exit 0 as "no edit leaked
+silent `exit 0`, and `/flow:auto` Steps 4 and 5 read exit 0 as "no edit leaked
 into main". The marker names the verdict; under --strict the exit follows
 gate-lib's gate_map (no-leak 0, leak 3, unknown 4, not-applicable 5), so a
 could-not-look answer can never share the good exit.

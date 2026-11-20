@@ -261,7 +261,7 @@ cannot be locked) is normal and never blocks the run.
   be read: continue, and the Step-4 snapshot will say unresolved rather than
   claim the issue was unchanged.
 
-**Helper resolution**, here and at Steps 4 and 6: the stable path first; on exit
+**Helper resolution**, here and at Steps 4 and 5: the stable path first; on exit
 127, `${CLAUDE_PLUGIN_ROOT}/scripts/flow-plan-record.py`, else the CPP-checkout
 copy - either may prompt once, so tell the user to run **`/flow:repair`**. If no
 copy exists, **STOP** and report it: the record, the snapshot and the Step-5

@@ -71,7 +71,7 @@ def test_appends_valid_jsonl(tmp_path: Path):
         "--run",
         "flow:auto #426",
         "--step",
-        "1/9 Start",
+        "1/7 Start",
         "--outcome",
         "approved",
         log_path=log,
@@ -85,7 +85,7 @@ def test_appends_valid_jsonl(tmp_path: Path):
     assert rec["fix"] == "Bash(gh issue view:*)"
     assert rec["scope"] == "local"
     assert rec["run"] == "flow:auto #426"
-    assert rec["step"] == "1/9 Start"
+    assert rec["step"] == "1/7 Start"
     assert rec["outcome"] == "approved"
     assert rec["ts"].endswith("Z")  # ISO-8601 UTC stamp
 

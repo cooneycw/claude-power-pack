@@ -372,7 +372,7 @@ def test_guard_rejects_unknown_option(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Issue #576: /flow:auto Steps 4 and 6 invoke the guard WITH --strict, so exit 3
+# Issue #576: /flow:auto Steps 4 and 5 invoke the guard WITH --strict, so exit 3
 # now stops a run. That promotion is only safe if --strict distinguishes a leak
 # from pre-existing dirt on a shared file the run legitimately also edits -
 # otherwise the first high-traffic file (CLAUDE.md, a template) left uncommitted

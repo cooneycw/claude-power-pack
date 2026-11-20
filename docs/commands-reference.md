@@ -231,7 +231,7 @@ carried their history: "**Ignored-additions guard** (issue #430; blocking in a
 worktree since #1258)" and "**Worktree-leak guard** (issue #486; blocking since
 #576)"; each keeps its issue number and loses the "since" clause.
 The fuller original of the whole item is in
-[the flow:auto rationale](reference/flow-auto-rationale.md), Step 6.
+[the flow:auto rationale](reference/flow-auto-rationale.md), Step 5.
 
 From `/flow:finish`, the paragraph before the verdict table. After "Each
 verdict now has its OWN exit code (issue #1027)" it read:
@@ -358,7 +358,7 @@ sibling *outside* the main repo (`../<repo>-<branch>/`, issue #627). Resolve eve
 --show-toplevel` - or use a plain relative path from the session cwd; **never
 hand-build an absolute worktree path**, which has been observed to land the edit
 in the MAIN repo working tree instead of the worktree (flow:auto #442 x2, #471). `/flow:auto`
-Steps 4/6 run `scripts/flow-worktree-guard.sh --strict` - **blocking since
+Steps 4/5 run `scripts/flow-worktree-guard.sh --strict` - **blocking since
 #576**: it exits 3 when a path this run edited is ALSO freshly modified in the
 main tree, the signature of a leaked edit, so the trap stops the run instead of
 being narrated past. Two downgrades keep it from crying wolf: pre-existing main
