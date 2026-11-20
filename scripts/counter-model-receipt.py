@@ -2108,18 +2108,19 @@ def plan_record_paths(issue: object) -> frozenset[str]:
     return frozenset(f"docs/flow-runs/issue-{number}{suffix}" for suffix in PLAN_RECORD_SUFFIXES)
 
 
-def _plan_record_candidates(tip_ref: str, issue: object) -> tuple[str, list[tuple[str, list[str]]], list[str]]:
-    """The tip, then each first-parent ancestor whose diff to the tip lies
-    wholly inside the issue's plan record. Returns `(tip, [(commit, moved
-    paths)], first outside paths)`; the walk stops at the first ancestor whose
-    diff to the tip leaves the set, and reports what left it."""
+def _plan_record_candidates(tip: str, issue: object) -> tuple[list[tuple[str, list[str]]], list[str]]:
+    """Each first-parent ancestor of `tip` whose diff to it lies wholly inside
+    the issue's plan record. Returns `([(commit, moved paths)], first outside
+    paths)`; the walk stops at the first ancestor whose diff to the tip leaves
+    the set, and reports what left it. Filenames are decoded with
+    surrogateescape: Git allows bytes UTF-8 does not, and such a name is simply
+    outside the (ASCII) set."""
     def git(*argv: str) -> str:
-        return subprocess.check_output(["git", *argv], stderr=subprocess.PIPE).decode()
+        return subprocess.check_output(["git", *argv], stderr=subprocess.PIPE).decode("utf-8", "surrogateescape")
 
     allowed = plan_record_paths(issue)
-    tip = git("rev-parse", "--verify", f"{tip_ref}^{{commit}}").strip()
     chain = git("rev-list", "--first-parent", f"--max-count={PLAN_RECORD_WALK}", tip).split()
-    candidates: list[tuple[str, list[str]]] = [(tip, [])]
+    candidates: list[tuple[str, list[str]]] = []
     for commit in chain[1:]:
         moved = sorted(p for p in git(
             "-c", "core.quotePath=false", "diff", "--name-only", "-z", "--no-ext-diff",
@@ -2127,19 +2128,36 @@ def _plan_record_candidates(tip_ref: str, issue: object) -> tuple[str, list[tupl
         ).split("\0") if p)
         outside = [p for p in moved if p not in allowed]
         if outside:
-            return tip, candidates, outside
+            return candidates, outside
         candidates.append((commit, moved))
-    return tip, candidates, []
+    return candidates, []
 
 
 def _artifact_binding(args: argparse.Namespace, evidence: dict, records: list[dict]) -> dict:
-    tip, candidates, outside = _plan_record_candidates(args.head or "HEAD", args.issue)
-    binding, patch = _git_artifact(args.review_base, tip)
+    binding, patch = _git_artifact(args.review_base, args.head or "HEAD")
     target = binding["target_head"]
     moved: list[str] = []
+    # Earlier heads are looked at only when the evidence does not name the
+    # tip (issue #1862), so an ordinary receipt never walks history.
+    cache: dict[str, object] = {}
+
+    def walk() -> tuple[list[tuple[str, list[str]]], list[str]]:
+        if "walk" not in cache:
+            cache["walk"] = _plan_record_candidates(target, args.issue)
+        return cache["walk"]  # type: ignore[return-value]
+
+    def earlier_patches() -> list[tuple[dict, list[str], bytes]]:
+        if "patches" not in cache:
+            found = []
+            for commit, paths in walk()[0]:
+                earlier, earlier_patch = _git_artifact(args.review_base, commit)
+                found.append((earlier, paths, earlier_patch))
+            cache["patches"] = found
+        return cache["patches"]  # type: ignore[return-value]
 
     def beyond() -> str:
         # Why an earlier reviewed head could not be used (issue #1862).
+        outside = walk()[1]
         if outside:
             return (f"; commits after the reviewed head touch {', '.join(outside[:5])}, outside "
                     f"issue #{str(args.issue).lstrip('#')}'s plan record, so they need review")
@@ -2160,7 +2178,7 @@ def _artifact_binding(args: argparse.Namespace, evidence: dict, records: list[di
                 "'git rev-parse HEAD' and retain its tool result"
             )
         if heads[-1] != target:
-            match = [(commit, paths) for commit, paths in candidates if commit == heads[-1]]
+            match = [(commit, paths) for commit, paths in walk()[0] if commit == heads[-1]]
             if not match:
                 raise EvidenceRefused("reviewer runtime HEAD probe names a different head" + beyond())
             binding.update(_git_artifact(args.review_base, match[0][0])[0])
@@ -2172,8 +2190,11 @@ def _artifact_binding(args: argparse.Namespace, evidence: dict, records: list[di
             input_frames = []
             # Native Codex can persist stdin without transport framing. Only
             # exact, nonempty canonical bytes establish that raw capture.
-            if evidence["runtime"] == "codex" and patch and text.encode("utf-8") == patch:
-                input_frames.append((message_index, 0, patch))
+            raw = text.encode("utf-8", "surrogateescape") if evidence["runtime"] == "codex" else b""
+            # Only an input that is itself a diff can be an earlier head's patch.
+            if raw and (raw == patch or (raw.startswith(b"diff --git ")
+                                         and any(raw == p for _, _, p in earlier_patches()))):
+                input_frames.append((message_index, 0, raw))
             # Keep strict framing for the supported explicit transports.
             for opening, closing in (("<stdin>\n", "</stdin>"), ("<cpp-review-patch>\n", "</cpp-review-patch>")):
                 starts = list(re.finditer(r"(?m)^" + re.escape(opening), text))
@@ -2199,8 +2220,7 @@ def _artifact_binding(args: argparse.Namespace, evidence: dict, records: list[di
         # delimiter kind or the number of text parts making up a message.
         captured = max(patches, key=lambda frame: (frame[0], frame[1]))[2]
         if captured != patch:
-            for commit, paths in candidates[1:]:
-                earlier, earlier_patch = _git_artifact(args.review_base, commit)
+            for earlier, paths, earlier_patch in earlier_patches():
                 if earlier_patch == captured:
                     binding.update(earlier)
                     moved = paths
@@ -2423,8 +2443,9 @@ def _validate_adapters(receipt: dict, source: str, implementers: list[str], revi
                         "plan_record_move requires a full head other than the reviewed head")
                 paths = move["paths"]
                 allowed = plan_record_paths(receipt.get("issue"))
-                require(isinstance(paths, list) and bool(paths) and paths == sorted(set(paths))
-                        and all(isinstance(p, str) and p in allowed for p in paths),
+                require(isinstance(paths, list) and bool(paths)
+                        and all(isinstance(p, str) and p in allowed for p in paths)
+                        and paths == sorted(set(paths)),
                         "plan_record_move paths must be a nonempty sorted list inside the issue's plan record")
     require(receipt.get("scope") in SCOPES, "schema 5 requires a supported review scope")
     for key, values in (("network", NETWORKS), ("local_credentials", LOCAL_CREDENTIALS)):

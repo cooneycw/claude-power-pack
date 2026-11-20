@@ -1505,3 +1505,68 @@ def test_plan_record_set_matches_flow_plan_record():
     assert load().plan_record_paths("1862") == frozenset(
         {fpr.record_rel("1862"), fpr.snapshot_rel("1862"), fpr.demonstrated_rel("1862")}
     )
+
+
+@requires_git
+def test_a_raw_native_codex_capture_binds_across_a_plan_record_move(evidence):
+    """Review finding (#1862 pass 1): native Codex persists the patch unframed.
+    The raw form must match an earlier head's patch too, or a plan-only fix
+    still costs a pass on that transport."""
+    e = evidence
+    args = runtime(e, "implementer", "claude", "model-a")
+    args += runtime(e, "reviewer", "codex", "model-b", patch=e["patch"])
+    rollout = e["tmp"] / "codex/rollout-fixture-reviewer.jsonl"
+    records = [json.loads(line) for line in rollout.read_text().splitlines()]
+    records[2]["payload"]["content"][0]["text"] = e["patch"]
+    rollout.write_text("".join(json.dumps(r) + "\n" for r in records))
+    assert "<cpp-review-patch>" not in rollout.read_text(), "precondition: the capture is unframed"
+    tip = _commit_path(e["repo"], "docs/flow-runs/issue-1584.md", "lane row\n")
+    result = write(e, *args, "--scope", "diff-only")
+    assert result.returncode == 0, result.stderr
+    receipt = json.loads(next((e["tmp"] / "out").glob("*.json")).read_text())
+    assert receipt["head"] == e["head"]
+    assert receipt["reviewed_artifact"]["plan_record_move"]["head"] == tip
+
+
+@requires_git
+@pytest.mark.parametrize("scope", ["full", "diff-only"])
+def test_a_non_utf8_filename_does_not_break_a_current_head_receipt(evidence, scope):
+    """Review finding (#1862 pass 1): Git allows filenames that are not UTF-8.
+    A receipt for the current tip must not depend on decoding history names."""
+    e = evidence
+    repo = e["repo"]
+    git(repo, "reset", "-q", "--hard", "origin/main")
+    (repo / "file").write_text("after\n")
+    git(repo, "commit", "-qam", "change")
+    # The odd name is in the TIP commit, so the first diff any history walk
+    # reads contains it.
+    odd = b"non-utf8-\xff.txt"
+    with open(os.path.join(os.fsencode(repo), odd), "wb") as handle:
+        handle.write(b"x\n")
+    subprocess.check_call([b"git", b"add", odd], cwd=repo)
+    git(repo, "commit", "-qm", "odd name")
+    head = git(repo, "rev-parse", "HEAD")
+    patch = subprocess.check_output(
+        [sys.executable, str(SCRIPT), "review-patch"], cwd=repo).decode("utf-8", "surrogateescape")
+    with pytest.raises(UnicodeDecodeError):
+        subprocess.check_output(["git", "diff", "--name-only", "-z", "HEAD^", "HEAD"], cwd=repo).decode()
+    args = runtime(e, "implementer", "codex", "model-a")
+    args += runtime(e, "reviewer", "claude", "model-b",
+                    patch=patch if scope == "diff-only" else None,
+                    probe=head if scope == "full" else None)
+    result = write(e, *args, "--scope", scope)
+    assert result.returncode == 0, result.stderr
+
+
+@requires_git
+@pytest.mark.parametrize("paths", [[{}], ["docs/flow-runs/issue-1584.md", 1], "docs/flow-runs/issue-1584.md"])
+def test_validate_reports_malformed_move_paths_instead_of_raising(evidence, paths):
+    """Review finding (#1862 pass 1): a malformed element must be a reported
+    problem, not a TypeError that aborts the corpus check."""
+    e = evidence
+    args, _ = _reviewed_then(e, "full", "docs/flow-runs/issue-1584.md")
+    assert write(e, *args, "--scope", "full").returncode == 0
+    receipt = json.loads(next((e["tmp"] / "out").glob("*.json")).read_text())
+    receipt["reviewed_artifact"]["plan_record_move"]["paths"] = paths
+    problems = load().validate(receipt)
+    assert any("plan_record_move paths" in p for p in problems), problems
