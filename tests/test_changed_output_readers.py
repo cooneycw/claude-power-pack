@@ -160,7 +160,7 @@ def test_the_reader_question_is_not_inside_the_lane_list_condition() -> None:
     assert reader.endswith("with no plan in the diff, say so once.")
     (lanes,) = [p for p in paragraphs if p.startswith("If a LANE LIST is given above")]
     assert "Reader:" not in lanes
-    assert lanes.endswith("With no LANE LIST, skip (1) and (2)."), (
+    assert lanes.endswith("With no LANE LIST, skip this question."), (
         "the lane paragraph must say what a missing lane list switches off, and only that"
     )
     (tests,) = [p for p in paragraphs if p.startswith("For each row answered")]

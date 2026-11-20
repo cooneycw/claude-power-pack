@@ -135,11 +135,14 @@ def test_the_plan_gate_pointer_sits_outside_the_vendored_core() -> None:
 
 # --- the counter-model question ----------------------------------------------
 
-QUESTION_OMITTED = "each listed lane that the plan's 'Lanes for this change' table in this diff does not answer"
-QUESTION_NO_TABLE = "with no such table, say so once;"
+#: Dropped by #1863: `flow-plan-record.py approve` refuses a record that leaves a
+#: listed lane unanswered or has no table, so the review no longer re-asks it.
+#: `tests/test_review_prompt_parity.py` holds the helper to catching it.
+DROPPED_OMITTED = "each listed lane that the plan's 'Lanes for this change' table in this diff does not answer"
+DROPPED_NO_TABLE = "with no such table, say so once"
 QUESTION_EXEMPT = "A missing table or row is no defect for Tier 1 or standalone review."
 QUESTION_UNTESTED = "each lane the plan marks 'will test' that no test in the diff exercises"
-QUESTION_SILENT = "With no LANE LIST, skip (1) and (2)."
+QUESTION_SILENT = "With no LANE LIST, skip this question."
 
 
 def review_prompt(text: str) -> str:
@@ -149,8 +152,8 @@ def review_prompt(text: str) -> str:
 
 def test_the_review_prompt_carries_the_lane_question() -> None:
     prompt = normalized(review_prompt(read(REVIEW_HELPER)))
-    assert QUESTION_OMITTED in prompt
-    assert QUESTION_NO_TABLE in prompt
+    assert DROPPED_OMITTED not in prompt, "the review re-asks what approve already refuses (#1863)"
+    assert DROPPED_NO_TABLE not in prompt, "the review re-asks what approve already refuses (#1863)"
     assert QUESTION_EXEMPT in prompt
     assert QUESTION_UNTESTED in prompt
     assert QUESTION_SILENT in prompt
@@ -162,7 +165,8 @@ def test_a_prompt_without_the_question_is_reported() -> None:
     text = read(REVIEW_HELPER)
     start = text.index("If a LANE LIST is given above")
     trimmed = text[:start] + text[text.index("\n", start) :]
-    assert QUESTION_OMITTED not in normalized(review_prompt(trimmed))
+    assert QUESTION_UNTESTED in normalized(review_prompt(text)), "precondition: the question is there to drop"
+    assert QUESTION_UNTESTED not in normalized(review_prompt(trimmed))
 
 
 # --- the hand-over: three states a project can be in -------------------------

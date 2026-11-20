@@ -211,7 +211,10 @@ fi
 echo "CODEX_REVIEW_SCOPE: $REVIEW_SCOPE"
 # Lane list (issue #1695), INLINE: a diff-only reviewer cannot open it. Absent
 # asks nothing; an unusable list (failed git, directory, empty, oversize) is
-# SAID, never read as absent.
+# SAID, never read as absent. The prompt asks only the will-test question: an
+# unanswered lane is refused by `flow-plan-record.py approve`, so the review no
+# longer asks it (#1863; tests/test_review_prompt_parity.py holds each clause
+# the prompt keeps or drops against what the helper catches).
 LANES_LINE=""
 LANES_UNREAD=" This project has a LANE LIST that could not be read: report the lane question as unanswered."
 if ! LANES_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"; then
@@ -377,7 +380,7 @@ Judge the change against its approved scope: the review intent above and, when t
 
 If the diff adds or changes a check, gate, guard, tripwire or allowlist, ask two further questions of it and report a failure of either as a finding: (1) does its success message claim more than its input population supports - can a zero distinguish 'I looked and found nothing' from 'there was nothing to look at'; and (2) can a non-zero distinguish 'our thing changed' from 'a neighbour changed'. Widening the detector is not always the remedy: where the narrow answer is deliberately correct, say so and say where the larger question should be answered instead.
 
-If a LANE LIST is given above and the diff changes behaviour, report: (1) each listed lane that the plan's 'Lanes for this change' table in this diff does not answer - with no such table, say so once; (2) each lane the plan marks 'will test' that no test in the diff exercises. With no LANE LIST, skip (1) and (2).
+If a LANE LIST is given above and the diff changes behaviour, report each lane the plan marks 'will test' that no test in the diff exercises. With no LANE LIST, skip this question.
 
 If the diff changes an output another part reads (response shape, file format, status line, exit code), report each reader with no 'Reader:' row in the plan's table, LANE LIST or not; with no plan in the diff, say so once.
 
