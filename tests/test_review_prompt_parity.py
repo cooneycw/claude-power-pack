@@ -200,11 +200,30 @@ Lanes: none - no listed lane is reached by an exit-code change
 """
 
 
+GATE = "scripts/gate.sh"
+CALLER = "scripts/finish.sh"
+
+
 def test_the_helper_misses_a_changed_output_with_no_reader_row(repo: Path) -> None:
-    assert "Reader:" not in READER_PLAN  # the precondition
+    """A real output change: the base has a gate exiting 1 and a caller that reads
+    that status; the diff changes the gate to exit 3 and names no reader."""
+    git(repo, "checkout", "-q", "main")
+    (repo / "scripts").mkdir()
+    (repo / GATE).write_text("#!/bin/sh\nexit 1\n")
+    (repo / CALLER).write_text('#!/bin/sh\nsh scripts/gate.sh\n[ "$?" -eq 1 ] && echo refused\n')
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "gate and its caller")
+    git(repo, "checkout", "-q", "issue-42-parity")
+    git(repo, "merge", "-q", "--ff-only", "main")
+    assert "Reader:" not in READER_PLAN  # the precondition: no reader row
     done = approve(repo, READER_PLAN)
     assert done.returncode == 0, done.stdout + done.stderr
-    commit_files(repo, "scripts/gate.sh")
+    (repo / GATE).write_text("#!/bin/sh\nexit 3\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "gate exits 3")
+    diff = git(repo, "diff", "main", "--", GATE)
+    assert "-exit 1" in diff and "+exit 3" in diff  # the precondition: the output changed
+    assert "-eq 1" in (repo / CALLER).read_text()  # the precondition: a reader of it exists
     done = compliance(repo)
     assert done.returncode == 0, done.stdout + done.stderr
     assert "PLAN_COMPLIANCE: agreement" in done.stdout
