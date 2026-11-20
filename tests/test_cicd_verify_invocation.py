@@ -9,7 +9,7 @@ both shipped for months in the deploy-verification path:
 2. bare ``python3`` instead of ``uv run --project "$CPP_DIR"``, so the system
    interpreter (often 3.10, no venv) runs it and ``pydantic`` is missing.
 
-Issue #430 fixed both in the ``/flow:auto`` Step 6 quality gate; Step 9's
+Issue #430 fixed both in the ``/flow:auto`` Step 5 quality gate; Step 7b's
 ``verify`` calls - and their ``/flow:deploy`` and ``/cicd:verify`` siblings -
 were never updated alongside it. The failure prints to stderr mid-deploy and is
 easy to narrate past, so it was captured in the friction buffer twice, months

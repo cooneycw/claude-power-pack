@@ -6,7 +6,7 @@
 # Motivation: on a box running 3+ concurrent Claude sessions against one repo,
 # `/flow:auto <N>` can be invoked while a DIFFERENT live session is already
 # driving the issue-N worktree. If the resume path enters it anyway, two drivers
-# fight over one checkout and the second driver's Step-7 cleanup can delete the
+# fight over one checkout and the second driver's Step-6 cleanup can delete the
 # first driver's cwd out from under it. The flow:auto #478 run only dodged this
 # via an ad-hoc "were files touched in the last few minutes?" check and stood
 # down. This guard makes that instinct a reusable, testable check.
@@ -181,7 +181,7 @@ if [ "${#fresh[@]}" -gt "$max" ]; then
 fi
 echo "" >&2
 echo "  Another session may be mid-implementation in this worktree (issue #503)." >&2
-echo "  Entering it now risks two drivers fighting over one checkout - the Step-7" >&2
+echo "  Entering it now risks two drivers fighting over one checkout - the Step-6" >&2
 echo "  cleanup can delete the other driver's cwd. Before proceeding:" >&2
 echo "    1. Confirm no other live session owns this worktree (ask, or check the mtimes)." >&2
 echo "    2. gh pr list --head <branch>   # already-shipped branch is the other hazard." >&2

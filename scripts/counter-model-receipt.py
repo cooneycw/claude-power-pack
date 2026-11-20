@@ -3354,7 +3354,7 @@ def cmd_parse(args: argparse.Namespace) -> int:
     if verdict == PARSE_FORMAT_MISMATCH:
         print("counter-model-receipt: the Findings section carries findings in a shape "
               "this parser does not read - the review HAPPENED. Do not record it as a "
-              "skip; see /flow:auto Step 6 item 1c.", file=sys.stderr)
+              "skip; see /flow:auto Step 5 item 1c.", file=sys.stderr)
     return EXIT_INVALID if verdict in (PARSE_UNPARSEABLE, PARSE_FORMAT_MISMATCH) else EXIT_OK
 
 

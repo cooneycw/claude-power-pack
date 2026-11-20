@@ -1778,6 +1778,24 @@
    "needle": "~/.claude/scripts/flow-plan-record.py finish 42",
    "kind": "bash-line",
    "count": 1
+  },
+  {
+   "slug": "bash-0005-renumbered",
+   "needle": "--scope <local|portable> --run \"flow:auto #$ISSUE_NUM\" --step \"<N/7 Name>\" --outcome \"<retried|worked-around|corrected>\"",
+   "kind": "bash-line",
+   "count": 1
+  },
+  {
+   "slug": "bash-0051-renumbered",
+   "needle": "echo \"STOP: 'git merge origin/main' hit CONFLICTS. Resolve them, 'git add' + 'git commit', then re-run Step 5.\"",
+   "kind": "bash-line",
+   "count": 1
+  },
+  {
+   "slug": "bash-0122-renumbered",
+   "needle": "echo \" Install the helper with /flow:repair, then resume Step 6.\" >&2",
+   "kind": "bash-line",
+   "count": 1
   }
  ],
  "retirements": {
@@ -1835,6 +1853,9 @@
   "bash-0149": "#1850 G3-1 owner ruling: /flow:auto's marker-file refusal hand-off withdrawn as an accepted limitation; a missing worktree-remove.sh now STOPs; /flow:merge keeps the hand-off",
   "bash-0150": "#1850 G3-1 owner ruling: /flow:auto's marker-file refusal hand-off withdrawn as an accepted limitation; a missing worktree-remove.sh now STOPs; /flow:merge keeps the hand-off",
   "bash-0151": "#1850 G3-1 owner ruling: /flow:auto's marker-file refusal hand-off withdrawn as an accepted limitation; a missing worktree-remove.sh now STOPs; /flow:merge keeps the hand-off",
-  "bash-0152": "#1850 G3-1 owner ruling: /flow:auto's marker-file refusal hand-off withdrawn as an accepted limitation; a missing worktree-remove.sh now STOPs; /flow:merge keeps the hand-off"
+  "bash-0152": "#1850 G3-1 owner ruling: /flow:auto's marker-file refusal hand-off withdrawn as an accepted limitation; a missing worktree-remove.sh now STOPs; /flow:merge keeps the hand-off",
+  "bash-0005": "Owner-approved #1857 plan: /flow:auto renumbered to seven steps (retired Step 5 removed, Steps 8 and 9 folded into Step 7); the same line now names the new step number; replaced by bash-0005-renumbered; original baseline retained.",
+  "bash-0051": "Owner-approved #1857 plan: /flow:auto renumbered to seven steps (retired Step 5 removed, Steps 8 and 9 folded into Step 7); the same line now names the new step number; replaced by bash-0051-renumbered; original baseline retained.",
+  "bash-0122": "Owner-approved #1857 plan: /flow:auto renumbered to seven steps (retired Step 5 removed, Steps 8 and 9 folded into Step 7); the same line now names the new step number; replaced by bash-0122-renumbered; original baseline retained."
  }
 }

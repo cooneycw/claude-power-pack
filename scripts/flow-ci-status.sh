@@ -4,7 +4,7 @@
 # flow-ci-status.sh - Resolve the CI outcome for ONE commit SHA (issues #766, #768).
 #
 # Problem:
-#   /flow:auto Step 8 (Verify CI) was the last un-helpered step in the flow. It
+#   /flow:auto Step 7a (Verify CI) was the last un-helpered step in the flow. It
 #   inlined a curl+jq Woodpecker lookup gated on WOODPECKER_API_TOKEN already
 #   being exported - which it usually is not, because the token lives in an AWS
 #   secret, not a shell profile. With no helper the model improvises, and on
@@ -14,7 +14,7 @@
 #   queued. With ~7 sessions merging into one repo, a positional grep over that
 #   shared list is a coin flip.
 #
-#   Pipeline COLOUR is also not the answer Step 8 needs: for kyle's push
+#   Pipeline COLOUR is also not the answer Step 7a needs: for kyle's push
 #   pipelines a red can mean "tests failed" or "the SSH deploy step hit a
 #   connect timeout", which are materially different outcomes.
 #
@@ -400,7 +400,7 @@ failure_origin() {
 #: NEGATIVE-CONTROL: controls/flow-ci-status-cancellation
 #: Provider Canceled errors are distinct from code failures (issue #1486).
 #: NEGATIVE-CONTROL: controls/flow-ci-status
-#: ADR 0008 row 10, class G: FLOW_CI_STATUS decides Step 8's deploy-or-stop,
+#: ADR 0008 row 10, class G: FLOW_CI_STATUS decides Step 7a's deploy-or-stop,
 #: and nothing re-derives it (issue #1411). The control answers this script's
 #: curl from files through a stub on PATH, varying only a failed step's
 #: exit_code, and checks that exit 75 (EX_FETCH_FAILED) reports precode while
@@ -811,7 +811,7 @@ if [[ "${CPP_FLOW_CI_BACKEND:-probe}" != "github-actions" && "$HAVE_JQ" -eq 1 &&
         done
 
         # Name the failed steps: pipeline colour cannot tell a red test suite
-        # from a red deploy step, and Step 8 needs that distinction.
+        # from a red deploy step, and Step 7a needs that distinction.
         if [[ "$STATUS" == "failure" && "$PIPELINE" != "-" ]]; then
             # Name, TYPE, EXIT CODE and ERROR from the one response (issues #1342,
             # #1411). A step with no `type` or `exit_code` field records an

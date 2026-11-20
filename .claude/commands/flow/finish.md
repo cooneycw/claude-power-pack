@@ -94,7 +94,7 @@ if [ -x scripts/codex-skill-resync.sh ]; then
 fi
 ```
 
-This is the early half of the #462 stale-branch guard; the Step-7 `/flow:merge`
+This is the early half of the #462 stale-branch guard; the Step-6 `/flow:merge`
 guard remains the final backstop.
 
 ### Step 1c: Recorded CI and host preflight
@@ -208,7 +208,7 @@ unknown implementation turn still refuses. With no OTHER model available, record
 **The match is by ANCESTRY, and ancestry is not identity.** A receipt counts
 when its recorded `head` is HEAD or an ancestor of it, so a review taken earlier
 on this branch still satisfies a later commit - including after the Step-4
-commit and the Step-7 `origin/main` merge, which is what makes the re-gate
+commit and the Step-6 `origin/main` merge, which is what makes the re-gate
 possible at all. It also means commits made AFTER the review still pass. That is
 a deliberate limit of this instrument, not an oversight: whether a review
 covered the final diff belongs to #1082.

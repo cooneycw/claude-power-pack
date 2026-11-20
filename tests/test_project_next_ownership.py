@@ -256,7 +256,7 @@ def test_the_shipped_invocation_still_works_as_a_subprocess() -> None:  # binary
 # --- regressions from the #1069 POST-MERGE counter-model review ---------------
 #
 # All three were found by codex/gpt-6-astra after the change had merged, because
-# the Step 6 review was skipped on that run. Each is a case the committed control
+# the Step 5 review was skipped on that run. Each is a case the committed control
 # could not carry: two describe a TRANSITION or a nested tree, and the third is
 # about two files agreeing with each other.
 

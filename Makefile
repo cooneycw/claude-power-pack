@@ -927,7 +927,7 @@ bootstrap-check:
 drift-check:
 	@scripts/drift-detect.sh --fix
 
-## Deploy (used by /flow:deploy and /flow:auto Step 9)
+## Deploy (used by /flow:deploy and /flow:auto Step 7b)
 ## CPP ships no deployable services as of #469 - the second-opinion MCP server
 ## runs from its own external repo (github.com/cooneycw/mcp-second-opinion) and
 ## CPP consumes it via a user-scope registration. This target is an informative no-op so the

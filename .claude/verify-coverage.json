@@ -63,12 +63,12 @@
     "codex-review-run.sh": {
       "class": "tested",
       "consumer": "tests/test_codex_review_run.py",
-      "reason": "runs /codex:code_review's cross-model review end to end and prints its markers (#1847); its stages are the former command blocks, each still driven by tests/test_code_review_*.py. Called by /codex:code_review and /flow:auto Step 6"
+      "reason": "runs /codex:code_review's cross-model review end to end and prints its markers (#1847); its stages are the former command blocks, each still driven by tests/test_code_review_*.py. Called by /codex:code_review and /flow:auto Step 5"
     },
     "codex-skill-resync.sh": {
       "class": "tested",
       "consumer": "tests/test_codex_skill_resync.py",
-      "reason": "decides whether the generated Codex mirrors need regenerating by asking codex-skill-sync.py --check what drifted, rather than matching a path pattern; /flow:auto Step 6 and Step 7 and /flow:finish act on its verdict, and no Makefile target invokes it"
+      "reason": "decides whether the generated Codex mirrors need regenerating by asking codex-skill-sync.py --check what drifted, rather than matching a path pattern; /flow:auto Step 5 and Step 6 and /flow:finish act on its verdict, and no Makefile target invokes it"
     },
     "commands-mirror-sync.sh": {
       "class": "runtime",
@@ -132,7 +132,7 @@
     "flow-ci-status.sh": {
       "class": "tested",
       "consumer": "tests/test_flow_ci_status.py",
-      "reason": "resolves a pipeline for a commit SHA; /flow:auto Step 8 deploys or stops on it; controls/flow-ci-status, controls/flow-ci-status-cancellation, controls/flow-ci-status-stalled and controls/flow-ci-status-wait cover independent verdict defects"
+      "reason": "resolves a pipeline for a commit SHA; /flow:auto Step 7a deploys or stops on it; controls/flow-ci-status, controls/flow-ci-status-cancellation, controls/flow-ci-status-stalled and controls/flow-ci-status-wait cover independent verdict defects"
     },
     "flow-driver-capability.sh": {
       "class": "tested",
@@ -162,7 +162,7 @@
     "flow-plan-record.py": {
       "class": "tested",
       "consumer": "tests/test_flow_plan_compliance.py",
-      "reason": "the /flow:auto plan record and as-read snapshot (issue #1211): reconcile, read-issue, approve, drift, compliance and head-check. head-check's absent/unverified verdicts STOP Step 6; the other verdicts are read by the run and the PR. tests/test_flow_plan_record.py and tests/test_flow_issue_snapshot.py drive the other subcommands"
+      "reason": "the /flow:auto plan record and as-read snapshot (issue #1211): reconcile, read-issue, approve, drift, compliance and head-check. head-check's absent/unverified verdicts STOP Step 5; the other verdicts are read by the run and the PR. tests/test_flow_plan_record.py and tests/test_flow_issue_snapshot.py drive the other subcommands"
     },
     "flow-pr-watch.sh": {
       "class": "tested",

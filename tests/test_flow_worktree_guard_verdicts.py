@@ -246,7 +246,7 @@ def test_both_flow_steps_require_ATTRIBUTION_before_reverting_main():
     text = " ".join(raw.split())  # the document wraps prose across lines
     assert text.count("Never revert main content you did not write") >= 1
     assert text.count("git -C <main> diff -- <path>") >= 2, (
-        "both the Step-4 and Step-6 exit-3 instructions must say to read main's diff first"
+        "both the Step-4 and Step-5 exit-3 instructions must say to read main's diff first"
     )
 
 

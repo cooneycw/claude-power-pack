@@ -10,9 +10,9 @@ the reasoning behind each rule lives in `docs/agents/flow-plan-record.md`.
     begin-run  ISSUE                    Step 4: append this run's `## Run <n>` header (#1320)
     read-issue ISSUE [--body-file F]    Step 1: store the issue body as read, in the git dir
     approve    ISSUE                    Step 4: write the as-read snapshot, stamp the baseline
-    drift      ISSUE [--live-file F]    Step 6: has the issue body moved since it was read?
-    compliance ISSUE [--base REF]       Step 6: does the diff's file set match the approved plan?
-    head-check ISSUE [--head SHA]       Step 6: does the record exist at the PR head?
+    drift      ISSUE [--live-file F]    Step 5: has the issue body moved since it was read?
+    compliance ISSUE [--base REF]       Step 5: does the diff's file set match the approved plan?
+    head-check ISSUE [--head SHA]       Step 5: does the record exist at the PR head?
 
 The three run verbs /flow:auto calls (issue #1849) wrap the ones above,
 dispatching from COMPOSITE_VERBS; each inner verdict line is still printed:
@@ -20,7 +20,7 @@ dispatching from COMPOSITE_VERBS; each inner verdict line is still printed:
     start      ISSUE                    Step 1: reconcile, then read-issue
     approve    ISSUE --plan FILE        Step 4: validate the plan in memory, then
                                         begin-run, append FILE, approve
-    finish     ISSUE [--base] [--head]  Step 6: drift, compliance, head-check; worst-of exit
+    finish     ISSUE [--base] [--head]  Step 5: drift, compliance, head-check; worst-of exit
 
 Run every subcommand from inside the run's worktree. `--body-file`,
 `--live-file` and `--head` replace the `gh` call so the decision can be
@@ -876,7 +876,7 @@ def cmd_approve(issue: str) -> int:
     """Write the as-read snapshot and stamp the approval baseline.
 
     Runs AFTER the approved plan record is written and BEFORE any implementation
-    edit, so a record grown together with the diff is still caught at Step 6.
+    edit, so a record grown together with the diff is still caught at Step 5.
     """
     root = toplevel()
     plan = root / record_rel(issue)
@@ -914,7 +914,7 @@ def cmd_approve(issue: str) -> int:
             print(f"flow-plan-record: lane table WAIVED for this plan - Lanes: none - {waiver}",
                   file=sys.stderr)
 
-    # Say NOW what Step 6 would otherwise discover (#1713): a numbered Section C
+    # Say NOW what Step 5 would otherwise discover (#1713): a numbered Section C
     # line compliance cannot turn into a path makes the whole comparison UNKNOWN.
     # A note on stderr only - stdout and the exit code are what callers read,
     # and they are unchanged. Scoped to Section C: a numbered line elsewhere in
@@ -1537,7 +1537,7 @@ def lanes_note(at_close: LanesAtClose) -> list[str]:
     """The stderr lines that say what to do about the clause. Generated from
     the same state as the clause, so the two cannot disagree: for `missing`,
     exactly one line per lane counted on the verdict line, each ending in the
-    lane's name as the plan wrote it. `/flow:auto` Step 6 sends a run here for
+    lane's name as the plan wrote it. `/flow:auto` Step 5 sends a run here for
     the remedy, so each note is one a run can act on without another document."""
     row = ("`| <lane> | <result> | <test or observation> |`, the result one of "
            + " / ".join(RESULT_STATES) + " (only " + " or ".join(RESULT_DEMONSTRATED)

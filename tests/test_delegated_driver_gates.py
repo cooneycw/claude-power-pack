@@ -195,4 +195,4 @@ def test_flow_auto_still_pauses_at_its_own_gate() -> None:
     text = (COMMANDS / "flow" / "auto.md").read_text(encoding="utf-8")
 
     assert "pause and wait for reviewer approval" in text
-    assert "Step 3/9: ELI5" in text
+    assert "Step 3/7: ELI5" in text

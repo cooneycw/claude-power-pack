@@ -322,7 +322,7 @@ plan looks right" as approval you are entitled to grant yourself.
 This is the only gate before code exists. Step 5 (Review) inspects a diff, which
 means Qwen has already written it - a plan corrected here costs nothing, while
 a plan corrected there costs a rewrite. `/flow:auto` pauses at the equivalent
-boundary (its Step 3/9 ELI5 gate); this driver now matches it.
+boundary (its Step 3/7 ELI5 gate); this driver now matches it.
 
 Ask the reviewer for one of:
 
@@ -1287,7 +1287,7 @@ PR #{N} created. What would you like to do?
   2. Leave for review (keep worktree, manual merge later)
 ```
 
-If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:
+If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:
 
 1. Squash-merge the PR
 2. Update local main

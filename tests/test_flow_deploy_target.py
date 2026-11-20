@@ -299,7 +299,7 @@ def test_a_failed_runner_stops_before_the_log_and_does_not_fall_back(tmp_path: P
 
 # --- the reader of the log line: /flow:auto's already-deployed check ---------
 #
-# Step 9 of /flow:auto skips `make deploy` when `.claude/deploy.log` already
+# Step 7b of /flow:auto skips `make deploy` when `.claude/deploy.log` already
 # records a successful deployment of HEAD. Its match on the target column was
 # unanchored, so a `deploy-other` line counted as a deployment of `deploy`.
 # That was accidentally true while /flow:deploy ran `make deploy` for every

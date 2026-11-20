@@ -184,7 +184,7 @@ def test_committed_record_survives_a_run_that_aborts_before_step3(tmp_path: Path
 def test_untracked_record_from_a_dead_run_is_removed(tmp_path: Path) -> None:
     """Case 2: scratch from a run that died before committing must not ship.
 
-    Left in place, Step 6's staging sweeps it into THIS run's commit and a plan
+    Left in place, Step 5's staging sweeps it into THIS run's commit and a plan
     nobody approved in this run ships as this run's approval.
     """
     repo = make_repo(tmp_path)
@@ -220,10 +220,10 @@ def test_a_staged_record_from_a_dead_run_does_not_become_this_runs_approval(
 ) -> None:
     """The staged path, and it is reachable by auto.md's own design.
 
-    Step 6 stages the record, so a run that stages it and then dies leaves the
+    Step 5 stages the record, so a run that stages it and then dies leaves the
     record tracked AND staged with THAT run's content. `git checkout -- <path>`
     restores from the INDEX, so it would hand this run the dead run's plan, which
-    this run then commits at Step 6 as its own approval - the failure the
+    this run then commits at Step 5 as its own approval - the failure the
     untracked branch prevents, arriving by the staged path instead.
 
     Measured: with run B's scratch staged over run A's commit, a bare `--`
@@ -237,7 +237,7 @@ def test_a_staged_record_from_a_dead_run_does_not_become_this_runs_approval(
     git(repo, "commit", "-qm", "run A: approved plan")
 
     rec.write_text("UNAPPROVED scratch from run B\n")
-    git(repo, "add", RECORD_REL)  # run B reached Step 6, staged, then died
+    git(repo, "add", RECORD_REL)  # run B reached Step 5, staged, then died
 
     run_reconcile(repo)
 
@@ -250,7 +250,7 @@ def test_a_staged_record_from_a_dead_run_does_not_become_this_runs_approval(
 
 @requires_git
 def test_a_committed_record_survives_a_squash_merge(tmp_path: Path) -> None:
-    """Acceptance: the Step 6 squash does not drop it.
+    """Acceptance: the Step 5 squash does not drop it.
 
     Documenting a check that ASKS the PR is not the same as showing the record
     survives the collapse, so this measures the collapse itself rather than

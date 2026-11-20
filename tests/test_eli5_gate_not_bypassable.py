@@ -214,9 +214,9 @@ def test_auto_granted_left_the_report_vocabulary() -> None:
     step3_report = [
         line
         for line in _read("flow/auto.md").splitlines()
-        if line.startswith("Report: `Step 3/9: ELI5 complete")
+        if line.startswith("Report: `Step 3/7: ELI5 complete")
     ]
-    assert len(step3_report) == 1, "flow/auto.md: expected exactly one Step 3/9 report line"
+    assert len(step3_report) == 1, "flow/auto.md: expected exactly one Step 3/7 report line"
     assert "auto-granted" not in step3_report[0], (
         f"flow/auto.md: the Step 3 report line still offers an auto-granted outcome: {step3_report[0]}"
     )

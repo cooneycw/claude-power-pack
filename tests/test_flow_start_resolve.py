@@ -269,7 +269,7 @@ def test_compose_project_name_defaults_to_canonical_basename(tmp_path: Path):
 @requires_git
 def test_compose_project_name_honors_deploy_yaml_override(tmp_path: Path):
     """An explicit .claude/deploy.yaml compose_project_name: wins, matching the
-    Step-9 (#535) precedence so a run that reaches deploy keeps one project name
+    Step-7b (#535) precedence so a run that reaches deploy keeps one project name
     end to end."""
     _, clone = _make_origin_and_clone(tmp_path)
     (clone / ".claude").mkdir(parents=True, exist_ok=True)

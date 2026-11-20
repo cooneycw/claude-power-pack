@@ -278,11 +278,11 @@ def _read(rel: str) -> str:
 
 def test_auto_wires_early_check_at_step4_and_step6():
     text = _read(".claude/commands/flow/auto.md")
-    # Referenced at least twice: Step 4 (early) and Step 6 (pre-commit).
+    # Referenced at least twice: Step 4 (early) and Step 5 (pre-commit).
     assert text.count("flow-stale-check.sh") >= 2, (
-        "auto.md must run the early stale-base check at both Step 4 and Step 6"
+        "auto.md must run the early stale-base check at both Step 4 and Step 5"
     )
-    # Step-7 #462 backstop is preserved.
+    # Step-6 #462 backstop is preserved.
     assert "git merge --no-edit origin/main" in text
 
 

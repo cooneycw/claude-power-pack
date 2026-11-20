@@ -3342,7 +3342,7 @@ def test_description_uses_last_sentence_boundary_not_decimal(punctuation):
 # Issue #1542: a generated skill's helper invocations resolve to the SKILL's
 # bundled copy, never to a file in the target worktree. A shell resolves a
 # bare `scripts/<name>` against the working directory - in a Codex session the
-# target project - so before #1542 the generated Step-6 gate call either
+# target project - so before #1542 the generated Step-5 gate call either
 # exited 127 there or ran the target's OWN `scripts/flow-finish-gate.sh` as
 # the quality gate and reported it green.
 # ---------------------------------------------------------------------------
@@ -3352,7 +3352,7 @@ GATE_LINE_RE = r"^\s*(\S*scripts/flow-finish-gate\.sh)\s*$"
 
 
 def _flow_auto_gate_command() -> str:
-    """The REAL generated Step-6 gate invocation, read from the committed mirror."""
+    """The REAL generated Step-5 gate invocation, read from the committed mirror."""
     import re
 
     text = (SKILLS_ROOT / "flow-auto" / "reference.md").read_text(encoding="utf-8")

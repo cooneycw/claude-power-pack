@@ -32,7 +32,7 @@ document to the step itself. Its word budget is in
   directory path first, else `~/Projects/<PROJECT>`; must be a git checkout.
   When the resolved target differs from the session repo (or the session cwd is
   not in a git repo at all), Step 1 commits the run to the deterministic
-  `git worktree` lane end-to-end and Step 7 to the git cleanup fallback -
+  `git worktree` lane end-to-end and Step 6 to the git cleanup fallback -
   `EnterWorktree` operates on the session cwd's repo and cannot create the
   worktree in another one.
 
@@ -72,7 +72,7 @@ hand.
 Records go to the main repo's `.claude/friction.jsonl` (a queue drained by
 `/self-improvement:retro`). The helper resolves that durable buffer automatically
 via `git-common-dir`, so signals captured inside this run's worktree survive its
-removal at Step 7 (issue #471) - no env var or per-call path needed. It is
+removal at Step 6 (issue #471) - no env var or per-call path needed. It is
 invoked at the stable `~/.claude/scripts/` path like every other helper; on exit
 127 fall back to `${CLAUDE_PLUGIN_ROOT}/scripts/friction-log.sh` (bundled with
 the plugin, #590) or the CPP-checkout copy. Capture is fail-open - if no copy
@@ -139,7 +139,7 @@ Contract keys: `LANE` (`current-branch|fresh|resume|remote-pickup|local-pickup|c
 `CROSS_REPO` (1 = the target repo is not the session repo, issue #578),
 `GIT_LANE` (ALWAYS 1 now - worktrees are created outside the repo by default
 (issue #627), so every run rides the git lane: enter with `cd`, never
-`EnterWorktree`, git cleanup at Step 7; the native fresh lane is retired, #440
+`EnterWorktree`, git cleanup at Step 6; the native fresh lane is retired, #440
 superseded), `SESSION_CWD` (the directory the lane decision was made against),
 `SESSION_CWD_INFERRED` (1 = no `--session-cwd` was passed; the decision rests on
 a possibly drifted process cwd - pass it so current-branch/resume detection is
@@ -159,7 +159,7 @@ worktree is created), `CONFIRM_REQUIRED`.
 
 - `CLAIM=held` (`CONFIRM_REQUIRED=1`): another LIVE session is driving this
   issue right now (issue #597). **STOP.** Do not create or enter anything -
-  proceeding duplicates that session's work, and whichever run reaches Step 7
+  proceeding duplicates that session's work, and whichever run reaches Step 6
   first deletes the other's worktree. Report the owner (`CLAIM_PID`,
   `CLAIM_SESSION`) and let the user decide: wait for that session, pick a
   different issue, or - only if they confirm the other session is genuinely
@@ -182,7 +182,7 @@ worktree is created), `CONFIRM_REQUIRED`.
   `.claude/worktrees/` is not git-ignored there to fall back to. No branch was
   created. **STOP** and report it.
 Worktrees live outside the repo (issue #627), so `GIT_LANE` is always 1 and you
-NEVER call `EnterWorktree` - every lane enters with `cd <WT_PATH>` and Step 7 uses
+NEVER call `EnterWorktree` - every lane enters with `cd <WT_PATH>` and Step 6 uses
 the git cleanup fallback.
 
 - `LANE=current-branch`: already on the issue's branch in the session cwd - use
@@ -264,7 +264,7 @@ cannot be locked) is normal and never blocks the run.
 **Helper resolution**, here and at Steps 4 and 6: the stable path first; on exit
 127, `${CLAUDE_PLUGIN_ROOT}/scripts/flow-plan-record.py`, else the CPP-checkout
 copy - either may prompt once, so tell the user to run **`/flow:repair`**. If no
-copy exists, **STOP** and report it: the record, the snapshot and the Step-6
+copy exists, **STOP** and report it: the record, the snapshot and the Step-5
 PR-head check cannot run without it, and a run that skips them would reach the
 merge with its approval record unverified. Resume after `/flow:repair`. Why the helper asks HEAD rather than the index, and
 keeps its state in the git directory, is in [the plan-record reference](../agents/flow-plan-record.md) - background,
@@ -275,16 +275,16 @@ project name from the current directory basename when `COMPOSE_PROJECT_NAME` is
 unset, and this run works inside a worktree whose basename is
 `<repo>-issue-<N>-<slug>`. So EVERY compose invocation from here - the Step-4
 local test-loop database (`make docker-up` / `docker compose up`), any hand-run
-`make docker-*`, and the Step-9 deploy - would otherwise build a SECOND, parallel
+`make docker-*`, and the Step-7b deploy - would otherwise build a SECOND, parallel
 stack that collides on published ports and leaks orphaned `<basename>_pgdata` /
 `<basename>_default` volumes and networks that nothing reclaims (#535 fixed only
-Step 9). The Step-1 resolver contract carries the canonical pin as
+Step 7b). The Step-1 resolver contract carries the canonical pin as
 `COMPOSE_PROJECT_NAME` (an explicit `.claude/deploy.yaml compose_project_name:`
 override, else the canonical primary-checkout basename - never the worktree
 basename). **Whenever any step below, or a command you run by hand, invokes
 `docker compose` in this worktree, set `COMPOSE_PROJECT_NAME` in the SAME shell
 call** (env var persistence is not guaranteed between calls) - e.g.
-`COMPOSE_PROJECT_NAME=<contract value> make docker-up`. Step 9 pins it inline
+`COMPOSE_PROJECT_NAME=<contract value> make docker-up`. Step 7b pins it inline
 already; Step 4 reminds you at the point a test database is started.
 
 
@@ -417,7 +417,7 @@ worktree:
 
 **Early stale-base check (issue #473) - run BEFORE editing.** A sibling PR that
 merges during implementation moves `origin/main` under you; discovering it only
-at the Step-7 #462 guard means your edits were already made against stale copies
+at the Step-6 #462 guard means your edits were already made against stale copies
 of the very files the sibling changed. Surface it now - a bare invocation
 (advisory: warns, never blocks; the #581 invocation discipline from Step 1
 applies to every helper call below). Pass the worktree path from the Step-1
@@ -442,7 +442,7 @@ and continue. `/flow:repair` installs the family at the stable path.)
   and a bare pop can restore a sibling session's work (#635). There is nothing
   generated to stage afterwards: `codex/skills/` is ignored build output since
   issue #1670, rebuilt by the gates that read it.
-- If it reports `current` or `moved-clean` with no overlap, proceed - the Step-7
+- If it reports `current` or `moved-clean` with no overlap, proceed - the Step-6
   #462 guard remains the final backstop.
 
 
@@ -472,7 +472,7 @@ unmodified as its own commit - a deliberate, manual act, never something this
 step decides for itself - run `declare-salvage` with that commit's sha right
 after `begin-run`:
 
-Without this, Step 6's compliance check cannot see that commit (it is before
+Without this, Step 5's compliance check cannot see that commit (it is before
 this run's own `Run-start`) and reports its planned files as untouched even
 though they were genuinely preserved - it does print a report-only note
 pointing at the commit, but the note never changes the verdict. Do NOT run
@@ -489,7 +489,7 @@ handoff (#1614). A failed publication leaves the handoff incomplete; keep the
 branch/worktree and report that blocker.
 
 Keep Section C as one numbered line per file, in the form ``N. `path` - gist``:
-Step 6 compares the diff against exactly those paths, and a line it cannot parse
+Step 5 compares the diff against exactly those paths, and a line it cannot parse
 makes that comparison `unknown`. Markdown only - `.gitignore` carries a blanket
 `*.json`, and `git add` skips an ignored path without an error. There is no
 `auto-granted` value and no path that writes this file without an approver
@@ -503,9 +503,9 @@ the bundled script).
 
 - exit 0 - `docs/flow-runs/issue-42.as-read.md` is written (the body as read,
   at most 16 KB stored; its digest covers the FULL body) and the record's digest
-  is stamped in the git directory as the Step-6 baseline.
+  is stamped in the git directory as the Step-5 baseline.
 - exit 4 (`AS_READ: unresolved`) - the baseline is stamped but the snapshot says
-  the issue could not be read. Proceed; Step 6 will report drift as unresolved,
+  the issue could not be read. Proceed; Step 5 will report drift as unresolved,
   never clean.
 - exit 1 - there is no plan record to stamp, or it has no section for THIS run
   (a prior run's section does not count, #1320). Run `begin-run` and append it first.
@@ -576,7 +576,7 @@ two:
    implementation that reaches the same outcome and respects the same constraints
    is an ordinary implementation choice, not a deviation. Choosing a different
    function, structure or library within what was agreed needs no checkpoint and no
-   deviation record; say what you did in the Step 6 summary like any other work.
+   deviation record; say what you did in the Step 5 summary like any other work.
 2. **Investigate an uncertain assumption, bounded and reversible.** Inside the tool
    and environment permissions you already have: read the source, run the local
    checks, prototype on a scratch branch or behind a flag. Bounded and reversible
@@ -619,9 +619,11 @@ reports no overlap for a file you are editing, and another role can be granted i
 `--files` REPLACES the lane, so pass every path you still hold, not only the new one.
 
 
-## Step 5: Update Docs - Regenerate C4 Diagrams and Review Docs
+## Former Step 5: Update Docs (retired at #1850, unnumbered since #1857)
 
-Then perform these documentation tasks:
+No run performs this any longer: documentation is not part of the flow (owner
+ruling, #1850), and #1857 removed the step from the numbering. It is kept here
+as the record of what the step did:
 
 1. **Regenerate C4 diagrams** - If `docs/architecture/` exists or significant code changes were made, run the `/documentation:c4` workflow:
    - Analyze the project architecture
@@ -635,11 +637,11 @@ Then perform these documentation tasks:
 4. **Stage doc changes** - `git add` any modified documentation files.
 
 
-## Step 6: Finish - Quality Gates, Commit, Push, PR
+## Step 5: Finish - Quality Gates, Commit, Push, PR
 
 **Stale-base pre-check (issue #473) - run BEFORE the quality gates and commit**,
 so the commit lands on a current tree and the gate reflects what will merge (the
-#462 Step-7 guard stays the final backstop). Bare invocation first (#581
+#462 Step-6 guard stays the final backstop). Bare invocation first (#581
 discipline; on exit 127 fall back to the plugin-bundled copy at
 `${CLAUDE_PLUGIN_ROOT}/scripts/flow-stale-check.sh` (#590), else the
 CPP-checkout copy). As at Step 4, pass the worktree path as the trailing
@@ -653,7 +655,7 @@ literal argument (declared, not inferred - issue #614) and check the emitted
 # dir, so every linked worktree shares ONE stack: with ~7 concurrent sessions,
 # two runs stash-pushed seconds apart and each bare `git stash pop` silently
 # restored the OTHER session's uncommitted work into the wrong worktree. A WIP
-# commit is branch-local - a sibling session cannot take it - and the Step-7
+# commit is branch-local - a sibling session cannot take it - and the Step-6
 # squash flattens it, so nothing visible changes in what ships. (#521's premise
 # was also too broad: git refuses a dirty-tree merge only when incoming changes
 # OVERLAP locally-modified files; commit-first is safe in every case.) NEVER
@@ -665,7 +667,7 @@ if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then
         git commit -m "wip(flow): pre-merge snapshot"
     fi
     if ! git merge --no-edit origin/main; then
-        echo "STOP: 'git merge origin/main' hit CONFLICTS. Resolve them, 'git add' + 'git commit', then re-run Step 6."
+        echo "STOP: 'git merge origin/main' hit CONFLICTS. Resolve them, 'git add' + 'git commit', then re-run Step 5."
         git diff --name-only --diff-filter=U
         echo "NOTE: your Step-4 work is safe in the 'wip(flow): pre-merge snapshot' commit on this branch."
         exit 1
@@ -1105,7 +1107,7 @@ collapse" note above).
    gate examine a tree without the change. A branch push opens no pull request
    and merges nothing; the pull request is still created only after a gate
    verdict, and a red or absent verdict stops the run exactly as before, with
-   the branch on origin and nothing opened from it. Step 7's re-gate has the
+   the branch on origin and nothing opened from it. Step 6's re-gate has the
    same shape: the merge commit is local until pushed. Which projects need this
    is the project's knowledge, not something the helper detects; the symptom is
    a gate that refuses the commit because the remote does not have it.
@@ -1210,7 +1212,7 @@ collapse" note above).
    - **An already-clean tree here is a LEGITIMATE state, not a failure** (issue
      #635): when the stale-base merge above ran, the Step-4 work is already on
      the branch in the `wip(flow): pre-merge snapshot` commit. Skip this commit
-     step cleanly and leave the WIP commit as-is - the Step-7 squash flattens
+     step cleanly and leave the WIP commit as-is - the Step-6 squash flattens
      branch history and the PR title/body carry the conventional message, so
      the WIP message never reaches `main`. Do NOT add a STOP for this state.
 
@@ -1276,7 +1278,7 @@ collapse" note above).
    required reading.
 
 
-## Step 6b: Route Supplemental Findings to the Nit Store
+## Step 5b: Route Supplemental Findings to the Nit Store
 
 A supplemental finding is anything true and worth fixing that you discovered
 while doing something else: a defect noticed in passing, a rough edge found
@@ -1328,7 +1330,7 @@ Having nothing to store is an ordinary outcome. Do not manufacture a finding to
 fill this step.
 
 
-## Step 7: Merge - Squash-Merge and Clean Up
+## Step 6: Merge - Squash-Merge and Clean Up
 
 1. **Sync with `origin/main` and re-gate (stale-branch guard, issue #462):**
    A branch cut earlier - common on resumed or cross-machine worktrees - can have
@@ -1465,7 +1467,7 @@ fill this step.
    else
        echo "REFUSING: gh-pr-merge.sh is not installed; not merging PR #$PR_NUMBER with a plain 'gh pr merge'." >&2
        echo "  A raw merge skips every guard the helper runs, including the close-keyword guards (issue #1543)." >&2
-       echo "  Install the helper with /flow:repair, then resume Step 7." >&2
+       echo "  Install the helper with /flow:repair, then resume Step 6." >&2
        MERGE_RC=12
    fi
    ```
@@ -1506,7 +1508,7 @@ fill this step.
      base advanced while required checks were running, so the tree that was
      gated is not the tree that would land. Leave the worktree, branch, and PR
      intact. Do not retry the merge and do not self-escalate to `--admin`.
-     Re-run Step 7 from sub-step 1: sync with `origin/main`, re-run the quality
+     Re-run Step 6 from sub-step 1: sync with `origin/main`, re-run the quality
      gate on the merged tree, push, then invoke the merge again.
    - **Helper exit 7 is also a CLEAN STOP (issue #794):** same shape as 5, but
      the keyword is not negated - it is merely adjacent to `#N` (not
@@ -1575,7 +1577,7 @@ fill this step.
    repo BEFORE removing the worktree - never remove a worktree while your cwd is
    inside it. Execute as SEPARATE Bash calls.**
 
-   **Step 7b - Remove the worktree (separate Bash call, AFTER confirming cd
+   **Step 6b - Remove the worktree (separate Bash call, AFTER confirming cd
    succeeded).** When a worktree exists (`WORKTREE_PATH` non-empty and not the
    main repo), invoke the removal helper BARE with the literal path (#581
    discipline):
@@ -1630,7 +1632,7 @@ fill this step.
    the worktree holds uncommitted work. A claim only protects a checkout where
    one was staked - `free`, `unsupported` and `unknown` are not claims - so this
    is the guard for a session that is genuinely driving the tree without having
-   claimed it. `--force` does NOT override it (Step 7 always passes `--force`, so
+   claimed it. `--force` does NOT override it (Step 6 always passes `--force`, so
    a guard it silenced would never fire here). Report the printed PIDs and dirty
    paths and stop; do NOT retry with `--steal`, which kills that session's work -
    that is the user's call, not the run's. A host with no readable `/proc` prints
@@ -1654,7 +1656,7 @@ fill this step.
 # DERIVE the paths in THIS call rather than inheriting them. A block that works
 # because an earlier call happened to export something works by accident; shell
 # state does not survive between Bash calls, and this one may be re-run alone.
-MAIN_REPO="$(git rev-parse --show-toplevel)"   # Step 5a already cd'd here
+MAIN_REPO="$(git rev-parse --show-toplevel)"   # Step 6a already cd'd here
 # WORKTREE_PATH is this step's subject and must be set in THIS call too.
 
 # ONE MARKER PER WORKTREE, not one per repo. A single shared path meant a
@@ -1715,7 +1717,7 @@ this point, and no worktree means no uncommitted work to destroy.
    # parsed out of the report: a quoted example or a truncated read must never be able
    # to authorise a close. "yes" only when every material item is demonstrated, revised
    # WITH evidence, or resolved by a recorded transfer/withdrawal; unset cannot close.
-   # Restate the judgement you reached in Step 6 for THIS issue. It is set here
+   # Restate the judgement you reached in Step 5 for THIS issue. It is set here
    # rather than inherited, so a value left over from earlier work cannot decide it.
    ACCEPTANCE_COMPLETE=""
 
@@ -1732,7 +1734,9 @@ this point, and no worktree means no uncommitted work to destroy.
    ```
 
 
-## Step 8: Verify CI (after merge)
+## Step 7: After merge - Verify CI, then Deploy
+
+### 7a. Verify CI
 
 After merging to main, verify that the CI pipeline passes before deploying.
 
@@ -1742,7 +1746,7 @@ steps. Invoke it BARE with the literal SHA and checkout path (#581 discipline;
 the checkout is DECLARED, never inferred from the Bash cwd - the #614 rule):
 
 Do NOT hand-roll this with `curl`, `gh run list`, or - worst of all - a grep over
-`woodpecker-cli pipeline ls`. Step 8 previously inlined a curl+jq lookup gated on
+`woodpecker-cli pipeline ls`. Step 7a previously inlined a curl+jq lookup gated on
 `WOODPECKER_API_TOKEN` already being exported, which it usually is not (the token
 lives in an AWS secret, not a shell profile), so the model improvised. On
 flow:auto #516 the improvised grep matched an unrelated PR pipeline from a
@@ -1762,7 +1766,7 @@ record stops with the writer remedy. Probing is available only via the explicit
 fallback`; it is never an implicit lane choice. The CLI lane still anchors on the exact commit
 SHA, which is precisely what the #516 improvisation failed to do.
 
-- `success` -> proceed to Step 9.
+- `success` -> proceed to Step 7b.
 - `failure` -> **STOP**. Do not deploy. Report `FLOW_CI_URL` and every
   `FLOW_CI_FAILED_STEP` line: which step failed is the whole diagnosis, and
   pipeline colour does not carry it. A red `deploy` step (a transient SSH
@@ -1824,7 +1828,7 @@ skip CI verification with a warning rather than improvising a lookup, and say
 plainly in the final summary that CI was NOT verified.
 
 
-## Step 9: Deploy (optional)
+### 7b. Deploy (optional)
 
 Only if a Makefile with a `deploy` target exists in the main repo. Because
 `/flow:auto` runs `make deploy` inline (it does NOT call `/flow:deploy`), the
@@ -1842,12 +1846,12 @@ for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-p
     break
   fi
 done
-# Verification runs through `uv`, exactly as the Step 6 gate does (issue #595):
+# Verification runs through `uv`, exactly as the Step 5 gate does (issue #595):
 # bare `python3 -m lib.cicd` uses the system interpreter (often 3.10, no venv),
 # so lib/cicd's deps (pydantic) are absent and the module dies on import. If
 # `uv` is missing, verification is skipped with a NOTE rather than attempted -
 # it is a fail-open confidence gate, and there is no Makefile fallback for it
-# the way `make lint` / `make test` back the Step 6 runner.
+# the way `make lint` / `make test` back the Step 5 runner.
 VERIFY_ENABLED=0
 if [ -n "$CPP_DIR" ] && grep -q "deploy_verification:" .claude/cicd.yml 2>/dev/null; then
     if command -v uv >/dev/null 2>&1; then
@@ -1911,7 +1915,7 @@ elif [[ -f "Makefile" ]] && grep -q "^deploy:" Makefile; then
     if [ "$VERIFY_ENABLED" -eq 1 ]; then
         echo "Capturing pre-deploy baseline..."
         # PYTHONPATH points at CPP_DIR (the PARENT of lib/), not at lib/ itself,
-        # or `-m lib.cicd` cannot resolve the package - same contract as Step 6.
+        # or `-m lib.cicd` cannot resolve the package - same contract as Step 5.
         PYTHONPATH="$CPP_DIR:$PYTHONPATH" env -u UV_PROJECT_ENVIRONMENT "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT-}" "CPP_RUNNER_TARGET_UV_PROJECT_ENVIRONMENT_PRESENT=${UV_PROJECT_ENVIRONMENT+x}" "CPP_RUNNER_TARGET_PATH=${PATH-}" "CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" uv run --python 3.11 --no-python-downloads --project "$CPP_DIR" python -m lib.cicd verify --baseline --summary
     fi
 
@@ -1959,12 +1963,11 @@ Key failure scenarios:
 - **ELI5 verdict `No longer needed`:** Stop at step 3, recommend closing the issue instead of implementing
 - **Plan rejected at ELI5 gate:** Stop at step 3, revise the plan (or close) before proceeding
 - **Implementation blocker:** Stop at step 4, report what's blocking
-- **Doc update fails:** Non-blocking at step 5, warn and continue
-- **Lint/test fails:** Stop at step 6, show test output
-- **Push fails:** Stop at step 6, suggest `git pull --rebase`
-- **PR merge conflicts:** Stop at step 7, suggest manual resolution
-- **CI pipeline fails:** Stop at step 8, link to pipeline/run for investigation
-- **CI not detected:** Non-blocking at step 8, warn and continue to deploy
+- **Lint/test fails:** Stop at step 5, show test output
+- **Push fails:** Stop at step 5, suggest `git pull --rebase`
+- **PR merge conflicts:** Stop at step 6, suggest manual resolution
+- **CI pipeline fails:** Stop at step 7a, link to pipeline/run for investigation
+- **CI not detected:** Non-blocking at step 7a, warn and continue to deploy
 - **Deploy fails:** Report but don't roll back (deploy is best-effort)
 - **Inside worktree being removed:** the git cleanup path uses `worktree-remove.sh`, which `cd`s to the main repo first, so removing from inside the worktree is handled safely
 
@@ -1975,10 +1978,10 @@ Key failure scenarios:
 - The analyze step ensures Claude understands the issue before writing code
 - The ELI5 step (Step 3) is a human checkpoint: it restates intent in plain language, verifies the issue is still worth doing, and gates implementation on plan approval. It has **no bypass** (issue #775) - no `--yes`, no `--auto-approve`, and no `eli5: auto-approve` trailer read from the issue body or HEAD commit message; the trailer channel in particular was chosen by neither the invoker nor anyone reviewing the run. A `No longer needed` verdict never implements either
 - Each step builds on the previous one; there's no skipping
-- Worktrees are visible siblings created on the git lane (issue #627): Step 1 (via `flow-start-resolve.sh`) runs `git worktree add` at `<parent>/<repo>-<branch>` (or `$FLOW_WORKTREE_BASE/<repo>-<branch>` when set), enters with `cd`, and Step 7 removes with `worktree-remove.sh`. The native `EnterWorktree`/`ExitWorktree` fresh lane is retired (#440 superseded for the default). The issue-anchored `issue-<N>-<slug>` branch name, the ELI5 gate, and quality gates are CPP policy layered on top
+- Worktrees are visible siblings created on the git lane (issue #627): Step 1 (via `flow-start-resolve.sh`) runs `git worktree add` at `<parent>/<repo>-<branch>` (or `$FLOW_WORKTREE_BASE/<repo>-<branch>` when set), enters with `cd`, and Step 6 removes with `worktree-remove.sh`. The native `EnterWorktree`/`ExitWorktree` fresh lane is retired (#440 superseded for the default). The issue-anchored `issue-<N>-<slug>` branch name, the ELI5 gate, and quality gates are CPP policy layered on top
 - Step 1's plumbing is deterministic (issue #581): `scripts/flow-start-resolve.sh` owns target-repo resolution, issue fetch, branch derivation, existing-work triage, the #503 guard, and git-lane creation, emitting a `key=value` contract; the model's only decision is `EnterWorktree` vs `cd`. Helpers are invoked bare at their stable `~/.claude/scripts/` paths so the shipped allowlist rules match (`templates/claude-settings-permissions.json`) and Phase 1 runs prompt-free
 - The session cwd is DECLARED, not inferred (issue #592): Step 1a passes `--session-cwd <path>` so the resolver decides `CROSS_REPO`/`GIT_LANE` (and, with no PROJECT arg, `TARGET_REPO` itself) against the session's working directory rather than the Bash tool's cwd, which drifts on any earlier `cd`. Without it the resolver reports `SESSION_CWD_INFERRED=1` and fails closed to `GIT_LANE=1` - the residual #578 left behind
-- Cross-repo invocations (`/flow:auto <ISSUE> <PROJECT>`, or a session cwd outside any git repo) are first-class (issue #578): the resolver detects the mismatch (path, else `~/Projects/<PROJECT>`) and the run rides the deterministic git lane end-to-end - helper-created worktree, `cd` instead of `EnterWorktree`, git cleanup at Step 7 - with the worktree still under the target repo's `.claude/worktrees/` so every guard resolves unchanged
+- Cross-repo invocations (`/flow:auto <ISSUE> <PROJECT>`, or a session cwd outside any git repo) are first-class (issue #578): the resolver detects the mismatch (path, else `~/Projects/<PROJECT>`) and the run rides the deterministic git lane end-to-end - helper-created worktree, `cd` instead of `EnterWorktree`, git cleanup at Step 6 - with the worktree still under the target repo's `.claude/worktrees/` so every guard resolves unchanged
 - The worktree base is configurable (issue #584, ADR 0003 Option A): `FLOW_WORKTREE_BASE`, when set in host config, relocates worktrees to `$FLOW_WORKTREE_BASE/<repo>-<branch>` and commits the run to the same git lane (`GIT_LANE=1`); unset, shipped behavior is byte-identical to the in-repo default. The guard/merge/remove/friction scripts resolve via git plumbing and need no awareness of the base
 - The deploy step is always optional - it only runs if a deploy target exists
 - After completion, the user is in the main repo on the main branch
@@ -1996,20 +1999,21 @@ has a stricter independent event shape, and every later model context is include
 
 Owner rulings on #1850 (2026-11-15/16) gave `/flow:auto` a
 [charter](../../charters/flow/auto/CHARTER.md). Each paragraph removed from the
-command document, with its group from the issue's sorting question:
+command document, with its group from the issue's sorting question. Step numbers
+are given in the seven-step layout (#1857):
 
 | Removed | Group | Ruling / where it went |
 |---|---|---|
-| Step 5 (`make update_docs`, C4 regeneration, README/CLAUDE.md review) | owner ruling Q4 | Documentation is not part of the flow. The step number is kept, retired, so citations of Steps 6-9 stay true; the renumbering was deferred (freeze-the-numbers ruling) |
-| Step 6 collapse recipe and the never-collapse-after-receipt rule (#657, #864) | 3 - accepted limitation (G3-2) | One line remains; the merge helper's `GH_PR_MERGE_DELETIONS:` marker and the receipt enrolment check cover the failure |
-| Step 6 1a receipt-helper resolution chain | 1 - enforced elsewhere | The file's missing-helper rule; the `CM_RECEIPT` binding stays |
-| Step 7 marker-file refusal hand-off when `worktree-remove.sh` is missing (#965, #973) | 3 - accepted limitation (G3-1) | A missing helper now STOPs under the missing-helper rule; `/flow:merge` keeps the hand-off and its executed tests |
-| Step 8 `FLOW_CI_*` key listing | 1 - the helper prints it | [flow-ci-status reference](../scripts/flow-ci-status.md#output-contract) |
+| Former Step 5 (`make update_docs`, C4 regeneration, README/CLAUDE.md review) | owner ruling Q4 | Documentation is not part of the flow. #1850 kept the number (freeze-the-numbers ruling); #1857 removed the step and renumbered the flow to seven steps |
+| Step 5 collapse recipe and the never-collapse-after-receipt rule (#657, #864) | 3 - accepted limitation (G3-2) | One line remains; the merge helper's `GH_PR_MERGE_DELETIONS:` marker and the receipt enrolment check cover the failure |
+| Step 5 1a receipt-helper resolution chain | 1 - enforced elsewhere | The file's missing-helper rule; the `CM_RECEIPT` binding stays |
+| Step 6 marker-file refusal hand-off when `worktree-remove.sh` is missing (#965, #973) | 3 - accepted limitation (G3-1) | A missing helper now STOPs under the missing-helper rule; `/flow:merge` keeps the hand-off and its executed tests |
+| Step 7a `FLOW_CI_*` key listing | 1 - the helper prints it | [flow-ci-status reference](../scripts/flow-ci-status.md#output-contract) |
 | Step 2 per-state `speckit-context` guidance (#858) | 3 - moved (G3-5) | [speckit-context reference](../scripts/speckit-context.md#what-a-run-does-with-each-state) |
 | Notes: Codex fresh-flow attribution (#1557) | 3 - moved (G3-3) | [ADR 0007](../decisions/0007-counter-model-review.md#codex-fresh-flow-attribution-1557) |
 
-Kept after review: Step 9's inline deploy block (G3-4 was accepted only if
+Kept after review: Step 7b's inline deploy block (G3-4 was accepted only if
 `/flow:deploy` carried the same guards; it lacks the #597 already-deployed check
-and the runner-environment isolation, so the block stays) and Step 7's
+and the runner-environment isolation, so the block stays) and Step 6's
 merge-helper resolution block (its fallback loop is executed by
 `tests/test_gh_pr_merge.py`, so it is the enforcement, not prose about it).

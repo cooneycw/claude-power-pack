@@ -18,7 +18,7 @@
 # is checked a second way (issues #888 and #1032): if a live process has its
 # working directory inside it, removal is refused (exit 5), whether the tree is
 # currently dirty or clean. --force does NOT suppress that refusal - --force is
-# what every /flow:auto Step 7 passes, so a guard it silences never fires where
+# what every /flow:auto Step 6 passes, so a guard it silences never fires where
 # the damage happens. --steal overrides it as usual. On a host with no readable
 # /proc the check reports `unknown` and falls open, rather than reporting a clean
 # result it did not establish.
@@ -958,7 +958,7 @@ fi
 # whose cwd would be unlinked may create unreachable work immediately after a
 # clean scan, so an occupied worktree is not ours to delete. Unlike the
 # dirty-tree check below, --force does NOT suppress this one: --force is
-# precisely what every /flow:auto Step 7 passes, so a guard it silences is a
+# precisely what every /flow:auto Step 6 passes, so a guard it silences is a
 # guard that never fires where the damage happens. --steal remains the
 # deliberate override.
 

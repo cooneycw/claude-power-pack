@@ -1347,13 +1347,13 @@ def test_the_CAPABILITY_PROBE_precedes_the_invocation(tmp_path: Path) -> None:
     "invoked, returned nothing usable". Two different facts, one label.
 
     Doc-level, because the probe lives in a prompt document: the enforceable
-    artifact IS the text. The probe must appear in Step 6 item 1a, and it must
+    artifact IS the text. The probe must appear in Step 5 item 1a, and it must
     be stated as additive so a present-but-dead codex still reaches
     `reviewer-unavailable`.
     """
     text = _flat(_auto())
     assert "command -v codex" in text, (
-        "Step 6 never probes for codex, so an absent binary is still "
+        "Step 5 never probes for codex, so an absent binary is still "
         "discovered by invoking it and reading the failure"
     )
     assert "codex-absent" in text
@@ -1367,7 +1367,7 @@ def test_the_REVIEWER_COMMAND_does_not_skip_an_empty_diff_either() -> None:
     """Codex, MEDIUM, on this very change: the caller was fixed and the callee
     was not.
 
-    `/flow:auto` Step 6 now says an empty diff gets an ordinary review. But
+    `/flow:auto` Step 5 now says an empty diff gets an ordinary review. But
     `/codex:code_review` carried its own early exit - "If the diff is empty,
     report 'nothing to review vs $BASE' and stop (exit 0)" - which returns no
     findings report at all. Step 1c parses that as `unparseable` and records
@@ -1872,12 +1872,12 @@ def test_the_review_runs_BEFORE_the_quality_gates() -> None:
     """Accepted findings are fixed in the worktree, and those fixes are CODE.
 
     Placed after the gates, a review fix that breaks lint, types or tests rides
-    to the PR ungated - Step 7 only re-gates when the base moved, so a branch
+    to the PR ungated - Step 6 only re-gates when the base moved, so a branch
     whose base is current merges it. The first cut of this change had exactly
     that ordering.
     """
     text = _auto()
-    step6 = text.split("### Step 6:", 1)[1].split("### Step 7:", 1)[0]
+    step6 = text.split("### Step 5:", 1)[1].split("### Step 6:", 1)[0]
     review = step6.index("**Counter-model review**")
     gates = step6.index("**Quality gates**")
     assert review < gates, (
@@ -1913,7 +1913,7 @@ def test_the_receipt_helper_is_RESOLVED_not_assumed_present() -> None:
     the target worktree and simply is not there."""
     text = _auto()
     assert "~/.claude/scripts/counter-model-receipt.py" in text
-    assert "CLAUDE_PLUGIN_ROOT" in text.split("### Step 6:", 1)[1].split("### Step 7:", 1)[0]
+    assert "CLAUDE_PLUGIN_ROOT" in text.split("### Step 5:", 1)[1].split("### Step 6:", 1)[0]
 
 
 # --------------------------------------------------------------------------- #
@@ -1951,22 +1951,24 @@ def test_the_stage_runs_by_DEFAULT_and_a_skip_is_recorded() -> None:
     assert "ALWAYS, including on a skip" in text
 
 
-def test_the_step_numbering_is_UNCHANGED() -> None:
-    """Adding the stage must not renumber /flow:auto.
+def test_the_step_numbering_is_SEVEN_STEPS() -> None:
+    """/flow:auto is numbered by the steps it actually has (#1857).
 
-    Seven files cite `Step 3/9`, including both #775 no-bypass guards, which
-    hardcode the total. Renumbering to buy prominence would pay that cascade -
-    and prominence was never the defect: this stage went unused for 170 PRs
-    because it lived in a SEPARATE COMMAND, not because it was insufficiently
-    visible inside one.
+    Adding this stage did not renumber the flow: prominence was never the
+    defect - the stage went unused for 170 PRs because it lived in a SEPARATE
+    COMMAND. #1850 then retired Step 5 and froze the numbers; #1857 removed it
+    and folded Verify CI and Deploy into one after-merge Step 7, paying the
+    citation cascade once (the #775 no-bypass guards pin `Step 3/7`).
 
-    Pinned here so a later change that renumbers meets this reason first.
+    Pinned here so a later change that renumbers meets this reason first, and
+    so a retired placeholder step cannot come back.
     """
     text = _auto()
-    assert "Step 3/9: ELI5" in text, "the ELI5 gate's step label moved"
-    for n in range(1, 10):
-        assert f"Step {n}/9" in text, f"no Step {n}/9 report line"
-    assert "/10" not in text, "flow/auto.md has been renumbered to ten steps"
+    assert "Step 3/7: ELI5" in text, "the ELI5 gate's step label moved"
+    for n in range(1, 8):
+        assert f"Step {n}/7" in text, f"no Step {n}/7 report line"
+    assert not re.search(r"Step \d+/(9|8|10)\b", text), "flow/auto.md carries a step label from another layout"
+    assert "/7: retired" not in text, "a retired placeholder step is numbered again"
 
 
 def test_adding_the_stage_LEFT_THE_ELI5_GATE_BYTE_IDENTICAL() -> None:
@@ -2011,7 +2013,11 @@ def test_adding_the_stage_LEFT_THE_ELI5_GATE_BYTE_IDENTICAL() -> None:
         step3 = after[1].split("### Step 4", 1)[0]
         gate = step3.split("**This is a gate:**", 1)
         assert len(gate) == 2, "the `**This is a gate:**` block is gone from Step 3"
-        return gate[1]
+        # The flow's step TOTAL sits in the gate's report label (`Step 3/7`).
+        # #1857 renumbered the flow, which changes only that total; the total
+        # is pinned by test_the_step_numbering_is_SEVEN_STEPS, so it is masked
+        # here and every other byte of the gate is still compared.
+        return re.sub(r"`Step 3/\d+: ELI5 complete", "`Step 3/N: ELI5 complete", gate[1])
 
     base, now = eli5_section(proc.stdout), eli5_section(_auto())
     assert base.strip(), "the base revision yielded an empty ELI5 section"
@@ -2033,10 +2039,10 @@ def test_adding_the_stage_LEFT_THE_ELI5_GATE_BYTE_IDENTICAL() -> None:
 
 def test_the_receipt_is_staged_before_the_quality_gates_run() -> None:
     text = _auto()
-    step6 = text.split("### Step 6:", 1)[1].split("### Step 6b:", 1)[0]
+    step6 = text.split("### Step 5:", 1)[1].split("### Step 5b:", 1)[0]
     write_call = step6.index('python3 "$CM_RECEIPT" write')
     gates = step6.index("**Quality gates**")
-    assert write_call < gates, "the write call moved outside Step 6 as expected"
+    assert write_call < gates, "the write call moved outside Step 5 as expected"
     stage = step6.find("git add", write_call)
     assert stage != -1 and stage < gates, (
         "the receipt write is not followed by a `git add` staging step before "
@@ -2064,7 +2070,7 @@ def test_the_published_staging_command_actually_tracks_a_fresh_receipt(
     import re
 
     text = _auto()
-    step6 = text.split("### Step 6:", 1)[1].split("### Step 6b:", 1)[0]
+    step6 = text.split("### Step 5:", 1)[1].split("### Step 5b:", 1)[0]
     anchor = step6.index("Stage the receipt immediately")
     match = re.search(r"```bash\n(.*?)```", step6[anchor:], re.S)
     assert match, "no fenced bash block found after the staging instruction"

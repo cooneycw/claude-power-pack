@@ -121,7 +121,7 @@ json_escape() {
 # Resolve the buffer path. Precedence:
 #   1. CPP_FRICTION_LOG, if set (explicit override wins).
 #   2. The MAIN repo's .claude/friction.jsonl - NOT the cwd's. During /flow:auto
-#      the cwd is a native worktree (.claude/worktrees/<name>/) that Step 7
+#      the cwd is a native worktree (.claude/worktrees/<name>/) that Step 6
 #      deletes; a cwd-relative buffer would be destroyed with it, losing every
 #      signal the run captured (issue #471). `git rev-parse --git-common-dir`
 #      points at the SHARED .git dir (the main worktree's) from a linked worktree

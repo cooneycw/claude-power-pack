@@ -60,7 +60,7 @@ PR_JSON=$(gh pr list --head "$BRANCH" --json number,state,mergeable,reviewDecisi
 `main` while the PR was open; squash-merging it then fails at the last step on a
 content conflict. Bring the branch current and re-run the quality gate on the
 **post-merge tree** before merging, so the squash is deterministic and the gate
-reflects exactly what lands on `main`. (`/flow:auto` Step 7 runs the same guard;
+reflects exactly what lands on `main`. (`/flow:auto` Step 6 runs the same guard;
 this covers the standalone/resume path.)
 
 ```bash

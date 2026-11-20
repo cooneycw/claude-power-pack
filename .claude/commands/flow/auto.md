@@ -16,7 +16,7 @@ approver's yes. Outside that scope this file carries no protective prose.
 **Tier 1 (`Tier: 1`, one concern, 1-3 files) is the same flow, answered
 briefly.** A documentation-only change answers lanes in one line
 (`Lanes: none - documentation only`), each `Reader:` row in one line, and may
-skip the second-model review when the approved plan says so (Step 6, item 1).
+skip the second-model review when the approved plan says so (Step 5, item 1).
 The Step 3 approval is never skipped, at any tier (#775).
 
 ## Arguments
@@ -64,15 +64,13 @@ Report at the start:
 ```
 Flow Auto: Issue #42 - Full Lifecycle
 
-Step 1/9: Start (create worktree and branch)
-Step 2/9: Analyze (understand issue and codebase)
-Step 3/9: ELI5 (plain-language intent + necessity verdict + plan approval gate)
-Step 4/9: Implement (write the code)
-Step 5/9: retired (documentation is not part of the flow, #1850)
-Step 6/9: Finish (lint, test, commit, push, create PR)
-Step 7/9: Merge (squash-merge PR, clean up worktree)
-Step 8/9: Verify CI (confirm pipeline passes on main)
-Step 9/9: Deploy (make deploy, if target exists)
+Step 1/7: Start (create worktree and branch)
+Step 2/7: Analyze (understand issue and codebase)
+Step 3/7: ELI5 (plain-language intent + necessity verdict + plan approval gate)
+Step 4/7: Implement (write the code)
+Step 5/7: Finish (lint, test, commit, push, create PR)
+Step 6/7: Merge (squash-merge PR, clean up worktree)
+Step 7/7: After merge (verify CI on main, then make deploy if a target exists)
 
 Proceeding...
 ```
@@ -91,7 +89,7 @@ before any STOP, via the fail-open capture helper:
 ```bash
 ~/.claude/scripts/friction-log.sh --class <gate-failure|red-output|manual-intervention> \
   --signal "<what happened>" --fix "<proposed fix, if obvious>" \
-  --scope <local|portable> --run "flow:auto #$ISSUE_NUM" --step "<N/9 Name>" --outcome "<retried|worked-around|corrected>"
+  --scope <local|portable> --run "flow:auto #$ISSUE_NUM" --step "<N/7 Name>" --outcome "<retried|worked-around|corrected>"
 ```
 
 Never log the **permission-prompt** class by hand (issue #482). Missing
@@ -140,7 +138,7 @@ The helper prints a `key=value` contract ending in `FLOW_START_RESOLVE: ok`.
 On `FLOW_START_RESOLVE: error` (with an `ERROR=` line): **STOP** and report it.
 Keys: `LANE` (`current-branch|fresh|resume|remote-pickup|local-pickup|cross-repo`),
 `CROSS_REPO`, `GIT_LANE` (always `GIT_LANE=1`: enter with `cd`, git cleanup at
-Step 7), `SESSION_CWD`, `SESSION_CWD_INFERRED`, `TARGET_REPO`,
+Step 6), `SESSION_CWD`, `SESSION_CWD_INFERRED`, `TARGET_REPO`,
 `COMPOSE_PROJECT_NAME` (the compose pin for the whole run, issue #626),
 `ISSUE_STATE`, `ISSUE_TITLE`, `BRANCH`, `WT_PATH`, `DEFAULT_BRANCH`,
 `REMOTE_BRANCH`, `WT_CREATED` (1 = the helper already ran `git worktree add`),
@@ -202,7 +200,7 @@ found. See `docs/agents/shared-stash-stack.md`.
 
 **If this verification fails, STOP immediately. Report the failure using the error template at the bottom of this file. Do NOT proceed to Step 2.**
 
-Report: `Step 1/9: Start complete - worktree at {path}, verified on branch {branch}`
+Report: `Step 1/7: Start complete - worktree at {path}, verified on branch {branch}`
 
 #### Start the plan record (issues #1080, #1081, #1849)
 
@@ -269,7 +267,7 @@ compose names a second, colliding stack after the worktree basename.
 4. **Report the plan to the user:**
 
 ```
-Step 2/9: Analysis Complete
+Step 2/7: Analysis Complete
 
 Issue #42: "Fix login redirect loop"
 
@@ -289,7 +287,7 @@ Estimated scope: Small
 Proceeding to ELI5 review...
 ```
 
-Report: `Step 2/9: Analyze complete - {N} files to modify`
+Report: `Step 2/7: Analyze complete - {N} files to modify`
 
 ---
 
@@ -350,7 +348,7 @@ standing consent to whatever plan the run later produces.
 Unattended runs are not an exception: hand the report to the orchestrator or
 reviewer and wait, rather than approving on their behalf.
 
-Report: `Step 3/9: ELI5 complete - verdict: {Still needed|Partially addressed|No longer needed|Needs reframing}; approval: {granted|close recommended}`
+Report: `Step 3/7: ELI5 complete - verdict: {Still needed|Partially addressed|No longer needed|Needs reframing}; approval: {granted|close recommended}`
 
 There is deliberately no `auto-granted` value: a field that can still be produced means something can still skip the gate (issue #775).
 
@@ -428,7 +426,7 @@ RECORD
 ~/.claude/scripts/flow-plan-record.py approve 42 --plan /path/outside/checkout/plan-42.md
 ```
 
-Each Section C line is ``N. `path` - gist``, one file per line: Step 6
+Each Section C line is ``N. `path` - gist``, one file per line: Step 5
 compares the diff against exactly those paths. Do NOT list this record, its
 `.as-read.md` snapshot or the counter-model receipt (issue #1267), and name
 only the SOURCE of a `codex/skills/**` mirror (#1670). The approver field
@@ -439,7 +437,7 @@ what to fix.
 **Adopting found or dirty work (issue #1504).** Only if you deliberately
 preserved pre-existing or dirty work by committing it unmodified as its own
 commit, declare that commit's sha BEFORE `approve` (a salvage line added
-after the stamp reads as a changed plan at Step 6). It refuses a sha that is
+after the stamp reads as a changed plan at Step 5). It refuses a sha that is
 not an ancestor of HEAD; never infer one from history:
 
 ```bash
@@ -494,7 +492,7 @@ codebase and Step 3 reviewed the plan against it, so the approval is informed.
 It fixes the intended OUTCOME, not every detail of how to reach it:
 
 1. **Revise within the agreed outcome and constraints - no new approval.** An
-   ordinary implementation choice; say what you did in the Step 6 summary.
+   ordinary implementation choice; say what you did in the Step 5 summary.
 2. **Investigate an uncertain assumption, bounded and reversible**, inside the
    permissions you already have. A prototype that works may become the
    implementation; remove the unsafe and provisional parts, not the result.
@@ -529,22 +527,16 @@ If implementation hits a blocker that cannot be resolved:
 - **STOP** and report the blocker.
 - Suggest manual intervention.
 
-Report: `Step 4/9: Implement complete - {summary of changes}`
+Report: `Step 4/7: Implement complete - {summary of changes}`
+
+**Documentation is not a step (owner ruling, #1850).** A run does not
+regenerate diagrams or review README.md / CLAUDE.md, and no `update_docs`
+Makefile target is read. A document the change makes wrong is part of the
+change itself, planned in Section C like any other file.
 
 ---
 
-### Step 5: retired - documentation is not part of the flow
-
-Owner ruling, #1850: a run does not regenerate diagrams or review README.md /
-CLAUDE.md, and no `update_docs` Makefile target is read. A document the change
-makes wrong is part of the change itself, planned in Section C like any other
-file. The number is kept so the many citations of Steps 6-9 stay true.
-
-Report: `Step 5/9: retired (#1850)`
-
----
-
-### Step 6: Finish - Quality Gates, Commit, Push, PR
+### Step 5: Finish - Quality Gates, Commit, Push, PR
 
 ```bash
 BRANCH=$(git branch --show-current)
@@ -573,7 +565,7 @@ if [ "$(git rev-list --count HEAD..origin/main)" -gt 0 ]; then
         git commit -m "wip(flow): pre-merge snapshot"
     fi
     if ! git merge --no-edit origin/main; then
-        echo "STOP: 'git merge origin/main' hit CONFLICTS. Resolve them, 'git add' + 'git commit', then re-run Step 6."
+        echo "STOP: 'git merge origin/main' hit CONFLICTS. Resolve them, 'git add' + 'git commit', then re-run Step 5."
         git diff --name-only --diff-filter=U
         echo "NOTE: your Step-4 work is safe in the 'wip(flow): pre-merge snapshot' commit on this branch."
         exit 1
@@ -774,7 +766,7 @@ is written voids it. Pick up a moved base with `git merge`.
    ```
 
    If the project's gate needs the pushed head (it refuses unpushed commits),
-   commit and `git push -u origin "$BRANCH"` first, then gate; same at Step 7
+   commit and `git push -u origin "$BRANCH"` first, then gate; same at Step 6
    (#1706).
 
    **A run with no `FLOW_FINISH_GATE:` verdict line did not run the gate: **STOP**
@@ -877,11 +869,11 @@ is written voids it. Pick up a moved base with `git merge`.
      `FLOW_PLAN_RECORD: unverified` - **STOP**: the PR head could not be read; check
      `gh auth status` and the network, then re-run.
 
-Report: `Step 6/9: Finish complete - PR #XX created`
+Report: `Step 5/7: Finish complete - PR #XX created`
 
 ---
 
-### Step 6b: Route Supplemental Findings to the Nit Store
+### Step 5b: Route Supplemental Findings to the Nit Store
 
 A supplemental finding is anything true and worth fixing that you discovered
 while doing something else, including a deferred counter-model finding from
@@ -922,7 +914,7 @@ Having nothing to store is an ordinary outcome. Do not manufacture a finding.
 
 ---
 
-### Step 7: Merge - Squash-Merge and Clean Up
+### Step 6: Merge - Squash-Merge and Clean Up
 
 1. **Sync with `origin/main` and re-gate (stale-branch guard, issue #462):**
    Bring the branch current and re-run the gate on the **post-merge tree**
@@ -950,7 +942,7 @@ Having nothing to store is an ordinary outcome. Do not manufacture a finding.
    ```
 
    **If the merge changed the branch**, re-run the FULL
-   quality gate - the same Step-6 helper, invoked BARE as a separate call (#613;
+   quality gate - the same Step-5 helper, invoked BARE as a separate call (#613;
    the #581 discipline - never fold it back into a compound block). Test for a
    changed branch, not for a merge:
 
@@ -964,7 +956,7 @@ Having nothing to store is an ordinary outcome. Do not manufacture a finding.
 
    On `FLOW_FINISH_GATE: fail` (exit 1): **STOP** - the quality gate failed on
    the post-merge tree. Fix, commit, then re-run `/flow:merge`. With no
-   `FLOW_FINISH_GATE:` verdict line, the gate did not run: **STOP** as at Step 6,
+   `FLOW_FINISH_GATE:` verdict line, the gate did not run: **STOP** as at Step 5,
    whatever the exit code (issue #1547). On `ok` (or
    `skipped` / `warn`, each with a warning - `warn` means a test step exited 0
    having executed no tests, issue #621: report its counts, do not call it
@@ -1031,14 +1023,14 @@ Having nothing to store is an ordinary outcome. Do not manufacture a finding.
    else
        echo "REFUSING: gh-pr-merge.sh is not installed; not merging PR #$PR_NUMBER with a plain 'gh pr merge'." >&2
        echo "  A raw merge skips every guard the helper runs, including the close-keyword guards (issue #1543)." >&2
-       echo "  Install the helper with /flow:repair, then resume Step 7." >&2
+       echo "  Install the helper with /flow:repair, then resume Step 6." >&2
        MERGE_RC=12
    fi
    ```
    - **A `CLEAN STOP:` line leaves the PR open and untouched.** Relay it under
      the helper rule (top of file); never retry blindly. While a stop stands,
      leave the worktree, branch and PR INTACT and run no cleanup. A review
-     stop (exit 3) ends the run. When the base moved (exit 6), resume Step 7
+     stop (exit 3) ends the run. When the base moved (exit 6), resume Step 6
      from sub-step 1. On exit 9, report it; never push or discard another
      checkout's work.
      Tests: `tests/test_gh_pr_merge.py` checks each stop's remedy line.
@@ -1088,13 +1080,13 @@ Having nothing to store is an ordinary outcome. Do not manufacture a finding.
    repo BEFORE removing the worktree - never remove a worktree while your cwd is
    inside it. Execute as SEPARATE Bash calls.**
 
-   **Step 7a - Return to the main repo (separate Bash call):**
+   **Step 6a - Return to the main repo (separate Bash call):**
    ```bash
    cd "$MAIN_REPO"
    pwd  # Verify you are in the main repo, NOT the worktree
    ```
 
-   **Step 7b - Remove the worktree (separate Bash call, AFTER confirming cd
+   **Step 6b - Remove the worktree (separate Bash call, AFTER confirming cd
    succeeded).** Invoke the removal helper BARE with the literal path (#581
    discipline):
    ```bash
@@ -1131,7 +1123,7 @@ With no worktree (a feature branch in the main repo), just delete the branch:
    ```
 
 6. **Close issue** (if still open). Restate here the `ACCEPTANCE_COMPLETE`
-   judgement you reached in Step 6 for THIS issue; never inherit a value and
+   judgement you reached in Step 5 for THIS issue; never inherit a value and
    never parse it out of the report. Unset cannot close:
    ```bash
    ACCEPTANCE_COMPLETE=""
@@ -1148,11 +1140,13 @@ With no worktree (a feature branch in the main repo), just delete the branch:
    fi
    ```
 
-Report: `Step 7/9: Merge complete - worktree cleaned up`
+Report: `Step 6/7: Merge complete - worktree cleaned up`
 
 ---
 
-### Step 8: Verify CI (after merge)
+### Step 7: After merge - Verify CI, then Deploy
+
+#### 7a. Verify CI
 
 ONE audited helper owns this (issue #766). Invoke `scripts/flow-ci-status.sh`
 BARE with the literal SHA and checkout path (#581; the checkout is DECLARED,
@@ -1174,7 +1168,7 @@ its keys are listed in [its reference](../../../docs/scripts/flow-ci-status.md).
 
 Act on `FLOW_CI_STATUS`:
 
-- `success` -> proceed to Step 9.
+- `success` -> proceed to 7b.
 - `failure` -> **STOP**. Do not deploy. Report `FLOW_CI_URL` and every
   `FLOW_CI_FAILED_STEP` line. Read `FLOW_CI_FAILURE_ORIGIN` first (issue
   #1342): `precode` (the `clone`, a `*-stage` stager exiting 75, or an image pull)
@@ -1207,10 +1201,7 @@ Invalid refs exit 2 before requests.
 Missing helper: skip CI verification with a warning rather than improvising a
 lookup, and say plainly in the final summary that CI was NOT verified.
 
-Report: `Step 8/9: Verify CI complete - pipeline #{N} passed` or
-`Step 8/9: Verify CI skipped ({not-found|unknown})`
-
-### Step 9: Deploy (optional)
+#### 7b. Deploy (optional)
 
 Only if a Makefile with a `deploy` target exists in the main repo. `/flow:auto`
 runs `make deploy` inline. The block skips
@@ -1297,9 +1288,7 @@ fi
 Verification is inert unless `health.deploy_verification.enabled` is set in
 `.claude/cicd.yml`. A ROLLBACK verdict is surfaced, never acted on automatically.
 
-Report: `Step 9/9: Deploy complete (verify: {proceed|review|rollback|none})` or
-`Step 9/9: Deploy skipped (no Makefile target)` or
-`Step 9/9: Deploy skipped ({sha} already deployed by a concurrent session)`
+Report: `Step 7/7: After merge complete - CI: {pipeline #{N} passed|skipped (not-found|unknown)}; deploy: {complete (verify: proceed|review|rollback|none)|skipped (no Makefile target)|skipped ({sha} already deployed by a concurrent session)}`
 
 ---
 
@@ -1358,7 +1347,7 @@ CLAUDE.md, portable learnings)? [y/N]
 At each step, if something fails:
 
 ```
-Flow Auto stopped at Step N/9: {Step Name}
+Flow Auto stopped at Step N/7: {Step Name}
 
   Failed: [description of what failed]
   Fix:    [actionable suggestion]
@@ -1368,15 +1357,15 @@ Flow Auto stopped at Step N/9: {Step Name}
     [investigate]    (if step 2 failed)
     /flow:eli5 N     (if step 3 failed)
     [implement]      (if step 4 failed)
-    /flow:finish     (if step 6 failed)
-    /flow:merge      (if step 7 failed)
-    [check CI dashboard] (if step 8 failed)
-    /flow:deploy     (if step 9 failed)
+    /flow:finish     (if step 5 failed)
+    /flow:merge      (if step 6 failed)
+    [check CI dashboard] (if step 7a failed)
+    /flow:deploy     (if step 7b failed)
 ```
 
 Failure rules no step states: analysis unclear - stop at step 2 and ask the
 user; plan rejected at the ELI5 gate - stop at step 3 and revise the plan (or
-close) before proceeding; push fails - stop at step 6 and suggest `git pull --rebase`; deploy fails -
+close) before proceeding; push fails - stop at step 5 and suggest `git pull --rebase`; deploy fails -
 report it, do not roll back.
 
 ## Notes

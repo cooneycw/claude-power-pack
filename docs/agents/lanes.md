@@ -90,7 +90,7 @@ the judgement is the one the readers reference states.
 
 ## At close
 
-In `/flow:auto`, what happened goes in a file of its own at Step 6,
+In `/flow:auto`, what happened goes in a file of its own at Step 5,
 `docs/flow-runs/issue-<N>.lanes-demonstrated.md`: a table with one row per
 lane answered `will test` or `will refuse`. It is deliberately not part of the
 plan record, which must not change after approval.

@@ -68,10 +68,10 @@ installed at the stable `~/.claude/scripts/` path by `/cpp:init` /
   scripts arrive by user-confirmed `/cpp:update`; if that trust model does
   not fit your box, remove the script rules and accept the prompts.
 - **`gh-pr-merge.sh` and `worktree-remove.sh` are mutating helpers** - PR
-  squash-merge (flow Step 7, after the quality gates and the user-invoked
+  squash-merge (flow Step 6, after the quality gates and the user-invoked
   flow) and worktree/branch removal. They are deliberately included (the
   point of #581 is a zero-prompt flow), while raw `git push`, `git commit`,
-  and `gh pr create/merge` stay excluded - the Step 6 shipping gate is
+  and `gh pr create/merge` stay excluded - the Step 5 shipping gate is
   unchanged, and the allowlisted surface is the audited helper, not the bare
   shipping command.
 - **Rules only match BARE invocations.** `~/.claude/scripts/foo.sh 42` is

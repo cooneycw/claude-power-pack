@@ -92,7 +92,7 @@ flowchart LR
 - [ ] Derive required checks from the provider and the generated job names, and write `.claude/branch-protection.json` (wire `BranchProtection` into `CICDConfig`). Apply with `scripts/branch-protection.sh` only after explicit approval.
   - GitHub Actions: job `ci` in workflow `CI` reports as `ci`; **a strategy matrix reports one check per cell** (`ci (3.11)`), so derivation must expand the matrix.
   - Woodpecker: `ci/woodpecker/pr/woodpecker`; a `.woodpecker/` directory names one check per file.
-  - **Require only checks the PR event emits on the PR head.** The generated Woodpecker pipeline runs `push` only on `main`, so `ci/woodpecker/push/woodpecker` never appears on a PR head; requiring it would leave `gh-pr-merge.sh` waiting for a check that cannot arrive before merge. The main push pipeline is post-merge verification (`/flow:auto` Step 8), which is CPP's own posture (ADR 0004).
+  - **Require only checks the PR event emits on the PR head.** The generated Woodpecker pipeline runs `push` only on `main`, so `ci/woodpecker/push/woodpecker` never appears on a PR head; requiring it would leave `gh-pr-merge.sh` waiting for a check that cannot arrive before merge. The main push pipeline is post-merge verification (`/flow:auto` Step 7a), which is CPP's own posture (ADR 0004).
 - [ ] Check the choice against the host record (P3) and warn when this host cannot use it.
 - [ ] `/cicd:pipeline` reads or asks for the recorded provider instead of telling the user to hand-edit YAML, and its overwrite check covers `.woodpecker.yml` too.
 - [ ] `/cicd:infra-pipeline` takes the same provider list (today it has no `both` and routes any non-actions value to Woodpecker).

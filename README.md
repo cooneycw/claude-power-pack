@@ -378,7 +378,7 @@ never configured a release probe into REVIEW (#1497). The Python template from
 - **Not a tag or a GitHub release.** Like 9.0, this is a version bump on `main`.
   Cutting a tag is a separate operator decision (#1278).
 - **Not a complete contract update for `canceled`.** The script emits it, but
-  `/flow:auto`'s Step 8 contract block and `docs/scripts.md` still list four
+  `/flow:auto`'s Step 7a contract block and `docs/scripts.md` still list four
   values. That is recorded in the Nit Store (#864), not fixed here.
 - **Not a change to `/flow:merge`'s own call site.** It still passes no admin
   flag. That is the point of #1489: an admin override is the caller's decision.

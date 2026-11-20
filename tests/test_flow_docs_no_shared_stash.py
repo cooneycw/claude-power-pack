@@ -1,7 +1,7 @@
 """Pin: the flow docs never touch the shared stash stack (issue #635).
 
 Git stashes live in the repo's COMMON git dir, so every linked worktree shares
-one stack. `/flow:auto` Step 6 and `/flow:finish` used to do
+one stack. `/flow:auto` Step 5 and `/flow:finish` used to do
 `stash push -u -> merge -> bare stash pop`; with concurrent sessions the pops
 took whatever was top-of-stack and silently swapped uncommitted work between
 worktrees (two confirmed symmetric hits plus a near-miss, aws-learn

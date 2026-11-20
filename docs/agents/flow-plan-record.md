@@ -208,10 +208,10 @@ nothing staged.
 
 **`HEAD --`, never a bare `--`.** `git checkout -- <path>` restores from the
 INDEX, not from HEAD, and the state where those differ is reachable by this
-document's own design: Step 6 stages the record, so a run that stages it and then
+document's own design: Step 5 stages the record, so a run that stages it and then
 dies leaves the record tracked AND staged with that run's content. A bare `--`
 there restores the STAGED version - a plan approved in a DIFFERENT run - and this
-run then commits it at Step 6 as its own approval, which is precisely the failure
+run then commits it at Step 5 as its own approval, which is precisely the failure
 the untracked branch above exists to prevent, arriving by the staged path.
 Measured: with run B's scratch staged over run A's commit, `git checkout --`
 yields run B's text while `git checkout HEAD --` yields run A's and clears the
@@ -258,7 +258,7 @@ would vanish from every PR silently. Verified by EXIT CODE, not by reading
 `docs/flow-runs/issue-N.json` exits 0 (ignored, via `.gitignore:54`). A
 machine-readable form needs its own `!` negation FIRST, exactly as
 `docs/measurements/counter-model/*.json` has at `.gitignore:160` - see the note
-at Step 6 item 1 on why the negation is what makes a plain `git add` safe there.
+at Step 5 item 1 on why the negation is what makes a plain `git add` safe there.
 
 **There is no `auto-granted` value and no code path that writes this file without
 an approver** (issue #775). The record is written only after approval, and its
@@ -276,7 +276,7 @@ The body read at Step 1 is written into the worktree now, in the same safe
 position as the record and for the same reason.
 
 **The approval baseline is stamped here, before any implementation edit** (issue #1082).
-The plan record is not COMMITTED until Step 6, which is after the work is
+The plan record is not COMMITTED until Step 5, which is after the work is
 written - so "unchanged since its first commit" cannot detect an implementer who
 grows the record and the diff together before that commit. The baseline is
 therefore taken here, at the moment the approved plan is written, and kept in the
@@ -317,7 +317,7 @@ the last 30m and you have not written anything yet, so they are NOT yours."
 Found by counter-model review (gpt-6-astra); the ordering is load-bearing, not
 cosmetic.
 
-## Issue drift (`drift`, Step 6 item 6, issue #1081)
+## Issue drift (`drift`, Step 5 item 6, issue #1081)
 
 The fetch is I/O that needs `gh` and a live issue; the verdict is a decision
 over two local files. `--live-file` replaces only the fetch, so the decision can
@@ -337,7 +337,7 @@ whole thing. Where the stored copy was truncated the diff covers the stored
 prefix only; the digest still covers the whole body, so DETECTION is complete
 even when the naming is partial.
 
-## Plan compliance (`compliance`, Step 6 item 7, issue #1082)
+## Plan compliance (`compliance`, Step 5 item 7, issue #1082)
 
 It REPORTS; it never blocks. The issue contract already lets an implementer substitute a
 better approach and owe the reviewer the reason - this surfaces that the
@@ -379,7 +379,7 @@ diff, so it inherited nothing.
   outright would hide real drift in the largest category by file count.
 - **The record is the check's own input.** Its digest is compared against the
   baseline `approve` stamped at Step 4 - not its first COMMIT, which happens at
-  Step 6 after the work and would miss a record grown together with the diff.
+  Step 5 after the work and would miss a record grown together with the diff.
 
 **`--name-only` answers "what did this change touch", never "what exists at
 head".** A deleted path is listed while `git cat-file -e HEAD:<path>` reports it
@@ -391,13 +391,13 @@ question and uses existence at head.
 whether the change did what was agreed, so a run that rewrites a file
 completely differently from its plan reports agreement.
 
-## The record at the PR head (`head-check`, Step 6 item 8, issue #1080)
+## The record at the PR head (`head-check`, Step 5 item 8, issue #1080)
 
 Ask whether the record EXISTS at the PR's head, not whether its name appears in
 a diff.
 A record present in the worktree but absent from the PR is the failure this
 check exists for, and it is silent at every earlier stage: `git add` skips an
-ignored path without an error, and the Step 7 squash flattens whatever it was
+ignored path without an error, and the Step 6 squash flattens whatever it was
 given. Checking `git status` locally would confirm the file exists and prove
 nothing about what ships. Skip this when the run wrote no record - a
 `No longer needed` verdict has none to find.
@@ -436,7 +436,7 @@ the Codex `flow-auto` bundle ships this helper without that file. The two
 readers are held together by a test that runs both over every state.
 
 **Nothing in the record is outside the stability digest.** What a run
-demonstrated in each lane it said it would test is written at Step 6 to a file
+demonstrated in each lane it said it would test is written at Step 5 to a file
 of its own, `docs/flow-runs/issue-<N>.lanes-demonstrated.md`: a table, one row
 per lane, saying what happened - since #1823 a result (`passed`, `failed`, `not
 run` or `refused as expected`) and its evidence. It is not part of the plan record, so the
