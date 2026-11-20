@@ -833,7 +833,10 @@ collapse" note above).
    **Before review, commit an implementation checkpoint (schema 5).** Stage
    only the issue's owned changes, commit them, and review that committed
    artifact. A fix accepted from review needs a new checkpoint and review before
-   the receipt is written. This keeps dirty working-tree changes from being
+   the receipt is written, unless it touches only the plan record: then the
+   writer binds the reviewed head and records the move (#1862), because a
+   lane or `Reader:` row changes no behaviour and a full pass costs about
+   half a million tokens. This keeps dirty working-tree changes from being
    mistaken for the commit a receipt names. The runtime evidence and producer
    contract is [counter-model evidence](../agents/counter-model-evidence.md).
    A collector `CODEX_REVIEW: blocked` or missing artifact binding is a failed

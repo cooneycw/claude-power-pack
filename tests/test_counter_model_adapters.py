@@ -1392,3 +1392,181 @@ def test_claude_spelling_independence_in_legacy_validation(case):
     if case["refuse"]:
         assert any("equivalence is not established" in p for p in problems)
         assert any("independence cannot be claimed" in p for p in problems)
+
+
+# ---------------------------------------------------------------------------
+# Issue #1862: a fix that touches only the plan record does not force another
+# review pass. The writer binds the REVIEWED head and records the move; any
+# other path after the reviewed head is refused exactly as before.
+# ---------------------------------------------------------------------------
+
+
+def _commit_path(repo: Path, rel: str, text: str) -> str:
+    path = repo / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    git(repo, "add", rel)
+    git(repo, "commit", "-qm", f"touch {rel}")
+    return git(repo, "rev-parse", "HEAD")
+
+
+def _reviewed_then(e: dict, scope: str, *later: str) -> tuple[list[str], str]:
+    """Review the fixture head, then commit each `later` path after it."""
+    args = runtime(e, "implementer", "codex", "model-a")
+    args += runtime(e, "reviewer", "claude", "model-b",
+                    patch=e["patch"] if scope == "diff-only" else None,
+                    probe=e["head"] if scope == "full" else None)
+    tip = e["head"]
+    for rel in later:
+        tip = _commit_path(e["repo"], rel, f"after review: {rel}\n")
+    return args, tip
+
+
+@requires_git
+@pytest.mark.parametrize("scope", ["full", "diff-only"])
+def test_plan_record_only_commits_after_review_bind_the_reviewed_head(evidence, scope):
+    """POSITIVE: commits after the reviewed head touch only issue 1584's plan
+    record files. Before #1862 this was refused and cost a new review pass."""
+    e = evidence
+    args, tip = _reviewed_then(e, scope, "docs/flow-runs/issue-1584.md",
+                               "docs/flow-runs/issue-1584.lanes-demonstrated.md")
+    assert tip != e["head"], "precondition: HEAD moved past the reviewed commit"
+    result = write(e, *args, "--scope", scope)
+    assert result.returncode == 0, result.stderr
+    receipt = json.loads(next((e["tmp"] / "out").glob("*.json")).read_text())
+    assert receipt["head"] == e["head"], "the receipt names the REVIEWED head, not the tip"
+    artifact = receipt["reviewed_artifact"]
+    assert artifact["target_head"] == e["head"]
+    assert artifact["plan_record_move"] == {
+        "head": tip,
+        "paths": ["docs/flow-runs/issue-1584.lanes-demonstrated.md", "docs/flow-runs/issue-1584.md"],
+    }
+    assert load().validate(receipt) == []
+
+
+@requires_git
+@pytest.mark.parametrize("scope", ["full", "diff-only"])
+@pytest.mark.parametrize("later", [
+    # NEGATIVE CONTROL: the same branch with one non-plan line after the reviewed head.
+    ("docs/flow-runs/issue-1584.md", "file"),
+    # Another issue's plan record is not this issue's plan record.
+    ("docs/flow-runs/issue-999.md",),
+    # A neighbour of the closed set, not a member: the set is not a glob.
+    ("docs/flow-runs/issue-1584.notes.md",),
+], ids=["non-plan-line", "other-issue-record", "near-miss-name"])
+def test_any_other_path_after_the_reviewed_head_still_needs_review(evidence, scope, later):
+    e = evidence
+    args, tip = _reviewed_then(e, scope, *later)
+    result = write(e, *args, "--scope", scope)
+    assert result.returncode != 0, result.stdout
+    assert "outside issue #1584's plan record" in result.stderr, result.stderr
+    assert later[-1] in result.stderr, "the refusal names the path that needs review"
+    assert not list((e["tmp"] / "out").glob("*.json"))
+
+
+@requires_git
+def test_no_move_records_no_plan_record_move(evidence):
+    e = evidence
+    args, _ = _reviewed_then(e, "full")
+    result = write(e, *args, "--scope", "full")
+    assert result.returncode == 0, result.stderr
+    receipt = json.loads(next((e["tmp"] / "out").glob("*.json")).read_text())
+    assert "plan_record_move" not in receipt["reviewed_artifact"]
+
+
+@requires_git
+@pytest.mark.parametrize("mutation", ["foreign-path", "same-head", "empty-paths", "short-head"])
+def test_validate_refuses_a_hand_built_plan_record_move(evidence, mutation):
+    e = evidence
+    args, tip = _reviewed_then(e, "full", "docs/flow-runs/issue-1584.md")
+    assert write(e, *args, "--scope", "full").returncode == 0
+    receipt = json.loads(next((e["tmp"] / "out").glob("*.json")).read_text())
+    module = load()
+    assert module.validate(receipt) == [], "precondition: the written receipt is valid"
+    move = receipt["reviewed_artifact"]["plan_record_move"]
+    if mutation == "foreign-path":
+        move["paths"] = sorted(move["paths"] + ["scripts/anything.py"])
+    elif mutation == "same-head":
+        move["head"] = receipt["head"]
+    elif mutation == "empty-paths":
+        move["paths"] = []
+    else:
+        move["head"] = tip[:7]
+    problems = module.validate(receipt)
+    assert any("plan_record_move" in p for p in problems), problems
+
+
+def test_plan_record_set_matches_flow_plan_record():
+    """The closed set is named once, in the writer; this pins it to the paths
+    flow-plan-record.py actually writes, so neither can drift alone."""
+    spec = importlib.util.spec_from_file_location("fpr", ROOT / "scripts/flow-plan-record.py")
+    fpr = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fpr)
+    assert load().plan_record_paths("1862") == frozenset(
+        {fpr.record_rel("1862"), fpr.snapshot_rel("1862"), fpr.demonstrated_rel("1862")}
+    )
+
+
+@requires_git
+def test_a_raw_native_codex_capture_binds_across_a_plan_record_move(evidence):
+    """Review finding (#1862 pass 1): native Codex persists the patch unframed.
+    The raw form must match an earlier head's patch too, or a plan-only fix
+    still costs a pass on that transport."""
+    e = evidence
+    args = runtime(e, "implementer", "claude", "model-a")
+    args += runtime(e, "reviewer", "codex", "model-b", patch=e["patch"])
+    rollout = e["tmp"] / "codex/rollout-fixture-reviewer.jsonl"
+    records = [json.loads(line) for line in rollout.read_text().splitlines()]
+    records[2]["payload"]["content"][0]["text"] = e["patch"]
+    rollout.write_text("".join(json.dumps(r) + "\n" for r in records))
+    assert "<cpp-review-patch>" not in rollout.read_text(), "precondition: the capture is unframed"
+    tip = _commit_path(e["repo"], "docs/flow-runs/issue-1584.md", "lane row\n")
+    result = write(e, *args, "--scope", "diff-only")
+    assert result.returncode == 0, result.stderr
+    receipt = json.loads(next((e["tmp"] / "out").glob("*.json")).read_text())
+    assert receipt["head"] == e["head"]
+    assert receipt["reviewed_artifact"]["plan_record_move"]["head"] == tip
+
+
+@requires_git
+@pytest.mark.parametrize("scope", ["full", "diff-only"])
+def test_a_non_utf8_filename_does_not_break_a_current_head_receipt(evidence, scope):
+    """Review finding (#1862 pass 1): Git allows filenames that are not UTF-8.
+    A receipt for the current tip must not depend on decoding history names."""
+    e = evidence
+    repo = e["repo"]
+    git(repo, "reset", "-q", "--hard", "origin/main")
+    (repo / "file").write_text("after\n")
+    git(repo, "commit", "-qam", "change")
+    # The odd name is in the TIP commit, so the first diff any history walk
+    # reads contains it.
+    odd = b"non-utf8-\xff.txt"
+    with open(os.path.join(os.fsencode(repo), odd), "wb") as handle:
+        handle.write(b"x\n")
+    subprocess.check_call([b"git", b"add", odd], cwd=repo)
+    git(repo, "commit", "-qm", "odd name")
+    head = git(repo, "rev-parse", "HEAD")
+    patch = subprocess.check_output(
+        [sys.executable, str(SCRIPT), "review-patch"], cwd=repo).decode("utf-8", "surrogateescape")
+    with pytest.raises(UnicodeDecodeError):
+        subprocess.check_output(["git", "diff", "--name-only", "-z", "HEAD^", "HEAD"], cwd=repo).decode()
+    args = runtime(e, "implementer", "codex", "model-a")
+    args += runtime(e, "reviewer", "claude", "model-b",
+                    patch=patch if scope == "diff-only" else None,
+                    probe=head if scope == "full" else None)
+    result = write(e, *args, "--scope", scope)
+    assert result.returncode == 0, result.stderr
+
+
+@requires_git
+@pytest.mark.parametrize("paths", [[{}], ["docs/flow-runs/issue-1584.md", 1], "docs/flow-runs/issue-1584.md"])
+def test_validate_reports_malformed_move_paths_instead_of_raising(evidence, paths):
+    """Review finding (#1862 pass 1): a malformed element must be a reported
+    problem, not a TypeError that aborts the corpus check."""
+    e = evidence
+    args, _ = _reviewed_then(e, "full", "docs/flow-runs/issue-1584.md")
+    assert write(e, *args, "--scope", "full").returncode == 0
+    receipt = json.loads(next((e["tmp"] / "out").glob("*.json")).read_text())
+    receipt["reviewed_artifact"]["plan_record_move"]["paths"] = paths
+    problems = load().validate(receipt)
+    assert any("plan_record_move paths" in p for p in problems), problems
