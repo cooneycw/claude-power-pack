@@ -321,14 +321,14 @@ class TestCheckReadsPhonyThroughTheReader:
 #
 # Every template, the example Makefile and the inline generator used to ship a
 # live `deploy` target whose recipe only printed a TODO. It exited 0, and
-# /flow:deploy and /flow:auto Step 9 read exit 0 as "deployed". The block is
+# /flow:deploy and /flow:auto Step 7b read exit 0 as "deployed". The block is
 # now commented out, so there is no target to succeed.
 
 REPO = Path(__file__).resolve().parents[1]
 TEMPLATES = sorted((REPO / "templates" / "makefiles").glob("*.mk")) + [REPO / "templates" / "Makefile.example"]
 requires_make = pytest.mark.skipif(shutil.which("make") is None, reason="make is not installed")
 
-#: /flow:auto Step 9's own test for "a deploy target exists", read from the document.
+#: /flow:auto Step 7b's own test for "a deploy target exists", read from the document.
 STEP9_TEST = 'grep -q "^deploy:" Makefile'
 
 
@@ -361,7 +361,7 @@ def test_a_fresh_scaffold_has_no_deploy_target_and_cannot_report_one(tmp_path: P
     (tmp_path / "Makefile").write_text(text, encoding="utf-8")
     assert "deploy" not in {target.name for target in parse_makefile(tmp_path)}
     step9 = subprocess.run(["sh", "-c", STEP9_TEST], cwd=tmp_path, check=False)
-    assert step9.returncode != 0, f"{name}: /flow:auto Step 9 would find a deploy target and run it"
+    assert step9.returncode != 0, f"{name}: /flow:auto Step 7b would find a deploy target and run it"
     ran = subprocess.run(["make", "deploy"], cwd=tmp_path, capture_output=True, text=True, check=False)
     # A `deploy` left in .PHONY with no rule makes this exit 0 with "Nothing to
     # be done for 'deploy'": the first version of this change did exactly that.

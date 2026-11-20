@@ -256,7 +256,7 @@ while the roster reported no overlap at all.
 
 **A granted path carries its generated mirrors (issue #1266).** Editing a bundled
 source (`scripts/<name>`, a bundled doc, a command document) regenerates its copies
-under `codex/skills/` - that is the Step-6 mirror resync running,
+under `codex/skills/` - that is the Step-5 mirror resync running,
 not a choice. So the lane for a bundled source must include those mirror paths, or
 the roster cannot see two roles regenerating the same mirror. Enumerate them rather
 than guessing, and declare them with the source: in the CPP checkout,

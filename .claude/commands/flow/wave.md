@@ -1089,7 +1089,7 @@ it. A failed/cancelled terminal result is complete work accounting, not approval
 to merge. Retain its receipt and follow the failure/cancellation ruling. Only a
 succeeded result with accepted evidence reaches the merge path below.
 
-On ledger acceptance, merging (Steps 7-9) is a separate bounded assignment.
+On ledger acceptance, merging (Steps 6-7) is a separate bounded assignment.
 Before granting it, capture the verified PR head as `EXPECTED_HEAD` and record a
 new identity, strictly higher `MERGE_GENERATION` and finite `MERGE_DEADLINE`:
 
@@ -1271,16 +1271,16 @@ issue ledger alone does not mean its runtime wave has been closed.
   host also running the CI agent. Filed as #640 (manifest-level cap); until it
   lands, stagger gate runs on one host.
 - **The #635 stash race: do not build on an untraced path.** `/flow:auto`
-  Step 6 documents a stash push -> merge -> pop sequence, and stashes live in
+  Step 5 documents a stash push -> merge -> pop sequence, and stashes live in
   the COMMON git dir - all worktrees share one stack - so concurrent sessions
   stashing simultaneously can swap uncommitted work silently. There is also
   negative evidence that the stash branch may be RARELY REACHED in practice
   (#635 discussion): do not assume it is the branch concurrent sessions
   actually take, and do not harden or depend on it without first tracing which
-  Step-6 branch real runs hit. Until #635 settles it, the wave-level
+  Step-5 branch real runs hit. Until #635 settles it, the wave-level
   mitigation is scheduling: avoid co-scheduling issues likely to hit the
-  Step-6 merge window simultaneously, and prefer letting a worker merge
-  `origin/main` early (Step 4) over relying on the Step-6 stash path.
+  Step-5 merge window simultaneously, and prefer letting a worker merge
+  `origin/main` early (Step 4) over relying on the Step-5 stash path.
 - **An idle session is not a stalled one, and neither is visible without the
   lane (#676).** A worker that registered, stood by, and re-reported
   "registered" on every wake is behaving CORRECTLY - it has no way to learn an

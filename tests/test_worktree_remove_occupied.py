@@ -8,7 +8,7 @@ but the removal script's ``case`` handled only ``held|foreign`` (hard stop) and
 fell through it silently - and ``free`` is simply what a worktree created
 outside the /flow lane reports. The uncommitted-changes backstop below could not
 catch the fall-through either, because it is skipped whenever ``--force`` is
-passed, and ``/flow:auto`` Step 7 always passes ``--force``.
+passed, and ``/flow:auto`` Step 6 always passes ``--force``.
 
 Observed on 2026-09-13: a session sitting in ``flow-finish-gate`` held a 21KB
 staged file in a worktree reporting ``CLAIM=free``. The only thing between it and
@@ -196,7 +196,7 @@ def test_occupied_and_clean_is_now_refused(tmp_path: Path, occupant) -> None:
 @requires_git
 @requires_proc
 def test_idle_and_clean_still_removed_with_force(tmp_path: Path) -> None:
-    """Regression guard for the normal /flow:auto Step 7 path.
+    """Regression guard for the normal /flow:auto Step 6 path.
 
     This is what #889's ``test_idle_and_dirty_still_removed_with_force`` was
     really protecting, and it is UNCHANGED: the tempting over-broad fix - refuse
@@ -947,7 +947,7 @@ def test_a_mismatch_without_delete_branch_removes_only_the_directory(
 def test_steal_overrides_the_attribution_refusal(tmp_path: Path) -> None:
     """--steal is the deliberate override, consistent with #597/#888/#899.
 
-    --force is NOT: /flow:auto Step 7 passes --force on every run, so a guard it
+    --force is NOT: /flow:auto Step 6 passes --force on every run, so a guard it
     silenced would never fire where the damage happens.
     """
     main = _repo(tmp_path)

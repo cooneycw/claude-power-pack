@@ -737,7 +737,7 @@ def test_command_docs_invoke_the_helper_not_inline_bash(doc: str) -> None:
     text = (ROOT / ".claude" / "commands" / "flow" / doc).read_text()
     assert "~/.claude/scripts/flow-finish-gate.sh" in text
     # The un-allowlistable inline gate shape must not ride these docs anymore.
-    # (auto.md Step 9 deploy VERIFICATION legitimately keeps `lib.cicd verify`
+    # (auto.md Step 7b deploy VERIFICATION legitimately keeps `lib.cicd verify`
     # lines - only the quality-GATE `run --plan` shape is extracted, #613.)
     assert "python -m lib.cicd run --plan" not in text
 
@@ -2699,7 +2699,7 @@ def test_main_side_after_a_squash_merge_would_red_which_is_why_this_is_branch_si
     CPP squash-merges, so a branch's commits never land on main. `--is-ancestor`
     then answers NO for every one of them, and a main-side copy of this check
     would red every merged PR in the repository. The gate is invoked branch-side
-    only (auto.md Steps 6 and 7), where the branch commits are still reachable.
+    only (auto.md Steps 5 and 6), where the branch commits are still reachable.
     This reproduces the squash and asserts the red, so the reason for that
     scoping is committed rather than described.
     """

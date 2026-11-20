@@ -494,7 +494,7 @@ instrument CAN say.
 | `flow-wave-mailbox.sh` watch state | the host gave no way to enumerate watchers | duplicate-arm guard: PERMISSIVE (treats as 0); reporting: `unknown` | mailbox |
 | `gate-lib.sh` `gate_map` | any non-good verdict | never exit 0, by construction | gate-lib |
 | `check-consolidation-ledger.py` | absent ledger or snapshot | exit 2, "UNKNOWN, never clean"; `unresolved` is the ledger's DATA-vocabulary form and requires a stated blocking effect | ledger |
-| `flow-worktree-guard.sh` | git missing or failing, main tree unreadable | `unknown` exit 4, PROCEED and REPORT; `not-applicable` exit 5 likewise; only `leak` (3) stops (#1014) | flow Steps 4, 6 |
+| `flow-worktree-guard.sh` | git missing or failing, main tree unreadable | `unknown` exit 4, PROCEED and REPORT; `not-applicable` exit 5 likewise; only `leak` (3) stops (#1014) | flow Steps 4, 5 |
 | `gh-pr-merge.sh` `base_contained_now` | the base could not be fetched or read | a DOCUMENTED FAIL-OPEN: `GH_PR_MERGE_BASE_AT_SQUASH: skipped` and the merge PROCEEDS, matching the older `BASE_MOVED: skipped`; labelled `skipped`, never `0` (#1300) | merge helper |
 | `gh-pr-merge.sh` observed checks (#610) | required contexts not enumerable | a DOCUMENTED FAIL-OPEN: `GH_PR_MERGE_CI_WAIT: observed-fail-open` or `none-observed`, never `green`; GitHub enforces the posture at squash time | merge helper |
 | `flow-ci-status.sh` | no provider answered | `FLOW_CI_STATUS: unknown`, exit 0 by design (advisory); `FLOW_CI_WAIT: expired` separates a timed-out wait from one look | CI status |

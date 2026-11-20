@@ -2,7 +2,7 @@
 
 Before this, "I looked and main is clean" and "I could not look" were
 byte-identical on stdout AND exit code: every could-not-look path ended in a
-silent `exit 0`, and `/flow:auto` Steps 4 and 6 read exit 0 as "no edit leaked
+silent `exit 0`, and `/flow:auto` Steps 4 and 5 read exit 0 as "no edit leaked
 into main". The marker names the verdict; under --strict the exit follows
 gate-lib's gate_map (no-leak 0, leak 3, unknown 4, not-applicable 5), so a
 could-not-look answer can never share the good exit.
@@ -246,7 +246,7 @@ def test_both_flow_steps_require_ATTRIBUTION_before_reverting_main():
     text = " ".join(raw.split())  # the document wraps prose across lines
     assert text.count("Never revert main content you did not write") >= 1
     assert text.count("git -C <main> diff -- <path>") >= 2, (
-        "both the Step-4 and Step-6 exit-3 instructions must say to read main's diff first"
+        "both the Step-4 and Step-5 exit-3 instructions must say to read main's diff first"
     )
 
 

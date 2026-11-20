@@ -1,7 +1,7 @@
-"""Step 6 of `/flow:auto` against the line the helper really prints (#1767).
+"""Step 5 of `/flow:auto` against the line the helper really prints (#1767).
 
 `flow-plan-record.py compliance` now puts a LANES clause directly after its
-verdict word. `/flow:auto` Step 6 is the document that tells a run how to read
+verdict word. `/flow:auto` Step 5 is the document that tells a run how to read
 that line, so it is checked here against the REAL line - produced by running
 the helper on a fixture repository - for each verdict word, with the clause
 and without it. A hand-written stand-in for the line would pass whatever the
@@ -41,7 +41,7 @@ def isolated_session_identity(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def step_seven() -> str:
-    """The compliance bullet of Step 6's `finish` item (#1849 folded the three
+    """The compliance bullet of Step 5's `finish` item (#1849 folded the three
     plan-record items into one): from that bullet to the head-check bullet."""
     text = AUTO.read_text()
     item = text.index("**Close the plan record**")

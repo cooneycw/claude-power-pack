@@ -126,7 +126,7 @@
 #     it has never answered "did the cleanup finish", and a caller reading only
 #     the exit code cannot tell a clean merge from one that left a branch behind.
 #     This marker NEVER changes the exit code - the merge landed either way, and
-#     `/flow:auto` Step 7's "0 means proceed" contract is deliberately intact.
+#     `/flow:auto` Step 6's "0 means proceed" contract is deliberately intact.
 #
 # Usage:  gh-pr-merge.sh [--admin] [--allow-admin-retry] [--allow-negated-close] [--allow-incidental-close] [--allow-base-move] [--allow-local-divergence] [--wait-ci[=SECS]] [--match-head-commit <sha>] <pr-number> <branch-name>
 #           --admin  force `gh pr merge --admin` from the first attempt - the
@@ -188,7 +188,7 @@
 #       skipped`. A violation is LOUD but never flips the exit code (the merge
 #       already landed); it catches base-race/squash contamination, and
 #       honestly does NOT catch the collapse incident (damage inside the file
-#       list) - that guard lives at collapse time (auto.md Step 6 recipe).
+#       list) - that guard lives at collapse time (auto.md Step 5 recipe).
 #   All git reads here are ref-scoped (`git -C <root>`, full refs, no bare
 #   relative pathspecs) - the companion #657 finding: a cwd-drifted relative
 #   pathspec reads as an empty diff, indistinguishable from "no changes".
@@ -260,7 +260,7 @@
 #   Woodpecker posts (`ci/woodpecker/pr/woodpecker`) - has no queued-vs-
 #   running distinction in its `state` field (only GitHub Check Runs expose
 #   that), so the fix asks Woodpecker's OWN pipeline API instead: when
-#   WOODPECKER_API_TOKEN is set (the same credential /flow:auto Step 8 uses
+#   WOODPECKER_API_TOKEN is set (the same credential /flow:auto Step 7a uses
 #   for post-merge CI verification), wait out a QUEUED pipeline on a separate
 #   bounded budget (GH_PR_MERGE_QUEUE_WAIT_ATTEMPTS x
 #   GH_PR_MERGE_QUEUE_WAIT_DELAY) before the existing check-poll budget
@@ -350,7 +350,7 @@
 #
 # Env (optional integration, issue #717):
 #   WOODPECKER_API_TOKEN      enables the queued-pipeline wait; unset skips it
-#                              entirely (same credential /flow:auto Step 8 uses)
+#                              entirely (same credential /flow:auto Step 7a uses)
 #   WOODPECKER_SERVER         explicit Woodpecker base URL (WOODPECKER_HOST is also accepted)
 #
 # Env (operator opt-in):
@@ -1082,7 +1082,7 @@ wait_out_woodpecker_queue() {
 # NEVER flips the exit code. The merge has already landed and is not undone by
 # a leftover branch, so turning this into a failure would make callers treat a
 # successful merge as a failed one - the same judgement `GH_PR_MERGE_COMPLETENESS`
-# already makes one function below, and `/flow:auto` Step 7's "0 means proceed"
+# already makes one function below, and `/flow:auto` Step 6's "0 means proceed"
 # contract stays intact.
 #
 # Deliberately NOT named GH_PR_MERGE_COMPLETENESS: that marker exists and means
@@ -2008,7 +2008,7 @@ if (( ADMIN_OPT_IN == 0 )); then
             echo "  The tree that was gated is not the tree that would land. The PR is left open and untouched." >&2
             _report_base_advance "$BASE_WAIT_ROOT" "$BASE_TIP_BEFORE" "$BASE_TIP_AFTER" "$PR_BASE_BRANCH"
             echo "  Re-run the quality gate, push, and re-run the merge." >&2
-            echo "  Resume /flow:auto Step 7 from its sync sub-step, or re-run /flow:merge." >&2
+            echo "  Resume /flow:auto Step 6 from its sync sub-step, or re-run /flow:merge." >&2
             echo "  Conscious override: re-run this helper with --allow-base-move." >&2
             exit 6
         fi

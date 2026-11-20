@@ -5,7 +5,7 @@ mirrors::
 
     git diff --name-only ORIG_HEAD..HEAD | grep -q '^\\.claude/commands/.*\\.md$'
 
-at ``flow/auto.md`` Step 6, ``flow/auto.md`` Step 7 and ``flow/finish.md``. Its
+at ``flow/auto.md`` Step 5, ``flow/auto.md`` Step 6 and ``flow/finish.md``. Its
 premise - that the generated surface changes only when a COMMAND DOCUMENT
 changes - is false: ``codex-skill-sync.py`` bundles repository docs into the
 skills too, so an edit to a bundled doc drifts the mirror while touching no
@@ -265,7 +265,7 @@ def test_every_known_call_site_uses_the_helper():
     """
     # INVOCATIONS, not mentions (counter-model review pass 2, #1136). Counting
     # the filename counted the `[ -x ... ]` existence guards too, so deleting
-    # the Step-6 invocation left three mentions in auto.md and still satisfied
+    # the Step-5 invocation left three mentions in auto.md and still satisfied
     # `>= 2` - the test reported coverage for a site that executed nothing.
     for rel, expected in (("flow/auto.md", 2), ("flow/finish.md", 1)):
         doc = (COMMANDS / rel).read_text()

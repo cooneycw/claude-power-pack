@@ -47,13 +47,13 @@
       "gate": "flow-ci-status.sh",
       "driver": "codex",
       "disposition": "equivalent",
-      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 7.",
+      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 6.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1810",
       "citations": [
         {
           "file": ".claude/commands/codex/auto.md",
           "line": 1160,
-          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
+          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
           "file": ".claude/commands/flow/auto.md",
@@ -171,13 +171,13 @@
       "gate": "gh-pr-merge.sh",
       "driver": "codex",
       "disposition": "equivalent",
-      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 7.",
+      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 6.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1810",
       "citations": [
         {
           "file": ".claude/commands/codex/auto.md",
           "line": 1160,
-          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
+          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
           "file": ".claude/commands/flow/auto.md",
@@ -204,13 +204,13 @@
       "gate": "worktree-remove.sh",
       "driver": "codex",
       "disposition": "equivalent",
-      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 7.",
+      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 6.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1810",
       "citations": [
         {
           "file": ".claude/commands/codex/auto.md",
           "line": 1160,
-          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
+          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
           "file": ".claude/commands/flow/auto.md",
@@ -244,13 +244,13 @@
       "gate": "flow-ci-status.sh",
       "driver": "qwen",
       "disposition": "equivalent",
-      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 7.",
+      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 6.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1810",
       "citations": [
         {
           "file": ".claude/commands/qwen/auto.md",
           "line": 1290,
-          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
+          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
           "file": ".claude/commands/flow/auto.md",
@@ -368,13 +368,13 @@
       "gate": "gh-pr-merge.sh",
       "driver": "qwen",
       "disposition": "equivalent",
-      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 7.",
+      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 6.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1810",
       "citations": [
         {
           "file": ".claude/commands/qwen/auto.md",
           "line": 1290,
-          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
+          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
           "file": ".claude/commands/flow/auto.md",
@@ -401,13 +401,13 @@
       "gate": "worktree-remove.sh",
       "driver": "qwen",
       "disposition": "equivalent",
-      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 7.",
+      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 6.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1810",
       "citations": [
         {
           "file": ".claude/commands/qwen/auto.md",
           "line": 1290,
-          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
+          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
           "file": ".claude/commands/flow/auto.md",
@@ -441,13 +441,13 @@
       "gate": "flow-ci-status.sh",
       "driver": "gemma",
       "disposition": "equivalent",
-      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 7.",
+      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 6.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1810",
       "citations": [
         {
           "file": ".claude/commands/gemma/auto.md",
           "line": 1333,
-          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
+          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
           "file": ".claude/commands/flow/auto.md",
@@ -565,13 +565,13 @@
       "gate": "gh-pr-merge.sh",
       "driver": "gemma",
       "disposition": "equivalent",
-      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 7.",
+      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 6.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1810",
       "citations": [
         {
           "file": ".claude/commands/gemma/auto.md",
           "line": 1333,
-          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
+          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
           "file": ".claude/commands/flow/auto.md",
@@ -598,13 +598,13 @@
       "gate": "worktree-remove.sh",
       "driver": "gemma",
       "disposition": "equivalent",
-      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 7.",
+      "reason": "When merging, Step 8 delegates the same merge/cleanup lifecycle to flow:auto Step 6.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1810",
       "citations": [
         {
           "file": ".claude/commands/gemma/auto.md",
           "line": 1333,
-          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 7:"
+          "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
           "file": ".claude/commands/flow/auto.md",

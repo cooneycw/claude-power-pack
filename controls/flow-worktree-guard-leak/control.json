@@ -9,7 +9,7 @@
     "INERT. So the verdict the guard exists for - exit 3, an edit landed in the main",
     "checkout - had no committed case at all. It has its own here.",
     "",
-    "/flow:auto Steps 4 and 6 read this guard's exit and nothing re-derives it."
+    "/flow:auto Steps 4 and 5 read this guard's exit and nothing re-derives it."
   ],
   "gate": "scripts/flow-worktree-guard.sh",
   "invocation": [

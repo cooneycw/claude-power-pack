@@ -206,7 +206,7 @@ still never PROCEED (issue #1479).
 
 - **`/flow:deploy`** captures a baseline before `make deploy` and runs
   verification after when `deploy_verification.enabled` is set (Step 8).
-- **`/flow:auto`** does the same in its Deploy step (Step 9), so the flagship
+- **`/flow:auto`** does the same in its Deploy step (Step 7b), so the flagship
   "one command to ship" path validates the deployment, not just the code.
 - Fail-open: if the baseline is missing or `lib/cicd` is unavailable,
   verification degrades to an absolute pass/fail (or is skipped) and never

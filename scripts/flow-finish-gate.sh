@@ -2,7 +2,7 @@
 # flow-finish-gate.sh - Deterministic quality-gate runner invocation for the
 # flow commands (issue #613, the #581 pattern).
 #
-# It exists so the flow commands (/flow:auto Step 6 and the Step-7 re-gate,
+# It exists so the flow commands (/flow:auto Step 5 and the Step-6 re-gate,
 # /flow:finish Step 2) invoke ONE audited script at a stable path, BARE: a
 # leading env-var assignment plus an interpolated $CPP_DIR can never match a
 # permission allow-rule PREFIX, so the raw runner line prompts every time (#581).
@@ -584,7 +584,7 @@ fi
 #: Strict head EQUALITY was the first design and it is unimplementable on this
 #: flow: auto.md writes the receipt at :940, runs this gate at :1021, COMMITS at
 #: :1097, merges origin/main at :1230 and re-runs this gate at :1240 - so
-#: equality passes at :1021 and reds at :1240 on every run that reaches Step 7
+#: equality passes at :1021 and reds at :1240 on every run that reaches Step 6
 #: behind main, holding a perfectly valid review. Whether a review COVERED the
 #: final diff is a different instrument's subject (#1082), not this one's.
 #: An ancestor receipt can therefore describe a review that never saw the code
@@ -592,7 +592,7 @@ fi
 #: A tree signature is the honest tighter thing and is deliberately NOT done
 #: here - it is a separate decision under ADR 0009 oscillation control.
 #:
-#: SCOPED TO THE BRANCH SIDE, DELIBERATELY. This runs at Step 6 and Step 7,
+#: SCOPED TO THE BRANCH SIDE, DELIBERATELY. This runs at Step 5 and Step 6,
 #: where the branch commits are still reachable. DO NOT extend this check to
 #: main after a merge: CPP squash-merges, so the branch commits never land and
 #: `--is-ancestor` answers NO for every one of them - a main-side copy of this
@@ -620,7 +620,7 @@ verdict() {
                     receipt|escalated|skipped|not-enrolled|undecidable) ;;
                     *)
                         echo "flow-finish-gate: no counter-model review is recorded for this branch at this commit, so this gate cannot tell a review that found nothing from one that never ran (issue #1171)." >&2
-                        echo "  Run the Step 6 counter-model review, or record an explicit skip with a committed reason:" >&2
+                        echo "  Run the Step 5 counter-model review, or record an explicit skip with a committed reason:" >&2
                         echo "    python3 <cpp>/scripts/counter-model-receipt.py write --status skipped --reason <reason> --head \"\$(git rev-parse HEAD)\" ..." >&2
                         echo "FLOW_FINISH_GATE: fail (counter-model line $CM_ENROLMENT_STATE)"
                         gate_exit fail
@@ -889,7 +889,7 @@ if [[ "$MODE" == "enrolment" ]]; then
             ;;
         *)
             echo "flow-finish-gate: this pull request carries no counter-model receipt for its branch at a commit reachable from its head (issue #1452)." >&2
-            echo "  A review that ran: write its receipt (/flow:auto Step 6, item 1d) and commit it." >&2
+            echo "  A review that ran: write its receipt (/flow:auto Step 5, item 1d) and commit it." >&2
             echo "  No review could run: commit an explicit skip, with a reason from the committed set:" >&2
             echo "    python3 scripts/counter-model-receipt.py write --status skipped --reason <codex-absent|reviewer-unavailable> --issue <N> --branch <branch> --head \"\$(git rev-parse HEAD)\"" >&2
             echo "FLOW_FINISH_GATE: fail (counter-model line $CM_ENROLMENT_STATE)"

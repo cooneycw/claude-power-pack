@@ -79,7 +79,7 @@ def snapshot(repo: Path, body: bytes) -> Path:
 
 
 def verdict(repo: Path, live: Path | None) -> str:
-    """Step 6's drift check; `None` is a fetch that produced nothing."""
+    """Step 5's drift check; `None` is a fetch that produced nothing."""
     return helper(repo, "drift", "42", "--live-file", str(live) if live is not None else "",
                   ok=(0, 3, 4))
 

@@ -287,7 +287,7 @@ def test_the_real_repo_declares_the_argued_budget_for_flow_auto() -> None:
 
     The owner's starting target was 10,183 (#1669). 10,410 was the argued
     budget: the document measured 10,402 with every instruction that the trim
-    to 10,182 had dropped restored. #1847 lowered it to 10,404 when Step 6
+    to 10,182 had dropped restored. #1847 lowered it to 10,404 when Step 5
     stopped carrying the review's shell, and #1848 to 9,929 when it stated the
     missing-helper fallback once and relayed helper stop lines instead of
     restating exit codes, and #1849 to 9,816 when the plan record's eight calls

@@ -518,9 +518,17 @@ def test_the_real_flow_auto_fixture_is_substantial_and_satisfied() -> None:
         **{f"bash-{n:04d}": "group 1" for n in range(67, 71)},
         **{f"bash-{n:04d}": "G3-1" for n in range(133, 153)},
     }
+    # #1857: the flow was renumbered to seven steps. A retired line and its
+    # replacement differ ONLY in the step number it names, so a renumber cannot
+    # carry a changed command in under the same reason.
+    renumber_retirements = {
+        "bash-0005": ("<N/9 Name>", "<N/7 Name>"),
+        "bash-0051": ("re-run Step 6.", "re-run Step 5."),
+        "bash-0122": ("resume Step 7.", "resume Step 6."),
+    }
     assert set(retirements) == {
         "bash-0195", "bash-0201", *marker_retirements, *relay_retirements, *run_verb_retirements,
-        *withdrawal_retirements,
+        *withdrawal_retirements, *renumber_retirements,
     }
     mapping = dict(steps)
     raw = json.loads((root / behavior.COMMAND_STEP_FIXTURES[_STEP_DOC]).read_text())
@@ -547,6 +555,15 @@ def test_the_real_flow_auto_fixture_is_substantial_and_satisfied() -> None:
         reason = retirements.pop(slug)
         assert reason.startswith(f"#1850 {ruling}"), reason
         assert entries[slug]["kind"] == "bash-line"
+    for slug, (old, new) in renumber_retirements.items():
+        reason = retirements.pop(slug)
+        replacement = f"{slug}-renumbered"
+        assert "#1857" in reason and f"replaced by {replacement};" in reason, reason
+        assert "original baseline retained" in reason
+        assert entries[slug]["kind"] == entries[replacement]["kind"] == "bash-line"
+        assert entries[slug].get("count", 1) == entries[replacement].get("count", 1)
+        assert old in mapping[slug], mapping[slug]
+        assert mapping[replacement] == mapping[slug].replace(old, new), "a renumber changed more than the step number"
     addition = ('"CPP_RUNNER_TARGET_PATH=${PATH-}" '
                 '"CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" ')
     for slug, reason in retirements.items():
@@ -564,14 +581,14 @@ _GUARD_STEP = {"slug": "bash-guard", "needle": _GUARD, "kind": "bash-line", "cou
 def test_deleting_ONE_of_a_repeated_invocation_fails(tmp_path: Path) -> None:
     """Counter-model finding (#1669): another occurrence must not stand in.
 
-    The guard is invoked at Step 4 and again at Step 6. A document-wide
+    The guard is invoked at Step 4 and again at Step 5. A document-wide
     substring match is satisfied by either, so deleting one passed.
     """
-    twice = f"Step 4:\n```bash\n{_GUARD}\n```\nStep 6:\n```bash\n{_GUARD}\n```\n"
+    twice = f"Step 4:\n```bash\n{_GUARD}\n```\nStep 5:\n```bash\n{_GUARD}\n```\n"
     _write_steps(tmp_path, body=twice, needles=[_GUARD_STEP])
     assert behavior.check_tree(tmp_path) == []
 
-    once = f"Step 4:\n```bash\n{_GUARD}\n```\nStep 6: run the guard as before.\n"
+    once = f"Step 4:\n```bash\n{_GUARD}\n```\nStep 5: run the guard as before.\n"
     _write_steps(tmp_path, body=once, needles=[_GUARD_STEP])
     findings = behavior.check_tree(tmp_path)
 

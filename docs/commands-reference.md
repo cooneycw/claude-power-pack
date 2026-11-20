@@ -214,7 +214,7 @@ From `/codex:code_review` Step 2, the empty-diff rule (issue #1015):
 Moved by #1706, to pay for one sentence in each document: when a project's
 own gate needs the pushed head, push the branch first, then run the gate.
 
-From `/flow:auto` Step 6 item 2. The helper "owns the runner invocation and
+From `/flow:auto` Step 5 item 2. The helper "owns the runner invocation and
 its Makefile fallback", and the fallback targets were listed in full:
 
 > (`make lint`, `make test`, `make typecheck`, `make verify`)
@@ -231,7 +231,7 @@ carried their history: "**Ignored-additions guard** (issue #430; blocking in a
 worktree since #1258)" and "**Worktree-leak guard** (issue #486; blocking since
 #576)"; each keeps its issue number and loses the "since" clause.
 The fuller original of the whole item is in
-[the flow:auto rationale](reference/flow-auto-rationale.md), Step 6.
+[the flow:auto rationale](reference/flow-auto-rationale.md), Step 5.
 
 From `/flow:finish`, the paragraph before the verdict table. After "Each
 verdict now has its OWN exit code (issue #1027)" it read:
@@ -281,7 +281,7 @@ its paragraphs explained why the block is written as it is:
 > the index without staging its CONTENT, which is enough for `git diff <ref>`
 > to treat it as a real addition. It is deliberately not undone afterward: the
 > markers are inert until something actually stages content over them, and
-> this command's own caller (`/flow:auto` Step 6) already runs `git add -A`
+> this command's own caller (`/flow:auto` Step 5) already runs `git add -A`
 > before its commit, which supersedes them harmlessly - a blind `git reset`
 > here would risk discarding unrelated work staged earlier in that same run.
 
@@ -358,7 +358,7 @@ sibling *outside* the main repo (`../<repo>-<branch>/`, issue #627). Resolve eve
 --show-toplevel` - or use a plain relative path from the session cwd; **never
 hand-build an absolute worktree path**, which has been observed to land the edit
 in the MAIN repo working tree instead of the worktree (flow:auto #442 x2, #471). `/flow:auto`
-Steps 4/6 run `scripts/flow-worktree-guard.sh --strict` - **blocking since
+Steps 4/5 run `scripts/flow-worktree-guard.sh --strict` - **blocking since
 #576**: it exits 3 when a path this run edited is ALSO freshly modified in the
 main tree, the signature of a leaked edit, so the trap stops the run instead of
 being narrated past. Two downgrades keep it from crying wolf: pre-existing main
@@ -374,7 +374,7 @@ rule (#573).
 **Concurrent flow sessions (issue #597):** CPP encourages parallel `/flow`
 sessions, and nothing used to stop two of them from operating on one repo - or
 one worktree. Four failures were captured in a single friction buffer, the worst
-of them silent: a sibling session's Step-7 cleanup removed a live session's
+of them silent: a sibling session's Step-6 cleanup removed a live session's
 worktree by name, destroying uncommitted work. A run now stakes a **claim** on
 its checkout (`scripts/flow-worktree-claim.sh`, a real `git worktree lock`)
 during the Step-1 verify gate, and three guards read it: Step 1 refuses to start
@@ -385,12 +385,12 @@ first edit, since the Step-1 check goes stale across the analysis and approval
 pause. A claim only covers a checkout where one was staked, so `worktree-remove.sh`
 additionally refuses (exit 5, issue #888) to delete a worktree that a live process
 is sitting in AND that holds uncommitted work - `--force` does not suppress that
-one, because Step 7 always passes `--force`. Both refusals are what
+one, because Step 6 always passes `--force`. Both refusals are what
 `/flow:cleanup` Step 2 and `/flow:wave` Phase 3 delegate to: the #887 sweep
 (`scripts/flow-worktree-sweep.sh`) selects targets and hands each to
 `worktree-remove.sh` with neither `--force` nor `--steal`, so a refusal ends that
 worktree's turn rather than being retried - overriding either in a loop over every
-worktree on a host would be #889's data-loss path reopened at scale. Separately, Step 9 skips `make deploy` when `.claude/deploy.log` already
+worktree on a host would be #889's data-loss path reopened at scale. Separately, Step 7b skips `make deploy` when `.claude/deploy.log` already
 records a SUCCESSFUL deploy of the current HEAD sha, so a commit a concurrent
 session just shipped is not deployed twice. Ownership is pid + session with
 host-scoped `kill -0` liveness; an owner that is gone reads as `stale` and is
@@ -398,7 +398,7 @@ taken over automatically, so a claim can never permanently wedge a repo, and
 `--steal` is the documented break-glass. Repeated stale-base churn (the fourth
 captured failure - `origin/main` moving several times mid-run) is NOT addressed
 here: it needs serialized merges, not an ownership claim, and the #473
-stale-check plus the #462 Step-7 guard remain its only mitigations.
+stale-check plus the #462 Step-6 guard remain its only mitigations.
 
 ## Standalone skill extractions (#443)
 
@@ -444,7 +444,7 @@ the rendered region, which is the drift the gate exists to catch.
 
 - `/cicd:woodpecker` - Generate a hardened self-hosted Woodpecker pipeline (opt-in secret-scan + image-security + runtime-smoke stages) and scaffold the server/agent from `templates/woodpecker/`; see `docs/skills/woodpecker-ci.md`
 
-- `/codex:code_review [BASE] [CONTEXT]` - Codex reviews the current branch's diff vs base (read-only) and returns structured findings (severity, file:line, suggestion); consumed by `/flow:auto` Step 6 as the pre-PR review stage (#934), usable standalone from any branch (#611); the whole procedure runs as one call to `scripts/codex-review-run.sh`, which prints the markers and a `CODEX_REVIEW: ran|blocked|unavailable` verdict line (#1847)
+- `/codex:code_review [BASE] [CONTEXT]` - Codex reviews the current branch's diff vs base (read-only) and returns structured findings (severity, file:line, suggestion); consumed by `/flow:auto` Step 5 as the pre-PR review stage (#934), usable standalone from any branch (#611); the whole procedure runs as one call to `scripts/codex-review-run.sh`, which prints the markers and a `CODEX_REVIEW: ran|blocked|unavailable` verdict line (#1847)
 
 - `/documentation:c4` - Generate C4 architecture diagrams as GitHub-renderable Mermaid via `scripts/c4-mermaid.py` (all 4 levels, per-container L3, per-component L4; flowchart L1-L3 + classDiagram L4; edge-validity QA gate, density-split hints, `index.md` + manifest)
 

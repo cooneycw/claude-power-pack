@@ -39,7 +39,7 @@
 # derives the reviewer from it. The caller removes it after writing the receipt.
 #
 # Every relay marker is one `NAME: value` line in the transcript, so a caller
-# reads a receipt flag from the FILE (`/flow:auto` Step 6 1d does), never from
+# reads a receipt flag from the FILE (`/flow:auto` Step 5 1d does), never from
 # a shell variable that no call ever set.
 #
 # Which model reviews is host configuration: no `-m` is passed, and the model

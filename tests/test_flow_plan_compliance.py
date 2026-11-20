@@ -601,7 +601,7 @@ def test_no_merge_base_with_origin_main_is_unknown_never_agreement(tmp_path: Pat
 
 @requires_git
 def test_a_plan_record_grown_BEFORE_its_first_commit_is_still_caught(tmp_path: Path) -> None:
-    """The HIGH finding: the record is not COMMITTED until Step 6, after the work.
+    """The HIGH finding: the record is not COMMITTED until Step 5, after the work.
 
     Comparing against its first commit would miss an implementer who grows the
     record and the diff together before that commit - the ordinary execution path,

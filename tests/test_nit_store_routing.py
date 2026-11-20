@@ -167,14 +167,14 @@ def test_the_step_is_a_closing_step_in_auto() -> None:
 
     `/flow:auto` inlines its own Finish stage rather than delegating to
     `finish.md` (issue #1030) - the current `flow/auto.md`, with no routing
-    step at all between PR creation and Step 7, is itself the pre-fix red
-    case for this ordering: there is no "Step 6b" heading to find until this
+    step at all between PR creation and Step 6, is itself the pre-fix red
+    case for this ordering: there is no "Step 5b" heading to find until this
     fix adds one.
     """
     text = (COMMANDS / "flow" / "auto.md").read_text()
     create_pr = text.index('5. **Create PR** - if no PR exists:')
-    nit = text.index("### Step 6b: Route Supplemental Findings to the Nit Store")
-    merge = text.index("### Step 7: Merge - Squash-Merge and Clean Up")
+    nit = text.index("### Step 5b: Route Supplemental Findings to the Nit Store")
+    merge = text.index("### Step 6: Merge - Squash-Merge and Clean Up")
     assert create_pr < nit < merge
 
 

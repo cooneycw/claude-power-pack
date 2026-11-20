@@ -37,7 +37,7 @@ Contract:
   the squash can delete their base (poker-measure#405); unreadable enumeration,
   default metadata, or individual edits stay fail-open and visible by marker.
 - Return non-zero only when the PR genuinely did not merge - and non-zero on
-  EVERY refusal to merge, since /flow:auto Step 7 trusts the exit code.
+  EVERY refusal to merge, since /flow:auto Step 6 trusts the exit code.
 
 ``gh`` and ``git`` are stubbed via the GH_PR_MERGE_GH / GH_PR_MERGE_GIT env hooks;
 each stub appends its argv to a call log the tests assert against.
@@ -1753,7 +1753,7 @@ def test_base_move_during_check_wait_clean_stops_before_merge(tmp_path: Path):
     # #1848: flow/auto.md relays this line instead of restating the exit; the
     # remedy must be in the helper's own output.
     assert "Re-run the quality gate, push, and re-run the merge." in result.stderr
-    assert "Resume /flow:auto Step 7 from its sync sub-step" in result.stderr
+    assert "Resume /flow:auto Step 6 from its sync sub-step" in result.stderr
     assert "git fetch origin main" in result.stderr
     assert "git merge origin/main" in result.stderr
     assert "--allow-base-move" in result.stderr
@@ -2065,8 +2065,8 @@ def test_unresolvable_contexts_with_pending_checks_fails_open(tmp_path: Path):
 
 
 def test_every_refusal_to_merge_exits_non_zero(tmp_path: Path):
-    # A refusal that exits 0 is worse than a false STOP: /flow:auto Step 7 trusts
-    # the exit code, so a phantom success carries the run into Step 8 against an
+    # A refusal that exits 0 is worse than a false STOP: /flow:auto Step 6 trusts
+    # the exit code, so a phantom success carries the run into Step 7a against an
     # unmerged PR. Pin every path that declines to merge.
     refusals = {
         "conflicting": {"mergeable": "CONFLICTING", "pr_state": "OPEN"},
@@ -3188,7 +3188,7 @@ def test_unreadable_base_tip_still_fails_open(tmp_path: Path):
 # been found the way the first was - by accident.
 #
 # These pin the marker's VALUES and, separately, that it never moves the exit
-# code. The second is the load-bearing half: `/flow:auto` Step 7 trusts the
+# code. The second is the load-bearing half: `/flow:auto` Step 6 trusts the
 # exit code alone, so a cleanup warning that flipped it would turn every
 # successful merge with a leftover branch into a failed run.
 # --------------------------------------------------------------------------
@@ -3233,7 +3233,7 @@ def test_cleanup_marker_reports_incomplete_when_the_branch_survives(tmp_path: Pa
     result = _run(_linked_worktree(tmp_path), stubs, "42", "issue-852-fix")
     assert result.returncode == 0, (
         "a leftover branch must NOT fail the run - the merge landed, and "
-        "/flow:auto Step 7 reads this exit code alone"
+        "/flow:auto Step 6 reads this exit code alone"
     )
     assert "GH_PR_MERGE_CLEANUP: incomplete" in result.stdout
     assert "STILL" in result.stderr and "issue-852-fix" in result.stderr

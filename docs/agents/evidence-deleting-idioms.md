@@ -69,7 +69,7 @@ git commit -m "..."
 git merge --no-edit origin/main   # bring the moved base in, deliberately, after
 ```
 
-`/flow:auto` Step 6 ships this as its safe-collapse recipe (#657), with one more
+`/flow:auto` Step 5 ships this as its safe-collapse recipe (#657), with one more
 step: before committing, `git diff --staged --diff-filter=D --name-only` must be
 empty unless you meant to delete files. Note what that check can and cannot do -
 `--diff-filter=D` selects deleted FILES and is blind to a deleted LINE, which is
@@ -451,5 +451,5 @@ negative rather than an unresolved one.
 - [ADR 0008](../decisions/0008-instrument-negative-control-bound.md) - when an
   instrument needs a committed negative control; row 75 is item 2's
 - `docs/scripts.md` - `deletion-accounting`, the instrument item 2 ships
-- `.claude/commands/flow/auto.md` Step 6 - the safe collapse recipe (#657), which
+- `.claude/commands/flow/auto.md` Step 5 - the safe collapse recipe (#657), which
   is item 1 applied

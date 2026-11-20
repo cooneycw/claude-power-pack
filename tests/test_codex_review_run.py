@@ -493,7 +493,7 @@ def test_an_unwritable_transcript_is_refused(tmp_path: Path) -> None:  # binary-
 
 
 # --------------------------------------------------------------------------- #
-# The reader: /flow:auto Step 6 1d reads every receipt flag from the transcript.
+# The reader: /flow:auto Step 5 1d reads every receipt flag from the transcript.
 # --------------------------------------------------------------------------- #
 
 RECEIPT_FLAGS = ("STREAM", "SCOPE", "BASE", "NETWORK", "LOCAL_CREDENTIALS")

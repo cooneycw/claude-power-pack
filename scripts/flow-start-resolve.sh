@@ -49,7 +49,7 @@
 #     LANE=current-branch|fresh|resume|remote-pickup|local-pickup|cross-repo
 #     CROSS_REPO=0|1        1 = the target repo is not the session repo (#578)
 #     GIT_LANE=0|1          1 = ride the git lane end-to-end: enter with `cd`,
-#                           never EnterWorktree, git cleanup at Step 7. Since
+#                           never EnterWorktree, git cleanup at Step 6. Since
 #                           worktrees are created OUTSIDE the repo by default
 #                           (issue #627), this is ALWAYS 1 - the native
 #                           EnterWorktree fresh lane is retired (#440 superseded).
@@ -814,11 +814,11 @@ fi
 # ---- compose-project pin (issue #626) ---------------------------------------
 # docker compose derives its project name from the cwd basename when
 # COMPOSE_PROJECT_NAME is unset, so ANY compose call from a worktree - not just
-# the Step-9 deploy #535 already guards - forks a parallel stack (a duplicate DB
+# the Step-7b deploy #535 already guards - forks a parallel stack (a duplicate DB
 # for the Step-4 test loop collides on the published port and leaks
 # <basename>_pgdata / <basename>_default orphans). Emit the canonical pin once so
 # every later step and every hand-run make in the worktree can inherit it.
-# Precedence matches Step 9: an explicit .claude/deploy.yaml override, else the
+# Precedence matches Step 7b: an explicit .claude/deploy.yaml override, else the
 # canonical primary-checkout basename (TARGET_REPO), never the worktree basename.
 # Portable extraction (no grep -P: BSD grep on macOS lacks it, and the PCRE
 # shape silently matched nothing there, dropping the override - found via #742's gate).

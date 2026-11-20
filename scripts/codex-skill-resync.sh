@@ -41,7 +41,7 @@
 #
 #     git diff --name-only ORIG_HEAD..HEAD | grep -q '^\.claude/commands/.*\.md$'
 #
-# at `flow/auto.md` Step 6 and Step 7, and at `flow/finish.md`. Its premise is
+# at `flow/auto.md` Step 5 and Step 6, and at `flow/finish.md`. Its premise is
 # that the generated surface changes only when a COMMAND DOCUMENT changes.
 # It does not: `codex-skill-sync.py` also bundles repository docs into the
 # skills, so an edit to a bundled doc drifts the mirror while touching no

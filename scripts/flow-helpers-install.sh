@@ -149,7 +149,7 @@ HELPERS=(
     delegated-run-check.sh
     lane-serveability-check.sh
     nit-store-resolve.sh
-    # /codex:code_review and /flow:auto Step 6 run the review through it (#1847).
+    # /codex:code_review and /flow:auto Step 5 run the review through it (#1847).
     codex-review-run.sh
     cpp-commands-link.sh
     install-drift.sh

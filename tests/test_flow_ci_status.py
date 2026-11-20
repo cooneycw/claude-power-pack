@@ -560,7 +560,7 @@ def _jq_free_path(tmp_path: Path, *extra: str) -> Path:
 def test_missing_jq_names_itself_instead_of_reporting_a_bare_unknown(tmp_path):
     """Without jq the verdict was `unknown` - identical to "no credentials" (#789).
 
-    Step 8 proceeds on `unknown`, so a missing formatter used to be indistinguishable
+    Step 7a proceeds on `unknown`, so a missing formatter used to be indistinguishable
     from a CI result. It must now say which it is.
     """
     fake_path = _jq_free_path(tmp_path)

@@ -42,7 +42,7 @@ def test_start_retires_native_enter_worktree_fresh_lane() -> None:
 
 def test_auto_retires_native_lane_and_uses_git_cleanup() -> None:
     # Issue #627: no native by-name creation (Step 1) and no ExitWorktree cleanup
-    # (Step 7) - every run enters with `cd` and cleans up on the git lane.
+    # (Step 6) - every run enters with `cd` and cleans up on the git lane.
     text = _read(".claude/commands/flow/auto.md")
     assert 'EnterWorktree(name=' not in text, "auto.md still creates via native EnterWorktree"
     assert "ExitWorktree(action" not in text, "auto.md still cleans up via ExitWorktree"
@@ -125,7 +125,7 @@ def test_worktree_remove_script_retained_as_fallback() -> None:
 def test_stale_branch_guard_before_squash_merge() -> None:
     """Issue #462: bring a stale branch current + re-gate before the squash-merge.
 
-    Both the /flow:auto Step 7 merge and the standalone /flow:merge Step 3 must,
+    Both the /flow:auto Step 6 merge and the standalone /flow:merge Step 3 must,
     before ``gh pr merge --squash``, fetch ``origin/main``, merge it into a branch
     that is behind, and re-run the quality gate on the POST-MERGE tree - so the
     squash is deterministic and the gate reflects exactly what lands on ``main``.
@@ -177,7 +177,7 @@ def test_auto_wires_worktree_guard_at_step4_and_step6() -> None:
     """AC #1: /flow:auto runs the leak guard both at implement and before commit."""
     text = _read(".claude/commands/flow/auto.md")
     assert text.count("scripts/flow-worktree-guard.sh") >= 2, (
-        "auto.md must invoke the worktree guard in Step 4 (implement) and Step 6 (pre-commit)"
+        "auto.md must invoke the worktree guard in Step 4 (implement) and Step 5 (pre-commit)"
     )
 
 
@@ -372,7 +372,7 @@ def test_guard_rejects_unknown_option(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Issue #576: /flow:auto Steps 4 and 6 invoke the guard WITH --strict, so exit 3
+# Issue #576: /flow:auto Steps 4 and 5 invoke the guard WITH --strict, so exit 3
 # now stops a run. That promotion is only safe if --strict distinguishes a leak
 # from pre-existing dirt on a shared file the run legitimately also edits -
 # otherwise the first high-traffic file (CLAUDE.md, a template) left uncommitted
@@ -417,7 +417,7 @@ def test_auto_invokes_the_guard_in_strict_mode() -> None:
     """AC (#576 item 3): both call sites promoted from advisory to blocking."""
     text = _read(".claude/commands/flow/auto.md")
     assert text.count("flow-worktree-guard.sh --strict") >= 2, (
-        "auto.md must invoke the guard with --strict at BOTH Step 4 and Step 6 "
+        "auto.md must invoke the guard with --strict at BOTH Step 4 and Step 5 "
         "(issue #576 promotion decision)"
     )
     assert "Exit 3 is a STOP" in text, (

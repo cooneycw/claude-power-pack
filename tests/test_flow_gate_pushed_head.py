@@ -1,6 +1,6 @@
 """A project whose own gate needs the pushed head: push first, then gate (#1706).
 
-`/flow:auto` Step 6 and `/flow:finish` run the finish gate before `git push`.
+`/flow:auto` Step 5 and `/flow:finish` run the finish gate before `git push`.
 A project gate that clones the ref under test from the remote (Kyle's
 ci-shape-check) refused the unpushed commit, and neither document said what to
 do. Both now carry one sentence, and the order itself is unchanged.

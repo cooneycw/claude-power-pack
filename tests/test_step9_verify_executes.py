@@ -1,10 +1,10 @@
-"""Execute the documented Step 9 verify invocations for real (issue #603).
+"""Execute the documented Step 7b (Deploy) verify invocations for real (issue #603).
 
 The pre-#595 broken invocation survived for months because nothing executed
 it: CPP's own deploy is the #469 no-op and cicd.yml had no deploy_verification
 stanza, so the repo that OWNS lib/cicd's verify path was the one repo that
 never ran it. tests/test_cicd_verify_invocation.py pins the documented STRING;
-this test goes further - it EXTRACTS the command strings from auto.md Step 9
+this test goes further - it EXTRACTS the command strings from auto.md Step 7b
 and EXECUTES them against a scaffolded temp project, so a doc regression to
 the broken shape (bare python3, PYTHONPATH inside lib/) is a red test, not
 plausible-looking prose. Execution is the assertion.
@@ -54,9 +54,11 @@ health:
 
 
 def _step9_section(text: str) -> str:
-    start = text.find("### Step 9")
-    assert start != -1, "auto.md no longer has a '### Step 9' section - doc shape changed"
-    end = text.find("\n### ", start + 1)
+    # #1857 folded the old Step 9 (Deploy) into Step 7 as its 7b sub-section.
+    start = text.find("#### 7b. Deploy")
+    assert start != -1, "auto.md no longer has a '#### 7b. Deploy' section - doc shape changed"
+    ends = [i for i in (text.find("\n### ", start + 1), text.find("\n#### ", start + 1)) if i != -1]
+    end = min(ends) if ends else -1
     section = text[start : end if end != -1 else len(text)]
     return section
 
@@ -69,7 +71,7 @@ def extract_verify_invocations(text: str | None = None) -> list[str]:
         for line in section.splitlines()
         if "-m lib.cicd verify" in line and not line.lstrip().startswith("#")
     ]
-    assert len(lines) == 2, f"expected EXACTLY the Step-9 verify pair, found {len(lines)}: {lines!r}"
+    assert len(lines) == 2, f"expected EXACTLY the Step-7b verify pair, found {len(lines)}: {lines!r}"
     assert lines[0] in [prefix + " --baseline --summary" for prefix in VERIFY_PREFIXES], "invalid baseline invocation"
     assert lines[1] in VERIFY_PREFIXES, "invalid plain verify invocation or reordered pair"
     return lines
@@ -84,7 +86,9 @@ def test_extraction_is_section_scoped_and_exact() -> None:
 
 def _owned_document(lines):
     return (
-        "### Step 6\n" + LEGACY_VERIFY + "\n### Step 9: Deploy\n```bash\n" + "\n".join(lines) + "\n```\n### Step 10\n"
+        "### Step 5\n" + LEGACY_VERIFY + "\n#### 7b. Deploy (optional)\n```bash\n"
+        + "\n".join(lines)
+        + "\n```\n### Final Summary\n"
     )
 
 
@@ -150,7 +154,7 @@ def test_documented_step9_invocations_execute(tmp_path: Path, owned_cpp_checkout
     invocations = extract_verify_invocations()
     outputs = []
     for cmd in invocations:
-        # The documented lines use $CPP_DIR. auto.md's Step 9 preamble resolves
+        # The documented lines use $CPP_DIR. auto.md's Step 7b preamble resolves
         # it to the CPP checkout; here that is the owned copy.
         proc = subprocess.run(
             ["bash", "-c", cmd],
@@ -172,13 +176,13 @@ def test_documented_step9_invocations_execute(tmp_path: Path, owned_cpp_checkout
             timeout=300,
         )
         assert proc.returncode == 0, (
-            f"documented Step-9 invocation failed to execute:\n  {cmd}\n"
+            f"documented Step-7b invocation failed to execute:\n  {cmd}\n"
             f"stdout: {proc.stdout[-2000:]}\nstderr: {proc.stderr[-2000:]}"
         )
         outputs.append(proc.stdout + proc.stderr)
 
     assert venv_fingerprint(ROOT / ".venv") == surrounding, (
-        "the environment this suite is running from changed while a documented Step-9 invocation ran"
+        "the environment this suite is running from changed while a documented Step-7b invocation ran"
     )
     # Baseline run writes the baseline; verify run must emit a verdict.
     assert any(word in outputs[1].lower() for word in ("proceed", "verdict", "pass", "ok")), (

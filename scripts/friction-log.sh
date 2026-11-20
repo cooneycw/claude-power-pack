@@ -27,7 +27,7 @@
 #   --scope   <sc>   local | portable                         (default: local)
 #   --outcome <o>    free text (approved | retried | worked-around | corrected)
 #   --run     <r>    run label (e.g. "flow:auto #426")
-#   --step    <st>   step label (e.g. "1/9 Start")
+#   --step    <st>   step label (e.g. "1/7 Start")
 #   --risk    <rk>   risk tier of the underlying command (e.g. READONLY-ADDABLE,
 #                    WRITE-LOCAL, DESTRUCTIVE). Set by the permission-prompt census
 #                    hook so retro can allowlist only safe tiers; empty otherwise.
@@ -50,7 +50,7 @@
 #   friction-log.sh --class permission-prompt \
 #     --signal 'gh issue view 426 required approval' \
 #     --fix 'Bash(gh issue view:*)' --scope local \
-#     --run 'flow:auto #426' --step '1/9 Start' --outcome approved
+#     --run 'flow:auto #426' --step '1/7 Start' --outcome approved
 
 # Deliberately NO `set -e`: fail-open means we swallow errors and exit 0.
 set -u 2>/dev/null || true
@@ -121,7 +121,7 @@ json_escape() {
 # Resolve the buffer path. Precedence:
 #   1. CPP_FRICTION_LOG, if set (explicit override wins).
 #   2. The MAIN repo's .claude/friction.jsonl - NOT the cwd's. During /flow:auto
-#      the cwd is a native worktree (.claude/worktrees/<name>/) that Step 7
+#      the cwd is a native worktree (.claude/worktrees/<name>/) that Step 6
 #      deletes; a cwd-relative buffer would be destroyed with it, losing every
 #      signal the run captured (issue #471). `git rev-parse --git-common-dir`
 #      points at the SHARED .git dir (the main worktree's) from a linked worktree

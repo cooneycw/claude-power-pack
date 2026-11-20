@@ -2,17 +2,17 @@
 # flow-stale-check.sh - Detect a STALE BASE early in the flow (issue #473).
 #
 # Problem:
-#   /flow:auto's #462 guard only notices that `origin/main` moved at Step 7
+#   /flow:auto's #462 guard only notices that `origin/main` moved at Step 6
 #   (merge time). When sibling PRs land DURING implementation - the common case
 #   for serialization hotspots (.claude/commands/flow/*.md, CHANGELOG.md, the
 #   CLAUDE.md inventory) - the edits were made against stale versions of the very
 #   files the siblings changed, forcing a `git reset`/`git merge` + re-apply cycle
 #   regardless. Observed on flow:auto #444, #463, #461.
 #
-# This helper surfaces the collision EARLY (Step 4 start-of-implement and Step 6
+# This helper surfaces the collision EARLY (Step 4 start-of-implement and Step 5
 # finish), NAMING which file(s) you have touched that also changed upstream, so
 # you can merge `origin/main` in now - before more edits pile onto a stale base.
-# It COMPLEMENTS the #462 Step-7 guard (which stays as the final backstop); it
+# It COMPLEMENTS the #462 Step-6 guard (which stays as the final backstop); it
 # does not replace it.
 #
 # It is ADVISORY and FAIL-OPEN: it never blocks the flow (exit 0) unless
@@ -256,7 +256,7 @@ elif [[ -z "$my_edits" ]]; then
     result="moved-clean"
 else
     echo "  No overlap: none of the file(s) you edited changed on ${BASE_REF}."
-    echo "  Safe to continue; the Step-7 #462 guard merges the base in before the squash."
+    echo "  Safe to continue; the Step-6 #462 guard merges the base in before the squash."
     result="moved-clean"
 fi
 

@@ -56,7 +56,7 @@
 #              dirt warn but never fail. Default is advisory: always exit 0, just
 #              warn/note.
 #
-#              /flow:auto Steps 4 and 6 invoke this WITH --strict (issue #576):
+#              /flow:auto Steps 4 and 5 invoke this WITH --strict (issue #576):
 #              a live leak means every further edit compounds and the commit the
 #              flow is about to make does not contain the work, so exit 3 is a
 #              STOP at both call sites, not a warning to narrate past.
@@ -89,7 +89,7 @@
 #
 # Exit under --strict (gate-lib's gate_map, #1014): no-leak 0, leak 3,
 # unknown 4, not-applicable 5 - so a could-not-look answer can never share the
-# good exit. /flow:auto Steps 4 and 6 STOP on 3 and PROCEED-AND-REPORT on 4 and
+# good exit. /flow:auto Steps 4 and 5 STOP on 3 and PROCEED-AND-REPORT on 4 and
 # 5. Without --strict the guard stays advisory and always exits 0, but it still
 # prints the verdict.
 #

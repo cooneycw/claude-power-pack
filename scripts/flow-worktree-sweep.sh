@@ -19,7 +19,7 @@
 #      its reach - and those are most of what actually accumulates.
 #   2. A refusal costs a sweep nothing. The merging session must finish its merge,
 #      so a guard that blocks it is an obstacle to route around - which is how
-#      `--force` came to be on every /flow:auto Step 7 call in the first place. A
+#      `--force` came to be on every /flow:auto Step 6 call in the first place. A
 #      sweep that skips a worktree has simply done its job; it reports and moves
 #      on. A guard whose refusal is free is a guard that stays honest.
 #
