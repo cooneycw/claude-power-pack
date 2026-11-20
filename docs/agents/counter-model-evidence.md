@@ -98,6 +98,22 @@ a fresh review. The receipt records base SHA, target head, current merge-base,
 patch SHA256 and the binding method. Scope `unverified` uses captured-patch
 binding too; it does not acquire a full-tree claim.
 
+**A move confined to the plan record (#1862).** When the evidence names an
+earlier commit than HEAD, the writer walks back along first-parent history
+(at most 32 commits) while the diff from that commit to HEAD touches only the
+issue's plan-record files: `docs/flow-runs/issue-<N>.md`, its `.as-read.md`
+snapshot and its `.lanes-demonstrated.md` rows. The set is closed and per
+issue: another issue's record, or any other name, ends the walk. If the
+reviewed commit is in that range, the receipt binds it, so `head` and
+`target_head` still name the reviewed commit, and
+`reviewed_artifact.plan_record_move` records the HEAD it was written at and
+the plan-record paths that moved. Any other path after the reviewed head is
+refused, and the refusal names it: that fix needs a new checkpoint and review.
+A merge of the base after review brings other paths, so it is refused too.
+`validate` checks that a recorded move names a full head other than the
+reviewed one and only paths inside that issue's set. Enrolment's ancestry rule
+is unchanged.
+
 **Trust boundary:** binding establishes which recorded artifact the reviewer
 received or which commit its runtime probed, not how thoroughly it reviewed it.
 Runtime transcripts and local Git are evidence sources, not tamper-proof
