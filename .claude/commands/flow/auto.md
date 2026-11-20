@@ -647,8 +647,8 @@ is written voids it. Pick up a moved base with `git merge`.
 
    **Before review, commit an implementation checkpoint (schema 5).** Stage
    only the issue's owned changes, commit them, and review that committed
-   artifact. A fix accepted from review needs a new checkpoint and review
-   before the receipt is written. See
+   artifact. A fix touching only the plan record needs no re-review; the
+   writer records the move (#1862). See
    [counter-model evidence](../../../docs/agents/counter-model-evidence.md).
    A collector `CODEX_REVIEW: blocked` or missing artifact binding is a failed
    precondition: correct what it names; retry. It is not a skip.
