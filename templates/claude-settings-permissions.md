@@ -22,8 +22,8 @@ whether the allowlist is installed.
 | Git plumbing | `git fetch`, `git worktree` | worktree create/list/remove (flow Steps 1 and 6) |
 | Text pipeline | `echo/tr/cut/sed/basename` | the branch-slug sanitization pipeline in flow Step 1 |
 | Filesystem reads | `grep/rg/ls/find/wc`, `cd`, `pwd` | codebase exploration, directory verification gates |
-| Flow helper scripts | `~/.claude/scripts/{flow-start-resolve, flow-stale-check, flow-worktree-guard, flow-live-driver-guard, flow-worktree-claim, flow-finish-gate, gh-pr-merge, worktree-remove}.sh` | the audited flow helper family (issue #581): Step-1 resolve + verify gate, stale-base / leaked-edit / live-driver guards (Steps 4 and 6), the deterministic quality-gate runner invocation (Step 6 and the merge re-gate, #613), PR squash-merge + worktree cleanup (Step 7) |
-| Flow advisory helpers | `~/.claude/scripts/{check-ignored-additions, friction-log}.sh` | the two always-on advisory helpers `/flow:auto` runs bare at the stable path but that #581 never allowlisted (issue #616): `friction-log.sh` appends a friction record to `.claude/friction.jsonl` on every capture point of every flow run, `check-ignored-additions.sh` reads git state to warn when a blanket ignore rule swallowed a file meant to be tracked (Step 6, `/flow:finish`). Both are installed from the checkout by `/flow:repair` and are already part of the audited family - read-only-or-append, consistent with the one-reviewed-script-per-rule policy |
+| Flow helper scripts | `~/.claude/scripts/{flow-start-resolve, flow-stale-check, flow-worktree-guard, flow-live-driver-guard, flow-worktree-claim, flow-finish-gate, gh-pr-merge, worktree-remove}.sh` | the audited flow helper family (issue #581): Step-1 resolve + verify gate, stale-base / leaked-edit / live-driver guards (Steps 4 and 5), the deterministic quality-gate runner invocation (Step 5 and the merge re-gate, #613), PR squash-merge + worktree cleanup (Step 6) |
+| Flow advisory helpers | `~/.claude/scripts/{check-ignored-additions, friction-log}.sh` | the two always-on advisory helpers `/flow:auto` runs bare at the stable path but that #581 never allowlisted (issue #616): `friction-log.sh` appends a friction record to `.claude/friction.jsonl` on every capture point of every flow run, `check-ignored-additions.sh` reads git state to warn when a blanket ignore rule swallowed a file meant to be tracked (Step 5, `/flow:finish`). Both are installed from the checkout by `/flow:repair` and are already part of the audited family - read-only-or-append, consistent with the one-reviewed-script-per-rule policy |
 | Install-drift check | `~/.claude/scripts/install-drift.sh` | read-only installed-plugin-vs-checkout drift report (issue #622), run by the SessionStart reminder and by `/cpp:update` Step 7.10 |
 | Command-surface symlinker | `~/.claude/scripts/cpp-commands-link.sh` | the canonical Tier 1 command surface (issue #663): writes ONLY per-family symlinks under `~/.claude/commands/` whose target shape it owns (`/.claude/commands/<family>`), never a user file/dir; `--check` is read-only; run by `/cpp:init` Tier 1 and `/cpp:update` Step 5c |
 
@@ -76,7 +76,7 @@ installed at the stable `~/.claude/scripts/` path by `/cpp:init` /
   shipping command.
 - **Rules only match BARE invocations.** `~/.claude/scripts/foo.sh 42` is
   auto-allowed; `foo.sh 42; echo $?` or `if [ -x ... ]; then ...` is a
-  compound command and prompts. The flow docs (auto.md Steps 1/4/6/7,
+  compound command and prompts. The flow docs (auto.md Steps 1/4/5/6,
   start.md) encode this invocation discipline; helpers print their own status
   markers so no wrapper is ever needed.
 - **The `cd X && <cmd>` habit defeats the whole allowlist.** The rule generalizes

@@ -19,7 +19,7 @@ build:
 # no stanza here VERIFY_ENABLED stayed 0, so the one repo that owns the verify
 # path never executed it (how the pre-#595 broken invocation survived for
 # months). The probe is meaningful for a service-less repo: it proves the
-# shipped library imports. Step 9 now runs `verify --baseline` + `verify`
+# shipped library imports. Step 7b now runs `verify --baseline` + `verify`
 # around the no-op deploy on every CPP flow run.
 health:
   deploy_verification:

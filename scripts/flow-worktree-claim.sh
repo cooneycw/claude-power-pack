@@ -7,7 +7,7 @@
 # RESUMING into an active worktree; it does not protect an active worktree from
 # being REMOVED by someone else, and it has no notion of an owner, so it cannot
 # tell "another session is driving this" from "someone left files dirty". The
-# observed cost was silent data loss: a sibling session's Step-7 cleanup removed
+# observed cost was silent data loss: a sibling session's Step-6 cleanup removed
 # a live session's worktree by name, destroying uncommitted work.
 #
 # This helper makes ownership explicit and machine-checkable by riding git's own
