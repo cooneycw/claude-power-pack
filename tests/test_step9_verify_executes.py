@@ -86,7 +86,9 @@ def test_extraction_is_section_scoped_and_exact() -> None:
 
 def _owned_document(lines):
     return (
-        "### Step 5\n" + LEGACY_VERIFY + "\n#### 7b. Deploy (optional)\n```bash\n" + "\n".join(lines) + "\n```\n### Final Summary\n"
+        "### Step 5\n" + LEGACY_VERIFY + "\n#### 7b. Deploy (optional)\n```bash\n"
+        + "\n".join(lines)
+        + "\n```\n### Final Summary\n"
     )
 
 
