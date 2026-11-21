@@ -32,8 +32,9 @@ def active_steps(document: str) -> dict[int, str]:
             steps[current].append("".join(child.content for child in token.children or []
                                           if child.type in {"text", "code_inline"}))
         elif token.type == "fence" and token.info == "bash":
-            steps[current].append("\n".join(line.strip() for line in token.content.splitlines()
-                                            if not line.lstrip().startswith("#")))
+            code = "\n".join(line.strip() for line in token.content.splitlines()
+                             if not line.lstrip().startswith("#"))
+            steps[current].append("\0" + code + "\0")  # Separate tool calls cannot share $?.
     return {n: "\n".join(lines) for n, lines in steps.items()}
 
 
@@ -49,7 +50,7 @@ def guard_contract(document: str) -> bool:
             return False
         if section.index(WORKTREE) >= section.index(boundary):
             return False
-        guard = re.search(re.escape(WORKTREE) + r"\ncase \$\? in\n(.*?)\nesac", section, re.DOTALL)
+        guard = re.search(re.escape(WORKTREE) + r"\ncase \$\? in\n([^\0]*?)\nesac", section, re.DOTALL)
         if guard is None:
             return False
         if number == 5 and not initial[capture.end():].startswith(guard[0]):
@@ -71,7 +72,7 @@ def guard_contract(document: str) -> bool:
         else:
             if IGNORED not in section or section.index(IGNORED) >= section.index(boundary):
                 return False
-            ignored = re.search(re.escape(IGNORED) + r"\ncase \$\? in\n(.*?)\nesac", section, re.DOTALL)
+            ignored = re.search(re.escape(IGNORED) + r"\ncase \$\? in\n([^\0]*?)\nesac", section, re.DOTALL)
             if (ignored is None
                     or '3) echo "STOP: inspect ignored additions before committing"; exit 3 ;;' not in ignored[1]):
                 return False
@@ -125,7 +126,7 @@ def test_initial_guard_blocks_are_identical() -> None:
     for driver in ("codex", "qwen", "gemma"):
         text = (ROOT / f".claude/commands/{driver}/auto.md").read_text()
         initial = active_steps(text)[4]
-        match = re.search(re.escape(WORKTREE) + r"\ncase \$\? in\n.*?\nesac", initial, re.DOTALL)
+        match = re.search(re.escape(WORKTREE) + r"\ncase \$\? in\n[^\0]*?\nesac", initial, re.DOTALL)
         assert match is not None
         blocks.append(match[0])
     assert blocks[0] == blocks[1] == blocks[2]
