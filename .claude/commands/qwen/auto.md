@@ -1068,6 +1068,10 @@ wrong approach), STOP and report. Offer to re-prompt Qwen, escalate to
    fi
    ```
 
+The parent retains supplemental findings, including deferred review findings,
+for Step 7 routing: file:line or command, defect, consequence, and source issue
+or PR. Do not widen this change or drop them. The child never writes to GitHub.
+
 Report: `Step 5/8: Review complete - {PASS|N issues found}`
 
 ---
@@ -1411,6 +1415,27 @@ diffs.
    commit/push this run's record, rerun. `unverified` STOP: check authentication
    and network, rerun. Neither permits cleanup/merge. Existing early compliance
    stays in its merge-base shell block; `finish` checks the published PR head.
+
+5. **Route supplemental findings (parent only), before reporting or cleanup:**
+   Apply [/flow:auto Step 5b](../flow/auto.md#step-5b-route-supplemental-findings-to-the-nit-store)
+   to every retained finding, including deferred review findings. Resolve bare:
+
+   ```bash
+   ~/.claude/scripts/nit-store-resolve.sh
+   ```
+
+   Act on `NIT_STORE_STATUS`: `ok` means post one finding per comment to the
+   returned store in its returned repository:
+   `gh issue comment <NIT_STORE> --repo <NIT_STORE_REPO> --body "<one finding>"`.
+   `none` (exit 1) means file a normal issue instead, with explicit `--repo`.
+   `unknown` (exit 3), or a missing helper: post nowhere; report the finding as
+   unrouted and carry it verbatim in the closing report. `unknown` is not `none`.
+   Each record states file:line or command, defect, why it matters, and source
+   issue or PR; it must stand alone. Live correctness, security, or data-loss
+   problems get their own issue. The store is an inbox; recording is disposition,
+   not a fix. The closing report names each finding with its comment/issue link,
+   and discloses `NIT_STORE_SOURCE=search`. Nothing to store is ordinary; say so.
+   GitHub writes belong to the parent, never the child.
 
 Report: `Step 7/8: Finish complete - PR #{N} created`
 

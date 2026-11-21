@@ -265,3 +265,52 @@ Evidence: existing helper verdict tests/controls, targeted render/parity tests, 
 
 ### Changed output readers
 Parents read generated command documents. Rendered placement tests consume all three actual command files and committed bounded excerpts; parity consumes actual renders and policy. Existing tests/controls consume actual helper verdicts. No live delegated-run completeness claim.
+
+<!-- flow-run n=6 id=886f56f62f81479da3e05c5b76a2b489 -->
+## Run 6
+
+- Run-id:            886f56f62f81479da3e05c5b76a2b489
+- Run-start:         6dec8d527be32788cdb6754909f1aaa0210563e2
+
+- Issue:             #1811
+- Necessity verdict: Partially addressed
+- Approval:          granted
+- Approver:          run136:cp-orch, mailbox 37110
+
+### Section B evidence
+Three nit-store-resolve.sh parity entries still declare a known gap. The shared core lacks parent retention and close-time routing. Other rows remain out of scope. Read current issue and owner cap ruling 7065030917. Approval 37110 accepts the plan in mailbox 37107, normal-HOME gate setup, and current-main-first sequencing.
+
+### Section C - the approved plan
+1. `templates/delegated-driver-core.md` - parent Step 5 retains supplemental/deferred findings and context; parent Step 7 routes after PR/plan finish, before report/cleanup. Bare installed resolver, explicit returned repository, ok/none/unknown, no child writes, standalone records, closing links, serious defects own issues, ordinary zero outcome; link flow:auto Step 5b.
+2. `.claude/commands/codex/auto.md` - regenerate shared core.
+3. `.claude/commands/qwen/auto.md` - regenerate shared core.
+4. `.claude/commands/gemma/auto.md` - regenerate shared core.
+5. `docs/agents/driver-parity.json` - exactly three nit-store exemptions become run.
+6. `.claude/command-word-budgets.tsv` - exact recounted three auto caps under ruling (f); executable gate step. Baseline preview added 198 words per driver, consuming headroom first; remeasure after current-main integration.
+7. `tests/test_delegated_nit_store_routing.py` - actual-render parent scope/order, semantic policy, controls, actual published resolver execution with fake GitHub and restricted PATH.
+8. `controls/delegated-nit-store-routing/cases.json` - committed good/bad procedure mutation inputs, exercised by the test suite; no standalone gate added.
+
+Scope: nit-store row only, Refs #1811. No resolver change, child GitHub writes, slot edits, flow:auto change, or other gate-row changes. First execute regressions red on current main, then green after implementation. Explicit negative cases: missing --repo, unknown treated as none, missing closing link/context, absent bare call, child-scope retention/routing. Actual helper states: mapped/searched ok, none, unknown transport/ambiguity, missing helper, renamed callers, main/linked checkout. Fake GitHub never writes externally. No bare Python in new published shell; test stub uses sys.executable.
+
+### Lanes for this change
+| Lane | Answer |
+|---|---|
+| Checkout | will test - main checkout / linked worktree, fixture-owned repositories and actual published block |
+| Harness | will test - Claude install-shaped ~/.claude/scripts symlink; delegated families have no Codex install skill; live model obedience not covered |
+| Driver | will test - delegated drivers (/codex:auto, /qwen:auto, /gemma:auto), actual renders; canonical /flow:auto unchanged and existing routing tests re-run |
+| Coordination | not applicable - no Kyle-specific routing branch; live fleet not covered |
+| CI provider | not applicable - no provider-specific behavior; exact-head CPP Woodpecker required separately, live Actions not covered |
+| Project state | will test - a repository that has adopted a feature's file or record / one that has not: installed helper present/missing and open/absent store |
+| Toolchain version | will test - the host or container's installed versions and restricted PATH; CI's pinned uv and Python via CI, no version matrix claim |
+| Clone shape | not applicable - no history-dependent resolver behavior; full and fixture clones only |
+| Run location | will test - invoked from the CPP root / from another directory, installed resolver outside owned target, renamed worktree caller |
+| Gate target | will test - CPP itself / a consumer with its own interpreter and PATH: owned consumer target and no-bare-Python PATH; no consumer Python used by block |
+| Wave role state | not applicable - no registry lifecycle change |
+| Reader: generated-command parent | not covered - live semantic obedience; actual generated output tested structurally with omission controls |
+| Reader: parity checker | tested against real output - actual regenerated driver documents and ledger |
+| Reader: resolver output consumer | tested against real output - actual helper invoked through published block; live model branching not covered, helper format unchanged |
+| Reader: GitHub and closing report | not covered - live writes/report generation; presence controls require explicit repository, complete record, refusal on unknown and closing links |
+
+Reader search: git grep for delegated-core-vendor, nit-store-resolve.sh and driver-parity.json positively found scripts/check-driver-parity.py and the actual vendor/routing tests. External reader exhaustiveness not claimed. No helper output format changes.
+
+Verification: related resolver/routing/vendor/parity tests and controls; budget check, bandit and undeclared-import audits including selftests; gitleaks --log-opts=HEAD; own-checkout full finish gate with self-notify and kyle-lock, normal HOME, private sibling TMPDIR and no inherited ADDOPTS/basetemp. Warm current-lock uv cache if necessary. Independent counter-model review with runtime-derived different model and honest receipt; instruction preservation review. Merge sibling template changes, regenerate/recount exact caps at final merge. Begin-run after main integration; if run-number collision remains, mailbox 37078 allows one header/marker-only administrative re-approve of unchanged approved body at final merge, preserving upstream sections verbatim. No declare-salvage work until this PR pushed.

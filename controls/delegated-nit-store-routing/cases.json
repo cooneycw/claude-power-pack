@@ -1,0 +1,11 @@
+[
+  {"name": "sound", "mode": "identity", "good": true},
+  {"name": "missing-repo", "mode": "replace", "old": "gh issue comment <NIT_STORE> --repo <NIT_STORE_REPO>", "new": "gh issue comment <NIT_STORE>", "good": false},
+  {"name": "unknown-is-none", "mode": "replace", "old": "`unknown` (exit 3), or a missing helper: post nowhere", "new": "`unknown` (exit 3), or a missing helper: file a normal issue", "good": false},
+  {"name": "missing-closing-link", "mode": "replace", "old": "comment/issue link", "new": "description", "good": false},
+  {"name": "missing-context", "mode": "replace", "old": "file:line or command, defect, why it matters, and source", "new": "brief finding description and source", "good": false},
+  {"name": "missing-call", "mode": "replace", "old": "~/.claude/scripts/nit-store-resolve.sh", "new": "# resolver omitted", "good": false},
+  {"name": "child-retention", "mode": "child-retention", "good": false},
+  {"name": "child-routing", "mode": "child-routing", "good": false},
+  {"name": "late-routing", "mode": "late-routing", "good": false}
+]
