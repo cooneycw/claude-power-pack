@@ -397,6 +397,25 @@ There is deliberately no auto-approved outcome: a value that can still be produc
 <!-- region: B -->
 ### Step 5: Review - Claude Reviews {{DRIVER_TITLE}}'s Diff
 
+Parent, immediately after the Step 4 child returns, before reviewing or committing:
+
+```bash
+~/.claude/scripts/flow-worktree-guard.sh --strict
+case $? in
+    0) ;;
+    3) echo "STOP: leaked edits; inspect and attribute before reverting main"; exit 3 ;;
+    4|5) echo "Report the guard verdict above; no clean-main claim" ;;
+    *) echo "STOP: worktree guard failed"; exit 1 ;;
+esac
+
+~/.claude/scripts/check-ignored-additions.sh
+case $? in
+    0) ;;
+    3) echo "STOP: inspect ignored additions before committing"; exit 3 ;;
+    *) echo "STOP: ignored-additions check failed"; exit 1 ;;
+esac
+```
+
 Cross-model review: Claude Code reviews what {{MODEL_WROTE}}.
 {{STEP5_EMPHASIS}}
 
@@ -565,6 +584,18 @@ If quality gates fail:
    part of the boundary change to make the gate pass.
    ```
 {{FIX_REEXEC}}
+   Child returned; parent checks before reading the fix payload.
+
+   ```bash
+   ~/.claude/scripts/flow-worktree-guard.sh --strict
+   case $? in
+       0) ;;
+       3) echo "STOP: leaked edits; inspect and attribute before reverting main"; exit 3 ;;
+       4|5) echo "Report the guard verdict above; no clean-main claim" ;;
+       *) echo "STOP: worktree guard failed"; exit 1 ;;
+   esac
+   ```
+{{FIX_PAYLOAD_CHECK}}
    On `DELEGATED_RUN_STATUS: failure`, **STOP** the fix loop and report the
    signals - the retry did not run, so re-running the gate only re-reports the
    same failure and consumes a retry that fixed nothing.
@@ -604,6 +635,25 @@ Report: `Step 6/8: Quality gates passed (attempt {N}/{MAX})`
 ---
 
 ### Step 7: Finish - Commit, Push, Create PR
+
+Parent, before any shipping commit, repeat both checks:
+
+```bash
+~/.claude/scripts/flow-worktree-guard.sh --strict
+case $? in
+    0) ;;
+    3) echo "STOP: leaked edits; inspect and attribute before reverting main"; exit 3 ;;
+    4|5) echo "Report the guard verdict above; no clean-main claim" ;;
+    *) echo "STOP: worktree guard failed"; exit 1 ;;
+esac
+
+~/.claude/scripts/check-ignored-additions.sh
+case $? in
+    0) ;;
+    3) echo "STOP: inspect ignored additions before committing"; exit 3 ;;
+    *) echo "STOP: ignored-additions check failed"; exit 1 ;;
+esac
+```
 
 **Last empty-diff backstop (issue #798).** Step 4 already fails closed on an
 empty diff, and this repeats the check at the boundary that actually ships,

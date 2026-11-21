@@ -93,6 +93,9 @@ If review finds CRITICAL issues that Codex cannot fix via re-prompt (e.g., funda
 
    CODEX_FIX_EXIT=$?
    echo "codex fix attempt exited $CODEX_FIX_EXIT; output: $CODEX_FIX_OUTPUT"
+   ```
+<!-- slot: FIX_PAYLOAD_CHECK -->
+   ```bash
    tail -40 "$CODEX_FIX_OUTPUT"
    ```
    Then check the payload, bare and with LITERAL values (the retry block above

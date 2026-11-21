@@ -130,6 +130,7 @@ wrong approach), STOP and report. Offer to re-prompt Gemma, escalate to
    GEMMA_FIX_EXIT=$?
    echo "opencode fix attempt exited $GEMMA_FIX_EXIT; output: $GEMMA_FIX_OUTPUT"
    ```
+<!-- slot: FIX_PAYLOAD_CHECK -->
    ```bash
    ~/.claude/scripts/delegated-run-check.sh /tmp/gemma-fix-42-1.jsonl 0 --lane gemma --expect-tools
    ```

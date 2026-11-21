@@ -868,6 +868,25 @@ Report: `Step 4/8: Execute Qwen complete - {N} files changed (+{added} -{removed
 <!-- delegated-core:begin B (canonical: templates/delegated-driver-core.md) -->
 ### Step 5: Review - Claude Reviews Qwen's Diff
 
+Parent, immediately after the Step 4 child returns, before reviewing or committing:
+
+```bash
+~/.claude/scripts/flow-worktree-guard.sh --strict
+case $? in
+    0) ;;
+    3) echo "STOP: leaked edits; inspect and attribute before reverting main"; exit 3 ;;
+    4|5) echo "Report the guard verdict above; no clean-main claim" ;;
+    *) echo "STOP: worktree guard failed"; exit 1 ;;
+esac
+
+~/.claude/scripts/check-ignored-additions.sh
+case $? in
+    0) ;;
+    3) echo "STOP: inspect ignored additions before committing"; exit 3 ;;
+    *) echo "STOP: ignored-additions check failed"; exit 1 ;;
+esac
+```
+
 Cross-model review: Claude Code reviews what the local Qwen model wrote.
 **This step carries more weight than in `/codex:auto`** - a local 27B model
 produces plausible-but-wrong code at a higher rate than a frontier model.
@@ -1104,6 +1123,17 @@ If quality gates fail:
    QWEN_FIX_EXIT=$?
    echo "qwen fix attempt exited $QWEN_FIX_EXIT; output: $QWEN_FIX_OUTPUT"
    ```
+   Child returned; parent checks before reading the fix payload.
+
+   ```bash
+   ~/.claude/scripts/flow-worktree-guard.sh --strict
+   case $? in
+       0) ;;
+       3) echo "STOP: leaked edits; inspect and attribute before reverting main"; exit 3 ;;
+       4|5) echo "Report the guard verdict above; no clean-main claim" ;;
+       *) echo "STOP: worktree guard failed"; exit 1 ;;
+   esac
+   ```
    ```bash
    ~/.claude/scripts/delegated-run-check.sh /tmp/qwen-fix-42-1.jsonl 0 --lane qwen --expect-tools
    ```
@@ -1146,6 +1176,25 @@ Report: `Step 6/8: Quality gates passed (attempt {N}/{MAX})`
 ---
 
 ### Step 7: Finish - Commit, Push, Create PR
+
+Parent, before any shipping commit, repeat both checks:
+
+```bash
+~/.claude/scripts/flow-worktree-guard.sh --strict
+case $? in
+    0) ;;
+    3) echo "STOP: leaked edits; inspect and attribute before reverting main"; exit 3 ;;
+    4|5) echo "Report the guard verdict above; no clean-main claim" ;;
+    *) echo "STOP: worktree guard failed"; exit 1 ;;
+esac
+
+~/.claude/scripts/check-ignored-additions.sh
+case $? in
+    0) ;;
+    3) echo "STOP: inspect ignored additions before committing"; exit 3 ;;
+    *) echo "STOP: ignored-additions check failed"; exit 1 ;;
+esac
+```
 
 **Last empty-diff backstop (issue #798).** Step 4 already fails closed on an
 empty diff, and this repeats the check at the boundary that actually ships,

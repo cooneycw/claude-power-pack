@@ -263,3 +263,38 @@ The queued full gate was cleanly cancelled BEFORE its suite started: owned
 timeout signalled TERM, durable completion exit143 at 16:05:21Z, job
 b32a0435-2898-4b8a-892f-c91b715178a8. It proves no gate result and is not counted.
 The corrected head will receive the one authorized replacement full gate.
+
+
+## Post-child guard pair
+
+<!-- lanes-demonstrated run=03776eb0b3d5448a9ab2d99b0e00cb74 plan=444ad53619e5cdf21878849c2ba9adbd4bf84cfcdd091d2c435c144dc9455df0 -->
+
+| Lane | Result | Evidence |
+|---|---|---|
+| Checkout | pending | Existing worktree guard / ignored-additions temporary layout cases queued. |
+| Harness | passed | delegated-core-check matches three actual Claude renders; parity reads generated Codex flow-auto mirror, delegated families intentionally unpackaged. |
+| Driver | passed | Actual three main renders red: 3 failed, 4 passed via make test in 0.86 seconds. Inserted guards: 7 passed in 0.89 seconds. Missing and after-first-commit committed cases distinguish broken placement. |
+| Project state | pending | Existing ignored-addition cases queued. |
+
+Owner/orchestrator approval mailbox 36767; exact budget conflict rule 36773.
+Touched-but-unplanned: templates/delegated-driver-values/codex.md, qwen.md and
+gemma.md, approved mailbox 36860. Their FIX_REEXEC slot was split so the shared
+guard runs before the delegated-run-check payload read. Codex also tailed the
+output first: mailbox 36863 approved closing/reopening only its bash fence to
+move the unchanged tail after the shared guard. Qwen/Gemma have no such tail.
+No invocation, sandbox, exit capture, payload-check command or flag changed.
+
+A removal check against unchanged main dbb485d4 reconstructed all three original
+driver byte strings exactly after stripping only the three inserted guard/text
+blocks (plus Codex's new closing/opening fence delimiters). No prose was trimmed.
+Counts use check-claude-md-budget.py's len(read_text().split()) method:
+
+| Driver | Before | After | Delta | Old cap | New cap |
+|---|---:|---:|---:|---:|---:|
+| codex | 8669 | 8886 | 217 | 8689 | 8886 |
+| qwen | 9883 | 10098 | 215 | 9905 | 10098 |
+| gemma | 10492 | 10707 | 215 | 10514 | 10707 |
+
+Raises use owner ruling (f), executable gate step, approved mailbox 36863.
+Codex's two extra words are fence delimiters; only exceeded caps were raised.
+Driver parity: 24 items, 72 pairs, 0 missing. Budget and lint checks passed.
