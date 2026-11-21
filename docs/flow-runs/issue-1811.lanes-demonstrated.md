@@ -365,3 +365,16 @@ Lint, typecheck (516 files), vendor, parity, budgets, binary guards, negative
 fixture checks and import selftest plus actual tree audit pass. Import selftest
 finds its planted import and is silent on the clean pair. No helper behavior
 or output format changes. Refs #1811 only; other rows remain outstanding.
+
+Run 4 independent review pass 1 found two LOW test-adequacy findings, both
+accepted and addressed. Actual helper commands now execute through a
+fixture-owned HOME populated by the supported flow-helpers installer, retaining
+the literal tilde path and executable permission check. Missing and
+non-executable installed helpers return 127/126 rather than repository-fallback
+success. Every negative procedure input now asserts its exact failing-check set;
+the missing-renewal input retains the independent quality-gate ordering marker.
+These additions fail 13 cases before the test-harness/control corrections
+(67 others pass), then all 239 procedure/parity cases pass after correction.
+The earlier 496-test broader result remains the pre-review checkpoint result;
+final broader verification and review pass 2 follow this correction. No product
+procedure or cap changed in response to these test findings.

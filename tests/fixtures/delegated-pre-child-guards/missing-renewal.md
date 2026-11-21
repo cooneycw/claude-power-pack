@@ -14,6 +14,7 @@ Run first child.
 ```bash
 ~/.claude/scripts/flow-stale-check.sh origin/main /path/to/worktree
 ```
+Run quality gates:
 After merging, keep the old review.
 Before each fix invocation, run:
 ```bash

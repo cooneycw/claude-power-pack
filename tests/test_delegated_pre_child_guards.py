@@ -99,7 +99,15 @@ def test_committed_document_controls(case):
         assert all(checks.values()), checks
     else:
         assert text != (FIXTURES / "good.md").read_text()
-        assert not all(checks.values()), checks
+        expected = {
+            "late-initial": {"before-child"}, "missing-initial": {"initial-calls"},
+            "commented-live": {"initial-calls"}, "suspected-proceeds": {"live-stop"},
+            "held-proceeds": {"claim-stop"}, "missing-fix": {"pre-fix-live"},
+            "mixed-dirt-swept": {"mixed-dirt"}, "missing-renewal": {"review-renewal"},
+            "foreign-release": {"release", "retain"}, "before-approval": {"before-child"},
+            "late-stale": {"pre-gate-stale"}, "late-fix": {"pre-fix-live"}, "late-release": {"release"},
+        }
+        assert {name for name, verdict in checks.items() if not verdict} == expected[case], checks
 
 
 def git(root, *args):
@@ -122,43 +130,51 @@ def project(tmp_path, request):
         git(main, "worktree", "add", "-qb", "issue-42-test", str(target))
     else:
         target = main
-    return main, target
+    home = tmp_path / "home"
+    env = dict(os.environ, HOME=str(home), FLOW_HELPERS_HOME=str(home), FLOW_HELPERS_SOURCE=str(ROOT / "scripts"))
+    installed = subprocess.run(["bash", str(ROOT / "scripts/flow-helpers-install.sh")],
+                               env=env, capture_output=True, text=True, check=False)
+    assert installed.returncode == 0, installed.stdout + installed.stderr
+    assert "FLOW_HELPERS: installed" in installed.stdout
+    return main, target, home
 
 
-def actual_call(driver, helper, target, cwd):
+def actual_call(driver, helper, target, cwd, home):
     text = (ROOT / f".claude/commands/{driver}/auto.md").read_text()
     pre = sections(text).get("Pre-child checkpoints (parent)")
     assert pre is not None, "actual driver lacks pre-child commands"
     calls = [call for call in pre["calls"] if call[0] == helper]
     assert len(calls) == 1
-    command = [str(ROOT / "scripts" / Path(calls[0][0]).name),
-               *[str(target) if arg == TARGET else arg for arg in calls[0][1:]]]
-    env = dict(os.environ, FLOW_CLAIM_SESSION_ID="fixture", FLOW_CLAIM_PID=str(os.getpid()))
-    return subprocess.run(["bash", *command], cwd=cwd, env=env, capture_output=True, text=True, check=False)
+    # Preserve the documented unquoted tilde, and let the shell resolve fixture HOME.
+    args = [str(target) if arg == TARGET else arg for arg in calls[0][1:]]
+    command = calls[0][0] + " " + shlex.join(args)
+    env = dict(os.environ, HOME=str(home), FLOW_CLAIM_SESSION_ID="fixture", FLOW_CLAIM_PID=str(os.getpid()))
+    return subprocess.run(["bash", "-c", command], cwd=cwd, env=env,
+                          capture_output=True, text=True, check=False)
 
 
 @requires_git
 @pytest.mark.parametrize("driver", DRIVERS)
 def test_actual_live_command_distinguishes_clean_own_and_mixed_dirt(project, driver):
-    main, target = project
-    clear = actual_call(driver, LIVE, target, ROOT)
+    main, target, home = project
+    clear = actual_call(driver, LIVE, target, ROOT, home)
     assert "FLOW_LIVE_DRIVER: clear" in clear.stdout
     assert f"FLOW_LIVE_DRIVER_PATH: {target}" in clear.stdout
     checkpoint = git(target, "rev-parse", "HEAD")
     (target / "own.txt").write_text("this child's confirmed edit\n")
-    own = actual_call(driver, LIVE, target, main)
+    own = actual_call(driver, LIVE, target, main, home)
     assert "FLOW_LIVE_DRIVER: suspected" in own.stdout
     # Parent knows this file from its recorded child result; checkpoint ONLY that path.
     git(target, "add", "--", "own.txt")
     git(target, "commit", "-qm", "confirmed own checkpoint")
     assert git(target, "rev-parse", "HEAD") != checkpoint
-    assert "FLOW_LIVE_DRIVER: clear" in actual_call(driver, LIVE, target, ROOT).stdout
+    assert "FLOW_LIVE_DRIVER: clear" in actual_call(driver, LIVE, target, ROOT, home).stdout
     (target / "own.txt").write_text("next confirmed edit\n")
     (target / "foreign.txt").write_text("unexplained edit from another driver\n")
     mixed_head = git(target, "rev-parse", "HEAD")
     before = git(target, "diff", "--", "foreign.txt")
     assert before and "unexplained" in before  # Establish foreign-dirt precondition.
-    mixed = actual_call(driver, LIVE, target, ROOT)
+    mixed = actual_call(driver, LIVE, target, ROOT, home)
     assert "FLOW_LIVE_DRIVER: suspected" in mixed.stdout and "foreign.txt" in mixed.stderr
     assert checkpoints((ROOT / f".claude/commands/{driver}/auto.md").read_text())["mixed-dirt"]
     # STOP before any checkpoint: neither a new commit nor staged foreign bytes.
@@ -170,10 +186,30 @@ def test_actual_live_command_distinguishes_clean_own_and_mixed_dirt(project, dri
 @requires_git
 @pytest.mark.parametrize("driver", DRIVERS)
 def test_actual_claim_and_stale_calls_name_the_declared_checkout(project, driver):
-    main, target = project
-    claim = actual_call(driver, CLAIM, target, ROOT)
+    main, target, home = project
+    claim = actual_call(driver, CLAIM, target, ROOT, home)
     assert any(f"FLOW_CLAIM: {state}" in claim.stdout for state in ("free", "unsupported")), claim.stdout
     git(target, "update-ref", "refs/remotes/origin/main", "HEAD")
-    stale = actual_call(driver, STALE, target, main)
+    stale = actual_call(driver, STALE, target, main, home)
     assert f"FLOW_STALE_PATH: {target}" in stale.stdout
     assert "FLOW_STALE_BASE: current" in stale.stdout, stale.stdout + stale.stderr
+
+
+@requires_git
+@pytest.mark.parametrize("driver", DRIVERS)
+@pytest.mark.parametrize("broken", ("missing", "not-executable"))
+def test_actual_documented_path_detects_broken_installed_helper(project, driver, broken):
+    _main, target, home = project
+    installed = home / ".claude/scripts/flow-live-driver-guard.sh"
+    assert installed.is_symlink() and os.access(installed, os.X_OK)
+    original = installed.read_bytes()
+    installed.unlink()  # Only unlink the fixture symlink, never chmod its repository target.
+    if broken == "not-executable":
+        installed.write_bytes(original)
+        installed.chmod(0o644)
+        assert installed.is_file() and not os.access(installed, os.X_OK)
+    else:
+        assert not installed.exists()
+    result = actual_call(driver, LIVE, target, ROOT, home)
+    assert result.returncode == (127 if broken == "missing" else 126), result.stdout + result.stderr
+    assert "FLOW_LIVE_DRIVER: clear" not in result.stdout
