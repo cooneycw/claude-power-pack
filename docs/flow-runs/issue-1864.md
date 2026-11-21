@@ -151,3 +151,10 @@ instruction all remain. No existing instruction was removed. Full new
 parser detail remains in docs/scripts/counter-model-receipt.md.
 The orchestrator authorized pass 3 with reason: pass 3 reviews a
 budget-driven doc trim. No code, test or word-cap change is part of this trim.
+
+### Budget-trim review outcome
+Pass 3 found no defects at 0a8e4b87fa1d0f7d8094f45702ec6cb87a58317b; source inspection confirmed
+the preserved instructions and unchanged cap, with no product-code/test change.
+The reviewer did not independently rerun tests or the budget checker. Receipt:
+docs/measurements/counter-model/2026-11-21T152235Z-issue-1864.json. Identities were derived by the writer from retained logs;
+extra-pass reason: pass 3 reviews a budget-driven doc trim.
