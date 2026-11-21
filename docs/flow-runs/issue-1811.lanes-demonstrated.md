@@ -738,3 +738,36 @@ control added under the approved fixture directory. The approved body remains
 unchanged; the existing compliance report transparently names extra fixtures
 as touched but not planned. No clean-review claim is made. A third review
 requires explicit orchestrator approval because the two-pass default is spent.
+
+
+### Row D final review and recorded limitations
+
+cp-orch mailbox 37365 authorized pass 3 on the corrected head with reviewer
+continuity and a hard stop after it. The receipt records the reason and
+cp-orch authority in `extra_pass_reason`; escalation flags reserved by the
+writer for passes beyond 3 are intentionally omitted. Pass 3 again measured
+`codex/gpt-6.2-sol`, diff-only, network unverified, credentials absent. No
+product/driver-text defect was reported. Two LOW test-adequacy findings remain,
+recorded separately as instructed rather than extending the review loop:
+
+- Explicit-preservation prerequisite/selected-SHA prose is present in the
+  driver but not fully pinned by the narrow policy assertions:
+  https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7070332671.
+- Exact existing case/command references for three variants are in this
+  evidence rather than directly linked from the immutable approved lane rows:
+  https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7070332869.
+
+Receipt `docs/measurements/counter-model/2026-11-21T223921Z-issue-1811.json`
+derives both identities from native runtime evidence, binds the reviewed
+artifact and records 3 passes / 6 fixed findings / 2 deferred findings. It is
+not a clean-review claim. There is no fourth pass.
+
+The live dependency audit passed: planted vulnerable fixture reported
+3 advisories and clean fixture none; actual project examined 43 packages,
+0 gating findings and 0 stale suppressions. Two Windows-only packages are
+not audited on Linux, stated by the audit. Undeclared-import audit/selftest
+passed earlier; repeat before push. Pinned gitleaks 8.30.1 downloaded into a
+private temporary root and checksum verified against its release checksums.
+Full finish gate and exact-head CI remain pending; their actual results will
+be appended after execution. Approval stability remains unchanged; file-set
+compliance transparently reports the five added review controls, not agreement.
