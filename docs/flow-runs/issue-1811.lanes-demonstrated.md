@@ -534,3 +534,11 @@ using the checker method, old/main -> merged cap:
 codex 9060 -> 9319 (+259), qwen 10274 -> 10531 (+257),
 gemma 10883 -> 11140 (+257). Caps equal the merged counts; owner ruling (f).
 No pre-existing instruction or other worker's driver change was dropped.
+
+
+Final-main quick refresh on 1e2b4d6c/main 030f280c completed exit 0 at
+20:25:18Z: **437 passed in 42.96 seconds**, including post-child, pre-child
+and speckit rendered-driver regressions and actual helper suites. Lint/type,
+binary guards, budgets, vendor/parity, both audit selftests/actual and both
+worktree controls with provenance passed. Receipt enrolment accepts the
+escalated four-pass receipt (private 11). No new review or product fix.
