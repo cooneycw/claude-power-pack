@@ -326,22 +326,23 @@ may be checkpointed then guard rerun clean; unexplained dirt or persistent
 suspected stops. Own-only release before deletion; leave-for-review keeps claim.
 Nine parity pairs run. Only shared TEMPLATE is edited; renders are generated.
 
-| Lane | Answer | How, or why not |
+<!-- lanes-demonstrated run=f035e5fd6e3149d7936f5326621f165a plan=bc3b78ae0d6c8f3288490db4b43fe397a4c975d18949e4223512d3fc581e413c -->
+| Lane | Result | Evidence |
 |---|---|---|
-| Checkout | tested | Real fixture-owned main checkout and linked worktree helper calls. |
-| Harness | tested | Claude install stable helper path fixture and generated documents; Codex install delegated drivers are intentionally not packaged (not applicable). |
-| Driver | tested | /flow:auto (Claude implements) unchanged; delegated drivers (/codex:auto, /qwen:auto, /gemma:auto) actual renders and real parity policy. |
-| Coordination | not applicable | No Kyle/no-Kyle authority behavior change. |
-| CI provider | not applicable | No status/provider logic change. |
-| Project state | tested | A repository that has adopted a feature's file or record / one that has not: clean/own-dirty/mixed foreign dirt; self/held claims; current/collision/unknown stale state. |
-| Toolchain version | not covered | Installed runtime and pinned CI only; no matrix. |
-| Clone shape | not applicable | No new clone/ref-resolution behavior. |
-| Run location | tested | Invoked from the CPP root / from another directory: literal target path while helper caller is elsewhere. |
-| Gate target | not applicable | Parent helper checks do not alter runner interpreter selection. |
-| Wave role state | not applicable | No wave lifecycle change. |
-| Reader: parent session | not covered | Live model compliance; documented ordering/verdict policy is tested against actual rendered text and committed bad cases. |
-| Reader: rendered command tests | tested against real output | Execute actual extracted Bash calls against real helpers in fixture-owned repositories. |
-| Reader: parity checker | tested against real output | Nine real run-policy entries and one missing-call control per driver/helper. |
+| Checkout | passed | Real fixture-owned main checkout and linked worktree helper calls. |
+| Harness | passed | Claude install stable helper path fixture and generated documents; Codex install delegated drivers are intentionally not packaged (not applicable). |
+| Driver | passed | /flow:auto (Claude implements) unchanged; delegated drivers (/codex:auto, /qwen:auto, /gemma:auto) actual renders and real parity policy. |
+| Coordination | not run | No Kyle/no-Kyle authority behavior change. |
+| CI provider | not run | No status/provider logic change. |
+| Project state | passed | A repository that has adopted a feature's file or record / one that has not: clean/own-dirty/mixed foreign dirt; self/held claims; current/collision/unknown stale state. |
+| Toolchain version | not run | Installed runtime and pinned CI only; no matrix. |
+| Clone shape | not run | No new clone/ref-resolution behavior. |
+| Run location | passed | Invoked from the CPP root / from another directory: literal target path while helper caller is elsewhere. |
+| Gate target | not run | Parent helper checks do not alter runner interpreter selection. |
+| Wave role state | not run | No wave lifecycle change. |
+| Reader: parent session | not run | Live model compliance; documented ordering/verdict policy is tested against actual rendered text and committed bad cases. |
+| Reader: rendered command tests | passed | Execute actual extracted Bash calls against real helpers in fixture-owned repositories. |
+| Reader: parity checker | passed | Nine real run-policy entries and one missing-call control per driver/helper. |
 
 
 Final regression suite on detached pre-fix 78749847: 63 failed, 164 passed.
