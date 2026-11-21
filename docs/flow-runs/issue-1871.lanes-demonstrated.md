@@ -100,3 +100,9 @@ Quick checks and both audits passed on merged main. The focused run caught a
 setup error in this precondition correction: **1 failed, 79 passed** in 56.78
 seconds, because the lookup-probe directory still existed when scan() created
 it. The test now removes the empty probe directory before invoking scan().
+
+The corrected merged-head quick run completed successfully at 18:28:22Z:
+**80 passed in 29.31 seconds**, including the entire negative-fixture suite,
+new history controls and existing secret-scan tests. Lint/type/binary/budget
+checks passed. Receipt enrolment accepts the existing receipt (private 10),
+so mailbox 36757 requires no fourth review for this test-only assertion delta.
