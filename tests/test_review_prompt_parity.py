@@ -232,3 +232,14 @@ def test_the_helper_misses_a_changed_output_with_no_reader_row(repo: Path) -> No
 
 def test_the_prompt_keeps_the_reader_question() -> None:
     assert KEPT_READER in review_prompt()
+
+
+def test_shared_delegated_review_drops_only_the_enforced_lane_question() -> None:
+    core = normalized((REPO / "templates" / "delegated-driver-core.md").read_text(encoding="utf-8"))
+    assert "each listed lane the plan does not answer" not in core
+    assert "no table: say so once" not in core
+    assert "report each `will test` lane that no test in the diff exercises" in core
+    assert "With no LANE LIST, skip this question." in core
+    assert "THIS Claude reviewer" in core
+    assert KEPT_READER in review_prompt()
+    assert "stand-in" in review_prompt()
