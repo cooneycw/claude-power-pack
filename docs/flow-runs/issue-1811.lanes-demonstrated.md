@@ -800,3 +800,29 @@ repository config and same git --log-opts=HEAD mode were also exercised
 against isolated committed copies of existing secret-scan fixtures: relocated
 bad-private-key returns1 with a leak diagnostic; good-clean returns0. No
 sensitive finding content was printed. Command budgets pass at the exact caps.
+
+
+### Row D owner-paced cancellation before gate work
+
+Mailbox 37410 authorized a replacement admission attempt with a 3600-second
+wait and 90-minute deadline. Own-slot job d901cfc7-47e2-4975-9026-1782b230920b
+queued without starting gate work. Mailbox 37423 then relayed the owner rule:
+at most one heavy local gate from this group, and no start while load5 > 24.
+Observed load5 was 34.53, so the queued attempt was withdrawn.
+
+Cancellation detail: the authority cancelled queued request 1201, but the
+waiting `kyle-lock run` client intentionally reacquired under a new request,
+1203. The verified owned waiting client was then stopped with SIGTERM and
+withdrew that request itself. Authority confirmed it was already cancelled;
+subsequent status showed no queued request or holder for this session. No
+other holder was signalled. No gate work started. The wrapper reported
+`FLOW_FINISH_GATE: fail (coordination supervisor exited 143 and the gate recorded no status)`
+and exit1; own-slot terminal completion/notification succeeded. This is an
+owner-directed pre-work cancellation, not a product test failure or evidence
+of a passing gate.
+
+A passive, self-notifying load watcher waits for load5 <= 24. Before the one
+replacement authorized by mailbox 37423, recheck load5, confirm the group has
+no other heavy run, and launch with the same admission/deadline parameters.
+Admission remains enforced. Apply the same pacing check to row E later.
+No push/PR until a permitted gate verdict and final-HEAD scans.
