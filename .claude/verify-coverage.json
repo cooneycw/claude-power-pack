@@ -409,6 +409,11 @@
       "class": "tested",
       "consumer": "tests/test_flow_wave_completion.py",
       "reason": "Actual assign/complete/check CLI, published recipes, deadlines and fake adapter failures are exercised offline."
+    },
+    "review-yield-report.py": {
+      "class": "tested",
+      "consumer": "tests/test_review_yield_report.py",
+      "reason": "Informational report reached from monthly:create; committed fixture pair flags missing provenance and preserves UNKNOWN, without gating creation (#1865)."
     }
   }
 }

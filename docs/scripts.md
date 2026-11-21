@@ -19,6 +19,8 @@ legitimately about something other than one script is declared on the marker bel
 
 ## Scripts
 
+- `review-yield-report` - informational merged-fix provenance and committed review disposition report (#1865). [reference](scripts/review-yield-report.md)
+
 - `bandit-audit` - runs Python static security analysis over `lib/` and `scripts/` (#962). [reference](scripts/bandit-audit.md)
 - `bash-prep` - Linux workstation shell tuning; reaches outside `$HOME` via sudo. [reference](scripts/bash-prep.md)
 - `bootstrap-check` - checks bootstrap dependencies and advisories before a deploy. [reference](scripts/bootstrap-check.md)
