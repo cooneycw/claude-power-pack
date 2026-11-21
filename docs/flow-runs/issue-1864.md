@@ -226,3 +226,18 @@ Broader related tests: 1074 passed in 71.88s; mypy: 512 source files green.
 Pass 5 is explicitly authorized by cp-orch, mailbox 36619, cap 5, reason:
 CI-only PATH defect: kinds lookup ran bare python3 before earlier verdicts.
 Mailbox 36636 directs merging current main 25407114 before review/gating.
+
+### Fifth review outcome and scope qualification
+Pass 5 found no defects at fd3d2f347c4d56a1caba7c89ec2ee2311293a6f1, with derived identities
+codex/gpt-6.1-sol and codex/gpt-6-astra. Receipt:
+docs/measurements/counter-model/2026-11-21T173240Z-issue-1864.json. Explicit cap-5 authority: cp-orch, mailbox 36619.
+The writer downgraded requested full scope to unverified because the successful
+reviewer command sed -n '65,360p' scripts/codex-review-run.sh printed the
+existing comment quoting read-denial phrases. The writer cannot distinguish
+source content from a denied read, so its verdict is retained unchanged.
+The canonical stdin artifact binding was accepted (method captured-patch).
+Mailbox 36646 accepts this disclosed qualification and directs one final gate.
+The reviewer independently observed both ordering/interpreter red cases on
+879e16fa versus fixed code, late lookup refusals, parser counts and cleanup
+path selection. Cleanup removal was stubbed, not exercised on the filesystem;
+the reviewer did not rerun the 84/1074-test suites or mypy independently.
