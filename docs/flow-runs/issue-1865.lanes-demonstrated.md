@@ -35,3 +35,16 @@ Expanded pre-fix-main run: `24 failed in 0.35s` on e32c06edfb52. Current targete
 run: `24 passed in 0.55s`. The binary-boundary exemption remains scoped only to
 the existing fixture CLI test; the new installation case has explicit git,
 bash and Python guards, with no exemption. No checker implementation changed.
+
+Plan revision approved in orchestrator mailbox #36380: pass 2 found independent
+runs discarded by latest-per-issue aggregation, and a malformed search candidate
+aborted later candidates while claiming an empty population. Independent runs
+now remain separate; cumulative deduplication requires branch plus implementer
+session evidence. Historical ambiguity reads UNKNOWN. The real #1691 pair is
+committed as fixture data. Malformed candidates stay in the denominator and do
+not suppress following readable fixes. Five targeted regression cases failed
+on product checkpoint ecdcae5b (`5 failed, 24 deselected in 0.13s`). All 29 tests
+fail on pre-feature main (`29 failed in 0.41s`), and the current suite passes
+(`29 passed in 0.38s`). The third review is approved only because these fixes
+changed counting logic. Further aggregation concerns must use the approved
+raw-receipt fallback, not more heuristics.

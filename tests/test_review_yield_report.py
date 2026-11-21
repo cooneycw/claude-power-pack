@@ -324,3 +324,69 @@ def test_claude_install_in_main_and_worktree(tmp_path):
                               cwd=private_home, env=env, capture_output=True, text=True)
         assert done.returncode == 0, done.stderr
         assert "#101: MISSING" in done.stdout and "#102: recorded" in done.stdout
+
+
+def test_real_1691_independent_branches_are_both_counted():
+    value = data()
+    receipts = [json.loads((FIXTURES / name).read_text())
+                for name in ("1691-first-run.json", "1691-second-run.json")]
+    assert receipts[0]["branch"] != receipts[1]["branch"]
+    value["repos"]["cooneycw/example"]["receipts"] = receipts
+    out = report(value)
+    assert "accepted: 5; rejected: 0; deferred: 0" in out
+    assert "Issue #1691: 3 passes" in out
+    assert "0 older snapshot(s) omitted" in out
+
+
+def test_duplicate_historical_receipts_without_run_identity_are_unknown():
+    value = data()
+    receipts = value["repos"]["cooneycw/example"]["receipts"]
+    for receipt in receipts:
+        receipt.pop("branch", None)
+        receipt.pop("implementer_evidence", None)
+    assert all("branch" not in receipt and "implementer_evidence" not in receipt for receipt in receipts)
+    out = report(value)
+    assert "UNKNOWN: ambiguous run identity for issue #1" in out
+    assert "accepted: 3;" not in out
+
+
+def test_malformed_search_candidate_preserves_later_fix_and_denominator():
+    mod = helper()
+    def api(args):
+        path = args[0]
+        if path.startswith("search/issues?"):
+            return {"total_count": 2, "incomplete_results": False,
+                    "items": [{}, {"number": 102, "title": "fix(core): readable"}]}
+        if path.endswith("pulls/102"):
+            return {"merged_at": "2026-11-20T12:00:00Z"}
+        if path == "graphql":
+            return {"data": {"repository": {"pullRequest": {"closingIssuesReferences": {
+                "nodes": [], "pageInfo": {"hasNextPage": False, "endCursor": None}}}}}}
+        raise mod.ReadError("receipt source unavailable")
+    value = mod.collect_repo(api, "cooneycw/example", SINCE, UNTIL)
+    out = report({"repos": {"cooneycw/example": value}})
+    assert "#102: MISSING linked closing issue" in out
+    assert "PRs readable: 1/2" in out
+    assert "No merged fix(...) PRs in period" not in out
+    assert "UNKNOWN" in out
+
+
+def test_separate_implementer_sessions_in_one_branch_are_independent():
+    value = data()
+    receipts = value["repos"]["cooneycw/example"]["receipts"]
+    receipts[1]["implementer_evidence"]["thread_id"] = "another-fixture-session"
+    assert receipts[0]["implementer_evidence"] != receipts[1]["implementer_evidence"]
+    out = report(value)
+    assert "accepted: 5; rejected: 2; deferred: 1" in out
+    assert "Issue #1: 3 passes" in out
+
+
+def test_repeated_branch_without_session_identity_is_ambiguous():
+    value = data()
+    receipts = value["repos"]["cooneycw/example"]["receipts"]
+    for receipt in receipts:
+        receipt.pop("implementer_evidence")
+    assert all("implementer_evidence" not in receipt for receipt in receipts)
+    out = report(value)
+    assert "UNKNOWN: ambiguous run identity for issue #1, branch fixture-issue-1" in out
+    assert "accepted: 3;" not in out

@@ -32,14 +32,20 @@ can contribute multiple records and two fixes closing the same issue can
 repeat an observation. The report does not deduplicate underlying defects.
 
 Review yield reads the JSON receipt blobs from one pinned main commit per
-repository. It uses `recorded_at` dates and the latest cumulative receipt per
-issue within the period, summing accepted/rejected/deferred counts and showing
-passes per issue. Older snapshots and skipped receipts are counted separately.
-Receipts from outside the period do not contribute yield. These are review
-recording dates, not merge dates; the two populations are deliberately shown
-separately. Historical schema shapes are read without claiming fresh validation
-or authenticated identities. The report does not reinterpret accepted
-limitations or infer optional finding kinds.
+repository. It uses `recorded_at` dates, preserving independent branches and
+implementer sessions. Cumulative snapshots are reduced to the latest only
+when branch and runtime session identity match. Repeated receipts without
+enough identity evidence are excluded from the known totals and explicitly
+reported as ambiguous/UNKNOWN. The committed real #1691 receipt pair proves
+that different branches contribute five accepted findings and three passes,
+rather than discarding the earlier run.
+
+Accepted/rejected/deferred sums and passes per issue cover the selected known
+runs. Older snapshots and skipped receipts are counted separately. Receipts
+outside the period do not contribute yield. These are recording dates, not
+merge dates; the two populations are shown separately. Historical schema shapes
+are read without claiming fresh validation or authenticated identities. The
+report does not reinterpret accepted limitations or infer optional finding kinds.
 
 PR and receipt readable/total denominators expose incomplete observations.
 A failed listing has an unknown denominator; partial individual reads retain

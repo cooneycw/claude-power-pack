@@ -11,8 +11,8 @@ import base64
 import json
 import re
 import subprocess
-from collections import Counter
-from datetime import date, datetime
+from collections import Counter, defaultdict
+from datetime import date, datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -94,6 +94,11 @@ def collect_repo(api, repo, since, until):
                 raise ReadError("merged PR search ended before total_count")
         result["prs"] = []
         for candidate in candidates:
+            if (not isinstance(candidate, dict) or not isinstance(candidate.get("title"), str)
+                    or type(candidate.get("number")) is not int):
+                result["prs"].append(None)  # Retain the unclassifiable candidate in the denominator.
+                result["errors"].append("merged PR candidate unreadable; fix classification incomplete")
+                continue
             if not re.match(r"^fix\([^)]+\)(?:!)?:", candidate["title"]):
                 continue
             pr = {"number": candidate["number"], "title": candidate["title"], "issues": None}
@@ -165,7 +170,10 @@ def classify(value, answers):
 def day(timestamp):
     if not isinstance(timestamp, str):
         raise ValueError("missing timestamp")
-    return datetime.fromisoformat(timestamp.replace("Z", "+00:00")).date().isoformat()
+    parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        raise ValueError("timestamp has no timezone")
+    return parsed.astimezone(timezone.utc).date().isoformat()
 
 
 def provenance(issue, lists):
@@ -192,10 +200,51 @@ def provenance(issue, lists):
     return state, values
 
 
+def select_runs(receipts):
+    """Only branch plus runtime session evidence can identify cumulative updates."""
+    by_issue = defaultdict(list)
+    for receipt in receipts:
+        by_issue[str(receipt["issue"])].append(receipt)
+    selected, omitted, ambiguous = [], 0, []
+    for issue, rows in by_issue.items():
+        if len(rows) == 1:
+            selected.extend(rows)
+            continue
+        if any(not isinstance(row.get("branch"), str) or not row["branch"] for row in rows):
+            ambiguous.append(f"UNKNOWN: ambiguous run identity for issue #{issue} ({len(rows)} receipts)")
+            continue
+        branches = defaultdict(list)
+        for row in rows:
+            branches[row["branch"]].append(row)
+        for branch, snapshots in branches.items():
+            if len(snapshots) == 1:
+                selected.extend(snapshots)
+                continue
+            runs = defaultdict(list)
+            for row in snapshots:
+                evidence = row.get("implementer_evidence", {})
+                identity = None
+                if isinstance(evidence, dict) and isinstance(evidence.get("runtime"), str):
+                    identity = evidence.get("session_id") or evidence.get("thread_id")
+                if not isinstance(identity, str) or not identity.strip():
+                    break
+                runs[(evidence.get("runtime"), identity)].append(row)
+            else:
+                for updates in runs.values():
+                    selected.append(max(updates, key=lambda row: datetime.fromisoformat(
+                        row["recorded_at"].replace("Z", "+00:00"))))
+                    omitted += len(updates) - 1
+                continue
+            ambiguous.append(f"UNKNOWN: ambiguous run identity for issue #{issue}, branch {branch} "
+                             f"({len(snapshots)} receipts)")
+    return selected, omitted, ambiguous
+
+
 def render(data, since, until, contract):
     lines = [f"# Review yield and fix provenance: {since}..{until}", "",
              "Observation only; missing provenance is not proof of an escaped defect.",
-             "Receipt totals use the latest cumulative snapshot per issue recorded in the period.", ""]
+             "Independent runs are summed; cumulative updates require matching branch "
+             "and implementer session evidence.", ""]
     try:
         lists = answer_lists(contract)
     except ReadError as exc:
@@ -256,7 +305,7 @@ def render(data, since, until, contract):
             lines.append(f"{label} tallies: " + ("; ".join(f"{key}: {count}" for key, count in sorted(tally.items()))
                                                or "none observed"))
         receipts = repo.get("receipts")
-        good, skipped, older, selected = 0, 0, 0, {}
+        good, skipped, in_period = 0, 0, []
         if isinstance(receipts, list):
             for receipt in receipts:
                 try:
@@ -278,18 +327,17 @@ def render(data, since, until, contract):
                     if receipt["status"] == "skipped":
                         skipped += 1
                         continue
-                    issue = str(receipt["issue"])
-                    if issue in selected:
-                        older += 1
-                        if receipt["recorded_at"] <= selected[issue]["recorded_at"]:
-                            continue
-                    selected[issue] = receipt
+                    in_period.append(receipt)
                 except (ValueError, TypeError) as exc:
                     errors.append(f"receipt unreadable: {exc}")
-            sums = Counter()
-            for issue, receipt in sorted(selected.items()):
+            selected, older, ambiguous = select_runs(in_period)
+            errors.extend(ambiguous)
+            sums, pass_counts = Counter(), Counter()
+            for receipt in selected:
                 sums.update(receipt["counts"])
-                lines.append(f"- Issue #{issue}: {receipt['passes']} passes")
+                pass_counts[str(receipt["issue"])] += receipt["passes"]
+            for issue, passes in sorted(pass_counts.items()):
+                lines.append(f"- Issue #{issue}: {passes} passes")
             yield_line = "; ".join(f"{key}: {sums[key]}" for key in ("accepted", "rejected", "deferred"))
             lines += [f"Review yield: {yield_line}",
                       f"Receipts readable: {good}/{len(receipts)}; {skipped} skipped; "
