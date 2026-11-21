@@ -72,3 +72,16 @@ pass 2 found the history reader's Git lookup still depended on a relative PATH.
 Hard stop afterward: further TEST-only findings are deferred with reason and
 Nit Store record; a guidance-line finding is escalated. Merge is held behind
 #1870 by the orchestrator; a later base refresh may be needed.
+
+
+Third/final gpt-6.2-sol diff-only review reported no guidance defect. One low
+TEST-only limitation was deferred under mailbox 36678's hard stop: deleting
+Salvage from the stored GOOD fixture would still scan clean, although the
+separate actual-generator case checks all three fields. No fourth pass or test
+fix. Current fixture retains all fields; no deletion mutation was executed
+under the hard stop. Recorded after resolver confirmed the open store (search):
+https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7066926563
+The derived schema-5 receipt records accepted3/rejected0/deferred1 and the
+explicit reason/authority in its extra-pass explanation. All passes were
+captured-patch/diff-only, without a reviewer shell; network/credential isolation
+unverified. Product/source inputs remain unchanged since that review.
