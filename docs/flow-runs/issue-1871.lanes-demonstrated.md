@@ -61,3 +61,14 @@ reader (**1 failed in 2.32 seconds**). The scan child now receives an absolute
 resolved Git directory on PATH, while CI argv/config/template stay unchanged.
 Corrected module: **11 passed in 5.85 seconds**. A third bounded review is
 requested for this concrete integration fix; no heavy gate or push yet.
+
+
+Merged current main cd6d2b48 cleanly, with no scanner/config/CI-command or package
+changes and no conflicts. Merged-head quick run completed at 17:57:06Z:
+**28 new/existing secret-scan tests passed in 19.29 seconds**, lint/type/binary/
+budgets and both import audits passed (43 packages, 2 Windows-only not audited).
+The orchestrator authorized one third diff-only review (mailbox 36678), reason:
+pass 2 found the history reader's Git lookup still depended on a relative PATH.
+Hard stop afterward: further TEST-only findings are deferred with reason and
+Nit Store record; a guidance-line finding is escalated. Merge is held behind
+#1870 by the orchestrator; a later base refresh may be needed.
