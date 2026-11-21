@@ -673,3 +673,31 @@ worktree and follows this row's merge. Review, receipt, full finish gate,
 push scans and exact-head CI are pending this checkpoint; later evidence will
 record their actual results. `--raised-cap` on the receipt writer controls
 review-pass escalation, not document word caps; no such escalation is used.
+
+
+### Row D review pass 1 corrections
+
+The branch review helper measured reviewer `codex/gpt-6.2-sol`, scope
+`diff-only`, network `unverified`, credentials `absent`; `CODEX_REVIEW: ran`.
+Both LOW findings are accepted and corrected without changing driver text:
+
+- The late declaration fixture also broke the begin-run boundary. It now
+  isolates `begin-run -> approve -> declaration`; a separate early fixture
+  isolates `declaration -> begin-run -> approve`. The narrow contract asserts
+  each boundary separately and requires each fixture to fail for its named
+  reason.
+- Whole-document commit-command matching could accept permission or text
+  outside the child prompt. The checker now locates Step 4's execution fence,
+  requires the MUST NOT section and finds the commit/ref prohibition inside
+  it. Committed good, permission and outside-prompt controls preserve the
+  command phrase while proving the policy distinction.
+
+Before corrections the new controls produced **3 failed, 5 passed**. After
+corrections all **42 driver cases passed in 5.68 seconds**. Fixture-only
+scope variance: `before-begin-run.md` and `fence-{good,permission,outside-prompt}.md`
+under the already approved fixture directory were added to pin these findings.
+Approved plan body unchanged; no production helper/fence/policy changes or
+further cap increase. A first `make dep-audit` attempt hit the command tool's
+10-second limit and is not counted as a pass; rerun will be detached with the
+final gate/scans job. The audit's actual Makefile target is `dep-audit`, while
+its script and CI step are named dependency-audit.

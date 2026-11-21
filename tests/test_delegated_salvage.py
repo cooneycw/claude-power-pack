@@ -40,7 +40,8 @@ def parent_contract(step: str) -> None:
     commands = [entry for block in bash_blocks(step) for entry in block]
     locations = [[n for n, line in commands if line == call] for call in (BEGIN, CALL, APPROVE)]
     assert all(len(items) == 1 for items in locations), "one active lifecycle call each"
-    assert locations[0][0] < locations[1][0] < locations[2][0], "declare before approve, after begin-run"
+    assert locations[0][0] < locations[1][0], "declare after begin-run"
+    assert locations[1][0] < locations[2][0], "declare before approve"
     block = salvage_block(step)
     assert [line.strip() for line in block.splitlines()] == [
         'SALVAGE_SHA=""', 'if [ -n "$SALVAGE_SHA" ]; then', CALL,
@@ -61,10 +62,36 @@ def parent_contract(step: str) -> None:
 def test_real_driver_declares_only_explicit_parent_salvage_before_stamp(driver: str) -> None:
     parent_contract(step3(driver))
     text = (ROOT / f".claude/commands/{driver}/auto.md").read_text()
-    assert "Run git commit, git push" in text, "child commit fence must remain"
+    child_contract(text)
 
 
-@pytest.mark.parametrize("name", ("good", "missing-call", "after-approve", "unconditional", "child-commit"))
+def child_contract(text: str) -> None:
+    section = text.split("### Step 4:", 1)[1].split("### Step 5:", 1)[0]
+    blocks = re.findall(r"^```[a-z]*\n(.*?)^```[ \t]*$", section, re.M | re.S)
+    fences = [block for block in blocks if block.startswith("EXECUTION FENCE - MANDATORY CONSTRAINTS\n")]
+    assert len(fences) == 1, "one actual child execution fence required"
+    assert "You MUST NOT:" in fences[0], "child prohibition required"
+    forbidden = fences[0].split("You MUST NOT:", 1)[1].split("You MAY:", 1)[0]
+    assert re.search(
+        r"^1\. Run git commit, git push, or any git command that modifies history or refs\.$",
+        forbidden, re.M,
+    ), "commit instruction must be prohibited inside the child prompt"
+
+
+@pytest.mark.parametrize("name", ("good", "permission", "outside-prompt"))
+def test_committed_child_fence_controls(name: str) -> None:
+    text = (ROOT / f"tests/fixtures/delegated-salvage/fence-{name}.md").read_text()
+    assert "Run git commit, git push" in text, "precondition: command phrase remains in every case"
+    if name == "good":
+        child_contract(text)
+    else:
+        with pytest.raises(AssertionError):
+            child_contract(text)
+
+
+@pytest.mark.parametrize("name", (
+    "good", "missing-call", "after-approve", "before-begin-run", "unconditional", "child-commit",
+))
 def test_committed_parent_controls(name: str) -> None:
     text = (ROOT / f"tests/fixtures/delegated-salvage/{name}.md").read_text()
     if name == "good":
@@ -73,12 +100,15 @@ def test_committed_parent_controls(name: str) -> None:
         if name == "missing-call":
             assert CALL not in text, "precondition: declaration absent"
         elif name == "after-approve":
-            assert text.index(APPROVE) < text.index(CALL), "precondition: late declaration"
+            assert text.index(BEGIN) < text.index(APPROVE) < text.index(CALL), "precondition: late only"
+        elif name == "before-begin-run":
+            assert text.index(CALL) < text.index(BEGIN) < text.index(APPROVE), "precondition: early only"
         elif name == "unconditional":
             assert 'if [ -n "$SALVAGE_SHA" ]; then' not in text, "precondition: no conditional"
         else:
             assert "The child owns that commit" in text, "precondition: wrong commit owner"
-        with pytest.raises(AssertionError):
+        message = {"after-approve": "declare before approve", "before-begin-run": "declare after begin-run"}
+        with pytest.raises(AssertionError, match=message.get(name)):
             parent_contract(text)
 
 
