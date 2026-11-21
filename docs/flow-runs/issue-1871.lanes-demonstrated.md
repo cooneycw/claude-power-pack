@@ -85,3 +85,13 @@ The derived schema-5 receipt records accepted3/rejected0/deferred1 and the
 explicit reason/authority in its extra-pass explanation. All passes were
 captured-patch/diff-only, without a reviewer shell; network/credential isolation
 unverified. Product/source inputs remain unchanged since that review.
+
+
+The first full gate on 7373bfc8 failed: **1 failed, 13214 passed, 4 skipped**
+in 1120.02 seconds. Existing negative-fixture enforcement found the new
+relative-PATH test lacked a directly recognized lookup precondition. The
+standalone checker reproduced the same finding on merged main dbb485d4.
+Orchestrator mailbox 36757 authorized correcting this gate failure without
+reopening the deferred review finding. The case now directly asserts relative
+Git lookup succeeds in launcher cwd and is absent in scan cwd, before the
+reader runs. Two interrupted foreground checks are not counted as evidence.

@@ -212,8 +212,12 @@ def test_history_reader_finds_git_from_a_relative_path_without_fallback(tmp_path
     (launcher / ".ci-bin/gitleaks").symlink_to(scanner)
     monkeypatch.chdir(launcher)
     monkeypatch.setenv("PATH", ".ci-bin")
-    found = shutil.which("git")
-    assert found is not None and not Path(found).is_absolute()
+    assert shutil.which("git") == ".ci-bin/git", "fixture must resolve relative git in launcher"
     assert os.environ["PATH"] == ".ci-bin"
-    result = scan(tmp_path / "scan", (CASES / "good-generated-header.md").read_bytes())
+    scan_dir = tmp_path / "scan"
+    scan_dir.mkdir()
+    with monkeypatch.context() as changed_cwd:
+        changed_cwd.chdir(scan_dir)
+        assert shutil.which("git") is None, "fixture must lack git after changing cwd"
+    result = scan(scan_dir, (CASES / "good-generated-header.md").read_bytes())
     assert result.returncode == 0
