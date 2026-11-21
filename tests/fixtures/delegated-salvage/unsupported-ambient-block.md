@@ -1,0 +1,27 @@
+### Step 1: Start
+
+```bash
+~/.claude/scripts/flow-plan-record.py reconcile 42
+~/.claude/scripts/flow-plan-record.py read-issue 42
+```
+
+### Step 3: Approve
+
+```bash
+~/.claude/scripts/flow-plan-record.py begin-run 42
+```
+
+The parent, never the child, owns that commit; commit it unmodified as its own ancestor checkpoint. Never infer salvage from history; no preserved work means no call. Non-zero: STOP.
+
+```bash
+SALVAGE_SHA="$AMBIENT"
+if [ -n "$SALVAGE_SHA" ]; then
+    ~/.claude/scripts/flow-plan-record.py declare-salvage 42 "$SALVAGE_SHA" --reason "<why>"
+    SALVAGE_EXIT=$?
+    [ "$SALVAGE_EXIT" -eq 0 ] || exit "$SALVAGE_EXIT"
+fi
+```
+
+```bash
+~/.claude/scripts/flow-plan-record.py approve 42
+```

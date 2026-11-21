@@ -1,0 +1,21 @@
+```bash
+~/.claude/scripts/flow-plan-record.py begin-run 42
+```
+
+
+
+The parent, never the child, owns that commit; commit it unmodified as its own ancestor checkpoint. Never infer salvage from history; no preserved work means no call. Non-zero: STOP.
+
+
+```bash
+~/.claude/scripts/flow-plan-record.py approve 42
+```
+
+```bash
+SALVAGE_SHA=""
+if [ -n "$SALVAGE_SHA" ]; then
+    ~/.claude/scripts/flow-plan-record.py declare-salvage 42 "$SALVAGE_SHA" --reason "<why>"
+    SALVAGE_EXIT=$?
+    [ "$SALVAGE_EXIT" -eq 0 ] || exit "$SALVAGE_EXIT"
+fi
+```

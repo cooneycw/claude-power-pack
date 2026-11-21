@@ -620,3 +620,325 @@ Final-main integration administration (approver cp-orch, mailbox 37078 and GO 37
 | Reader: GitHub and closing report | not covered | Fake GitHub network boundary only; controls pin repo/context/refusal/closing-link instructions, not live posting. |
 
 After integration with main 34c417f9, repeated the related selection successfully. Budget and both audits/selftests also passed. The rows above apply to the header-only re-approved plan; their evidence and limits remain the same. Final caps: codex 9517, qwen 10729, gemma 11338, exactly +198 each versus integrated main. Receipt enrolment selected the existing receipt (documented receipt disposition, exit 10); no new review pass requested. Final full gate still pending.
+
+
+<!-- lanes-demonstrated run=6f7f7f0788e9450abfb2e44acad594e8 plan=8e30907014bc8eeb417efb41ff0d0aea21e1e0238665a5b403443701b6688925 -->
+
+## Declare-salvage row D
+
+| Lane | Result | Evidence |
+|---|---|---|
+| Checkout | passed | tests/test_delegated_salvage.py executes actual conditional block in fixture-owned main checkout and linked worktree. |
+| Harness | passed | make delegated-core-check reads actual Claude renders; make driver-parity-check builds/reads generated flow-auto. Delegated meta drivers intentionally unpackaged; no live install claim. |
+| Driver | passed | All three actual rendered Step 3s exercised; existing tests/test_flow_plan_record.py, tests/test_flow_plan_record_runs.py and tests/test_flow_plan_compliance.py exercise flow-auto/helper procedure. No live model obedience claim. |
+| Project state | passed | New empty/ancestor/invalid/nonancestor/ambient cases plus actual helper/approval records; existing compliance salvage cases. |
+| Run location | passed | External consumer fixture roots execute actual block; CPP root runs real renderer/parity/budget checks. |
+
+Reader evidence: actual generated blocks feed the real helper, declaration
+record and approval baseline, with fixture-owned identities and an explicit
+interpreter. Negative cases abort before the approval sentinel; empty/ambient
+cases produce no declaration output and leave the record unchanged. Child
+commit fence is unchanged and pinned. Existing helper/compliance suites read
+actual salvage records. Rendering/parity/budget read real files. External
+install/model behavior remains unexamined.
+
+On unchanged main 34c417f9: **33 failed, 5 passed**; all three new driver
+regressions and executed-block cases fail the missing declaration contract.
+After implementation: **38 passed**, and broad focused/helper suite
+**385 passed in 17.68 seconds**. The detached job recorded exit 0 and successful
+completion/notification. Committed good control is accepted; missing, late,
+unconditional and child-owned-commit controls are rejected with asserted
+negative preconditions. These test a narrow document grammar and actual shell
+blocks, not a live parent's interpretation.
+
+Integration correction: the initially approved +93-word block put `|| exit $?`
+on the helper line. Actual driver-parity rejected this as a non-plain shell
+construct. The helper invocation is now plain, with its status captured and
+checked on separate lines; every nonzero still stops with that original
+status before approval. This costs +6 words per driver, approved by cp-orch
+mailbox 37295. Total **+99 words per driver, executable gate step**, under
+owner ruling 7065030917. No checker or stop semantics weakened.
+
+Main-ready mailbox 37307 authorized integration of row A / #1883. Rebased
+onto main 2ede561d before minting this run. Only TSV conflicted; rendered
+files were regenerated and counted, not chosen from a conflict side.
+Exact upstream counts 9517 / 10729 / 11338 become caps/counts
+**9616 / 10828 / 11437** for codex / qwen / gemma. Existing upstream run
+sections preserved; this late run received next-free ordinal 7, so no
+header renumber or administrative re-approval was needed. The original
+baseline is 8e30907014bc8eeb417efb41ff0d0aea21e1e0238665a5b403443701b6688925.
+
+No touched-but-unplanned product files. Row E remains in its own untouched
+worktree and follows this row's merge. Review, receipt, full finish gate,
+push scans and exact-head CI are pending this checkpoint; later evidence will
+record their actual results. `--raised-cap` on the receipt writer controls
+review-pass escalation, not document word caps; no such escalation is used.
+
+
+### Row D review pass 1 corrections
+
+The branch review helper measured reviewer `codex/gpt-6.2-sol`, scope
+`diff-only`, network `unverified`, credentials `absent`; `CODEX_REVIEW: ran`.
+Both LOW findings are accepted and corrected without changing driver text:
+
+- The late declaration fixture also broke the begin-run boundary. It now
+  isolates `begin-run -> approve -> declaration`; a separate early fixture
+  isolates `declaration -> begin-run -> approve`. The narrow contract asserts
+  each boundary separately and requires each fixture to fail for its named
+  reason.
+- Whole-document commit-command matching could accept permission or text
+  outside the child prompt. The checker now locates Step 4's execution fence,
+  requires the MUST NOT section and finds the commit/ref prohibition inside
+  it. Committed good, permission and outside-prompt controls preserve the
+  command phrase while proving the policy distinction.
+
+Before corrections the new controls produced **3 failed, 5 passed**. After
+corrections all **42 driver cases passed in 5.68 seconds**. Fixture-only
+scope variance: `before-begin-run.md` and `fence-{good,permission,outside-prompt}.md`
+under the already approved fixture directory were added to pin these findings.
+Approved plan body unchanged; no production helper/fence/policy changes or
+further cap increase. A first `make dep-audit` attempt hit the command tool's
+10-second limit and is not counted as a pass; rerun will be detached with the
+final gate/scans job. The audit's actual Makefile target is `dep-audit`, while
+its script and CI step are named dependency-audit.
+
+
+### Row D review pass 2 corrections and evidence clarification
+
+Pass 2 used the same measured different reviewer model and diff-only scope.
+Four LOW findings are accepted. The completed corrections are:
+
+1. Approval-reader evidence now verifies the actual stamped baseline digest
+   against the real current run section containing the selected salvage SHA.
+   The selected-ancestor case also runs actual compliance, requiring its
+   salvage-union diagnostic and agreement. This is a new assertion over real
+   helper output, not a claim that the unchanged helper previously failed.
+2. Empty selection now starts with only the original base commit, asserted by
+   its commit count; no explicit preservation checkpoint exists. Ambient SHA
+   contamination uses ordinary history rather than a commit described as
+   explicit preservation.
+3. `fence-contradiction.md` retains MUST NOT and grants commit permission in the
+   same fence. The narrow policy check now rejects commit/push in its permission
+   section as well as requiring the prohibition inside the Step 4 prompt.
+4. Harness/CPP-root evidence comes from separately executed verification, not
+   new shell-regression cases. Existing automated tests actually run in the
+   385-case suite include
+   `tests/test_delegated_core_vendor.py::test_real_repo_drivers_match_the_canonical_core`,
+   `tests/test_delegated_core_vendor.py::test_rendering_the_real_repo_is_idempotent`,
+   `tests/test_driver_parity.py::test_repository_driver_parity`, and
+   `tests/test_driver_parity.py::test_real_generator_preserves_flow_membership_and_leaves_delegated_families_unpackaged`.
+   The Make checks also executed from the CPP root separately. None establishes
+   a live installed delegated model run; those remain not covered.
+
+New empty-history/contradictory-permission checks first returned **7 failed,
+2 passed**, then all **43 driver cases passed in 4.76 seconds**. Lint passes.
+Only tests/fixtures and this evidence changed; production text/caps remain
++99 words per driver. The extra contradiction fixture is another disclosed
+control added under the approved fixture directory. The approved body remains
+unchanged; the existing compliance report transparently names extra fixtures
+as touched but not planned. No clean-review claim is made. A third review
+requires explicit orchestrator approval because the two-pass default is spent.
+
+
+### Row D final review and recorded limitations
+
+cp-orch mailbox 37365 authorized pass 3 on the corrected head with reviewer
+continuity and a hard stop after it. The receipt records the reason and
+cp-orch authority in `extra_pass_reason`; escalation flags reserved by the
+writer for passes beyond 3 are intentionally omitted. Pass 3 again measured
+`codex/gpt-6.2-sol`, diff-only, network unverified, credentials absent. No
+product/driver-text defect was reported. Two LOW test-adequacy findings remain,
+recorded separately as instructed rather than extending the review loop:
+
+- Explicit-preservation prerequisite/selected-SHA prose is present in the
+  driver but not fully pinned by the narrow policy assertions:
+  https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7070332671.
+- Exact existing case/command references for three variants are in this
+  evidence rather than directly linked from the immutable approved lane rows:
+  https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7070332869.
+
+Receipt `docs/measurements/counter-model/2026-11-21T223921Z-issue-1811.json`
+derives both identities from native runtime evidence, binds the reviewed
+artifact and records 3 passes / 6 fixed findings / 2 deferred findings. It is
+not a clean-review claim. There is no fourth pass.
+
+The live dependency audit passed: planted vulnerable fixture reported
+3 advisories and clean fixture none; actual project examined 43 packages,
+0 gating findings and 0 stale suppressions. Two Windows-only packages are
+not audited on Linux, stated by the audit. Undeclared-import audit/selftest
+passed earlier; repeat before push. Pinned gitleaks 8.30.1 downloaded into a
+private temporary root and checksum verified against its release checksums.
+Full finish gate and exact-head CI remain pending; their actual results will
+be appended after execution. Approval stability remains unchanged; file-set
+compliance transparently reports the five added review controls, not agreement.
+
+
+### Row D finish admission attempt 1
+
+The audited wrapper ran under the normal account HOME with ADDOPTS unset,
+private short TMPDIR, current-checkout receipt helper and the real Kyle
+admission client. Own-slot job 284d3790-7ba4-446d-b5a4-11a87324b356 published
+actual terminal completion and notification successfully.
+
+It did **not** acquire admission within the configured 600 seconds. Queue
+position moved from 4 to 1. Exact verdict:
+`FLOW_FINISH_GATE: fail (coordination not granted: no grant within 600s, last state queued (kyle-lock exit 10), no gate work started)`
+with `FLOW_FINISH_GATE_EXIT=1`.
+
+No lint/test/security/verify gate work started, so this is neither a full-suite
+pass nor a product test failure. No product changes are proposed in response.
+A new wrapper attempt requires a new own-slot job/ticket and orchestrator
+instruction under the one-heavy-run rule; request is for a longer admission
+wait, with admission still enforced. No push/PR yet.
+
+Pre-push scan evidence completed before this attempt: undeclared-import audit
+and live selftest pass; dependency-audit live positive control detects its
+planted advisories and project scan passes with its stated Windows-only
+exclusions; gitleaks 8.30.1 (checksum verified) git --log-opts=HEAD scans
+1032 commits / about46.35MB and returns0. The same pinned binary, same
+repository config and same git --log-opts=HEAD mode were also exercised
+against isolated committed copies of existing secret-scan fixtures: relocated
+bad-private-key returns1 with a leak diagnostic; good-clean returns0. No
+sensitive finding content was printed. Command budgets pass at the exact caps.
+
+
+### Row D owner-paced cancellation before gate work
+
+Mailbox 37410 authorized a replacement admission attempt with a 3600-second
+wait and 90-minute deadline. Own-slot job d901cfc7-47e2-4975-9026-1782b230920b
+queued without starting gate work. Mailbox 37423 then relayed the owner rule:
+at most one heavy local gate from this group, and no start while load5 > 24.
+Observed load5 was 34.53, so the queued attempt was withdrawn.
+
+Cancellation detail: the authority cancelled queued request 1201, but the
+waiting `kyle-lock run` client intentionally reacquired under a new request,
+1203. The verified owned waiting client was then stopped with SIGTERM and
+withdrew that request itself. Authority confirmed it was already cancelled;
+subsequent status showed no queued request or holder for this session. No
+other holder was signalled. No gate work started. The wrapper reported
+`FLOW_FINISH_GATE: fail (coordination supervisor exited 143 and the gate recorded no status)`
+and exit1; own-slot terminal completion/notification succeeded. This is an
+owner-directed pre-work cancellation, not a product test failure or evidence
+of a passing gate.
+
+A passive, self-notifying load watcher waits for load5 <= 24. Before the one
+replacement authorized by mailbox 37423, recheck load5, confirm the group has
+no other heavy run, and launch with the same admission/deadline parameters.
+Admission remains enforced. Apply the same pacing check to row E later.
+No push/PR until a permitted gate verdict and final-HEAD scans.
+
+
+### Row D first admitted full gate and compatibility corrections
+
+Owner-paced launch observed load5 **19.99**, below the owner limit24;
+admission granted full-suite request1205, and the real wrapper accepted the
+committed native receipt. The security scan examined2984 source files,
+blocked0 CRITICAL and warned5 HIGH (existing test fixtures); it continued.
+The runner deferred lint/test/typecheck to their direct verify prerequisites.
+`make verify` reached its real tests and stopped there:
+**70 failed, 13493 passed, 4 skipped in 536.42 seconds**.
+Exact wrapper result: `FLOW_FINISH_GATE: fail (at prerequisite test)`, exit1.
+No pass, push or CI claim is made.
+
+Diagnosed integration causes and completed corrections:
+
+- Existing `controls/delegated-plan-lanes/run-case.py` rejects a new helper verb
+  before exercising any existing approval/compliance/product controls. It now
+  accepts only the exact published empty-SHA conditional salvage block, which
+  makes no declaration for these fixtures. Selected or malformed blocks remain
+  unknown. The committed `unsupported-ambient-block.md` and its test require
+  the named unsupported-salvage diagnostic, not merely any nonzero exit.
+  Actual selected/invalid salvage execution remains owned by the new shell
+  tests; this control does not claim to interpret arbitrary conditions.
+- The test skip guard used `any(shutil.which(tool) ...)`, which works at runtime
+  but is not recognized by CPP's static binary-guard instrument. It now uses
+  explicit `shutil.which("git")` and `shutil.which("bash")` clauses. The
+  recognizer itself is unchanged.
+
+After corrections **260 focused tests passed in 18.94 seconds**, covering the
+new driver tests, the previously failing delegated-plan-lanes integration and
+actual binary-guard suite. Lint passes. An initial focused command was cut off
+by the command tool's10-second timeout; the completed result above comes from
+its separately prepared own-slot job, not the interrupted run.
+
+Touched-but-unplanned additions: the existing control runner compatibility
+change and one named bad fixture/test are necessary integrations of the new
+Step3 block. Driver text/helper/schema/caps are unchanged. The genuine native
+receipt continues to describe its actual reviewed artifact; these later
+compatibility corrections are tested but have no fourth model review, per the
+orchestrator's explicit hard stop. The receipt is neither rewritten nor
+represented as review of changes made after its report. A new full gate
+requires orchestrator instruction and a fresh load5<=24 check.
+
+
+### Row D authorized delta-only instrument review, pass 4
+
+Mailbox 37518 explicitly raised the review cap to4 because the post-gate
+compatibility correction changed an instrument. Scope was only the actual
+diff from reviewed head a1ad48a6 to compatibility head1ece1cf6. The branch
+helper consumed that canonical patch, measured reviewer codex/gpt-6.2-sol,
+diff-only, network unverified and local credentials absent. No fifth pass.
+
+Two LOW findings received explicit dispositions:
+
+- Alternate whitespace can miss the salvage-specific comparison. The current
+  generic fallback still rejects the helper invocation. A fixture-owned
+  reproduction changed the call to two spaces and actually returned exit3,
+  `DELEGATED_PLAN_LANES: unavailable - unsupported helper invocation`, before
+  setup. It does not admit or silently omit the unsupported command. Rejected
+  as a bypass claim; it changes which unknown diagnostic is selected, not
+  unknown versus acceptance.
+- A paired comment-only edit control for the exact-template boundary is
+  absent. The parser deliberately reports template identity, not semantic
+  salvage equivalence. This LOW test-adequacy gap is recorded at
+  https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7070914642.
+
+New genuine receipt `2026-11-21T233026Z-issue-1811.json` binds only that delta,
+with passes4, raised_cap4, cp-orch authority, mailbox37517 reference and the
+actual extra-pass reason. Delta dispositions are0fixed/1rejected/1deferred;
+the original main-range receipt retains its6fixed/2deferred findings. Together
+they establish what was actually reviewed; no fourth full review of the old
+driver text is claimed. No product changes followed the delta review.
+
+A separate supplemental pending-row issue was recorded without touching E:
+https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7070887122
+(the same loop-based skip marker in E is not statically recognized).
+
+Mailbox37518 authorizes one fresh gate after this review, with freshload5<=24,
+no other heavy CPP run, actual admission3600s and90-minute job deadline. The
+PR will preserve the full history: gate1 queue timeout; gate2 owner-paced
+cancellation before work; gate3 actual70/13493/4 integration failure, now fixed;
+gate4 pending actual execution/result. The source and caps remain unchanged.
+
+
+### Row D gate 4 final result
+
+Own-slot job3e74d1eb-1b56-4b48-a1fe-7b3ba7cf79ab launched at freshload5
+**17.26**; no other CPP gate was held/queued. It acquired real full-suite
+request1206 and accepted the escalated4-pass delta receipt. It discarded the
+old failed resumable state because the tree changed and started fresh.
+
+Actual wrapper verdict: **`FLOW_FINISH_GATE: ok`**, **exit0**. Actual test
+summary: **13564 passed, 4 skipped in 512.32 seconds**. The four skip reasons
+were not emitted in the retained summary; this does not claim those cases ran.
+`make verify` completed, including lint/typecheck as direct prerequisites;
+the wrapper reported lint/test/typecheck subsumed by verify, rather than
+pretending to execute them again. The deterministic security scan examined
+2984 files, blocked0 CRITICAL and warned5 HIGH in existing test fixtures.
+Negative controls, renderer, parity, exact word budgets and binary guards
+completed under the full verification target. Completion and notification
+both succeeded. The gate ran on source/evidence checkpoint b6e27d08; this
+later commit changes only this issue's evidence, not tested source.
+
+Verification is bounded by each check's printed population. Existing advisory
+skill-coverage and behavioral-eval outputs are not promoted to clean coverage;
+behavioral eval explicitly reported inconclusive. Static CI dependency/link
+checks retain their stated exclusions. Live installed delegated-model
+obedience remains unexamined. File-set compliance still reports seven extra
+review/integration paths with its actual divergence verdict; approval stability
+and issue-body drift are unchanged. These extra paths are disclosed in the PR,
+not hidden by rewriting the approved plan.
+
+Next: rerun the required pre-push budget/import/dependency/gitleaks checks on
+this final evidence HEAD, push/open a Refs#1811 PR, and record exact-head CI.
+The historical gate failures/cancellation remain preserved above and in the PR.
