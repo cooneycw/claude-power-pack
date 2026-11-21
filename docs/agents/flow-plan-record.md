@@ -129,6 +129,8 @@ run); Step 4 then appends the run's fields, `### Section B evidence` and
 heading, because the as-read snapshot embeds the issue BODY, and an issue can
 contain any heading, including `## Run 2`.
 
+Run-start already records the starting commit; do not restate hashes in free text or place api/key/token beside them.
+
 **Every check reads only this run's section:** the Step-3 guard, `approve`,
 `compliance`, the stability baseline, `drift` and `head-check`. None of them
 ever reads the union of runs. A run with no section of its own is refused

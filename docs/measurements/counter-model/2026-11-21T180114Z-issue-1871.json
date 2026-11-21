@@ -1,0 +1,70 @@
+{
+  "branch": "issue-1871-plan-record-secret-control",
+  "counts": {
+    "accepted": 3,
+    "deferred": 1,
+    "rejected": 0
+  },
+  "extra_passes_reason": "pass 2 found the history reader's Git lookup still depended on a relative PATH; authorised by cp-orch mailbox 36678. Final TEST-only stored GOOD fixture field-presence gap deferred under the same hard-stop proportional-prevention ruling; actual generated output independently checks all three fields. Nit Store comment 7066926563 records the deferred case and reason.",
+  "head": "ff943312b78793c1484b856eb6d7acac1ffb1c16",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/21/rollout-2026-11-21T14-18-41-01a1fe79-3f8f-71c1-80ba-492e1fb34c90.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 6627650,
+        "path": "2026/11/21/rollout-2026-11-21T14-18-41-01a1fe79-3f8f-71c1-80ba-492e1fb34c90.jsonl",
+        "sha256": "e5c87471c0341c2cf6ce3f1971ae99c5baee95bc13d267b90d63ccb7cc546f3d"
+      }
+    ],
+    "thread_id": "01a1fe79-3f8f-71c1-80ba-492e1fb34c90"
+  },
+  "issue": "1871",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 3,
+  "recorded_at": "2026-11-21T18:01:14Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 4
+  },
+  "reviewed_artifact": {
+    "base_sha": "cd6d2b4857165be213b35aa7eac9a0cac4cffffd",
+    "merge_base": "cd6d2b4857165be213b35aa7eac9a0cac4cffffd",
+    "method": "captured-patch",
+    "patch_sha256": "bf31cf4a65a70c77965a6258249381a282ca92ad553551a4f97320fda0d7ba86",
+    "report_record": 17,
+    "target_head": "ff943312b78793c1484b856eb6d7acac1ffb1c16"
+  },
+  "reviewer": "codex/gpt-6.2-sol",
+  "reviewer_evidence": {
+    "exec_log": "reviewer-third-stream.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.2-sol"
+    ],
+    "rollout": "2026/11/21/rollout-2026-11-21T17-58-07-01a1ff42-251d-7033-8f29-218d9c64a952.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 1508,
+        "path": "reviewer-third-stream.jsonl",
+        "sha256": "8d299e92c61caf173b746ea54063758a7a7690c5aaf2413c8bac59513e5aad35"
+      },
+      {
+        "bytes": 179126,
+        "path": "2026/11/21/rollout-2026-11-21T17-58-07-01a1ff42-251d-7033-8f29-218d9c64a952.jsonl",
+        "sha256": "32cd2bc851c8c3b41d2051dd254410d28255ff0b26d131c135db4771a1e34e13"
+      }
+    ],
+    "thread_id": "01a1ff42-251d-7033-8f29-218d9c64a952"
+  },
+  "schema": 5,
+  "scope": "diff-only",
+  "status": "ran"
+}
