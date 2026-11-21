@@ -236,6 +236,27 @@ Report: `Step 1/8: Start complete - worktree at {path}, on branch {branch}`
 
 Working from the worktree, analyze the issue and build a comprehensive prompt for the Gemma model.
 
+**Spec context (parent, before planning):**
+
+```bash
+BODY_FILE="$(mktemp -t delegated-body-XXXXXX.md)" || exit 1
+if ! gh issue view 42 --json body --jq .body > "$BODY_FILE"; then
+    echo "STOP: issue fetch failed; context unchecked."
+    exit 1
+fi
+if [ -x ~/.claude/scripts/speckit-context.py ]; then
+    ~/.claude/scripts/speckit-context.py check --body-file "$BODY_FILE" --root .
+else
+    echo "Context unchecked: checker unavailable; read the source directly."
+fi
+```
+
+Substitute the assigned issue for 42. Follow the
+[context states](../../../docs/scripts/speckit-context.md): `absent` is ordinary;
+otherwise read the reference source before building the prompt. Exit 3 reports
+a state; changed bytes alone never change acceptance. Missing checker is
+explicitly unchecked, never absent.
+
 **0. Capability pre-flight (issue #783) - before building any prompt.** Having
 read the issue body, decide what the work actually NEEDS and check it against the
 capability contract above. Two questions, both answerable from the issue:

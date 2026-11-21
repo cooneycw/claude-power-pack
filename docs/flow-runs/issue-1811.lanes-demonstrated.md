@@ -264,6 +264,57 @@ timeout signalled TERM, durable completion exit143 at 16:05:21Z, job
 b32a0435-2898-4b8a-892f-c91b715178a8. It proves no gate result and is not counted.
 The corrected head will receive the one authorized replacement full gate.
 
+<!-- lanes-demonstrated run=239ea5cdda114e6d9e1ec9bbb4267b3f plan=96a716edde2df678a72a3b158f5d22c22e7abba01afd3c06ccc43472a90b7023 -->
+
+## Run 3 - speckit-context row
+
+| Lane | Result | Test or observation |
+|---|---|---|
+| Checkout | passed | Real rendered-block tests own normal Git checkouts and linked worktrees |
+| Harness | passed | Fixture HOME stable helper path executes the real checker, including direct source symlink for generated/changed contexts; delegated Codex families remain unpackaged |
+| Driver | passed | All three actual generated drivers execute the block and satisfy the documented ordering contract |
+| Coordination | not run | Not applicable: no coordination behavior change |
+| CI provider | not run | Not applicable: no provider/status reader change |
+| Project state | passed | Ordinary absent context, actual rendered source-bearing context, changed source, unavailable checker |
+| Toolchain version | not run | No version-policy change; installed runtime exercised, no matrix claim |
+| Clone shape | not run | Not applicable: no implementation history dependency |
+| Run location | passed | Ordinary real-checker calls from CPP root and fixture target cwd; generated-context calls use --root . from verified fixture main/linked targets |
+| Gate target | not run | Not applicable: no finish-runner interpreter policy change |
+| Wave role state | not run | Not applicable: no role lifecycle change |
+| Reader: speckit checker | passed | Real renderer produces the fetched body; real checker consumes the unique body file and source under target root |
+| Reader: parent planning session | not run | Live semantic compliance not claimed; actual generated text and committed missing/late-read controls pin source-read-before-prompt instructions and canonical state reference |
+| Reader: parity and procedure tests | passed | Actual run-policy entries and generated commands; removing one driver's call reports exactly that missing pair |
+
+Final actual-driver/parity regressions copied into detached pre-fix main
+cd6d2b48: **54 failed in 2.05s**, because context wiring is absent or the parity
+rows remain exempt. After the source addition, real helper and broader
+vendor/driver/budget suites report **412 passed in 22.23s**. The checker itself
+is unchanged. Caller controls exercise failed empty/partial fetch (STOP before
+checker), real ordinary/current/changed states, two distinct body files,
+allocation failure before fetch, and missing checker reported unchecked rather
+than absent. The committed unchecked-fetch control also executes: a failed fetch
+falls through to the real checker and falsely returns absent/exit 0, proving the
+failure signal differs from an examined ordinary issue.
+
+The procedure controls contain good, unchecked-fetch, fixed-body-file,
+commented-checker, missing-checker, missing-source-read and late-source-read
+cases. They pin a literal Markdown/Bash procedure grammar, not arbitrary shell
+semantics or a live model obeying it. The real-driver tests consume full actual
+rendered commands, separately from those small discriminating fixtures.
+
+Words: codex 8669 -> 8768, qwen 9883 -> 9982, gemma 10492 -> 10591, +99 each.
+Existing headroom absorbs 20/22/22; caps rise 79/77/77 to exact current counts,
+under owner ruling 7065030917 (executable gate step). No unrelated prose grows.
+Only the shared core is edited as source; generated regions were written by
+make delegated-core-write. Three speckit entries now run, and citation hints
+were refreshed by finding their unchanged text in actual generated documents.
+
+Lint, typecheck (515 source files), vendor, budget, driver parity, binary guards,
+negative-fixture checks and both import-audit paths (selftest plus real tree)
+pass. The import selftest reports its planted import and stays silent on its
+clean pair. Refs #1811 only. Merges stay frozen until #1870; after it lands this
+branch must merge main, recheck and re-gate before orchestrator merge.
+
 
 ## Post-child guard pair
 

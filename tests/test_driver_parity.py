@@ -614,3 +614,27 @@ def test_plain_approve_is_not_the_composite() -> None:
     text = text.replace("approve 42", "approve 42 --plan /p.md")
     assert set(parity.inventory(text, composites=composites)) == {
         "flow-plan-record.py begin-run", "flow-plan-record.py approve"}
+
+
+@pytest.mark.parametrize("driver", ("codex", "qwen", "gemma"))
+def test_speckit_row_requires_the_call_and_names_its_missing_driver(tmp_path: Path, driver: str) -> None:
+    actual = json.loads((ROOT / "docs/agents/driver-parity.json").read_text())
+    entries = [entry for entry in actual["entries"] if entry["gate"] == "speckit-context.py"]
+    assert len(entries) == 3 and all(entry["disposition"] == "run" for entry in entries)
+    root = tree(tmp_path)
+    call = '~/.claude/scripts/speckit-context.py check --body-file "$BODY_FILE" --root .'
+    assert "speckit-context.py" in parity.inventory((root / parity.FLOW).read_text())
+    policy = root / parity.POLICY
+    data = json.loads(policy.read_text())
+    data["entries"] = [entry for entry in data["entries"] if entry["gate"] != "speckit-context.py"] + entries
+    policy.write_text(json.dumps(data))
+    for name in parity.DRIVERS:
+        fixtures.append(root / f".claude/commands/{name}/auto.md", call)
+    assert outcome(root).returncode == 0
+    path = root / f".claude/commands/{driver}/auto.md"
+    assert call in path.read_text()
+    path.write_text(path.read_text().replace(call, "# " + call))
+    done = outcome(root)
+    assert done.returncode == 1, done.stdout + done.stderr
+    assert done.stdout.count("DRIVER_PARITY_MISSING:") == 1
+    assert f"driver={driver} gate=speckit-context.py" in done.stdout

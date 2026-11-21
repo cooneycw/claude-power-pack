@@ -52,12 +52,12 @@
       "citations": [
         {
           "file": ".claude/commands/codex/auto.md",
-          "line": 1160,
+          "line": 1198,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
           "file": ".claude/commands/flow/auto.md",
-          "line": 988,
+          "line": 980,
           "text": "   ~/.claude/scripts/flow-ci-status.sh <pr-head-sha> --path /path/to/worktree --strict-event --wait 1800"
         }
       ]
@@ -176,12 +176,12 @@
       "citations": [
         {
           "file": ".claude/commands/codex/auto.md",
-          "line": 1160,
+          "line": 1198,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
           "file": ".claude/commands/flow/auto.md",
-          "line": 1008,
+          "line": 1000,
           "text": "   ~/.claude/scripts/gh-pr-merge.sh 78 issue-42-fix-login"
         }
       ]
@@ -196,8 +196,8 @@
     {
       "gate": "speckit-context.py",
       "driver": "codex",
-      "disposition": "exempt",
-      "reason": "Known gap: implementation-only scope does not replace recorded task-context checks.",
+      "disposition": "run",
+      "reason": "Parent Step 2 checks context after a successful unique-file issue fetch, before planning (#1811).",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -209,12 +209,12 @@
       "citations": [
         {
           "file": ".claude/commands/codex/auto.md",
-          "line": 1160,
+          "line": 1198,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
           "file": ".claude/commands/flow/auto.md",
-          "line": 1101,
+          "line": 1093,
           "text": "   ~/.claude/scripts/worktree-remove.sh /path/to/worktree --force --delete-branch"
         }
       ]
@@ -249,12 +249,12 @@
       "citations": [
         {
           "file": ".claude/commands/qwen/auto.md",
-          "line": 1290,
+          "line": 1328,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
           "file": ".claude/commands/flow/auto.md",
-          "line": 988,
+          "line": 980,
           "text": "   ~/.claude/scripts/flow-ci-status.sh <pr-head-sha> --path /path/to/worktree --strict-event --wait 1800"
         }
       ]
@@ -373,12 +373,12 @@
       "citations": [
         {
           "file": ".claude/commands/qwen/auto.md",
-          "line": 1290,
+          "line": 1328,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
           "file": ".claude/commands/flow/auto.md",
-          "line": 1008,
+          "line": 1000,
           "text": "   ~/.claude/scripts/gh-pr-merge.sh 78 issue-42-fix-login"
         }
       ]
@@ -393,8 +393,8 @@
     {
       "gate": "speckit-context.py",
       "driver": "qwen",
-      "disposition": "exempt",
-      "reason": "Known gap: implementation-only scope does not replace recorded task-context checks.",
+      "disposition": "run",
+      "reason": "Parent Step 2 checks context after a successful unique-file issue fetch, before planning (#1811).",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -406,12 +406,12 @@
       "citations": [
         {
           "file": ".claude/commands/qwen/auto.md",
-          "line": 1290,
+          "line": 1328,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
           "file": ".claude/commands/flow/auto.md",
-          "line": 1101,
+          "line": 1093,
           "text": "   ~/.claude/scripts/worktree-remove.sh /path/to/worktree --force --delete-branch"
         }
       ]
@@ -446,12 +446,12 @@
       "citations": [
         {
           "file": ".claude/commands/gemma/auto.md",
-          "line": 1333,
+          "line": 1371,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
           "file": ".claude/commands/flow/auto.md",
-          "line": 988,
+          "line": 980,
           "text": "   ~/.claude/scripts/flow-ci-status.sh <pr-head-sha> --path /path/to/worktree --strict-event --wait 1800"
         }
       ]
@@ -570,12 +570,12 @@
       "citations": [
         {
           "file": ".claude/commands/gemma/auto.md",
-          "line": 1333,
+          "line": 1371,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
           "file": ".claude/commands/flow/auto.md",
-          "line": 1008,
+          "line": 1000,
           "text": "   ~/.claude/scripts/gh-pr-merge.sh 78 issue-42-fix-login"
         }
       ]
@@ -590,8 +590,8 @@
     {
       "gate": "speckit-context.py",
       "driver": "gemma",
-      "disposition": "exempt",
-      "reason": "Known gap: implementation-only scope does not replace recorded task-context checks.",
+      "disposition": "run",
+      "reason": "Parent Step 2 checks context after a successful unique-file issue fetch, before planning (#1811).",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -603,12 +603,12 @@
       "citations": [
         {
           "file": ".claude/commands/gemma/auto.md",
-          "line": 1333,
+          "line": 1371,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
           "file": ".claude/commands/flow/auto.md",
-          "line": 1101,
+          "line": 1093,
           "text": "   ~/.claude/scripts/worktree-remove.sh /path/to/worktree --force --delete-branch"
         }
       ]
