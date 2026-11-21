@@ -158,3 +158,34 @@ the preserved instructions and unchanged cap, with no product-code/test change.
 The reviewer did not independently rerun tests or the budget checker. Receipt:
 docs/measurements/counter-model/2026-11-21T152235Z-issue-1864.json. Identities were derived by the writer from retained logs;
 extra-pass reason: pass 3 reviews a budget-driven doc trim.
+
+### Installed-family exit contract amendment - mailbox 36440
+The completed gate failed: 3 failed, 13151 passed, 3 skipped in 579.15s.
+Two failures reproduce individually on main under the same private HOME and
+inherited basetemp: host-surface HOME lookup and generated-project nested
+pytest. The installed-family membership test passes on main but fails here:
+adding the parser to HELPERS requires its stderr exit namespace.
+The orchestrator approved the standard Python CLI footer and namespace/tests
+in tests/test_helper_exit_line.py. Existing stdout and receipt schema remain;
+COUNTER_MODEL_EXIT=<code> is additive stderr output, written last after flush.
+Reader search covered the basename and CM_RECEIPT/CM_RECEIPT_HELPER aliases in
+scripts, commands and templates, finding the known flow:auto parse caller and
+flow-finish-gate stdout capture. No production caller found merges stderr into
+its data stream. Python imports do not execute the footer. The rollout-model
+stdout reader keeps its exact stdout; its test now expects the stderr marker.
+Eight outcome/interface tests fail on pre-fix main; the family membership
+check also fails on this branch before its footer. The existing stdout-channel
+control remains active and the new outcomes use the real parser entry point.
+Pass 4 was explicitly authorized by cp-orch in mailbox 36440 with reason:
+pass 4 reviews the exit-line footer required by HELPERS family membership.
+The final gate is authorized to use normal account HOME, no PYTEST_ADDOPTS and
+no inherited basetemp, an explicit exception to the initial private-HOME rule.
+The pre-existing HOME sensitivity is recorded at Nit Store comment 7064941775.
+
+- Footer-related validation: 988 passed in 81.50s; mypy passes across 509
+  source files. The broader related run's initial 60-second command timeout
+  supplied no suite verdict; the completed run used the same tests with an
+  adequate command timeout. Eight footer outcome/interface controls failed
+  on pre-fix main; ten selected checks pass after the footer.
+- The production CLI reader scan found 13 calls, including the existing
+  flow:auto parse reader, and no stderr merge in those logical commands.

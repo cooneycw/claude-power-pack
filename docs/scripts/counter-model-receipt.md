@@ -27,3 +27,10 @@ Per-script history, indexed from [the scripts inventory](../scripts.md).
   unchanged; kind counts are not stored in receipts. Committed mixed, missing
   and clean transcripts under `tests/fixtures/counter_model/kinds-*.review.md`
   exercise both recognition and absence through the real parse CLI.
+
+- Installed helper-family exit contract (#1864): direct CLI execution prints
+  `COUNTER_MODEL_EXIT=<code>` last on stderr after flushing stdout. Existing
+  stdout lines and stored receipts are unchanged. Usage/refusal errors keep
+  their status; an unexpected exception or failed stdout flush reports 1.
+  Imported Python callers do not run the CLI footer. Tests exercise success,
+  usage, refusal, exception, merged-stream ordering and failed-flush outcomes.

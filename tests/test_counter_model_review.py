@@ -2485,7 +2485,7 @@ def test_rollout_model_prints_the_derived_model(tmp_path: Path) -> None:  # bina
     )
     assert proc.returncode == CM.EXIT_OK, proc.stderr
     assert proc.stdout.strip() == "codex/gpt-5.5"
-    assert proc.stderr == ""
+    assert proc.stderr == "COUNTER_MODEL_EXIT=0\n"
 
 
 def test_rollout_model_refuses_an_ambiguous_match_and_prints_nothing(  # binary-guard: allow unscoped
