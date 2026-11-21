@@ -542,3 +542,26 @@ and speckit rendered-driver regressions and actual helper suites. Lint/type,
 binary guards, budgets, vendor/parity, both audit selftests/actual and both
 worktree controls with provenance passed. Receipt enrolment accepts the
 escalated four-pass receipt (private 11). No new review or product fix.
+
+
+The first final-main full gate on beea5b4c failed at test: **6 failed, 13404
+passed, 4 skipped** in 855.98 seconds, finished 20:49:12Z. This is a real
+integration red, not a queue timeout. Three pipeline-reader tests mistook Bash
+4|5) status alternatives for a command pipeline. Three backstop tests selected
+the first Step 7 bash fence, now a guard, and failed before the backstop reader.
+Mailbox 37164 authorized only these two existing-reader corrections as gate
+feedback; no driver text or deferred-reader fix.
+
+Committed GOOD numeric-case and BAD real-run-pipeline inputs, before correction:
+**7 failed, 61 passed** in 20.32 seconds (the six originals plus GOOD). Direct
+reader verdicts: before GOOD FAIL/BAD FAIL; after GOOD PASS/BAD FAIL. Numeric
+status alternatives are excluded only in active case syntax; a command pipeline
+inside such an arm and a numeric-looking alternative outside a case remain
+findings. Backstop selection now requires exactly one actual backstop marker
+in Step 7, with committed missing/multiple refusal tests and a positive case
+that ignores an earlier guard and a same-named Step 8 marker.
+
+Corrected three relevant modules: **89 passed in 6.80 seconds**. Lint and type
+(518 files) passed. Both integration files are touched-but-unplanned under
+mailbox 37164: tests/test_delegated_lane_failure_detection.py and
+tests/test_delegated_overrun_base.py. Driver render bytes/caps unchanged.
