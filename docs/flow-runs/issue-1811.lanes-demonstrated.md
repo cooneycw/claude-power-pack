@@ -314,3 +314,53 @@ negative-fixture checks and both import-audit paths (selftest plus real tree)
 pass. The import selftest reports its planted import and stays silent on its
 clean pair. Refs #1811 only. Merges stay frozen until #1870; after it lands this
 branch must merge main, recheck and re-gate before orchestrator merge.
+
+
+<!-- flow-run n=4 id=f035e5fd6e3149d7936f5326621f165a -->
+## Run 4 - pre-child live/claim/stale trio
+
+Approved mailbox 36784, confirmed 36887; base 78749847. Parent checks now run
+after approval/before first child; stale check starts Step 6; live guard before
+each fix, with claim recheck for uncertain ownership. Confirmed own dirt alone
+may be checkpointed then guard rerun clean; unexplained dirt or persistent
+suspected stops. Own-only release before deletion; leave-for-review keeps claim.
+Nine parity pairs run. Only shared TEMPLATE is edited; renders are generated.
+
+| Lane | Answer | How, or why not |
+|---|---|---|
+| Checkout | tested | Real fixture-owned main checkout and linked worktree helper calls. |
+| Harness | tested | Claude install stable helper path fixture and generated documents; Codex install delegated drivers are intentionally not packaged (not applicable). |
+| Driver | tested | /flow:auto (Claude implements) unchanged; delegated drivers (/codex:auto, /qwen:auto, /gemma:auto) actual renders and real parity policy. |
+| Coordination | not applicable | No Kyle/no-Kyle authority behavior change. |
+| CI provider | not applicable | No status/provider logic change. |
+| Project state | tested | A repository that has adopted a feature's file or record / one that has not: clean/own-dirty/mixed foreign dirt; self/held claims; current/collision/unknown stale state. |
+| Toolchain version | not covered | Installed runtime and pinned CI only; no matrix. |
+| Clone shape | not applicable | No new clone/ref-resolution behavior. |
+| Run location | tested | Invoked from the CPP root / from another directory: literal target path while helper caller is elsewhere. |
+| Gate target | not applicable | Parent helper checks do not alter runner interpreter selection. |
+| Wave role state | not applicable | No wave lifecycle change. |
+| Reader: parent session | not covered | Live model compliance; documented ordering/verdict policy is tested against actual rendered text and committed bad cases. |
+| Reader: rendered command tests | tested against real output | Execute actual extracted Bash calls against real helpers in fixture-owned repositories. |
+| Reader: parity checker | tested against real output | Nine real run-policy entries and one missing-call control per driver/helper. |
+
+
+Final regression suite on detached pre-fix 78749847: 63 failed, 164 passed.
+With the change: 227 focused procedure/parity tests and 496 broader helper/
+driver/vendor tests pass. Fourteen committed document inputs distinguish good
+from late/missing/commented calls, suspected/held proceed, mixed-dirt sweep,
+missing review renewal, foreign release and before-approval/late-stale/late-fix/
+late-release ordering. These pin a literal procedure grammar, not arbitrary
+shell semantics. Mixed own/foreign execution proves real guard stays suspected;
+parent STOP/no-sweep obligation is separately a documented-policy assertion.
+The fixture performs no checkpoint in that case: HEAD, index and foreign bytes
+remain unchanged. It does not establish live parent compliance. Real helper
+suites own held/foreign claim and stale collision/unknown behavior.
+
+Exact words/caps: codex 8768 -> 9060; qwen 9982 -> 10274; gemma 10591 -> 10883
+(+292 each), executable gate steps under owner ruling 7065030917. Private copy
+of 100 documents passes unchanged and rejects one extra word in each driver
+(9061, 10275, 10884). Existing committed budget controls retain bad/good cases.
+Lint, typecheck (516 files), vendor, parity, budgets, binary guards, negative
+fixture checks and import selftest plus actual tree audit pass. Import selftest
+finds its planted import and is silent on the clean pair. No helper behavior
+or output format changes. Refs #1811 only; other rows remain outstanding.

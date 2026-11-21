@@ -638,3 +638,31 @@ def test_speckit_row_requires_the_call_and_names_its_missing_driver(tmp_path: Pa
     assert done.returncode == 1, done.stdout + done.stderr
     assert done.stdout.count("DRIVER_PARITY_MISSING:") == 1
     assert f"driver={driver} gate=speckit-context.py" in done.stdout
+
+
+@pytest.mark.parametrize("driver", ("codex", "qwen", "gemma"))
+@pytest.mark.parametrize("helper", ("flow-live-driver-guard.sh", "flow-worktree-claim.sh", "flow-stale-check.sh"))
+def test_pre_child_rows_require_each_actual_driver_call(tmp_path: Path, driver: str, helper: str) -> None:
+    actual = json.loads((ROOT / "docs/agents/driver-parity.json").read_text())
+    entries = [entry for entry in actual["entries"] if entry["gate"] == helper]
+    assert len(entries) == 3 and all(entry["disposition"] == "run" for entry in entries)
+    root = tree(tmp_path)
+    suffix = {"flow-live-driver-guard.sh": " /path/to/worktree",
+              "flow-worktree-claim.sh": " check /path/to/worktree",
+              "flow-stale-check.sh": " origin/main /path/to/worktree"}[helper]
+    call = "~/.claude/scripts/" + helper + suffix
+    assert helper in parity.inventory((root / parity.FLOW).read_text())
+    policy = root / parity.POLICY
+    data = json.loads(policy.read_text())
+    data["entries"] = [entry for entry in data["entries"] if entry["gate"] != helper] + entries
+    policy.write_text(json.dumps(data))
+    for name in parity.DRIVERS:
+        fixtures.append(root / f".claude/commands/{name}/auto.md", call)
+    assert outcome(root).returncode == 0
+    path = root / f".claude/commands/{driver}/auto.md"
+    assert call in path.read_text()
+    path.write_text(path.read_text().replace(call, "# " + call))
+    done = outcome(root)
+    assert done.returncode == 1, done.stdout + done.stderr
+    assert done.stdout.count("DRIVER_PARITY_MISSING:") == 1
+    assert f"driver={driver} gate={helper}" in done.stdout
