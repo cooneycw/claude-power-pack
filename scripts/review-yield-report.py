@@ -173,7 +173,7 @@ def provenance(issue, lists):
             or not isinstance(issue.get("comments"), list)
             or not all(isinstance(comment, str) for comment in issue["comments"])):
         raise ReadError("issue body/comments unreadable")
-    text = "\n".join([issue["body"], *issue["comments"]])
+    text = "\n".join([issue["body"], *issue["comments"]]).replace("\r\n", "\n").replace("\r", "\n")
     values = []
     missing, invalid = [], []
     for label, answers in zip(("Origin", "Missed because"), lists):

@@ -272,3 +272,55 @@ def test_unreadable_linked_issue_does_not_count_as_readable_pr():
     assert issue["comments"] is None
     out = report(value)
     assert "PRs readable: 1/2" in out and "issue body/comments unreadable" in out
+
+
+@pytest.mark.parametrize("location", ["body", "comments"])
+def test_crlf_provenance_matches_lf(location):
+    value = data()
+    issue = value["repos"]["cooneycw/example"]["prs"][1]["issues"][0]
+    text = issue["body"].replace("\n", "\r\n") + "\r\n"
+    assert "\r\n" in text
+    issue.update(body=text if location == "body" else "", comments=[text] if location == "comments" else [])
+    out = report(value)
+    assert "#102: recorded" in out
+    assert "Earlier-work origins: 1" in out
+    assert "no test covered it: 1" in out
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="requires git")
+@pytest.mark.skipif(shutil.which("bash") is None, reason="requires bash")
+@pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3")
+def test_claude_install_in_main_and_worktree(tmp_path):
+    import os
+    checkout = tmp_path / "main"
+    checkout.mkdir()
+    for relative in ("scripts/review-yield-report.py", "docs/agents/closing-report-contract.md"):
+        source = ROOT / relative
+        assert source.is_file(), f"implementation source missing: {relative}"
+        target = checkout / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+    def git(*args):
+        return subprocess.run(["git", "-C", str(checkout), *args], capture_output=True, text=True, check=True)
+    git("init")
+    git("add", ".")
+    git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-m", "fixture")
+    linked = tmp_path / "linked"
+    git("worktree", "add", "--detach", str(linked), "HEAD")
+    for layout in (checkout, linked):
+        private_home = tmp_path / f"home-{layout.name}"
+        installed = private_home / ".claude/scripts/review-yield-report.py"
+        installed.parent.mkdir(parents=True)
+        env = dict(os.environ, HOME=str(private_home))
+        env.pop("CPP_DEFER_SURFACES", None)
+        install = subprocess.run(["bash", str(ROOT / "scripts/cpp-host-write.sh"), "link-into",
+                                  str(layout / "scripts/review-yield-report.py"),
+                                  str(installed.parent), installed.name],
+                                 env=env, text=True, capture_output=True)
+        assert install.returncode == 0, install.stderr
+        assert installed.is_symlink() and installed.resolve() == layout / "scripts/review-yield-report.py"
+        done = subprocess.run([sys.executable, str(installed), "--since", SINCE, "--until", UNTIL,
+                               "--fixture", str(FIXTURES / "provenance.json")],
+                              cwd=private_home, env=env, capture_output=True, text=True)
+        assert done.returncode == 0, done.stderr
+        assert "#101: MISSING" in done.stdout and "#102: recorded" in done.stdout

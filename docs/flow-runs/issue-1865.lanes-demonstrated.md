@@ -21,3 +21,17 @@ canonical markers report UNKNOWN. Tests never contact GitHub.
 
 Monthly command: 503 words before, 498 after; budget 503. Its actual generated
 Codex bundle contains the report and canonical answer contract.
+
+Counter-model pass 1 (codex/gpt-6-astra) found two medium issues, both accepted:
+CRLF answer lines failed canonical matching; the diff lacked fixture-owned
+checkout and Claude-install coverage. CRLF body and comment regression cases
+both failed against product checkpoint a29354d8 before normalizing line endings
+(`2 failed, 21 deselected`), then passed after the fix. The added installation
+case creates its own main Git checkout and linked worktree, calls the actual
+cpp-host-write.sh link-into operation under separate private HOME directories,
+and runs the installed symlinks against their real canonical contract.
+
+Expanded pre-fix-main run: `24 failed in 0.35s` on e32c06edfb52. Current targeted
+run: `24 passed in 0.55s`. The binary-boundary exemption remains scoped only to
+the existing fixture CLI test; the new installation case has explicit git,
+bash and Python guards, with no exemption. No checker implementation changed.
