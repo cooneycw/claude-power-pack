@@ -1,0 +1,75 @@
+{
+  "branch": "issue-1811-friction-log",
+  "counts": {
+    "accepted": 7,
+    "deferred": 2,
+    "rejected": 0
+  },
+  "escalation": {
+    "raised_cap": 5,
+    "reference": "mailbox:36504",
+    "ruled_by": "cp-orch"
+  },
+  "extra_passes_reason": "pass 4 found range and anchor defects; anchor claim removed, range bounded by token order. Final TEST findings deferred under cp-orch mailbox 36504 hard stop: quoted-container acceptance and negated-timing substring acceptance are auxiliary-test limitations accepted under proportional prevention, not product-procedure defects. Recorded at Nit Store comments 7065290052 and 7065290255.",
+  "head": "50780eede0a94f3ebf0018cdea58e9b60b7319b8",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/21/rollout-2026-11-21T14-18-41-01a1fe79-3f8f-71c1-80ba-492e1fb34c90.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 3619471,
+        "path": "2026/11/21/rollout-2026-11-21T14-18-41-01a1fe79-3f8f-71c1-80ba-492e1fb34c90.jsonl",
+        "sha256": "4a52b7bae129c515cf2d705d3e6e66f705a086dfceb2cf9e6eeddb64fdfa47dc"
+      }
+    ],
+    "thread_id": "01a1fe79-3f8f-71c1-80ba-492e1fb34c90"
+  },
+  "issue": "1811",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 5,
+  "recorded_at": "2026-11-21T15:59:40Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 9
+  },
+  "reviewed_artifact": {
+    "base_sha": "25f5066ace01373faf0a63b4913a66d26b8becf9",
+    "merge_base": "25f5066ace01373faf0a63b4913a66d26b8becf9",
+    "method": "captured-patch",
+    "patch_sha256": "ec32a8ddf689c8e98e8a1b4d7a288e8e1228dfcbcc4538444bdc77bc9f91d59d",
+    "report_record": 17,
+    "target_head": "50780eede0a94f3ebf0018cdea58e9b60b7319b8"
+  },
+  "reviewer": "codex/gpt-6.2-sol",
+  "reviewer_evidence": {
+    "exec_log": "reviewer-fifth-stream.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.2-sol"
+    ],
+    "rollout": "2026/11/21/rollout-2026-11-21T15-57-56-01a1fed4-1f71-7531-941a-3334a1788661.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 1996,
+        "path": "reviewer-fifth-stream.jsonl",
+        "sha256": "6ebbf58f080aec6904908df90eb88c12a707533a85d92dcc2320cc19de3f2a2b"
+      },
+      {
+        "bytes": 235656,
+        "path": "2026/11/21/rollout-2026-11-21T15-57-56-01a1fed4-1f71-7531-941a-3334a1788661.jsonl",
+        "sha256": "05dd3df011fd7674f3819dd3f3843c97e4d653241a5520bb5b20c8db80f34a2d"
+      }
+    ],
+    "thread_id": "01a1fed4-1f71-7531-941a-3334a1788661"
+  },
+  "schema": 5,
+  "scope": "diff-only",
+  "status": "ran"
+}

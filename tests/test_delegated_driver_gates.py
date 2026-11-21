@@ -63,6 +63,28 @@ def _driver(family: str) -> str:
     return (COMMANDS / family / "auto.md").read_text(encoding="utf-8")
 
 
+NO_SELF_APPROVAL = 'do not read "the plan looks right" as approval you are entitled to grant yourself.'
+
+
+def assert_no_self_approval(text: str) -> None:
+    assert NO_SELF_APPROVAL in " ".join(text.split()), "the gate must explicitly forbid self-approval"
+
+
+@pytest.mark.parametrize("family", sorted(DRIVERS))
+def test_gate_explicitly_forbids_self_approval(family: str) -> None:
+    assert_no_self_approval(_driver(family))
+
+
+@pytest.mark.parametrize("family", sorted(DRIVERS))
+def test_no_self_approval_pin_rejects_sentence_deletion(family: str) -> None:
+    original = " ".join(_driver(family).split())
+    assert NO_SELF_APPROVAL in original
+    mutant = original.replace(NO_SELF_APPROVAL, "")
+    assert NO_SELF_APPROVAL not in mutant
+    with pytest.raises(AssertionError, match="explicitly forbid self-approval"):
+        assert_no_self_approval(mutant)
+
+
 def _section(text: str, start: str, end: str) -> str:
     lines = text.splitlines()
     first = next(index for index, line in enumerate(lines) if line.startswith(start))
