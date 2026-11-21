@@ -222,3 +222,24 @@ hard stop, with reason `pass 4 found range and anchor defects; anchor claim
 removed, range bounded by token order`, cp-orch mailbox 36504, raised cap 5.
 Any further TEST-only finding is to be deferred with a reason/receipt/Nit Store
 record under that ruling; a product-procedure defect must be escalated.
+
+
+### Final independent-review disposition
+
+Fifth gpt-6.2-sol diff-only/captured-patch review of 50780eed reported no product
+procedure defects. Across five passes, seven findings were accepted/resolved,
+zero rejected, and two TEST limitations deferred under cp-orch mailbox 36504's
+explicit hard stop/proportional-prevention ruling. No sixth pass or test fixes:
+
+- Quoted parent preamble can satisfy the container-insensitive predicate:
+  https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7065290052
+- Negated timing instruction can satisfy the own-flow positive substring pins:
+  https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7065290255
+
+These final two mutations were reasoned through in diff-only review, not
+executed controls. Their deferral counts and reason are recorded in the derived
+schema-5 receipt's extra-pass/disposition explanation; current schema has no
+separate per-finding reason flag. The resolver verified Nit Store #1725, source
+search. All review passes had no reviewer shell; network/credential isolation
+was unverified. Final source words remain 8684/9898/10507; product text unchanged
+since the fifth reviewed commit.
