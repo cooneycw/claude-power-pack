@@ -771,3 +771,32 @@ private temporary root and checksum verified against its release checksums.
 Full finish gate and exact-head CI remain pending; their actual results will
 be appended after execution. Approval stability remains unchanged; file-set
 compliance transparently reports the five added review controls, not agreement.
+
+
+### Row D finish admission attempt 1
+
+The audited wrapper ran under the normal account HOME with ADDOPTS unset,
+private short TMPDIR, current-checkout receipt helper and the real Kyle
+admission client. Own-slot job 284d3790-7ba4-446d-b5a4-11a87324b356 published
+actual terminal completion and notification successfully.
+
+It did **not** acquire admission within the configured 600 seconds. Queue
+position moved from 4 to 1. Exact verdict:
+`FLOW_FINISH_GATE: fail (coordination not granted: no grant within 600s, last state queued (kyle-lock exit 10), no gate work started)`
+with `FLOW_FINISH_GATE_EXIT=1`.
+
+No lint/test/security/verify gate work started, so this is neither a full-suite
+pass nor a product test failure. No product changes are proposed in response.
+A new wrapper attempt requires a new own-slot job/ticket and orchestrator
+instruction under the one-heavy-run rule; request is for a longer admission
+wait, with admission still enforced. No push/PR yet.
+
+Pre-push scan evidence completed before this attempt: undeclared-import audit
+and live selftest pass; dependency-audit live positive control detects its
+planted advisories and project scan passes with its stated Windows-only
+exclusions; gitleaks 8.30.1 (checksum verified) git --log-opts=HEAD scans
+1032 commits / about46.35MB and returns0. The same pinned binary, same
+repository config and same git --log-opts=HEAD mode were also exercised
+against isolated committed copies of existing secret-scan fixtures: relocated
+bad-private-key returns1 with a leak diagnostic; good-clean returns0. No
+sensitive finding content was printed. Command budgets pass at the exact caps.
