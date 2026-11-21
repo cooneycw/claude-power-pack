@@ -151,6 +151,8 @@ HELPERS=(
     nit-store-resolve.sh
     # /codex:code_review and /flow:auto Step 5 run the review through it (#1847).
     codex-review-run.sh
+    # Required for prompt kinds and receipt-bound review; ship the pair (#1864).
+    counter-model-receipt.py
     cpp-commands-link.sh
     install-drift.sh
     stash-worktree-guard.sh

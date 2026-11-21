@@ -39,6 +39,7 @@ RECEIPT = REPO / "scripts" / "counter-model-receipt.py"
 FLOW_AUTO = REPO / ".claude" / "commands" / "flow" / "auto.md"
 
 requires_git = pytest.mark.skipif(shutil.which("git") is None, reason="requires git")
+requires_make = pytest.mark.skipif(shutil.which("make") is None, reason="requires make")
 requires_python3 = pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3")
 
 STAGES = ("review_preflight", "review_collect_diff", "review_run", "review_model", "review_relay")
@@ -53,7 +54,10 @@ def review_stage(name: str) -> str:
     text = HELPER.read_text(encoding="utf-8")
     match = re.search(rf"^{re.escape(name)}\(\) \{{\n(.*?)^\}}\n", text, re.S | re.M)
     assert match, f"{HELPER.name} defines no stage {name!r}"
-    return match.group(1)
+    # Extracted-stage tests bypass main's installed-helper context. Supply the
+    # real paired parser explicitly; no fixture copy of the vocabulary.
+    prefix = f'CM_RECEIPT="${{CM_RECEIPT:-{RECEIPT}}}"\n' if name == "review_run" else ""
+    return prefix + match.group(1)
 
 
 THREAD = "thread-for-codex-review-run-test"
@@ -543,3 +547,109 @@ def test_a_marker_missing_from_the_transcript_reads_empty_never_a_default(tmp_pa
     assert "CODEX_REVIEW_NETWORK" not in t.read_text(encoding="utf-8")  # the precondition
     flags = _read_flags(t)
     assert flags["SCOPE"] == "full" and flags["NETWORK"] == "", flags
+
+
+@requires_git
+@requires_python3
+def test_finding_kind_prompt_uses_canonical_list(tmp_path: Path) -> None:
+    work, env = _fixture(tmp_path)
+    proc, _ = _review(work, env)
+    try:
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        kinds = subprocess.run(["python3", str(RECEIPT), "finding-kinds"],
+                               capture_output=True, text=True, check=True).stdout.splitlines()
+        assert kinds
+        prompt = Path(env["STUB_ARGS"]).read_text()
+        assert "- Kind: <" + "|".join(kinds) + ">" in prompt
+    finally:
+        _cleanup_stream(proc.stdout)
+
+
+@requires_git
+@requires_python3
+@pytest.mark.parametrize("failure", ["missing", "error", "empty"])
+def test_finding_kind_helper_failure_refuses_review(tmp_path: Path, failure: str) -> None:
+    work, env = _fixture(tmp_path)
+    helper = tmp_path / "receipt.py"
+    if failure != "missing":
+        helper.write_text("import sys\n" + ("sys.exit(2)\n" if failure == "error" else ""))
+    assert not helper.exists() if failure == "missing" else helper.exists()
+    proc, _ = _review(work, env, CM_RECEIPT=str(helper), CLAUDE_PLUGIN_ROOT=str(tmp_path / "absent"))
+    try:
+        assert proc.returncode == 1, proc.stdout + proc.stderr
+        assert "CODEX_REVIEW: blocked (finding kinds unavailable)" in proc.stdout + proc.stderr
+        assert "exec" not in _calls(env), "must stop before invoking the reviewer"
+    finally:
+        _cleanup_stream(proc.stdout)
+
+
+@requires_git
+@requires_python3
+@requires_make
+@pytest.mark.parametrize("layout", ["source", "repair-symlink", "repair-copy", "codex-bundle", "lone-symlink"])
+def test_finding_kind_shipped_pair_resolves_without_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, layout: str,
+) -> None:
+    work, env = _fixture(tmp_path)
+    env.pop("CM_RECEIPT", None)
+    env.pop("CLAUDE_PLUGIN_ROOT", None)
+    helper = HELPER
+    if layout.startswith("repair-"):
+        source = REPO / "scripts"
+        if layout == "repair-copy":
+            source = tmp_path / "cache" / "scripts"
+            source.mkdir(parents=True)
+            for path in (HELPER, RECEIPT):
+                shutil.copy2(path, source / path.name)
+        install = subprocess.run(["bash", str(REPO / "scripts/flow-helpers-install.sh")],
+                                 env={**env, "FLOW_HELPERS_SOURCE": str(source)},
+                                 capture_output=True, text=True)
+        assert install.returncode == 0, install.stdout + install.stderr
+        target = Path(env["HOME"]) / ".claude/scripts"
+        helper = target / HELPER.name
+        assert (target / RECEIPT.name).is_file(), "installer must ship the required parser"
+        assert helper.is_symlink() == (layout == "repair-symlink")
+    elif layout == "lone-symlink":
+        target = tmp_path / "links"
+        target.mkdir()
+        helper = target / HELPER.name
+        helper.symlink_to(HELPER)
+        assert not (target / RECEIPT.name).exists()
+    elif layout == "codex-bundle":
+        # Build the real generated output rather than a hand-written pair.
+        build = subprocess.run(["make", "codex-skills"], cwd=REPO,
+                               env=env, capture_output=True, text=True)
+        assert build.returncode == 0, build.stdout + build.stderr
+        helper = REPO / "codex/skills/flow-auto/scripts" / HELPER.name
+        assert helper.read_bytes() == HELPER.read_bytes()
+        assert (helper.parent / RECEIPT.name).read_bytes() == RECEIPT.read_bytes()
+    monkeypatch.setattr("tests.test_codex_review_run.HELPER", helper)
+    proc, _ = _review(work, env)
+    try:
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "exec" in _calls(env)
+        assert "- Kind: <" in Path(env["STUB_ARGS"]).read_text()
+    finally:
+        _cleanup_stream(proc.stdout)
+
+
+@requires_git
+@requires_python3
+def test_finding_kind_lone_copy_refuses_without_parser(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    work, env = _fixture(tmp_path)
+    env.pop("CM_RECEIPT", None)
+    env.pop("CLAUDE_PLUGIN_ROOT", None)
+    target = tmp_path / "lone"
+    target.mkdir()
+    helper = target / HELPER.name
+    shutil.copy2(HELPER, helper)
+    assert not (target / RECEIPT.name).exists()
+    assert not (Path(env["HOME"]) / ".claude/scripts/counter-model-receipt.py").exists()
+    monkeypatch.setattr("tests.test_codex_review_run.HELPER", helper)
+    proc, _ = _review(work, env)
+    try:
+        assert proc.returncode == 1, proc.stdout + proc.stderr
+        assert "CODEX_REVIEW: blocked (finding kinds unavailable)" in proc.stdout + proc.stderr
+        assert "exec" not in _calls(env)
+    finally:
+        _cleanup_stream(proc.stdout)

@@ -276,6 +276,19 @@ gap to fill.
   via `scripts/counter-model-receipt.py parse`. It keys on the `## Findings`
   heading and, for a clean review, the `None - no defects found.` sentinel - so
   keep the prompt's format block intact if you adjust the prompt.
+- Each finding includes `- Kind: <kind>`. The canonical closed list is printed
+  by `python3 scripts/counter-model-receipt.py finding-kinds`; the review helper
+  inserts those choices into its prompt and refuses if the list is unavailable.
+  Choose the kind that describes the finding's primary consequence. The parser
+  marks a missing, unknown or repeated Kind field as `unstated`; it does not
+  guess from the title. Fenced examples do not supply a finding's kind.
+  `parse` adds `COUNTER_MODEL_KIND: <kind> <count>` for every canonical kind
+  and `unstated`, including zero counts. Existing finding and verdict lines
+  are unchanged. A clean report has zero kind counts; an unclassified finding
+  contributes one to `unstated`. Counts describe recognized findings only;
+  a format mismatch still refuses rather than claiming complete coverage.
+  These counts are parse output only: receipt schema 5 and stored receipts
+  are unchanged.
 - The `## Red cases` section is part of this command's own contract (issue
   #1030), not something a caller has to ask for separately.
   `None - no instrument changed.` is the explicit

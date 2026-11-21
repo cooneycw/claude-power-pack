@@ -221,6 +221,13 @@ SKIP_REASONS = (
     "tier-1-docs-only",       # the approved Tier 1 docs-only plan skipped review (#1850)
 )
 
+# Canonical review-kind vocabulary. Prompt and documentation use finding-kinds.
+FINDING_KINDS = (
+    "correctness", "security", "edge-case", "test-adequacy",
+    "plan-bookkeeping", "simplification",
+)
+KIND_RE = re.compile(r"^- Kind:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
+
 COUNTS = ("accepted", "rejected", "deferred")
 RED = ("red_cases_proposed", "red_cases_already_covered")
 
@@ -341,10 +348,14 @@ def parse_review(text: str) -> tuple[str, list[dict]]:
     # in both, and one inside a fence must not be found at all.
     masked_section = masked[head.end():end]
 
-    findings = [
-        {"severity": m.group("severity"), "title": m.group("title")}
-        for m in FINDING_RE.finditer(masked_section)
-    ]
+    headings = list(FINDING_RE.finditer(masked_section))
+    findings = []
+    for index, heading in enumerate(headings):
+        body_end = headings[index + 1].start() if index + 1 < len(headings) else len(masked_section)
+        kinds = KIND_RE.findall(masked_section[heading.end():body_end])
+        kind = kinds[0] if len(kinds) == 1 and kinds[0] in FINDING_KINDS else "unstated"
+        findings.append({"severity": heading.group("severity"),
+                         "title": heading.group("title"), "kind": kind})
     # CHECKED BEFORE EITHER SUCCESS (counter-model review). A section mixing one
     # prescribed heading with off-shape bullets returned `findings` counting only
     # the heading, and a clean statement followed by a bullet returned `clean` -
@@ -3437,6 +3448,11 @@ def cmd_review_patch(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_finding_kinds(args: argparse.Namespace) -> int:
+    print("\n".join(FINDING_KINDS))
+    return EXIT_OK
+
+
 def cmd_parse(args: argparse.Namespace) -> int:
     try:
         text = Path(args.transcript).read_text(encoding="utf-8")
@@ -3449,6 +3465,8 @@ def cmd_parse(args: argparse.Namespace) -> int:
     print(f"COUNTER_MODEL_FINDINGS: {len(findings)}")
     for f in findings:
         print(f"COUNTER_MODEL_FINDING: [{f['severity']}] {f['title']}")
+    for kind in (*FINDING_KINDS, "unstated"):
+        print(f"COUNTER_MODEL_KIND: {kind} {sum(f['kind'] == kind for f in findings)}")
     print(f"COUNTER_MODEL_REVIEW: {verdict}")
     # An unparseable transcript is NOT a clean review and must not be recorded
     # as one; non-zero so a caller that forgets to read the verdict still stops.
@@ -3862,6 +3880,9 @@ def main() -> int:
     audit.add_argument("receipt", type=Path)
     audit.add_argument("--codex-sessions-dir", type=Path)
     audit.set_defaults(func=cmd_audit_flow)
+
+    kinds = sub.add_parser("finding-kinds", help="print the canonical finding kinds, one per line")
+    kinds.set_defaults(func=cmd_finding_kinds)
 
     sr = sub.add_parser("skip-reasons",
                         help="print the committed skip reasons, one per line")

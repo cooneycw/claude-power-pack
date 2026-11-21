@@ -51,7 +51,7 @@
 # Environment: BASE and CONTEXT are also read from the environment when the
 # flags are absent. CODEX_REVIEW_SANDBOX (read-only | danger-full-access) is
 # the caller's #1285-shape contract; anything else is refused. CM_RECEIPT
-# overrides where counter-model-receipt.py is found.
+# overrides the paired counter-model-receipt.py beside this script.
 #
 # Sourcing this file defines the stages without running them (the tests run
 # each stage the way they used to run each document block).
@@ -147,8 +147,11 @@ fi
 # byte producer the writer independently recomputes. Standalone non-enrolled
 # reviews retain the working-tree view above, but cannot claim schema-5 binding.
 if [ -d "$GIT_ROOT/docs/measurements/counter-model" ]; then
-    CM_RECEIPT="${CM_RECEIPT:-$HOME/.claude/scripts/counter-model-receipt.py}"
-    [ -f "$CM_RECEIPT" ] || CM_RECEIPT="${CLAUDE_PLUGIN_ROOT}/scripts/counter-model-receipt.py"
+    if [ "${CM_RECEIPT+x}" != x ]; then
+    CM_RECEIPT=$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve().with_name("counter-model-receipt.py"))' "${BASH_SOURCE[0]}")
+    [ -f "$CM_RECEIPT" ] || CM_RECEIPT="$HOME/.claude/scripts/counter-model-receipt.py"
+    [ -f "$CM_RECEIPT" ] || CM_RECEIPT="${CLAUDE_PLUGIN_ROOT:-}/scripts/counter-model-receipt.py"
+fi
     if [ ! -f "$CM_RECEIPT" ] || ! python3 "$CM_RECEIPT" review-patch --base "$BASE" > "$DIFF_FILE"; then
         echo "CODEX_REVIEW: blocked (commit the implementation checkpoint, then produce the canonical review patch)" >&2
         exit 1
@@ -166,6 +169,20 @@ trap - EXIT
 
 # Step 3 - measure scope and network, withdraw credentials, run the reviewer.
 review_run() {
+# A pinned bundle may contain mismatched helper versions. Refuse before any
+# model call rather than silently sending an incomplete findings format.
+if [ "${CM_RECEIPT+x}" != x ]; then
+    CM_RECEIPT=$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve().with_name("counter-model-receipt.py"))' "${BASH_SOURCE[0]}")
+    [ -f "$CM_RECEIPT" ] || CM_RECEIPT="$HOME/.claude/scripts/counter-model-receipt.py"
+    [ -f "$CM_RECEIPT" ] || CM_RECEIPT="${CLAUDE_PLUGIN_ROOT:-}/scripts/counter-model-receipt.py"
+fi
+if ! REVIEW_KINDS=$(python3 "$CM_RECEIPT" finding-kinds) || [ -z "$REVIEW_KINDS" ] \
+    || ! [[ "$REVIEW_KINDS" =~ ^[a-z]+(-[a-z]+)*($'\n'[a-z]+(-[a-z]+)*)*$ ]]; then
+    echo "CODEX_REVIEW: blocked (finding kinds unavailable)" >&2
+    exit 1
+fi
+REVIEW_KIND_CHOICES="${REVIEW_KINDS//$'\n'/|}"
+
 # Codex refuses stdin over 1,048,576 characters (`input_too_large`, Codex CLI
 # 0.167.1; recorded on #1670 and PR #1688). Measured in BYTES, never fewer than
 # characters, less a margin for the prompt: it errs toward blocking. A size
@@ -393,6 +410,7 @@ Return a findings report AND a red cases section, in exactly this format. Emit t
 ## Findings
 
 ### [SEVERITY] short title
+- Kind: <$REVIEW_KIND_CHOICES>
 - File: <path>:<line>
 - Issue: <one-paragraph description of the defect and the failure scenario>
 - Suggestion: <concrete fix>
@@ -419,8 +437,11 @@ rm -rf "$REVIEW_HOME"
 # $STREAM, never on the newest rollout, which belongs to whoever finished last).
 review_model() {
 CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
-CM_RECEIPT="${CM_RECEIPT:-$HOME/.claude/scripts/counter-model-receipt.py}"
-[ -f "$CM_RECEIPT" ] || CM_RECEIPT="${CLAUDE_PLUGIN_ROOT}/scripts/counter-model-receipt.py"
+if [ "${CM_RECEIPT+x}" != x ]; then
+    CM_RECEIPT=$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve().with_name("counter-model-receipt.py"))' "${BASH_SOURCE[0]}")
+    [ -f "$CM_RECEIPT" ] || CM_RECEIPT="$HOME/.claude/scripts/counter-model-receipt.py"
+    [ -f "$CM_RECEIPT" ] || CM_RECEIPT="${CLAUDE_PLUGIN_ROOT:-}/scripts/counter-model-receipt.py"
+fi
 # FAIL CLOSED, and REFUSE rather than guess on an ambiguous match (issue
 # #1400). This used to be inline `find ... -name "*$THREAD.jsonl" | head -1`
 # then `grep -o '"model":"[^"]*"' | head -1` - the exact whole-file,
