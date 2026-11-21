@@ -1127,3 +1127,8 @@ memory-harness:
 ## verify-coverage: utility clean - removes caches; it issues no verdict
 clean:
 	rm -rf .pytest_cache __pycache__ .ruff_cache .mypy_cache dist build *.egg-info
+
+## verify-coverage: excluded review-yield-test - targeted fixture tests; the full test target covers them
+.PHONY: review-yield-test
+review-yield-test:
+	uv run --extra dev pytest -q tests/test_review_yield_report.py $(PYTEST_ARGS)
