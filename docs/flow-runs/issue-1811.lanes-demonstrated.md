@@ -298,3 +298,33 @@ Counts use check-claude-md-budget.py's len(read_text().split()) method:
 Raises use owner ruling (f), executable gate step, approved mailbox 36863.
 Codex's two extra words are fence delimiters; only exceeded caps were raised.
 Driver parity: 24 items, 72 pairs, 0 missing. Budget and lint checks passed.
+
+
+First independent gpt-6.2-sol captured-patch review accepted two findings:
+Step 5 ran after Step 4 had already processed child results, and a command
+between a guard invocation and case $? could erase its STOP verdict while the
+placement predicate passed. The committed overwritten-status input reproduced
+the latter red: **1 failed, 7 passed** in 0.72 seconds. The initial-child
+boundary assertion plus that case red: **7 failed, 4 passed** in 0.92 seconds;
+the Step 4 region was still byte-identical to unchanged main at that point.
+
+Mailbox 36875 approved identical non-generated Step 4 strict guard insertions
+immediately after captured child exit, before all payload/tail/overrun readers.
+The existing two-region vendor cannot own the middle of each driver-specific
+invocation fence. An equality test prevents these three blocks drifting.
+The predicate now binds each invocation directly to case $? in the same bash
+block and checks its actual branches; both guards have committed overwritten
+status inputs. Corrected cases initially passed **12 tests in 1.24 seconds**.
+Step 5's precheckpoint guard and Step 6/7 guards remain.
+
+Extended removal check strips four guard insertions plus Codex fence delimiters
+and reconstructs all three original renders byte-for-byte. Final counts so far:
+codex 8669 -> 8928 (+259), qwen 9883 -> 10140 (+257), gemma 10492 -> 10749 (+257).
+Caps equal those counts under owner ruling (f), mailbox 36875. No existing
+command/flag or prose instruction was removed.
+
+The first detached quick run completed exit 0 at 18:56:55Z: **277 passed in
+17.26 seconds**; lint/type/binary/budgets/parity, both audits and both registered
+worktree controls passed including provenance. Dependency audit: 43 packages,
+zero gating findings, two Windows-only pins not audited on Linux. Its tests
+started before the final Step 4 correction; corrected-head checks follow.

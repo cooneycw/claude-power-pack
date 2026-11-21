@@ -593,6 +593,13 @@ codex exec \
     "$CODEX_PROMPT" < /dev/null > "$CODEX_OUTPUT" 2>&1   # </dev/null: non-TTY EOF so codex never blocks reading stdin
 
 CODEX_EXIT=$?
+~/.claude/scripts/flow-worktree-guard.sh --strict
+case $? in
+    0) ;;
+    3) echo "STOP: leaked edits; inspect and attribute before reverting main"; exit 3 ;;
+    4|5) echo "Report the guard verdict above; no clean-main claim" ;;
+    *) echo "STOP: worktree guard failed"; exit 1 ;;
+esac
 echo "codex exited $CODEX_EXIT; output: $CODEX_OUTPUT"
 if [ "$CODEX_EXIT" -ne 0 ]; then
     echo "ERROR: Codex execution failed (exit code: $CODEX_EXIT)"

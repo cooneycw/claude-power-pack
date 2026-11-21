@@ -1,3 +1,17 @@
+### Step 4: Execute
+
+```bash
+CODEX_EXIT=$?
+~/.claude/scripts/flow-worktree-guard.sh --strict
+case $? in
+    0) ;;
+    3) echo "STOP: leaked edits; inspect and attribute before reverting main"; exit 3 ;;
+    4|5) echo "Report the guard verdict above; no clean-main claim" ;;
+    *) echo "STOP: worktree guard failed"; exit 1 ;;
+esac
+echo "child returned"
+```
+
 ### Step 5: Review
 
 ```bash

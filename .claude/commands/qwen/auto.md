@@ -709,6 +709,13 @@ timeout 2700 qwen \
     "$QWEN_PROMPT" < /dev/null > "$QWEN_OUTPUT" 2>&1   # </dev/null: non-TTY EOF so the harness never blocks reading stdin
 
 QWEN_EXIT=$?
+~/.claude/scripts/flow-worktree-guard.sh --strict
+case $? in
+    0) ;;
+    3) echo "STOP: leaked edits; inspect and attribute before reverting main"; exit 3 ;;
+    4|5) echo "Report the guard verdict above; no clean-main claim" ;;
+    *) echo "STOP: worktree guard failed"; exit 1 ;;
+esac
 echo "qwen exited $QWEN_EXIT; output: $QWEN_OUTPUT"
 if [ "$QWEN_EXIT" -ne 0 ]; then
     echo "ERROR: Qwen execution failed (exit code: $QWEN_EXIT)"

@@ -65,7 +65,7 @@
 242	claude-md/help.md
 1396	claude-md/lint.md
 1613	codex/ask.md
-8886	codex/auto.md
+8928	codex/auto.md
 2593	codex/code_review.md
 1134	codex/exec.md
 640	codex/help.md
@@ -98,7 +98,7 @@
 450	flow/status.md
 386	flow/sync.md
 11837	flow/wave.md
-10707	gemma/auto.md
+10749	gemma/auto.md
 1779	gemma/exec.md
 1859	gemma/help.md
 1831	gemma/status.md
@@ -120,7 +120,7 @@
 2443	project/next.md
 499	qa/help.md
 1279	qa/test.md
-10098	qwen/auto.md
+10140	qwen/auto.md
 1554	qwen/exec.md
 1521	qwen/help.md
 1243	qwen/status.md
