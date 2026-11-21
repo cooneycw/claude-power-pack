@@ -1,5 +1,6 @@
 """Pin the parent capture procedure and its actual linked policy, not live logging."""
 
+import re
 import shlex
 from pathlib import Path
 
@@ -13,6 +14,32 @@ HEADING = "### Friction Capture (always-on, fail-open)"
 START = "### Step 1: Start - Create Worktree"
 LINK = "../flow/auto.md#friction-capture-always-on"
 HELPER = "~/.claude/scripts/friction-log.sh"
+
+
+def canonical_friction_policy(policy: str) -> bool:
+    policy_heading = "### Friction Capture (always-on)"
+    visible = []
+    fence: tuple[str, int] | None = None
+    for line in policy.splitlines():
+        mark = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        if fence is None:
+            if mark:
+                fence = (mark[1][0], len(mark[1]))
+            else:
+                visible.append(line)
+        elif mark and mark[1][0] == fence[0] and len(mark[1]) >= fence[1] and not mark[2].strip():
+            fence = None
+    headings = [index for index, line in enumerate(visible) if line.rstrip() == policy_heading]
+    if len(headings) != 1:
+        return False
+    rule = "\n".join(visible[headings[0] + 1:]).split("### Step 1:", 1)[0]
+    rule = " ".join(rule.replace("**", "").split())
+    return all(instruction in rule for instruction in (
+        "the moment it happens", "every step, success OR failure", "before any STOP",
+        "quality-gate failure or retry", "red output", "manual intervention / correction",
+        "Never log the permission-prompt class by hand", "Missing helper: skip capture",
+        "Capture only", "fixes are proposed and applied in the retro",
+    ))
 
 
 def capture_contract(document: str, driver: str) -> bool:
@@ -54,17 +81,7 @@ def capture_contract(document: str, driver: str) -> bool:
     if policy_file != (ROOT / ".claude/commands/flow/auto.md").resolve():
         return False
     policy = policy_file.read_text()
-    policy_heading = "### Friction Capture (always-on)"
-    if anchor != "friction-capture-always-on" or policy_heading not in policy:
-        return False
-    rule = policy.split(policy_heading, 1)[1].split("### Step 1:", 1)[0]
-    rule = " ".join(rule.replace("**", "").split())
-    return all(instruction in rule for instruction in (
-        "the moment it happens", "every step, success OR failure", "before any STOP",
-        "quality-gate failure or retry", "red output", "manual intervention / correction",
-        "Never log the permission-prompt class by hand", "Missing helper: skip capture",
-        "Capture only", "fixes are proposed and applied in the retro",
-    ))
+    return anchor == "friction-capture-always-on" and canonical_friction_policy(policy)
 
 
 @pytest.mark.parametrize("driver", ("codex", "qwen", "gemma"))
@@ -91,3 +108,20 @@ def test_committed_driver_capture_cases(case: str) -> None:
 
 def test_an_empty_document_never_establishes_capture() -> None:
     assert not capture_contract("", "codex")
+
+
+def test_renamed_policy_heading_cannot_establish_the_link_anchor() -> None:
+    policy = (FIXTURES / "policy-renamed-heading.md").read_text()
+    heading = "### Friction Capture (always-on)"
+    assert heading in policy
+    assert heading not in policy.splitlines()
+    assert heading + " archived" in policy.splitlines()
+    assert not canonical_friction_policy(policy)
+
+
+def test_a_fenced_policy_heading_is_not_an_active_anchor() -> None:
+    policy = (ROOT / ".claude/commands/flow/auto.md").read_text()
+    example = f"````markdown\n{policy}\n````\n"
+    assert example.startswith("````markdown\n")
+    assert "### Friction Capture (always-on)" in example
+    assert not canonical_friction_policy(example)

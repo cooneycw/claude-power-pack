@@ -142,3 +142,18 @@ push, unlike the existing working-tree-only secret-scan control. Actual branch
 history scan is pending; no clean-scan claim yet.
 
 Fixed focused capture, driver-gate, friction-helper, vendor and parity suites: **241 passed in 17.77 seconds**. Lint, core, budgets, parity and typecheck passed; mypy examined 511 source files.
+
+
+### Friction-row independent review correction
+
+The first gpt-6.2-sol diff-only pass accepted the Step 1 instruction audit and
+found one detector defect: a renamed canonical policy heading still matched as
+a substring although its Markdown anchor had changed. Accepted and fixed.
+Committed policy-renamed-heading.md preserves the body and changes only the
+heading suffix; its regression failed before the predicate fix (**1 failed**).
+A fenced-policy heading mutant likewise demonstrated a pre-fix red (**1 failed**).
+The predicate now requires exactly one matching active Markdown heading outside
+backtick/tilde fences, then reads its policy body. Actual flow source remains
+the reader input, not a stand-in. Corrected focused suite: **243 passed in
+21.45 seconds**. New fixture is within the approved controls scope; its one
+file-set divergence is reported rather than rewriting the approved plan.
