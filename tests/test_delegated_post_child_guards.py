@@ -72,11 +72,13 @@ def test_actual_render_checks_each_child_and_precommit_boundary(driver: str) -> 
     assert guard_contract(document), f"{driver}: post-child/precommit guard missing or late"
 
 
-@pytest.mark.parametrize("case", ("good", "missing-call", "after-first-commit"))
+@pytest.mark.parametrize("case", ("good", "missing-call", "after-first-commit", "overwritten-status"))
 def test_committed_placement_cases(case: str) -> None:
     document = (CASES / f"{case}.md").read_text()
     if case == "missing-call":
         assert WORKTREE not in active_steps(document)[5]
+    elif case == "overwritten-status":
+        assert WORKTREE + "\necho done\ncase $?" in document
     elif case == "after-first-commit":
         step = active_steps(document)[5]
         assert step.index(CHECKPOINT) < step.index(WORKTREE)
