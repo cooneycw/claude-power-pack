@@ -171,3 +171,31 @@ fence forms, not a general Markdown renderer. Three reviewer-added fixture
 paths now produce a disclosed file-set divergence; the approved plan is intact.
 A third pass is requested to review these second-pass corrections before the
 single authorized heavy gate. No clean review or full-gate claim is made yet.
+
+
+### Reader cap and approved test reshaping
+
+Third review found two more defects: an HTML-commented driver preamble still
+counted as active, and regex comment stripping hid the real policy after a
+literal opener inside an earlier fence. Committed commented-capture.md and
+policy-literal-comment.md reproduced both: **2 failed** on the old reader.
+The orchestrator stopped special-case parsing and approved the CommonMark
+shape plus one escalated fourth pass (mailboxes 36484-36485).
+
+The final driver predicate only checks active pre-Step-1 fenced command and
+identity arguments, actual Markdown link target and its unique real heading.
+It does not re-derive flow:auto obligations. `tests/test_flow_friction_policy.py`
+pins those at their own source section; existing matching tests exercised helper
+behavior, installation, exit/census and gitignore, not that source policy.
+CommonMark tokens now own heading, HTML and fence structure. Visible inline
+text preserves token adjacency; an independently noticed text-joining defect
+has a demonstrated pre-fix red (**1 failed**) and corrected source/driver tests.
+
+`markdown-it-py` is directly declared in the dev extra because tests import it.
+The same version 4.2.0 was already locked transitively via bandit/rich; uv.lock
+changes only the two root metadata references, no package versions. The extra
+flow test, five reviewer control files and dependency metadata are disclosed
+file-set divergence within the subsequent approvals, not edits to the original
+approved plan. Final focused suites: **249 passed in 15.52 seconds**. Lint,
+typecheck (512 files), core, parity and budgets passed. Product driver text and
+its -7-word counts are unchanged from the approved implementation.
