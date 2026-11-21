@@ -40,3 +40,15 @@ fragment after a later successful typecheck. Removed only that owned fragment;
 ignore-policy changes are outside this issue. Recorded after resolver verified
 the open Nit Store (source search):
 https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7066737231
+
+
+First independent gpt-6.2-sol diff-only review accepted two test defects:
+committed-blob identity could be lost under host autocrlf normalization, and a
+relative PATH-discovered scanner could fail after cwd changes. New CRLF/host
+configuration and relative-.ci-bin scanner cases both failed before the fixes
+(**2 failed in 2.34 seconds**). Git setup now disables autocrlf for these owned
+fixture commits, compares the raw HEAD blob against exact input bytes, and
+uses raw actual-generator bytes. Git/scanner executable paths are absolute
+before any cwd change. Corrected test module: **10 passed in 6.56 seconds**.
+Lint/typecheck (515 files), binary guards and command budgets passed again.
+No additional fixture files, command-doc changes or scanner configuration edits.

@@ -18,6 +18,8 @@ CASES = ROOT / "controls/secret-scan/cases/plan-record-history"
 GUIDANCE = ("Run-start already records the starting commit; do not restate hashes in free text "
             "or place api/key/token beside them.")
 GIT = shutil.which("git")
+if GIT is not None:
+    GIT = str(Path(GIT).resolve())
 STAGE = 'mkdir -p .ci-bin && cp "$(command -v gitleaks)" .ci-bin/gitleaks'
 requires_git = pytest.mark.skipif(GIT is None, reason="UNKNOWN: git unavailable; history scan not run")
 requires_scanner = pytest.mark.skipif(
@@ -43,6 +45,7 @@ def pinned_scanner() -> str:
     executable = shutil.which("gitleaks")
     if executable is None:
         pytest.skip("UNKNOWN: pinned gitleaks 8.30.1 unavailable; scan not run")
+    executable = str(Path(executable).resolve())
     version = subprocess.run([executable, "version"], capture_output=True, text=True, check=False)
     if version.returncode or version.stdout.strip().removeprefix("v") != "8.30.1":
         pytest.skip("UNKNOWN: gitleaks is not the required 8.30.1; scan not run")
@@ -53,7 +56,8 @@ def git(repo: Path, *args: str) -> str:
     assert GIT is not None
     result = subprocess.run(
         [GIT, "-C", str(repo), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
-         "-c", "commit.gpgsign=false", *args], capture_output=True, text=True, check=True,
+         "-c", "commit.gpgsign=false", "-c", "core.autocrlf=false", *args],
+        capture_output=True, text=True, check=True,
     )
     return result.stdout.strip()
 
@@ -71,6 +75,10 @@ def scan(repo: Path, content: bytes) -> subprocess.CompletedProcess[str]:
         assert (repo / name).read_bytes() == (ROOT / name).read_bytes()
     git(repo, "add", ".")
     git(repo, "commit", "-qm", "owned scan input")
+    assert GIT is not None
+    blob = subprocess.run([GIT, "-C", str(repo), "show", "HEAD:docs/flow-runs/issue-1871.md"],
+                          capture_output=True, check=True).stdout
+    assert blob == content
     commands = [shlex.split(command) for command in pipeline()["steps"]["secret-scan"]["commands"]
                 if command.startswith("gitleaks detect ")]
     assert len(commands) == 1
@@ -146,10 +154,46 @@ def test_actual_generated_header_is_safe_for_the_ci_reader(tmp_path: Path) -> No
                  ("declare-salvage", "1871", commit, "--reason", "fixture preservation")):
         subprocess.run([sys.executable, str(helper), *args], cwd=repo, env=os.environ.copy(),
                        capture_output=True, text=True, check=True)
-    record = (repo / "docs/flow-runs/issue-1871.md").read_text()
-    assert re.search(r"^- Run-id: +[0-9a-f]{32}$", record, re.M)
+    content = (repo / "docs/flow-runs/issue-1871.md").read_bytes()
+    record = content.decode()
+    assert re.search(r"^- Run-id: +[0-9a-f]{32}\r?$", record, re.M)
     for name in ("Run-start", "Salvage"):
-        assert re.search(rf"^- {name}: +{commit}$", record, re.M)
-    result = scan(tmp_path / "reader", record.encode())
+        assert re.search(rf"^- {name}: +{commit}\r?$", record, re.M)
+    result = scan(tmp_path / "reader", content)
     assert result.returncode == 0
     assert "RuleID:" not in result.stdout
+
+
+@requires_git
+@requires_scanner
+def test_history_preserves_crlf_bytes_despite_host_git_settings(tmp_path: Path, monkeypatch) -> None:
+    assert GIT is not None
+    config = tmp_path / "host.gitconfig"
+    config.write_text("[core]\n    autocrlf = true\n")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+    host = subprocess.run([GIT, "config", "--get", "core.autocrlf"], cwd=tmp_path,
+                          capture_output=True, text=True, check=True)
+    assert host.stdout.strip() == "true"
+    content = (CASES / "good-generated-header.md").read_bytes().replace(b"\n", b"\r\n")
+    assert b"\r\n" in content
+    repo = tmp_path / "scan"
+    result = scan(repo, content)
+    blob = subprocess.run([GIT, "-C", str(repo), "show", "HEAD:docs/flow-runs/issue-1871.md"],
+                          capture_output=True, check=True).stdout
+    assert blob == content
+    assert result.returncode == 0
+
+
+@requires_git
+@requires_scanner
+def test_relative_path_scanner_is_resolved_before_changing_cwd(tmp_path: Path, monkeypatch) -> None:
+    scanner = pinned_scanner()
+    launcher = tmp_path / "launcher"
+    (launcher / ".ci-bin").mkdir(parents=True)
+    (launcher / ".ci-bin/gitleaks").symlink_to(scanner)
+    monkeypatch.chdir(launcher)
+    monkeypatch.setenv("PATH", ".ci-bin" + os.pathsep + os.environ["PATH"])
+    found = shutil.which("gitleaks")
+    assert found is not None and not Path(found).is_absolute()
+    result = scan(tmp_path / "scan", (CASES / "good-generated-header.md").read_bytes())
+    assert result.returncode == 0
