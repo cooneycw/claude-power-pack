@@ -565,3 +565,15 @@ Corrected three relevant modules: **89 passed in 6.80 seconds**. Lint and type
 (518 files) passed. Both integration files are touched-but-unplanned under
 mailbox 37164: tests/test_delegated_lane_failure_detection.py and
 tests/test_delegated_overrun_base.py. Driver render bytes/caps unchanged.
+
+
+Integration quick refresh completed exit 0 at 20:53:50Z on 11dc8164:
+**511 passed in 42.52 seconds**,
+including both corrected existing readers and all post/pre-child/speckit
+checks. Lint/type, budgets, binary guards, vendor/parity and both audits passed.
+Both worktree controls passed all GOOD/BAD cases and the blind-anchor checks.
+Provenance distinction: historical anchor reports ok; the constructed leak
+anchor reports unverified, not a verified historical-provenance claim. This
+clarifies earlier shorthand saying both control provenance checks passed.
+Receipt enrolment accepts existing four-pass receipt (private 11); mailbox
+37164 therefore requires no fifth review for the integration correction.
