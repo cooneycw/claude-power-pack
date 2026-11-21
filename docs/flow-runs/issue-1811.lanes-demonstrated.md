@@ -328,3 +328,27 @@ The first detached quick run completed exit 0 at 18:56:55Z: **277 passed in
 worktree controls passed including provenance. Dependency audit: 43 packages,
 zero gating findings, two Windows-only pins not audited on Linux. Its tests
 started before the final Step 4 correction; corrected-head checks follow.
+
+
+Pass 2 found adjacent bash fences were concatenated by the test reader, so
+a guard and its case $? in different shells were accepted. Mailbox 36895
+authorized one pass 3 and a hard stop afterward. Committed split-fence BAD
+inputs for both guards failed before the reader correction: **2 failed, 13
+passed** in 0.93 seconds. A first delimiter edit rejected the GOOD fixture
+(**2 failed, 13 passed** in 0.97 seconds); retaining line breaks around the
+separator corrected it: **15 passed in 3.70 seconds**. Lint and type passed.
+
+Final pass 3 found no driver-text defect. Two further TEST-reader limitations
+are deferred under mailbox 36895, without executing new mutations after the
+hard stop: case-arm presence does not reject an earlier shadowing arm; and
+the before-commit position check and valid-block lookup can identify different
+command occurrences. Both current driver blocks are correct. Separate records
+after resolver verified the open Nit Store (source search):
+https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7067714178
+https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7067714377
+
+Receipt producer refused the original review transport as UNKNOWN: the exact
+diff was appended to prompt prose, not sent as bare diff or in its supported
+cpp-review-patch frame. Runtime transcripts are retained unchanged. Escalated
+this evidence error to the orchestrator in mailbox 36908; no receipt claim or
+additional review until disposition.
