@@ -52,3 +52,26 @@ The two repeated acceptance paragraphs used 207 words. Their replacement uses
 
 The existing Step 5 lane-question Nit Store finding is unchanged and remains
 recorded at https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7040701785.
+
+## Independent review corrections
+
+First review (gpt-6.2-sol) used the canonical committed patch on stdin, with no
+reviewer shell: bubblewrap was unavailable. Three findings were accepted:
+commented commands fooled the ordering predicate, separate shell fences could
+fool the early-compliance pin, and deferred acceptance dispositions lost their
+explicit mention. The acceptance prose now says `Record deferred items too.`;
+removing four redundant words elsewhere keeps the exact command counts above.
+
+New committed commented-finish and commented-pr inputs reproduced the blind
+ordering check before its fix: **5 failed, 9 passed**, including three rendered
+prose regressions. The split-compliance input separately reproduced the old
+same-shell blind spot: **1 failed**. The fixed predicate reads active literal
+lines in bash fences; early compliance must share a block with the preceding
+merge-base assignment. This is a narrow document grammar, not a Bash interpreter.
+
+After corrections: **267 focused tests passed in 39.07 seconds**; acceptance
+and closing-report suites **102 passed in 2.22 seconds**. Core, budget, parity
+and lint rechecked green. Three added fixture files expand the approved
+known-bad controls within scope: commented-finish.md, commented-pr.md and
+split-compliance.md. The approved plan itself is unchanged; the file-set
+variance is reported rather than rewriting it.

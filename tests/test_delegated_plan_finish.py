@@ -14,14 +14,45 @@ FIXTURES = ROOT / "tests/fixtures/delegated-plan-finish"
 CALL = "~/.claude/scripts/flow-plan-record.py finish 42"
 
 
+def bash_blocks(text: str) -> list[list[tuple[int, str]]]:
+    """Read literal active lines in these documents' bash fences, not general shell."""
+    blocks: list[list[tuple[int, str]]] = []
+    active = False
+    for number, raw in enumerate(text.splitlines()):
+        line = raw.strip()
+        if line == "```bash":
+            active = True
+            blocks.append([])
+        elif line == "```":
+            active = False
+        elif active and line and not line.startswith("#"):
+            blocks[-1].append((number, line))
+    return blocks
+
+
+def compliance_with_base(step: str) -> bool:
+    early = step.split("1. **Commit**", 1)[0]
+    call = '~/.claude/scripts/flow-plan-record.py compliance 42 --base "$MERGE_BASE"'
+    for block in bash_blocks(early):
+        for index, (_, line) in enumerate(block):
+            if line == call:
+                return any("MERGE_BASE=$(git merge-base" in previous for _, previous in block[:index])
+    return False
+
+
 def finish_after_publication(step: str) -> bool:
     """A single documented call follows push and PR creation, before completion."""
     push = 'git push -u origin "$BRANCH"'
     create = "gh pr create "
     complete = "Report: `Step 7/8: Finish complete"
-    if step.count(CALL) != 1 or not all(s in step for s in (push, create, complete)):
+    commands = [entry for block in bash_blocks(step) for entry in block]
+    pushes = [number for number, line in commands if line == push]
+    creates = [number for number, line in commands if line.startswith(create)]
+    finishes = [number for number, line in commands if line == CALL]
+    reports = [number for number, line in enumerate(step.splitlines()) if line.startswith(complete)]
+    if not all(len(matches) == 1 for matches in (pushes, creates, finishes, reports)):
         return False
-    return step.index(push) < step.index(create) < step.index(CALL) < step.index(complete)
+    return pushes[0] < creates[0] < finishes[0] < reports[0]
 
 
 @pytest.mark.parametrize("driver", ("codex", "qwen", "gemma"))
@@ -33,6 +64,7 @@ def test_actual_driver_finishes_only_after_publishing_the_pr(driver: str) -> Non
     early = step.split("1. **Commit**", 1)[0]
     assert 'flow-plan-record.py compliance 42 --base "$MERGE_BASE"' in early
     assert "The compliance call stays in the SAME shell block" in early
+    assert compliance_with_base(step)
 
 
 @pytest.mark.parametrize("driver", ("codex", "qwen", "gemma"))
@@ -77,3 +109,24 @@ def test_committed_render_controls(name: str, expected: bool) -> None:
         assert step.count(CALL) == 1
         assert step.index("gh pr create ") < step.index(CALL)
     assert finish_after_publication(step) is expected
+
+
+@pytest.mark.parametrize("name", ("commented-finish", "commented-pr"))
+def test_commented_commands_cannot_establish_publication_order(name: str) -> None:
+    step = (FIXTURES / f"{name}.md").read_text()
+    disabled = "# " + (CALL if name == "commented-finish" else "gh pr create ")
+    assert disabled in step
+    assert not finish_after_publication(step)
+
+
+@pytest.mark.parametrize("driver", ("codex", "qwen", "gemma"))
+def test_deferred_acceptance_items_remain_explicit(driver: str) -> None:
+    text = (ROOT / f".claude/commands/{driver}/auto.md").read_text()
+    assert "Record deferred items too." in text
+
+
+def test_split_shell_cannot_supply_compliance_base() -> None:
+    step = (FIXTURES / "split-compliance.md").read_text()
+    assert '```bash\n~/.claude/scripts/flow-plan-record.py compliance' in step
+    assert "MERGE_BASE=$(git merge-base" in step
+    assert not compliance_with_base(step)

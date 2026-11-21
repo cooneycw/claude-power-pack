@@ -692,14 +692,14 @@ diffs.
 
    Account for every material acceptance item in the PR body as ordinary prose
    before selecting a closing reference: demonstrated, revised with evidence,
-   or resolved by a recorded transfer. Unresolved work uses `Refs #N` in commit
+   or resolved by a recorded transfer. Record deferred items too. Unresolved work uses `Refs #N` in commit
    messages, PR title and body; partial delivery remains mergeable but never
    closes the issue. Never print an incidental closing keyword beside an issue
    number, even as an illustration: the merge helper refuses it (exits 5 and 7).
    Inspect earlier branch commits (`git log origin/main..HEAD --format=%B`)
    and PR text yourself. The squash may derive from them; `gh-pr-merge.sh`
-   explicitly supplies the PR subject/body (#655), so check the actual sources
-   before assuming a rewrite is needed. Canonical accounting rule:
+   supplies the PR subject/body (#655), so check the sources
+   before assuming a rewrite is needed. Rule:
    docs/agents/issue-contract.md.
    - Include a `Co-Authored-By: <name> <noreply@anthropic.com>` trailer naming
      the current session's own assistant model - never copy a model+version
