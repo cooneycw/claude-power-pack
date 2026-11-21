@@ -45,7 +45,7 @@ ui = ["fastapi>=0.110", "uvicorn>=0.29"]
 # buys the same parity through uv.lock, and buys it offline: after `uv sync` the
 # gate needs no network, which is what lets `make bandit-audit` join `verify`
 # where `make dep-audit` deliberately cannot.
-dev = ["bandit>=1.9,<2", "mypy>=1.10", "pytest>=8.0", "pytest-timeout>=2.3", "pytest-xdist>=3.6", "ruff>=0.4", "types-PyYAML>=6.0", "types-requests>=2.31"]
+dev = ["bandit>=1.9,<2", "markdown-it-py>=4.2,<5", "mypy>=1.10", "pytest>=8.0", "pytest-timeout>=2.3", "pytest-xdist>=3.6", "ruff>=0.4", "types-PyYAML>=6.0", "types-requests>=2.31"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

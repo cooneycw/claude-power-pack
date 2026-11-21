@@ -93,6 +93,20 @@ Proceeding...
 
 ---
 
+### Friction Capture (always-on, fail-open)
+
+Parent: follow [/flow:auto](../flow/auto.md)'s Friction Capture (always-on) section
+every step, before STOP. Classes: gate-failure, red-output, manual-intervention;
+never log permission-prompt by hand. Missing helper: continue.
+
+```bash
+~/.claude/scripts/friction-log.sh --class <class> --signal "<signal>" --run "codex:auto #42" --step "<N/8 Name>"
+```
+
+Substitute assigned issue for 42. Capture only; retro fixes.
+
+---
+
 ### Step 1: Start - Create Worktree
 
 This step has two preconditions: the current directory is an existing git
@@ -113,15 +127,11 @@ Substitute the literal issue number, and pass the session's working directory
 VERBATIM as `--session-cwd` - never `$(pwd)`, which drifts on any earlier `cd`
 (issue #592).
 
-**Why this lane may not create its own worktree (issue #1261).** The obvious
-hand-built form, `git worktree add -b <branch> <path> origin/main`, records
-`origin/main` as the branch's upstream. A bare `git push` then fails and git's
-first suggested fix is `git push origin HEAD:main` - straight onto the default
-branch past every review gate (the #1221 hazard). The resolver creates the
-branch `--no-track` and points its upstream at its OWN name. This lane's Step 4
-overrun check and Step 7 backstop therefore never use `@{u}`: before the first
-push it does not resolve, and a check reading an unresolvable ref as zero is a
-check that went blind without saying so. They use an explicit, recorded base.
+The resolver creates the branch `--no-track` and sets its upstream to its OWN
+name (issue #1261). Hand-building it from `origin/main` risks suggesting a push
+onto main (#1221). Step 4's overrun check and Step 7's backstop must use an
+explicit, recorded base, never `@{u}`: before the first push it does not resolve,
+and an unresolved ref must never be read as zero.
 
 Act on the helper's `key=value` contract exactly as `/flow:auto` Step 1b does:
 
