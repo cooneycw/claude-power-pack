@@ -14,3 +14,15 @@ Per-script history, indexed from [the scripts inventory](../scripts.md).
 - A SYMLINKED TRANSCRIPT IS REFUSED, dangling or not (counter-model review, pass 3). The in-tree check resolves the parent directory only, so `/tmp/review.md` linked to a tracked file passed it and the relay overwrote that file. Landed after the third and last review pass on the owner's ruling, without a fourth pass. Red case: `test_a_symlinked_transcript_is_refused`.
 - THE VERDICT LINE DECIDES BEFORE THE PARSE (counter-model review, pass 2). A failed `codex exec` can leave a clean-looking report, which `counter-model-receipt.py parse` reads as `clean`; `/flow:auto` 1b now parses only on `ran`. An early refusal's verdict is its `CODEX_REVIEW:` line on stderr, which a hint line may follow, so no caller reads "the last line". Red cases: `test_the_verdict_decides_before_the_parse`, `test_every_early_refusal_carries_a_verdict_line`.
 - NOT COVERED: kyle derives a container's required binaries from `command -v` probes in CPP command documents (`tests/fixtures/container-surface/cpp-commands-contract.json`); the `codex` and `curl` probes now sit in this script, so a kyle re-pin would no longer see them there. Filed in kyle.
+
+- FINDING KINDS (#1864) come from the paired receipt helper's `finding-kinds`
+  verb. The prompt includes a Kind field using those alternatives. A missing,
+  failing, empty or malformed kind list refuses before any reviewer call:
+  `CODEX_REVIEW: blocked (finding kinds unavailable)`, exit 1. Pinned bundles
+  must update both helpers together; there is no fallback vocabulary.
+- HELPER RESOLUTION (#1864): `CM_RECEIPT` explicitly overrides the parser;
+  otherwise it first tries `counter-model-receipt.py` beside the script's
+  resolved realpath, then the installed `~/.claude/scripts` and plugin paths.
+  This supports installed symlinks, copied repair installs and generated Codex bundles.
+  `/flow:repair` now includes the required parser in its install family.
+  CPP init/update's executable-script loops already carry both files.
