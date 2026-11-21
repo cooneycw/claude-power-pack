@@ -2,7 +2,7 @@
 
 - Status: Proposed
 - Date: 2026-11-21
-- Issue: TBD (epic to be filed upon ADR review)
+- Issue: #1876
 - Related: ADR 0001 (single-source commands), ADR 0005 (checkout + host-managed
   installs), ADR 0008 (negative-control bound), ADR 0013 (generated mirrors are
   build output, not a tracked tree), #555/#556 (Codex skill generator), #720
