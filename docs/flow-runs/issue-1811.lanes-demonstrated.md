@@ -826,3 +826,46 @@ replacement authorized by mailbox 37423, recheck load5, confirm the group has
 no other heavy run, and launch with the same admission/deadline parameters.
 Admission remains enforced. Apply the same pacing check to row E later.
 No push/PR until a permitted gate verdict and final-HEAD scans.
+
+
+### Row D first admitted full gate and compatibility corrections
+
+Owner-paced launch observed load5 **19.99**, below the owner limit24;
+admission granted full-suite request1205, and the real wrapper accepted the
+committed native receipt. The security scan examined2984 source files,
+blocked0 CRITICAL and warned5 HIGH (existing test fixtures); it continued.
+The runner deferred lint/test/typecheck to their direct verify prerequisites.
+`make verify` reached its real tests and stopped there:
+**70 failed, 13493 passed, 4 skipped in 536.42 seconds**.
+Exact wrapper result: `FLOW_FINISH_GATE: fail (at prerequisite test)`, exit1.
+No pass, push or CI claim is made.
+
+Diagnosed integration causes and completed corrections:
+
+- Existing `controls/delegated-plan-lanes/run-case.py` rejects a new helper verb
+  before exercising any existing approval/compliance/product controls. It now
+  accepts only the exact published empty-SHA conditional salvage block, which
+  makes no declaration for these fixtures. Selected or malformed blocks remain
+  unknown. The committed `unsupported-ambient-block.md` and its test require
+  the named unsupported-salvage diagnostic, not merely any nonzero exit.
+  Actual selected/invalid salvage execution remains owned by the new shell
+  tests; this control does not claim to interpret arbitrary conditions.
+- The test skip guard used `any(shutil.which(tool) ...)`, which works at runtime
+  but is not recognized by CPP's static binary-guard instrument. It now uses
+  explicit `shutil.which("git")` and `shutil.which("bash")` clauses. The
+  recognizer itself is unchanged.
+
+After corrections **260 focused tests passed in 18.94 seconds**, covering the
+new driver tests, the previously failing delegated-plan-lanes integration and
+actual binary-guard suite. Lint passes. An initial focused command was cut off
+by the command tool's10-second timeout; the completed result above comes from
+its separately prepared own-slot job, not the interrupted run.
+
+Touched-but-unplanned additions: the existing control runner compatibility
+change and one named bad fixture/test are necessary integrations of the new
+Step3 block. Driver text/helper/schema/caps are unchanged. The genuine native
+receipt continues to describe its actual reviewed artifact; these later
+compatibility corrections are tested but have no fourth model review, per the
+orchestrator's explicit hard stop. The receipt is neither rewritten nor
+represented as review of changes made after its report. A new full gate
+requires orchestrator instruction and a fresh load5<=24 check.

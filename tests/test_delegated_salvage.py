@@ -21,7 +21,7 @@ BEGIN = "~/.claude/scripts/flow-plan-record.py begin-run 42"
 APPROVE = "~/.claude/scripts/flow-plan-record.py approve 42"
 DRIVERS = ("codex", "qwen", "gemma")
 requires_tools = pytest.mark.skipif(
-    any(shutil.which(tool) is None for tool in ("git", "bash")), reason="runs real git and bash",
+    shutil.which("git") is None or shutil.which("bash") is None, reason="runs real git and bash",
 )
 
 
@@ -113,6 +113,18 @@ def test_committed_parent_controls(name: str) -> None:
         message = {"after-approve": "declare before approve", "before-begin-run": "declare after begin-run"}
         with pytest.raises(AssertionError, match=message.get(name)):
             parent_contract(text)
+
+
+@requires_tools
+def test_lane_runner_keeps_unsupported_salvage_unknown() -> None:
+    fixture = ROOT / "tests/fixtures/delegated-salvage/unsupported-ambient-block.md"
+    assert 'SALVAGE_SHA="$AMBIENT"' in fixture.read_text(), "precondition: not the supported empty selection"
+    runner = ROOT / "controls/delegated-plan-lanes/run-case.py"
+    case = ROOT / "controls/delegated-codex-plan-lanes/cases/good-every-lane"
+    result = subprocess.run([sys.executable, str(runner), "codex", str(case), str(fixture)],
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == 3
+    assert "DELEGATED_PLAN_LANES: unavailable - unsupported salvage block" in result.stdout
 
 
 @requires_tools
