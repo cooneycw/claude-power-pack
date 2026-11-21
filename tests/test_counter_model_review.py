@@ -2485,7 +2485,7 @@ def test_rollout_model_prints_the_derived_model(tmp_path: Path) -> None:  # bina
     )
     assert proc.returncode == CM.EXIT_OK, proc.stderr
     assert proc.stdout.strip() == "codex/gpt-5.5"
-    assert proc.stderr == ""
+    assert proc.stderr == "COUNTER_MODEL_EXIT=0\n"
 
 
 def test_rollout_model_refuses_an_ambiguous_match_and_prints_nothing(  # binary-guard: allow unscoped
@@ -4430,3 +4430,49 @@ def test_the_outer_bound_admits_the_longest_history_on_record(tmp_path: Path) ->
     assert CM.PASSES_OUTER_BOUND == 10
     receipt["passes"], receipt["escalation"]["raised_cap"] = 11, 11
     assert any("beyond the outer bound of 10" in p for p in CM.validate(receipt, "eleven"))
+
+
+@pytest.mark.parametrize("case,expected", [
+    ("mixed", {"correctness": 2, "edge-case": 1, "test-adequacy": 1}),
+    ("missing", {"unstated": 1}),
+    ("clean", {}),
+])
+def test_finding_kind_cli_counts(
+    tmp_path: Path, case: str, expected: dict[str, int],
+) -> None:
+    transcript = FIXTURES / f"kinds-{case}.review.md"
+    text = transcript.read_text()
+    if case == "missing":
+        assert "Kind:" not in text and "### [HIGH]" in text
+    proc = subprocess.run(  # binary-guard: allow parse-only never calls git
+        [sys.executable, str(SCRIPT), "parse", str(transcript)],
+        cwd=tmp_path, capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    counts = {m[1]: int(m[2]) for m in re.finditer(
+        r"^COUNTER_MODEL_KIND: (\S+) (\d+)$", proc.stdout, re.M)}
+    assert set(counts) == {*CM.FINDING_KINDS, "unstated"}
+    assert {key: value for key, value in counts.items() if value} == expected
+    verdict, findings = CM.parse_review(text)
+    assert sum(counts.values()) == len(findings)
+    assert all(f["kind"] in counts for f in findings)
+
+
+@pytest.mark.parametrize("body", [
+    "- Kind: invented", "- Kind: correctness\n- Kind: security",
+    "```\n- Kind: security\n```", "- Issue: quoted Kind: security",
+])
+def test_finding_kind_unstated_does_not_guess(body: str) -> None:
+    text = f"## Findings\n\n### [HIGH] unknown\n{body}\n"
+    assert body != "- Kind: security", "precondition: no single real kind field"
+    verdict, findings = CM.parse_review(text)
+    assert verdict == CM.PARSE_FINDINGS
+    assert findings[0]["kind"] == "unstated"
+
+
+def test_finding_kind_stays_with_its_own_heading() -> None:
+    text = ("## Findings\n### [HIGH] legacy\n- Issue: no kind\n"
+            "### [LOW] typed\n- Kind: simplification\n"
+            "## Red cases\n- Kind: security\n")
+    assert "Kind:" not in text.split("### [LOW]")[0]
+    _, findings = CM.parse_review(text)
+    assert [f["kind"] for f in findings] == ["unstated", "simplification"]

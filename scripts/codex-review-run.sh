@@ -51,7 +51,8 @@
 # Environment: BASE and CONTEXT are also read from the environment when the
 # flags are absent. CODEX_REVIEW_SANDBOX (read-only | danger-full-access) is
 # the caller's #1285-shape contract; anything else is refused. CM_RECEIPT
-# overrides where counter-model-receipt.py is found.
+# overrides the paired counter-model-receipt.py beside this script. CM_PYTHON
+# selects its interpreter (default: python3; one executable path, no arguments).
 #
 # Sourcing this file defines the stages without running them (the tests run
 # each stage the way they used to run each document block).
@@ -147,9 +148,13 @@ fi
 # byte producer the writer independently recomputes. Standalone non-enrolled
 # reviews retain the working-tree view above, but cannot claim schema-5 binding.
 if [ -d "$GIT_ROOT/docs/measurements/counter-model" ]; then
-    CM_RECEIPT="${CM_RECEIPT:-$HOME/.claude/scripts/counter-model-receipt.py}"
-    [ -f "$CM_RECEIPT" ] || CM_RECEIPT="${CLAUDE_PLUGIN_ROOT}/scripts/counter-model-receipt.py"
-    if [ ! -f "$CM_RECEIPT" ] || ! python3 "$CM_RECEIPT" review-patch --base "$BASE" > "$DIFF_FILE"; then
+    if [ "${CM_RECEIPT+x}" != x ]; then
+    CM_REVIEW_SOURCE=$(readlink -f -- "${BASH_SOURCE[0]}") || CM_REVIEW_SOURCE=""
+    CM_RECEIPT="${CM_REVIEW_SOURCE%/*}/counter-model-receipt.py"
+    [ -f "$CM_RECEIPT" ] || CM_RECEIPT="$HOME/.claude/scripts/counter-model-receipt.py"
+    [ -f "$CM_RECEIPT" ] || CM_RECEIPT="${CLAUDE_PLUGIN_ROOT:-}/scripts/counter-model-receipt.py"
+fi
+    if [ ! -f "$CM_RECEIPT" ] || ! "${CM_PYTHON:-python3}" "$CM_RECEIPT" review-patch --base "$BASE" > "$DIFF_FILE"; then
         echo "CODEX_REVIEW: blocked (commit the implementation checkpoint, then produce the canonical review patch)" >&2
         exit 1
     fi
@@ -349,6 +354,24 @@ fi
 rm -f "$REVIEW_LOCAL_CFG_FILE"
 echo "CODEX_REVIEW_LOCAL_CREDENTIALS: $REVIEW_LOCAL_CREDS${REVIEW_LOCAL_CRED_KEYS:+ (${REVIEW_LOCAL_CRED_KEYS# })}"
 
+# A pinned bundle may contain mismatched helper versions. Refuse before any
+# model call rather than silently sending an incomplete findings format.
+if [ "${CM_RECEIPT+x}" != x ]; then
+    CM_REVIEW_SOURCE=$(readlink -f -- "${BASH_SOURCE[0]}") || CM_REVIEW_SOURCE=""
+    CM_RECEIPT="${CM_REVIEW_SOURCE%/*}/counter-model-receipt.py"
+    [ -f "$CM_RECEIPT" ] || CM_RECEIPT="$HOME/.claude/scripts/counter-model-receipt.py"
+    [ -f "$CM_RECEIPT" ] || CM_RECEIPT="${CLAUDE_PLUGIN_ROOT:-}/scripts/counter-model-receipt.py"
+fi
+if ! CM_PYTHON=$(command -v "${CM_PYTHON:-python3}") \
+    || ! REVIEW_KINDS=$("$CM_PYTHON" "$CM_RECEIPT" finding-kinds) || [ -z "$REVIEW_KINDS" ] \
+    || ! [[ "$REVIEW_KINDS" =~ ^[a-z]+(-[a-z]+)*($'\n'[a-z]+(-[a-z]+)*)*$ ]]; then
+    echo "CODEX_REVIEW: blocked (finding kinds unavailable)" >&2
+    rm -f "$DIFF_FILE"
+    rm -rf "$REVIEW_HOME"
+    exit 1
+fi
+REVIEW_KIND_CHOICES="${REVIEW_KINDS//$'\n'/|}"
+
 FINDINGS=$(mktemp /tmp/codex-review-findings.XXXXXX)
 # STREAM carries the thread id that review_model needs to identify the
 # reviewing model. Without --json there is no thread id, and the lookup
@@ -393,6 +416,7 @@ Return a findings report AND a red cases section, in exactly this format. Emit t
 ## Findings
 
 ### [SEVERITY] short title
+- Kind: <$REVIEW_KIND_CHOICES>
 - File: <path>:<line>
 - Issue: <one-paragraph description of the defect and the failure scenario>
 - Suggestion: <concrete fix>
@@ -419,8 +443,12 @@ rm -rf "$REVIEW_HOME"
 # $STREAM, never on the newest rollout, which belongs to whoever finished last).
 review_model() {
 CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
-CM_RECEIPT="${CM_RECEIPT:-$HOME/.claude/scripts/counter-model-receipt.py}"
-[ -f "$CM_RECEIPT" ] || CM_RECEIPT="${CLAUDE_PLUGIN_ROOT}/scripts/counter-model-receipt.py"
+if [ "${CM_RECEIPT+x}" != x ]; then
+    CM_REVIEW_SOURCE=$(readlink -f -- "${BASH_SOURCE[0]}") || CM_REVIEW_SOURCE=""
+    CM_RECEIPT="${CM_REVIEW_SOURCE%/*}/counter-model-receipt.py"
+    [ -f "$CM_RECEIPT" ] || CM_RECEIPT="$HOME/.claude/scripts/counter-model-receipt.py"
+    [ -f "$CM_RECEIPT" ] || CM_RECEIPT="${CLAUDE_PLUGIN_ROOT:-}/scripts/counter-model-receipt.py"
+fi
 # FAIL CLOSED, and REFUSE rather than guess on an ambiguous match (issue
 # #1400). This used to be inline `find ... -name "*$THREAD.jsonl" | head -1`
 # then `grep -o '"model":"[^"]*"' | head -1` - the exact whole-file,
@@ -429,7 +457,7 @@ CM_RECEIPT="${CM_RECEIPT:-$HOME/.claude/scripts/counter-model-receipt.py}"
 # one implementation both this document and `/codex:ask` call, so a second
 # fix is never needed for a third copy.
 if [ -f "$CM_RECEIPT" ]; then
-    REVIEW_MODEL=$(python3 "$CM_RECEIPT" rollout-model \
+    REVIEW_MODEL=$("${CM_PYTHON:-python3}" "$CM_RECEIPT" rollout-model \
         --exec-log "$STREAM" --sessions-dir "$CODEX_DIR/sessions" 2>/dev/null) \
         || REVIEW_MODEL=""
 else

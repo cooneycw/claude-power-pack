@@ -272,10 +272,11 @@ gap to fill.
   `CODEX_REVIEW_SANDBOX=danger-full-access` (issue #1261), for a placement where
   the sandbox cannot start, has no mechanical write or network fence and always
   reports `open`. Codex always reaches OpenAI to run the model itself.
-- The findings format above is the contract `/flow:auto` Step 5 item 1c parses,
-  via `scripts/counter-model-receipt.py parse`. It keys on the `## Findings`
-  heading and, for a clean review, the `None - no defects found.` sentinel - so
-  keep the prompt's format block intact if you adjust the prompt.
+- `/flow:auto` Step 5 item 1c parses findings via
+  `scripts/counter-model-receipt.py parse`: preserve `## Findings`, the clean
+  `None - no defects found.` sentinel, and the prompt format.
+- Findings carry `- Kind:`; missing/unknown kinds read `unstated`.
+  See the [parser reference](../../../docs/scripts/counter-model-receipt.md).
 - The `## Red cases` section is part of this command's own contract (issue
   #1030), not something a caller has to ask for separately.
   `None - no instrument changed.` is the explicit
