@@ -163,8 +163,8 @@
     {
       "gate": "friction-log.sh",
       "driver": "codex",
-      "disposition": "exempt",
-      "reason": "Known gap: these driver steps do not invoke always-on friction capture.",
+      "disposition": "run",
+      "reason": "Shared parent preamble invokes fail-open capture on every step before STOP, with the linked flow:auto friction policy.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -360,8 +360,8 @@
     {
       "gate": "friction-log.sh",
       "driver": "qwen",
-      "disposition": "exempt",
-      "reason": "Known gap: these driver steps do not invoke always-on friction capture.",
+      "disposition": "run",
+      "reason": "Shared parent preamble invokes fail-open capture on every step before STOP, with the linked flow:auto friction policy.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -557,8 +557,8 @@
     {
       "gate": "friction-log.sh",
       "driver": "gemma",
-      "disposition": "exempt",
-      "reason": "Known gap: these driver steps do not invoke always-on friction capture.",
+      "disposition": "run",
+      "reason": "Shared parent preamble invokes fail-open capture on every step before STOP, with the linked flow:auto friction policy.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {

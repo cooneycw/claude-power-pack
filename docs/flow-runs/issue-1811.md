@@ -51,3 +51,51 @@ Risks: duplicate compliance is deliberate; static tests prove documented placeme
 
 ### Changed output readers
 Parent orchestrators read all three generated command documents; tests inspect actual renders and known-bad/good Step 7 excerpts. Parity reads command output, six policy rows and the helper composite table. Owner/reviewer read PR and evidence. Static checks do not establish live execution.
+
+<!-- flow-run n=2 id=bee480efb058429fb5ae2a452abdbbfe -->
+## Run 2
+
+- Run-id:            bee480efb058429fb5ae2a452abdbbfe
+- Run-start:         25f5066ace01373faf0a63b4913a66d26b8becf9
+- Issue:             #1811
+- Base SHA:          25f5066ace01373faf0a63b4913a66d26b8becf9
+- Necessity verdict: Partially addressed
+- Approval:          granted
+- Approver:          run136:cp-orch, mailbox 36434
+- Recorded at:       2026-11-21T15:32:19Z
+
+### Section B evidence
+PR #1869 / squash 25f5066a adopted drift and head-check. Three friction-log.sh parity exemptions remain. This row follows the approved read-only inventory.
+
+### Section C - the approved plan
+1. `templates/delegated-driver-core.md` - 49-word parent capture pointer and command before Step 1; offset only Step 1 history. Preserve unresolved-ref-not-zero meaning per approval amendment. Steps 3/5/merge/close unchanged.
+2. `.claude/commands/codex/auto.md` - regenerate shared core.
+3. `.claude/commands/qwen/auto.md` - regenerate shared core.
+4. `.claude/commands/gemma/auto.md` - regenerate shared core.
+5. `docs/agents/driver-parity.json` - three friction-log.sh entries become run.
+6. `tests/test_delegated_friction_capture.py` - real render/linked policy/active call/negative-control tests.
+7. `tests/test_delegated_driver_gates.py` - explicit no-self-approval pin and deletion control.
+8. `tests/fixtures/delegated-friction-capture/good.md` - valid pre-Step-1 capture.
+9. `tests/fixtures/delegated-friction-capture/missing-call.md` - known-bad missing capture.
+10. `tests/fixtures/delegated-friction-capture/commented-call.md` - known-bad inactive command.
+11. `tests/fixtures/delegated-friction-capture/after-step-1.md` - known-bad late capture policy.
+Scope: friction row only; Refs #1811. No helper behavior changes, word-cap raises, approval-gate trim, unrelated nit fixes, or merge.
+Risks: linked policy must remain reachable; static checks prove documented procedure, not runtime capture completeness; Step 1 trim must preserve all operational instructions.
+
+### Lanes for this change
+| Lane | Answer | How, or why not |
+|---|---|---|
+| Checkout | will test | main checkout / linked worktree: existing friction helper tests prove default main-buffer destination in both layouts. |
+| Harness | will test | Claude install / Codex install: real command renders plus existing generated flow-auto mirror parity; delegated families remain unpackaged. |
+| Driver | will test | `/flow:auto` (Claude implements) / delegated drivers (`/codex:auto`, `/qwen:auto`, `/gemma:auto`): real command/linked policy checks, no live model run claim. |
+| Coordination | not applicable | No with/without Kyle logic change. |
+| CI provider | not applicable | No provider behavior change; own exact-head CI recorded separately. |
+| Project state | will test | a repository that has adopted a feature's file or record / one that has not: existing friction tests append existing buffer and create absent buffer/parent. |
+| Toolchain version | not covered | Host and pinned CI only; no version matrix. |
+| Clone shape | not applicable | No history/ref-resolution code changed. |
+| Run location | will test | invoked from the CPP root / from another directory: existing friction tests cover repo root, subdirectory and outside git. |
+| Gate target | not applicable | No interpreter/PATH boundary change. |
+| Wave role state | not applicable | No role-state changes. |
+
+### Changed output readers
+Parent orchestrators read generated command documents; new tests feed all actual renders and follow the actual relative link to the flow friction policy. Parity reads commands/policy/composite table. Existing helper tests inspect actual JSONL. Committed bad/good excerpts test the procedure predicate; they do not attest live capture completeness.
