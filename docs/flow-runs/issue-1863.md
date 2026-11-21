@@ -54,3 +54,53 @@ Risks: a lane added to .claude/lanes.md after approval is no longer flagged (app
 | Reader: `tests/test_lanes_contract.py` | updated |
 | Reader: `tests/test_changed_output_readers.py` | re-run unchanged |
 | Reader: `docs/agents/lanes.md` | updated |
+
+<!-- flow-run n=2 id=4eb1c41cf0814c83a87e792d9e9d04c4 -->
+## Run 2
+
+- Run-id:            4eb1c41cf0814c83a87e792d9e9d04c4
+- Run-start:         8c445b7b385656eb28b2b192808328e827176047
+### Section A - What this issue wants
+The delegated reviewers still ask whether every project lane has an answer, even though plan approval already refuses a missing answer. Remove that duplicate question without removing the reviewer judgement that the helper cannot make. Also read the small post-change review sample honestly; missing finding kinds are not zero findings.
+
+### Section B - Still needed
+Verdict: Still needed. Main at read time: 8c445b7b385656eb28b2b192808328e827176047.
+Read the full issue and all comments, owner ruling 7065029193, and Nit Store finding 7040701785. The Step 5 shared core still carries the duplicated question. Owner-approved residual scope is not a reason to close the whole issue: the rate reading is inconclusive at n=7. Approval is orchestrator mailbox 36584 in reply to plan 36583, 2026-11-21. This PR uses Refs #1863, not Closes.
+
+### Section C - Approved changes
+1. templates/delegated-driver-core.md - remove only the unanswered-lane/no-table review question; retain will-test, Reader and stand-in judgement.
+2. .claude/commands/codex/auto.md - regenerate from shared core, never hand-edit rendered regions; 8689 -> 8674 words.
+3. .claude/commands/qwen/auto.md - regenerate from shared core; 9903 -> 9888 words.
+4. .claude/commands/gemma/auto.md - regenerate from shared core; 10512 -> 10497 words.
+5. tests/test_delegated_plan_lanes.py - deliberately change dropped-question assertions, preserving actual helper refusal and retained judgement coverage.
+6. tests/test_review_prompt_parity.py - shared/rendered prompt parity tied to the real helper refusal/miss cases.
+7. docs/flow-runs/issue-1863.md - append this approved run, preserving historical run 1.
+8. docs/flow-runs/issue-1863.as-read.md - helper-managed issue snapshot for this run.
+9. docs/flow-runs/issue-1863.lanes-demonstrated.md - append this run's evidence and measurement limits.
+10. docs/measurements/counter-model/ - runtime-derived different-model review receipt.
+Scope: shared template, three generated drivers, two existing test modules and run evidence; no new runtime instrument. Risks: deleting unsupported judgement or hand-editing generated text; both are pinned by parity tests and the vendor check. No material concern beyond those bounds.
+
+Before deletion, run the current helper against omitted-lane/no-table and complete-plan fixtures and all delegated approval controls. Retained question fixtures must still demonstrate helper misses on fabricated test evidence and omitted Reader rows. Run the new dropped-wording regression red on current main, then vendor and run green.
+
+The item-2 reading is an issue comment and PR-body observation only: two post-5204ea06 committed CPP receipts, five passes, seven accepted findings, no stored kinds. Use the merged report for denominators/dispositions, manual classification with sources stated, explicit not classifiable, and inconclusive at n=7. PR1869 body supplies its three finding descriptions. Use kind parsing only for actual Kind-bearing reports if PR1870 lands before posting; no backfill or inferred zero. Next reading waits for kinds and more reviews, naturally through monthly review. The issue stays open.
+
+Reader search positively found the current each-listed-lane assertion in test_delegated_plan_lanes and the shared/rendered Step 5 blocks. Delegated families are explicitly unpackaged on the Codex skill surface.
+
+### Lanes for this change
+| Lane | Answer |
+|---|---|
+| Checkout | will test - main checkout / linked worktree in existing parity and source-bound approval controls |
+| Harness | not covered - live Claude install model compliance is not executed; delegated families have no Codex install skills, while actual source/rendered input bytes are tested under Driver |
+| Driver | will test - delegated drivers (/codex:auto, /qwen:auto, /gemma:auto), with unchanged /flow:auto as reference |
+| Coordination | not applicable - no without Kyle / with Kyle coordination behavior changes |
+| CI provider | not applicable - no provider parsing changes |
+| Project state | will test - a repository that has adopted a feature's file or record / one that has not, using lane-file and no-lane-file controls |
+| Toolchain version | not applicable - no interpreter-dependent implementation changes |
+| Clone shape | not applicable - no runtime history reader changes |
+| Run location | not applicable - no cwd-dependent implementation changes |
+| Gate target | not applicable - no gate runner or target interpreter changes |
+| Wave role state | not applicable - no wave state changes |
+| Reader: Claude reviewer in each delegated driver | not covered - semantic model compliance; deterministic tests read the actual shared/rendered prompt bytes, and an independent reviewer checks the change |
+| Reader: prompt/parity test consumers | tested against real output - actual generated sections and real helper refusal/approval output, not copied prompt text |
+
+Approval: granted by orchestrator mailbox 36584, including Refs-only item-2 ruling. Normal account HOME for full gates, private TMPDIR outside HOME, no inherited PYTEST_ADDOPTS, reset background SIGINT, warm private cache, checksum-verified gitleaks on private PATH. Before push run budget check, both import-audit paths, full finish gate and head-history gitleaks. No automatic docs-generation/C4 step. Counter-model review and exact-head CI retained; orchestrator merges.

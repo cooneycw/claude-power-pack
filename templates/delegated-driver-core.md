@@ -448,10 +448,9 @@ Evidence-only runs STOP; staged/untracked product files count.
    - Completeness: Are all acceptance criteria addressed?
    - Test coverage: Are tests updated or added?
    - Lanes: give THIS Claude reviewer the project lane file and approved plan.
-     If a LANE LIST exists and behaviour changes, report (1) each listed lane
-     the plan does not answer (no table: say so once), (2) each `will test`
+     If a LANE LIST exists and behaviour changes, report each `will test`
      lane that no test in the diff exercises.
-     With no LANE LIST, skip both questions.
+     With no LANE LIST, skip this question.
      Missing tables/rows are no defect for Tier 1/standalone review.
      Preserve Claude's independent direction; never ask Codex to review itself.
    - Detector claims: if the diff adds or changes a check, gate, guard, tripwire
