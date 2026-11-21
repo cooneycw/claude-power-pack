@@ -34,7 +34,7 @@ def active_steps(document: str) -> dict[int, str]:
         elif token.type == "fence" and token.info == "bash":
             code = "\n".join(line.strip() for line in token.content.splitlines()
                              if not line.lstrip().startswith("#"))
-            steps[current].append("\0" + code + "\0")  # Separate tool calls cannot share $?.
+            steps[current].append("\0\n" + code + "\n\0")  # Separate tool calls cannot share $?.
     return {n: "\n".join(lines) for n, lines in steps.items()}
 
 
