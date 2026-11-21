@@ -393,7 +393,7 @@ and exact-head CI are reported separately rather than implied by this evidence.
 
 ## Post-child guard pair
 
-<!-- lanes-demonstrated run=03776eb0b3d5448a9ab2d99b0e00cb74 plan=444ad53619e5cdf21878849c2ba9adbd4bf84cfcdd091d2c435c144dc9455df0 -->
+<!-- lanes-demonstrated run=03776eb0b3d5448a9ab2d99b0e00cb74 plan=5e74129bebf837f3bd5235f58668c13af39847d2b44cd1dfa7fa5b437efe38ae -->
 
 | Lane | Result | Evidence |
 |---|---|---|
@@ -513,3 +513,24 @@ lane evidence), rejected 0, deferred 3, passes 4 with cp-orch 36909 escalation.
 Pass 3 was substantive; pass 4 recaptured binding after the unframed input
 error. No code changed after pass 3. Waiting for #1878 to land before main merge
 and this row's full gate.
+
+
+Administrative merge/restamp, cp-orch mailbox 37075, executed after 37124:
+upstream Run 3 and Run 4 were preserved verbatim. Own stable run-id
+03776eb0b3d5448a9ab2d99b0e00cb74 moved from original ordinal 3 (interim 4)
+to free ordinal 5. Only the own flow-run n marker and Run heading changed in
+the plan; reversing that transformation reproduces the original 13bc0c47
+plan section byte-for-byte. Section A/B/C body and lane promises are unchanged.
+This is the single approved administrative re-approve, not a new substantive
+plan or new approval invented by the implementer. Original baseline:
+444ad53619e5cdf21878849c2ba9adbd4bf84cfcdd091d2c435c144dc9455df0.
+Restamped baseline and own lanes marker:
+5e74129bebf837f3bd5235f58668c13af39847d2b44cd1dfa7fa5b437efe38ae.
+
+Merged main 030f280c as d9975273, preserving pre-child and speckit additions.
+Template regenerated; stripping only our four insertions and Codex fence
+delimiters reconstructs all three NEW main renders exactly. Final measurements
+using the checker method, old/main -> merged cap:
+codex 9060 -> 9319 (+259), qwen 10274 -> 10531 (+257),
+gemma 10883 -> 11140 (+257). Caps equal the merged counts; owner ruling (f).
+No pre-existing instruction or other worker's driver change was dropped.
