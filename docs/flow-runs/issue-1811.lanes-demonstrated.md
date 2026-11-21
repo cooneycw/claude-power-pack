@@ -157,3 +157,17 @@ backtick/tilde fences, then reads its policy body. Actual flow source remains
 the reader input, not a stand-in. Corrected focused suite: **243 passed in
 21.45 seconds**. New fixture is within the approved controls scope; its one
 file-set divergence is reported rather than rewriting the approved plan.
+
+
+Second independent diff-only pass found two further detector defects: an HTML
+comment could hide the entire policy while the predicate credited it, and a
+sibling heading could leave the target section empty while supplying its words
+later. Both accepted. Committed policy-html-comment.md and
+policy-sibling-section.md assert these preconditions; both tests failed on the
+pre-fix predicate (**2 failed**). Fixed capture suite: **12 passed in 0.72 seconds**.
+The predicate removes HTML comments and limits the body at the next active ATX
+heading of equal/higher rank. Its scope is this canonical source's ATX/comment/
+fence forms, not a general Markdown renderer. Three reviewer-added fixture
+paths now produce a disclosed file-set divergence; the approved plan is intact.
+A third pass is requested to review these second-pass corrections before the
+single authorized heavy gate. No clean review or full-gate claim is made yet.

@@ -17,6 +17,8 @@ HELPER = "~/.claude/scripts/friction-log.sh"
 
 
 def canonical_friction_policy(policy: str) -> bool:
+    """Check this canonical source's ATX-heading, comment and fence forms."""
+    policy = re.sub(r"<!--.*?(?:-->|\Z)", "", policy, flags=re.DOTALL)
     policy_heading = "### Friction Capture (always-on)"
     visible = []
     fence: tuple[str, int] | None = None
@@ -32,7 +34,10 @@ def canonical_friction_policy(policy: str) -> bool:
     headings = [index for index, line in enumerate(visible) if line.rstrip() == policy_heading]
     if len(headings) != 1:
         return False
-    rule = "\n".join(visible[headings[0] + 1:]).split("### Step 1:", 1)[0]
+    start = headings[0] + 1
+    end = next((index for index in range(start, len(visible))
+                if re.match(r"^ {0,3}#{1,3}(?:[ \t]+|$)", visible[index])), len(visible))
+    rule = "\n".join(visible[start:end])
     rule = " ".join(rule.replace("**", "").split())
     return all(instruction in rule for instruction in (
         "the moment it happens", "every step, success OR failure", "before any STOP",
@@ -125,3 +130,17 @@ def test_a_fenced_policy_heading_is_not_an_active_anchor() -> None:
     assert example.startswith("````markdown\n")
     assert "### Friction Capture (always-on)" in example
     assert not canonical_friction_policy(example)
+
+
+def test_an_html_commented_policy_has_no_active_anchor() -> None:
+    policy = (FIXTURES / "policy-html-comment.md").read_text()
+    assert policy.startswith("<!--\n") and policy.endswith("-->\n")
+    assert "### Friction Capture (always-on)" in policy
+    assert not canonical_friction_policy(policy)
+
+
+def test_a_sibling_section_cannot_supply_the_friction_policy() -> None:
+    policy = (FIXTURES / "policy-sibling-section.md").read_text()
+    assert policy.startswith("### Friction Capture (always-on)\n### Another section\n")
+    assert "the moment it happens" in policy.split("### Another section", 1)[1]
+    assert not canonical_friction_policy(policy)
