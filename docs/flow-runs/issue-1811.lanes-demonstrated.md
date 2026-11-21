@@ -243,3 +243,23 @@ separate per-finding reason flag. The resolver verified Nit Store #1725, source
 search. All review passes had no reviewer shell; network/credential isolation
 was unverified. Final source words remain 8684/9898/10507; product text unchanged
 since the fifth reviewed commit.
+
+
+### CI-discovered import alias correction
+
+Initial PR CI pipeline 3965 on c0b32663 failed undeclared-import-audit: three
+module-level `markdown_it` imports did not map to the declared distribution
+`markdown-it-py`. Local exact-head reproduction returned 1 with the same three
+findings. Per cp-orch mailbox 36524, only the IMPORT_ALIASES table gained
+`markdown_it: markdown-it-py`; no audit logic changed. The audit's committed
+selftest still detects its planted undeclared requests import and accepts its
+clean tree; actual corrected tree audit passes (519 files, 5 names, 0 undeclared).
+Lint/type/core/budget/parity quick checks pass. Dependency-audit selftest/audit
+were confirmed rc0 by orchestrator on the prior head; this worker's first
+foreground invocation timed out and is not counted, so a detached check is
+pending. Import changes now include both audits in the quick-check set.
+
+The queued full gate was cleanly cancelled BEFORE its suite started: owned
+timeout signalled TERM, durable completion exit143 at 16:05:21Z, job
+b32a0435-2898-4b8a-892f-c91b715178a8. It proves no gate result and is not counted.
+The corrected head will receive the one authorized replacement full gate.

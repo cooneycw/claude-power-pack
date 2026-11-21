@@ -165,6 +165,7 @@ PRUNE = (
 IMPORT_ALIASES = {
     "yaml": "pyyaml",
     "dotenv": "python-dotenv",
+    "markdown_it": "markdown-it-py",
 }
 
 #: Directory name conventionally inserted onto `sys.path` by the module that
