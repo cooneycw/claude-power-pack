@@ -75,3 +75,8 @@ and lint rechecked green. Three added fixture files expand the approved
 known-bad controls within scope: commented-finish.md, commented-pr.md and
 split-compliance.md. The approved plan itself is unchanged; the file-set
 variance is reported rather than rewriting it.
+
+Final independent gpt-6.2-sol pass: `None - no defects found.` Both passes were
+diff-only, using canonical captured patches with no reviewer shell. The
+schema-5 receipt derives codex/gpt-6.1-sol implementer and codex/gpt-6.2-sol
+reviewer from their runtime evidence; its artifact binding is captured-patch.
