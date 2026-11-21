@@ -909,3 +909,36 @@ no other heavy CPP run, actual admission3600s and90-minute job deadline. The
 PR will preserve the full history: gate1 queue timeout; gate2 owner-paced
 cancellation before work; gate3 actual70/13493/4 integration failure, now fixed;
 gate4 pending actual execution/result. The source and caps remain unchanged.
+
+
+### Row D gate 4 final result
+
+Own-slot job3e74d1eb-1b56-4b48-a1fe-7b3ba7cf79ab launched at freshload5
+**17.26**; no other CPP gate was held/queued. It acquired real full-suite
+request1206 and accepted the escalated4-pass delta receipt. It discarded the
+old failed resumable state because the tree changed and started fresh.
+
+Actual wrapper verdict: **`FLOW_FINISH_GATE: ok`**, **exit0**. Actual test
+summary: **13564 passed, 4 skipped in 512.32 seconds**. The four skip reasons
+were not emitted in the retained summary; this does not claim those cases ran.
+`make verify` completed, including lint/typecheck as direct prerequisites;
+the wrapper reported lint/test/typecheck subsumed by verify, rather than
+pretending to execute them again. The deterministic security scan examined
+2984 files, blocked0 CRITICAL and warned5 HIGH in existing test fixtures.
+Negative controls, renderer, parity, exact word budgets and binary guards
+completed under the full verification target. Completion and notification
+both succeeded. The gate ran on source/evidence checkpoint b6e27d08; this
+later commit changes only this issue's evidence, not tested source.
+
+Verification is bounded by each check's printed population. Existing advisory
+skill-coverage and behavioral-eval outputs are not promoted to clean coverage;
+behavioral eval explicitly reported inconclusive. Static CI dependency/link
+checks retain their stated exclusions. Live installed delegated-model
+obedience remains unexamined. File-set compliance still reports seven extra
+review/integration paths with its actual divergence verdict; approval stability
+and issue-body drift are unchanged. These extra paths are disclosed in the PR,
+not hidden by rewriting the approved plan.
+
+Next: rerun the required pre-push budget/import/dependency/gitleaks checks on
+this final evidence HEAD, push/open a Refs#1811 PR, and record exact-head CI.
+The historical gate failures/cancellation remain preserved above and in the PR.
