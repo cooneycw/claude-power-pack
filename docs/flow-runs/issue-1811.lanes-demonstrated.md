@@ -701,3 +701,40 @@ further cap increase. A first `make dep-audit` attempt hit the command tool's
 10-second limit and is not counted as a pass; rerun will be detached with the
 final gate/scans job. The audit's actual Makefile target is `dep-audit`, while
 its script and CI step are named dependency-audit.
+
+
+### Row D review pass 2 corrections and evidence clarification
+
+Pass 2 used the same measured different reviewer model and diff-only scope.
+Four LOW findings are accepted. The completed corrections are:
+
+1. Approval-reader evidence now verifies the actual stamped baseline digest
+   against the real current run section containing the selected salvage SHA.
+   The selected-ancestor case also runs actual compliance, requiring its
+   salvage-union diagnostic and agreement. This is a new assertion over real
+   helper output, not a claim that the unchanged helper previously failed.
+2. Empty selection now starts with only the original base commit, asserted by
+   its commit count; no explicit preservation checkpoint exists. Ambient SHA
+   contamination uses ordinary history rather than a commit described as
+   explicit preservation.
+3. `fence-contradiction.md` retains MUST NOT and grants commit permission in the
+   same fence. The narrow policy check now rejects commit/push in its permission
+   section as well as requiring the prohibition inside the Step 4 prompt.
+4. Harness/CPP-root evidence comes from separately executed verification, not
+   new shell-regression cases. Existing automated tests actually run in the
+   385-case suite include
+   `tests/test_delegated_core_vendor.py::test_real_repo_drivers_match_the_canonical_core`,
+   `tests/test_delegated_core_vendor.py::test_rendering_the_real_repo_is_idempotent`,
+   `tests/test_driver_parity.py::test_repository_driver_parity`, and
+   `tests/test_driver_parity.py::test_real_generator_preserves_flow_membership_and_leaves_delegated_families_unpackaged`.
+   The Make checks also executed from the CPP root separately. None establishes
+   a live installed delegated model run; those remain not covered.
+
+New empty-history/contradictory-permission checks first returned **7 failed,
+2 passed**, then all **43 driver cases passed in 4.76 seconds**. Lint passes.
+Only tests/fixtures and this evidence changed; production text/caps remain
++99 words per driver. The extra contradiction fixture is another disclosed
+control added under the approved fixture directory. The approved body remains
+unchanged; the existing compliance report transparently names extra fixtures
+as touched but not planned. No clean-review claim is made. A third review
+requires explicit orchestrator approval because the two-pass default is spent.

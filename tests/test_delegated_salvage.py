@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -76,9 +77,11 @@ def child_contract(text: str) -> None:
         r"^1\. Run git commit, git push, or any git command that modifies history or refs\.$",
         forbidden, re.M,
     ), "commit instruction must be prohibited inside the child prompt"
+    permissions = fences[0].split("You MAY:", 1)[1].split("========================================", 1)[0]
+    assert not re.search(r"\bgit\s+(?:commit|push)\b", permissions, re.I), "conflicting commit permission"
 
 
-@pytest.mark.parametrize("name", ("good", "permission", "outside-prompt"))
+@pytest.mark.parametrize("name", ("good", "permission", "outside-prompt", "contradiction"))
 def test_committed_child_fence_controls(name: str) -> None:
     text = (ROOT / f"tests/fixtures/delegated-salvage/fence-{name}.md").read_text()
     assert "Run git commit, git push" in text, "precondition: command phrase remains in every case"
@@ -155,13 +158,17 @@ def test_execute_conditional_before_real_approval(
         git("worktree", "add", "-qb", "fixture-linked", str(linked))
         repo = linked
         assert (repo / ".git").is_file(), "precondition: linked worktree"
-    preserved = b"pre-existing dirty bytes\n"
-    (repo / "saved.txt").write_bytes(preserved)
-    assert git("status", "--porcelain"), "precondition: dirty work before parent preservation"
-    git("add", "saved.txt")
-    git("commit", "-qm", "parent explicitly preserves unmodified work")
+    preserved = b"base\n" if selection == "empty" else b"pre-existing dirty bytes\n"
+    if selection != "empty":
+        (repo / "saved.txt").write_bytes(preserved)
+        assert git("status", "--porcelain"), "precondition: dirty work before parent preservation"
+        git("add", "saved.txt")
+        message = "ordinary history, not selected salvage" if selection == "ambient" else "parent preservation"
+        git("commit", "-qm", message)
     ancestor = git("rev-parse", "HEAD")
     assert git("show", f"{ancestor}:saved.txt") + "\n" == preserved.decode()
+    if selection == "empty":
+        assert git("rev-list", "--count", "HEAD") == "1", "precondition: no preservation checkpoint"
     assert run(f'{sys.executable} "{HELPER}" reconcile 42').returncode == 0
     assert run(BEGIN).returncode == 0
     record = repo / "docs/flow-runs/issue-42.md"
@@ -202,4 +209,12 @@ def test_execute_conditional_before_real_approval(
     approved = run(APPROVE)
     assert approved.returncode in (0, 4), approved.stdout + approved.stderr
     assert "baseline stamped" in approved.stdout
+    baseline = Path(git("rev-parse", "--absolute-git-dir")) / "flow-plan-baseline-42"
+    section = record.read_text()[record.read_text().index("<!-- flow-run "):].rstrip("\n")
+    assert baseline.read_text().split()[0] == hashlib.sha256(section.encode()).hexdigest()
+    if selection == "ancestor":
+        assert f"- Salvage:           {ancestor}" in section
+        checked = run(f'{sys.executable} "{HELPER}" compliance 42')
+        assert f"salvage {ancestor[:12]} unioned in" in checked.stdout
+        assert "PLAN_COMPLIANCE: agreement" in checked.stdout, checked.stdout + checked.stderr
     assert (repo / "saved.txt").read_bytes() == preserved
