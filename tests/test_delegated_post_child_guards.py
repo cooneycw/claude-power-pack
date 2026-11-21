@@ -85,11 +85,15 @@ def test_actual_render_checks_each_child_and_precommit_boundary(driver: str) -> 
 
 
 @pytest.mark.parametrize(
-    "case", ("good", "missing-call", "after-first-commit", "overwritten-status", "overwritten-ignored-status"),
+    "case", ("good", "missing-call", "after-first-commit", "overwritten-status", "overwritten-ignored-status",
+             "split-worktree-fence", "split-ignored-fence"),
 )
 def test_committed_placement_cases(case: str) -> None:
     document = (CASES / f"{case}.md").read_text()
-    if case == "missing-call":
+    if case in {"split-worktree-fence", "split-ignored-fence"}:
+        command = WORKTREE if case == "split-worktree-fence" else IGNORED
+        assert command + "\n```\n\n```bash\ncase $?" in document
+    elif case == "missing-call":
         assert WORKTREE not in active_steps(document)[5]
     elif case == "overwritten-ignored-status":
         assert IGNORED + "\necho done\ncase $?" in document
