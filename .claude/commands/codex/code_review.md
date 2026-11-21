@@ -272,23 +272,11 @@ gap to fill.
   `CODEX_REVIEW_SANDBOX=danger-full-access` (issue #1261), for a placement where
   the sandbox cannot start, has no mechanical write or network fence and always
   reports `open`. Codex always reaches OpenAI to run the model itself.
-- The findings format above is the contract `/flow:auto` Step 5 item 1c parses,
-  via `scripts/counter-model-receipt.py parse`. It keys on the `## Findings`
-  heading and, for a clean review, the `None - no defects found.` sentinel - so
-  keep the prompt's format block intact if you adjust the prompt.
-- Each finding includes `- Kind: <kind>`. The canonical closed list is printed
-  by `python3 scripts/counter-model-receipt.py finding-kinds`; the review helper
-  inserts those choices into its prompt and refuses if the list is unavailable.
-  Choose the kind that describes the finding's primary consequence. The parser
-  marks a missing, unknown or repeated Kind field as `unstated`; it does not
-  guess from the title. Fenced examples do not supply a finding's kind.
-  `parse` adds `COUNTER_MODEL_KIND: <kind> <count>` for every canonical kind
-  and `unstated`, including zero counts. Existing finding and verdict lines
-  are unchanged. A clean report has zero kind counts; an unclassified finding
-  contributes one to `unstated`. Counts describe recognized findings only;
-  a format mismatch still refuses rather than claiming complete coverage.
-  These counts are parse output only: receipt schema 5 and stored receipts
-  are unchanged.
+- `/flow:auto` Step 5 item 1c parses findings via
+  `scripts/counter-model-receipt.py parse`: preserve `## Findings`, the clean
+  `None - no defects found.` sentinel, and the prompt format.
+- Findings carry `- Kind:`; missing/unknown kinds read `unstated`.
+  See the [parser reference](../../../docs/scripts/counter-model-receipt.md).
 - The `## Red cases` section is part of this command's own contract (issue
   #1030), not something a caller has to ask for separately.
   `None - no instrument changed.` is the explicit

@@ -138,3 +138,16 @@ retained runtime session logs. Receipt: docs/measurements/counter-model/2026-11-
 It records two total passes, including the superseded pre-rewrite pass.
 The reviewer observed kind inputs/refusals and confirmed that code and tests
 match the earlier checkpoint; the broad suite was not independently rerun.
+
+### Budget-driven documentation amendment - mailbox 36398
+Pipeline 3961 failed command-docs-budget-check: code_review.md had 2726
+words against the unchanged cap of 2593, 133 over. This was reproduced
+locally before the trim. The superseded runner gate was stopped at
+2026-11-21T15:20:18Z, exit -15, process group confirmed gone; no pass claimed.
+The added field explanation is now a short Kind/unstated/reference pointer.
+The adjacent existing parse-format paragraph was condensed: its flow step,
+parser command, Findings heading, clean sentinel and preserve-format
+instruction all remain. No existing instruction was removed. Full new
+parser detail remains in docs/scripts/counter-model-receipt.md.
+The orchestrator authorized pass 3 with reason: pass 3 reviews a
+budget-driven doc trim. No code, test or word-cap change is part of this trim.
