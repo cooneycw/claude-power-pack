@@ -102,3 +102,14 @@ The initial Section C above is retained unchanged as historical approval.
   18 new cases, legacy review stages, real installer and permission parity.
 - Lint passes. Generated flow-auto parser matches canonical source bytes.
 - Runtime HOME, TMPDIR and pytest basetemp use /tmp/c.4GCpzc, not /workspace.
+
+- Binary guard exception: only the new parse subprocess call is exempted,
+  since that verb never calls git. The checker remains unchanged and still
+  requires guards on git-reaching calls, including
+  test_scoped_writer_refuses_when_git_cannot_launch in the same test module.
+  Red control: before the narrow call exemption and make guard were added,
+  binary-guards-check reported both new unguarded tests and failed.
+- Per mailbox 36360 the amended record is not re-stamped: helper docs do
+  not document re-approval after an amendment. PLAN_RECORD_STABILITY and
+  TOUCHED BUT NOT PLANNED (installer) are reported with authority 36346;
+  machine lane status remains NOT CHECKED despite the concrete test evidence.

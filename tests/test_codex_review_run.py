@@ -39,6 +39,7 @@ RECEIPT = REPO / "scripts" / "counter-model-receipt.py"
 FLOW_AUTO = REPO / ".claude" / "commands" / "flow" / "auto.md"
 
 requires_git = pytest.mark.skipif(shutil.which("git") is None, reason="requires git")
+requires_make = pytest.mark.skipif(shutil.which("make") is None, reason="requires make")
 requires_python3 = pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3")
 
 STAGES = ("review_preflight", "review_collect_diff", "review_run", "review_model", "review_relay")
@@ -584,6 +585,7 @@ def test_finding_kind_helper_failure_refuses_review(tmp_path: Path, failure: str
 
 @requires_git
 @requires_python3
+@requires_make
 @pytest.mark.parametrize("layout", ["source", "repair-symlink", "repair-copy", "codex-bundle", "lone-symlink"])
 def test_finding_kind_shipped_pair_resolves_without_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, layout: str,

@@ -4437,13 +4437,16 @@ def test_the_outer_bound_admits_the_longest_history_on_record(tmp_path: Path) ->
     ("missing", {"unstated": 1}),
     ("clean", {}),
 ])
-def test_finding_kind_cli_counts(tmp_path: Path, case: str, expected: dict[str, int]) -> None:
+def test_finding_kind_cli_counts(
+    tmp_path: Path, case: str, expected: dict[str, int],
+) -> None:
     transcript = FIXTURES / f"kinds-{case}.review.md"
     text = transcript.read_text()
     if case == "missing":
         assert "Kind:" not in text and "### [HIGH]" in text
-    proc = subprocess.run([sys.executable, str(SCRIPT), "parse", str(transcript)],
-                          cwd=tmp_path, capture_output=True, text=True)
+    proc = subprocess.run(  # binary-guard: allow parse-only never calls git
+        [sys.executable, str(SCRIPT), "parse", str(transcript)],
+        cwd=tmp_path, capture_output=True, text=True)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     counts = {m[1]: int(m[2]) for m in re.finditer(
         r"^COUNTER_MODEL_KIND: (\S+) (\d+)$", proc.stdout, re.M)}
