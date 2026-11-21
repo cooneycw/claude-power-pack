@@ -601,3 +601,22 @@ Rendered word counts on the integrated base: codex 8768 -> 8966; qwen 9982 -> 10
 Independent review completed on checkpoint 08cb158b: codex/gpt-6-astra against runtime-derived codex/gpt-6.1-sol, no findings. The reviewer independently reproduced 102 failures with pre-fix actual driver documents and 373 passing related tests at HEAD, and checked prior instructions byte-preserved. Generated full-scope runtime-HEAD-bound receipt: docs/measurements/counter-model/2026-11-21T201910Z-issue-1811.json. Eight committed negative procedure controls already cover the review's named malformed-input cases; no additional cases requested. Network open and local credential presence unknown; no live external writes or model-obedience evidence claimed. Full gate and CI remain pending.
 
 Final-main integration administration (approver cp-orch, mailbox 37078 and GO 37235): upstream Runs 3, 4 and 5 preserved verbatim. Only this run's header/marker ordinal changed from 4 to 6 in the record and as-read snapshot; its approved body is unchanged. Per that authority, performed the single header-only administrative re-approve after integration. Preliminary gate at 84a5e1b3 passed (13409 tests passed, 3 skipped); it is signal only, not final merge evidence. Final post-integration gate and enrolment pending.
+
+
+<!-- lanes-demonstrated run=886f56f62f81479da3e05c5b76a2b489 plan=b390bb7fbf40dd08530e67f319e8ff1c57a0f426d609af6ef700abeb6cf44adf -->
+
+| Lane | Result | Evidence |
+|---|---|---|
+| Checkout | passed | tests/test_delegated_nit_store_routing.py executes actual published blocks in main checkout / linked worktree fixture-owned repositories. |
+| Harness | passed | Actual Claude install-shaped helper symlink exercised; delegated Codex skills do not exist. Live model obedience not covered. |
+| Driver | passed | All three actual rendered delegated documents and existing canonical flow routing tests: 373 related tests passed. |
+| Project state | passed | Real resolver with open/absent/ambiguous/transport-failed store and missing installed helper. |
+| Toolchain version | passed | Host runtime and restricted PATH without python/python3, absolute test-stub interpreter. Pinned CI result pending, no broader matrix claim. |
+| Run location | passed | Actual installed block outside the target, including renamed linked worktree caller. |
+| Gate target | passed | Owned consumer repository/isolated PATH; CPP source and generated outputs checked. |
+| Reader: generated-command parent | not covered | Presence and scope/order controls only; live model obedience not established. |
+| Reader: parity checker | passed | Actual generated documents and updated ledger through tests/test_driver_parity.py. |
+| Reader: resolver output consumer | passed | Actual published block and real helper verdict output; subsequent live model branching not covered. |
+| Reader: GitHub and closing report | not covered | Fake GitHub network boundary only; controls pin repo/context/refusal/closing-link instructions, not live posting. |
+
+After integration with main 34c417f9, repeated the related selection successfully. Budget and both audits/selftests also passed. The rows above apply to the header-only re-approved plan; their evidence and limits remain the same. Final caps: codex 9517, qwen 10729, gemma 11338, exactly +198 each versus integrated main. Receipt enrolment selected the existing receipt (documented receipt disposition, exit 10); no new review pass requested. Final full gate still pending.
