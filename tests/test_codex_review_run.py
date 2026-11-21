@@ -27,6 +27,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -39,7 +40,6 @@ RECEIPT = REPO / "scripts" / "counter-model-receipt.py"
 FLOW_AUTO = REPO / ".claude" / "commands" / "flow" / "auto.md"
 
 requires_git = pytest.mark.skipif(shutil.which("git") is None, reason="requires git")
-requires_make = pytest.mark.skipif(shutil.which("make") is None, reason="requires make")
 requires_python3 = pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3")
 
 STAGES = ("review_preflight", "review_collect_diff", "review_run", "review_model", "review_relay")
@@ -55,8 +55,10 @@ def review_stage(name: str) -> str:
     match = re.search(rf"^{re.escape(name)}\(\) \{{\n(.*?)^\}}\n", text, re.S | re.M)
     assert match, f"{HELPER.name} defines no stage {name!r}"
     # Extracted-stage tests bypass main's installed-helper context. Supply the
-    # real paired parser explicitly; no fixture copy of the vocabulary.
+    # real paired parser and running test interpreter; no copied vocabulary.
     prefix = f'CM_RECEIPT="${{CM_RECEIPT:-{RECEIPT}}}"\n' if name == "review_run" else ""
+    if name == "review_run":
+        prefix += f'CM_PYTHON="${{CM_PYTHON:-{sys.executable}}}"\n'
     return prefix + match.group(1)
 
 
@@ -585,7 +587,6 @@ def test_finding_kind_helper_failure_refuses_review(tmp_path: Path, failure: str
 
 @requires_git
 @requires_python3
-@requires_make
 @pytest.mark.parametrize("layout", ["source", "repair-symlink", "repair-copy", "codex-bundle", "lone-symlink"])
 def test_finding_kind_shipped_pair_resolves_without_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, layout: str,
@@ -617,10 +618,13 @@ def test_finding_kind_shipped_pair_resolves_without_environment(
         assert not (target / RECEIPT.name).exists()
     elif layout == "codex-bundle":
         # Build the real generated output rather than a hand-written pair.
-        build = subprocess.run(["make", "codex-skills"], cwd=REPO,
-                               env=env, capture_output=True, text=True)
+        output = tmp_path / "generated-skills"
+        build = subprocess.run(
+            [sys.executable, str(REPO / "scripts/codex-skill-sync.py"),
+             "--write", "--output-root", str(output), "flow"],
+            cwd=tmp_path, env=env, capture_output=True, text=True)
         assert build.returncode == 0, build.stdout + build.stderr
-        helper = REPO / "codex/skills/flow-auto/scripts" / HELPER.name
+        helper = output / "flow-auto/scripts" / HELPER.name
         assert helper.read_bytes() == HELPER.read_bytes()
         assert (helper.parent / RECEIPT.name).read_bytes() == RECEIPT.read_bytes()
     monkeypatch.setattr("tests.test_codex_review_run.HELPER", helper)
@@ -653,3 +657,51 @@ def test_finding_kind_lone_copy_refuses_without_parser(tmp_path: Path, monkeypat
         assert "exec" not in _calls(env)
     finally:
         _cleanup_stream(proc.stdout)
+
+
+# Deliberately excludes python3 even on hosts that install it in /usr/bin.
+# The stage fixtures need a CI-shaped population, not the developer's PATH.
+def python_free_tools(directory: Path) -> str:
+    directory.mkdir(parents=True)
+    names = (
+        "awk", "basename", "bash", "cat", "chmod", "cp", "cut", "dirname", "env", "false", "find",
+        "git", "grep", "head", "ln", "ls", "mkdir", "mktemp", "mv", "pwd", "readlink", "realpath", "rm", "sed",
+        "sh", "sort", "tail", "tee", "test", "timeout", "tr", "true", "wc", "which", "xargs",
+    )
+    for name in names:
+        target = shutil.which(name)
+        if target:
+            (directory / name).symlink_to(target)
+    path = str(directory)
+    assert shutil.which("python3", path=path) is None
+    assert shutil.which("git", path=path) and shutil.which("bash", path=path)
+    return path
+
+
+@requires_git
+@requires_python3
+def test_finding_kind_lookup_does_not_preempt_size_refusal_without_python(tmp_path: Path) -> None:
+    work, env = _fixture(tmp_path)
+    (work / "a.txt").write_text("x" * 1048576 + "\n")
+    _git("commit", "-qam", "oversized patch", cwd=work, env=env)
+    tools = python_free_tools(tmp_path / "without-python")
+    env.update(PATH=f"{tmp_path / 'stub'}:{tools}", CM_PYTHON="python3")
+    assert shutil.which("python3", path=env["PATH"]) is None
+    assert shutil.which("git", path=env["PATH"]) and shutil.which("bash", path=env["PATH"])
+    proc, _ = _review(work, env)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "CODEX_REVIEW: blocked (patch too large:" in proc.stderr, proc.stdout + proc.stderr
+    assert "finding kinds unavailable" not in proc.stderr
+    assert "exec" not in _calls(env)
+
+
+@requires_git
+@requires_python3
+def test_finding_kind_missing_selected_interpreter_refuses_exec(tmp_path: Path) -> None:
+    work, env = _fixture(tmp_path)
+    missing = tmp_path / "absent-python"
+    assert not missing.exists()
+    proc, _ = _review(work, env, CM_PYTHON=str(missing))
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "CODEX_REVIEW: blocked (finding kinds unavailable)" in proc.stderr
+    assert "exec" not in _calls(env)

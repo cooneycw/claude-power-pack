@@ -51,7 +51,8 @@
 # Environment: BASE and CONTEXT are also read from the environment when the
 # flags are absent. CODEX_REVIEW_SANDBOX (read-only | danger-full-access) is
 # the caller's #1285-shape contract; anything else is refused. CM_RECEIPT
-# overrides the paired counter-model-receipt.py beside this script.
+# overrides the paired counter-model-receipt.py beside this script. CM_PYTHON
+# selects its interpreter (default: python3; one executable path, no arguments).
 #
 # Sourcing this file defines the stages without running them (the tests run
 # each stage the way they used to run each document block).
@@ -148,11 +149,12 @@ fi
 # reviews retain the working-tree view above, but cannot claim schema-5 binding.
 if [ -d "$GIT_ROOT/docs/measurements/counter-model" ]; then
     if [ "${CM_RECEIPT+x}" != x ]; then
-    CM_RECEIPT=$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve().with_name("counter-model-receipt.py"))' "${BASH_SOURCE[0]}")
+    CM_REVIEW_SOURCE=$(readlink -f -- "${BASH_SOURCE[0]}") || CM_REVIEW_SOURCE=""
+    CM_RECEIPT="${CM_REVIEW_SOURCE%/*}/counter-model-receipt.py"
     [ -f "$CM_RECEIPT" ] || CM_RECEIPT="$HOME/.claude/scripts/counter-model-receipt.py"
     [ -f "$CM_RECEIPT" ] || CM_RECEIPT="${CLAUDE_PLUGIN_ROOT:-}/scripts/counter-model-receipt.py"
 fi
-    if [ ! -f "$CM_RECEIPT" ] || ! python3 "$CM_RECEIPT" review-patch --base "$BASE" > "$DIFF_FILE"; then
+    if [ ! -f "$CM_RECEIPT" ] || ! "${CM_PYTHON:-python3}" "$CM_RECEIPT" review-patch --base "$BASE" > "$DIFF_FILE"; then
         echo "CODEX_REVIEW: blocked (commit the implementation checkpoint, then produce the canonical review patch)" >&2
         exit 1
     fi
@@ -169,20 +171,6 @@ trap - EXIT
 
 # Step 3 - measure scope and network, withdraw credentials, run the reviewer.
 review_run() {
-# A pinned bundle may contain mismatched helper versions. Refuse before any
-# model call rather than silently sending an incomplete findings format.
-if [ "${CM_RECEIPT+x}" != x ]; then
-    CM_RECEIPT=$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve().with_name("counter-model-receipt.py"))' "${BASH_SOURCE[0]}")
-    [ -f "$CM_RECEIPT" ] || CM_RECEIPT="$HOME/.claude/scripts/counter-model-receipt.py"
-    [ -f "$CM_RECEIPT" ] || CM_RECEIPT="${CLAUDE_PLUGIN_ROOT:-}/scripts/counter-model-receipt.py"
-fi
-if ! REVIEW_KINDS=$(python3 "$CM_RECEIPT" finding-kinds) || [ -z "$REVIEW_KINDS" ] \
-    || ! [[ "$REVIEW_KINDS" =~ ^[a-z]+(-[a-z]+)*($'\n'[a-z]+(-[a-z]+)*)*$ ]]; then
-    echo "CODEX_REVIEW: blocked (finding kinds unavailable)" >&2
-    exit 1
-fi
-REVIEW_KIND_CHOICES="${REVIEW_KINDS//$'\n'/|}"
-
 # Codex refuses stdin over 1,048,576 characters (`input_too_large`, Codex CLI
 # 0.167.1; recorded on #1670 and PR #1688). Measured in BYTES, never fewer than
 # characters, less a margin for the prompt: it errs toward blocking. A size
@@ -366,6 +354,24 @@ fi
 rm -f "$REVIEW_LOCAL_CFG_FILE"
 echo "CODEX_REVIEW_LOCAL_CREDENTIALS: $REVIEW_LOCAL_CREDS${REVIEW_LOCAL_CRED_KEYS:+ (${REVIEW_LOCAL_CRED_KEYS# })}"
 
+# A pinned bundle may contain mismatched helper versions. Refuse before any
+# model call rather than silently sending an incomplete findings format.
+if [ "${CM_RECEIPT+x}" != x ]; then
+    CM_REVIEW_SOURCE=$(readlink -f -- "${BASH_SOURCE[0]}") || CM_REVIEW_SOURCE=""
+    CM_RECEIPT="${CM_REVIEW_SOURCE%/*}/counter-model-receipt.py"
+    [ -f "$CM_RECEIPT" ] || CM_RECEIPT="$HOME/.claude/scripts/counter-model-receipt.py"
+    [ -f "$CM_RECEIPT" ] || CM_RECEIPT="${CLAUDE_PLUGIN_ROOT:-}/scripts/counter-model-receipt.py"
+fi
+if ! CM_PYTHON=$(command -v "${CM_PYTHON:-python3}") \
+    || ! REVIEW_KINDS=$("$CM_PYTHON" "$CM_RECEIPT" finding-kinds) || [ -z "$REVIEW_KINDS" ] \
+    || ! [[ "$REVIEW_KINDS" =~ ^[a-z]+(-[a-z]+)*($'\n'[a-z]+(-[a-z]+)*)*$ ]]; then
+    echo "CODEX_REVIEW: blocked (finding kinds unavailable)" >&2
+    rm -f "$DIFF_FILE"
+    rm -rf "$REVIEW_HOME"
+    exit 1
+fi
+REVIEW_KIND_CHOICES="${REVIEW_KINDS//$'\n'/|}"
+
 FINDINGS=$(mktemp /tmp/codex-review-findings.XXXXXX)
 # STREAM carries the thread id that review_model needs to identify the
 # reviewing model. Without --json there is no thread id, and the lookup
@@ -438,7 +444,8 @@ rm -rf "$REVIEW_HOME"
 review_model() {
 CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
 if [ "${CM_RECEIPT+x}" != x ]; then
-    CM_RECEIPT=$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve().with_name("counter-model-receipt.py"))' "${BASH_SOURCE[0]}")
+    CM_REVIEW_SOURCE=$(readlink -f -- "${BASH_SOURCE[0]}") || CM_REVIEW_SOURCE=""
+    CM_RECEIPT="${CM_REVIEW_SOURCE%/*}/counter-model-receipt.py"
     [ -f "$CM_RECEIPT" ] || CM_RECEIPT="$HOME/.claude/scripts/counter-model-receipt.py"
     [ -f "$CM_RECEIPT" ] || CM_RECEIPT="${CLAUDE_PLUGIN_ROOT:-}/scripts/counter-model-receipt.py"
 fi
@@ -450,7 +457,7 @@ fi
 # one implementation both this document and `/codex:ask` call, so a second
 # fix is never needed for a third copy.
 if [ -f "$CM_RECEIPT" ]; then
-    REVIEW_MODEL=$(python3 "$CM_RECEIPT" rollout-model \
+    REVIEW_MODEL=$("${CM_PYTHON:-python3}" "$CM_RECEIPT" rollout-model \
         --exec-log "$STREAM" --sessions-dir "$CODEX_DIR/sessions" 2>/dev/null) \
         || REVIEW_MODEL=""
 else

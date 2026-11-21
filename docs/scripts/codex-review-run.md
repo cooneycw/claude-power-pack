@@ -26,3 +26,11 @@ Per-script history, indexed from [the scripts inventory](../scripts.md).
   This supports installed symlinks, copied repair installs and generated Codex bundles.
   `/flow:repair` now includes the required parser in its install family.
   CPP init/update's executable-script loops already carry both files.
+
+- The kind lookup runs immediately before prompt execution, after the existing
+  patch-size, sandbox, network and credential verdicts. An unavailable parser
+  cannot replace an earlier refusal. Sibling resolution uses `readlink -f`,
+  without invoking Python. `CM_PYTHON` optionally selects one interpreter
+  executable (default `python3`); tests supply their own `sys.executable` for
+  restricted PATHs. The same selection serves receipt-patch and model lookups.
+  A failed late lookup removes its owned temporary patch and review HOME.

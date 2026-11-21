@@ -202,3 +202,27 @@ stdout/status compatibility, imported silence and the 13-call reader search.
 The reviewer did not independently rerun the broad related suite.
 The gate now uses normal account HOME and clears PYTEST_ADDOPTS, retaining
 private TMPDIR outside HOME, as explicitly authorized in mailbox 36431.
+
+### Confirmed CI PATH amendment - mailboxes 36619 and 36622
+Pipeline 3968 failed validate with 79 failed, 13011 passed, 119 skipped.
+All failures were extracted-stage large-patch, network-fence or sandbox-scope
+cases: CI has no python3 in their restricted PATH. The early kind lookup
+preempted their existing verdicts. Permission/root and bundle-race hypotheses
+were not the cause of this pipeline; the host log evidence confirmed PATH.
+The orchestrator approved moving the fail-closed kind lookup after existing
+early verdicts, using readlink -f without Python for realpath resolution, and
+CM_PYTHON for explicit interpreter selection (default python3). The selection
+also serves review-patch and rollout-model. Tests use sys.executable for
+legitimate exec under restricted PATHs, and preserve an unusable interpreter
+when proving the earlier size refusal. A second case proves explicit missing
+interpreter refusal. Both cases failed on 879e16fa and pass after the fix.
+All 84 cases in the three affected files pass under a fixture-owned tools PATH
+with no python3. The first shadow harness lacked mkdir and produced 42 false
+reds; supplying that real tool fixed the harness, not product behavior.
+The new bundle test now uses the real generator's output-root option under
+its own tmp_path, with no shared checkout writes. This was authorized as this
+PR's own test cleanup even though it did not cause pipeline 3968.
+Broader related tests: 1074 passed in 71.88s; mypy: 512 source files green.
+Pass 5 is explicitly authorized by cp-orch, mailbox 36619, cap 5, reason:
+CI-only PATH defect: kinds lookup ran bare python3 before earlier verdicts.
+Mailbox 36636 directs merging current main 25407114 before review/gating.
