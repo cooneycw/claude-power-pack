@@ -152,8 +152,122 @@ Reader search positively found flow:auto's real speckit call/state reference and
 
 Approval: granted in mailbox 36690, including exact cap raises under owner ruling 7065030917. Before push run budget, both import-audit paths, full own finish gate, pinned head-history gitleaks and exact-head CI. Use normal account HOME, private TMPDIR outside it, no inherited basetemp/PYTEST_ADDOPTS, reset SIGINT and warm private cache. Review identities derive from runtime logs. After #1870 lands merge main/recheck/re-gate before orchestrator merge; no force push or rendered hand edits.
 
-<!-- flow-run n=4 id=886f56f62f81479da3e05c5b76a2b489 -->
+<!-- flow-run n=4 id=f035e5fd6e3149d7936f5326621f165a -->
 ## Run 4
+
+- Run-id:            f035e5fd6e3149d7936f5326621f165a
+- Run-start:         787498475c5655792053cd4bd056367617e00e46
+
+- Issue:             #1811
+- Base SHA:          787498475c5655792053cd4bd056367617e00e46
+- Necessity verdict: Partially addressed
+- Approval:          granted
+- Approver:          run136:cp-orch, mailbox 36784 (reaffirmed 36887)
+- Recorded at:       2026-11-21T18:59:37.820587+00:00
+
+### Section B evidence
+PR #1879 / squash 78749847 supplied the speckit row and Run 3. The live-driver, claim and stale rows remain exempt for all three drivers. Plan 36782 approved in 36784, with required mixed own/foreign dirt control; begin after speckit push/current-main integration as confirmed in 36887.
+
+### Section C - the approved plan
+1. `templates/delegated-driver-core.md` - parent checks after approval/before first child, stale check Step 6 start, live guard before fixes, ownership-aware checkpoint/recheck and own-only cleanup release.
+2. `.claude/commands/codex/auto.md` - regenerate shared core.
+3. `.claude/commands/qwen/auto.md` - regenerate shared core.
+4. `.claude/commands/gemma/auto.md` - regenerate shared core.
+5. `docs/agents/driver-parity.json` - nine helper/driver entries exempt to run; refresh actual citation hints.
+6. `.claude/command-word-budgets.tsv` - exact measured caps, executable gate step and owner ruling; retain sibling gates.
+7. `tests/test_delegated_pre_child_guards.py` - actual-render ordering/verdict and real helper execution; mixed own/foreign dirt never swept into checkpoint.
+8. `tests/fixtures/delegated-pre-child-guards/` - committed good/bad ordering, verdict, ownership, cleanup and review-renewal controls.
+9. `tests/test_driver_parity.py` - actual nine-entry policy and missing-call discrimination.
+Scope: three pre-child helper rows only; Refs #1811; helper implementations unchanged. No bypass of live suspected, claim held/foreign, review renewal or approval gates. Exact cap increases allowed as executable gate steps.
+Risks: live freshness cannot distinguish own/foreign dirt; only confirmed own edits may be checkpointed, then guard reruns clean. Unknown dirt or persistent suspected STOP/ask. No live model compliance claim.
+
+### Lanes for this change
+| Lane | Answer | How, or why not |
+|---|---|---|
+| Checkout | will test | Real fixture-owned main checkout and linked worktree helper calls. |
+| Harness | will test | Claude install stable helper path fixture and generated documents; Codex install delegated drivers are intentionally not packaged (not applicable). |
+| Driver | will test | /flow:auto (Claude implements) unchanged; delegated drivers (/codex:auto, /qwen:auto, /gemma:auto) actual renders and real parity policy. |
+| Coordination | not applicable | No Kyle/no-Kyle authority behavior change. |
+| CI provider | not applicable | No status/provider logic change. |
+| Project state | will test | A repository that has adopted a feature's file or record / one that has not: clean/own-dirty/mixed foreign dirt; self/held claims; current/collision/unknown stale state. |
+| Toolchain version | not covered | Installed runtime and pinned CI only; no matrix. |
+| Clone shape | not applicable | No new clone/ref-resolution behavior. |
+| Run location | will test | Invoked from the CPP root / from another directory: literal target path while helper caller is elsewhere. |
+| Gate target | not applicable | Parent helper checks do not alter runner interpreter selection. |
+| Wave role state | not applicable | No wave lifecycle change. |
+| Reader: parent session | not covered | Live model compliance; documented ordering/verdict policy is tested against actual rendered text and committed bad cases. |
+| Reader: rendered command tests | tested against real output | Execute actual extracted Bash calls against real helpers in fixture-owned repositories. |
+| Reader: parity checker | tested against real output | Nine real run-policy entries and one missing-call control per driver/helper. |
+
+Reader search: grep positively found canonical flow:auto calls to all three helpers and the nine delegated policy exemptions; existing real helper tests consume their emitted path/verdict lines. No helper output shape changes.
+
+Approved policy in full:
+# CPP #1811 queued pre-child trio: read-only plan
+
+Start only after the current speckit PR reaches its handoff; create a separate branch/worktree from then-current origin/main. Refs #1811; do not close the umbrella. No source changes yet.
+
+Outcome: parent runs live-driver, claim and stale checks after Step 3 approval and immediately before Step 4 first child invocation, and repeats the required checks before Step 6 fixes. Release only this run's claim immediately before Step 8 removal.
+
+Placement and verdicts
+- Shared TEMPLATE at end of Step 3, before vendor Step 4; literal recorded WT_PATH arguments, validate helper output names that checkout. Missing/unknown helpers are reported as unchecked, never clear. Live-driver clear proceeds; suspected STOP/ask, not an automatic authorization. Claim explicit check: self healthy; held/foreign STOP, report ownership; unresolved ownership never starts child. If free/stale, use existing normal acquisition semantics and recheck, never --steal.
+- Stale check origin/main + literal WT_PATH before Step 4 and at Step 6 start. Current/moved-clean without overlap proceeds. Collision or an intended file changed upstream: checkpoint only positively attributed own work, merge on a clean tree, no shared stash. Missing/fetch failure remains advisory/unchecked and is reported.
+- Before each Step 6 child fix, rerun live-driver guard; recheck claim if ownership uncertain. Own-dirty policy proposal: known recent edits alone do not prove foreign activity, but suspected cannot be bypassed. Attribute any dirty content against this run's recorded checkpoint/child result, checkpoint only confirmed own changes, and rerun the guard on the clean tree. Unexplained changes or a persisting suspected verdict STOP/ask. Never commit uncertain foreign edits. Any changed reviewed artifact returns to Step 5 independent review/receipt before finish. This makes no helper-contract changes.
+- Cleanup: release literal WT_PATH only after merge/own-claim confirmation and immediately before removal; never --force or release a foreign claim. Leave-for-review retains the worktree and claim.
+
+Surfaces
+- templates/delegated-driver-core.md; generated codex/qwen/gemma auto.md via make delegated-core-write.
+- Exactly nine parity exemptions become run (three helpers x three drivers); refresh citation line hints using actual cited text.
+- tests/test_delegated_pre_child_guards.py plus committed good/bad driver fixtures; extend actual policy-driven parity controls. Existing helper product behavior unchanged; existing helper tests establish real verdict contracts.
+- .claude/command-word-budgets.tsv exact measured counts after current-main integration, retain all sibling gates, owner-authorized executable gate step rationale with #1811 ruling.
+- Approved plan/run evidence and derived counter-model receipt.
+
+Validation
+Run new actual-driver regressions on pre-fix current-main and require red before edits. Extract active Bash calls and assert initial/fix ordering, literal paths, path/verdict mapping, suspected STOP, own-work checkpoint-and-recheck rather than bypass, claim held stop, release before deletion and no leave-for-review release, stale merge checkpoint and changed-artifact review renewal. Committed negative controls remove/move each call and invert verdict/ownership/cleanup behavior. Pair fixture verdicts with existing real helper tests; claim no live model compliance proof. Run focused helper + rendered contract/parity suites, vendor check, exact-cap checker plus one-word-over controls for all drivers, lint/typecheck/import audits, independent review and full exact-head finish gate.
+
+Approved by orchestrator mailbox verdict 36784 on 2026-11-21. Start from current main after the speckit PR is pushed. Additional required committed case: foreign dirt beside confirmed-own dirt in the same tree must STOP; the checkpoint must not sweep the foreign change in. The own-dirty policy is explicitly approved; no bypass of suspected is authorized.
+
+<!-- flow-run n=5 id=03776eb0b3d5448a9ab2d99b0e00cb74 -->
+## Run 5
+
+- Run-id:            03776eb0b3d5448a9ab2d99b0e00cb74
+- Run-start:         dbb485d4d1d7e9dc55e227822896c24f5b467712
+- Issue: #1811
+- Necessity verdict: Still needed
+- Approval: granted
+- Approver: run136:cp-orch mailbox 36767; cap-conflict rule 36773
+
+### Section B evidence
+The delegated shared lifecycle has a checkpoint commit before either post-child safety guard. The owner requires all #1811 rows adopted before release. This run adopts only the two post-child rows; prior runs and other workers own the others.
+
+### Section C - the approved plan
+1. `templates/delegated-driver-core.md` - parent strict worktree guard after Step 4 return, every Step 6 fix return, and before any Step 7 shipping commit; ignored-additions before first Step 5 checkpoint and Step 7 shipping commit. Guard leak exit 3 STOP, unknown/not-applicable 4/5 report exactly; attribute main edits before reverting. Ignored-additions exit 3 STOP.
+2. `.claude/commands/codex/auto.md`, `.claude/commands/qwen/auto.md`, `.claude/commands/gemma/auto.md` - regenerate from template, never hand-edit rendered regions.
+3. `docs/agents/driver-parity.json` - six adopted entries become run.
+4. `tests/test_delegated_post_child_guards.py` - actual rendered placement and verdict contract regression; committed good, missing-call and after-first-commit inputs reject broken placement. Red on unchanged main first.
+5. `tests/fixtures/delegated-post-child/` - committed bounded known-good and known-bad driver excerpts.
+6. `.claude/command-word-budgets.tsv` - raise only exceeded caps to exact measured count, owner ruling (f), executable gate step. On main conflicts preserve template changes, regenerate and recount, never choose either rendered side.
+Evidence: existing helper verdict tests/controls, targeted render/parity tests, command budgets, independent reviewer and CPP full gate; exact-head CI. Refs #1811, no closing reference. No helper implementation changes or unrelated rows.
+
+### Lanes for this change
+| Lane | Answer | How, or why not |
+|---|---|---|
+| Checkout | will test | main checkout / linked worktree: existing worktree guard and ignored-additions cases exercise each layout and third-state verdicts. |
+| Harness | will test | Claude install / Codex install: vendor/parity validates real Claude renders and generated Codex flow-auto mirror; delegated drivers intentionally unpackaged. |
+| Driver | will test | /flow:auto / delegated drivers: actual three delegated renders gain calls and parity membership against flow. |
+| Coordination | not applicable | Parent documentation only; no Kyle authority behavior. |
+| CI provider | not applicable | No provider logic changed; own Woodpecker CI separately required. |
+| Project state | will test | a repository that has adopted a feature's file or record / one that has not: existing ignored-addition tests distinguish suspicious ignored files and clean runs. |
+| Toolchain version | not covered | Host/pinned CI only; no version matrix. |
+| Clone shape | not applicable | No history/ref-resolution behavior changed. |
+| Run location | not applicable | Guard calls execute from target worktree as already required by lifecycle. |
+| Gate target | not applicable | No runner interpreter/PATH change. |
+| Wave role state | not applicable | No wave role changes. |
+
+### Changed output readers
+Parents read generated command documents. Rendered placement tests consume all three actual command files and committed bounded excerpts; parity consumes actual renders and policy. Existing tests/controls consume actual helper verdicts. No live delegated-run completeness claim.
+
+<!-- flow-run n=6 id=886f56f62f81479da3e05c5b76a2b489 -->
+## Run 6
 
 - Run-id:            886f56f62f81479da3e05c5b76a2b489
 - Run-start:         6dec8d527be32788cdb6754909f1aaa0210563e2

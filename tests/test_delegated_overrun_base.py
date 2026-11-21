@@ -194,12 +194,36 @@ def test_a_missing_recorded_base_stops_rather_than_reading_zero(tmp_path: Path, 
     assert "OVERRUN CHECK UNAVAILABLE" in r.stdout
 
 
-def _backstop_block() -> str:
-    text = _doc("codex")
+BACKSTOP_MARKER = "# EXPLICIT BASE, never `@{u}`"
+
+
+def _backstop_block(text: str | None = None) -> str:
+    if text is None:
+        text = _doc("codex")
     section = text[text.index("### Step 7: Finish"):]
-    m = re.search(r"```bash\n(.*?)```", section, re.S)
-    assert m
-    return m.group(1)
+    section = section.split("### Step 8:", 1)[0]
+    blocks = re.findall(r"^[ \t]*```bash\n(.*?)^[ \t]*```", section, re.M | re.S)
+    matches = [block for block in blocks if BACKSTOP_MARKER in block]
+    assert len(matches) == 1 and matches[0].count(BACKSTOP_MARKER) == 1, (
+        "expected exactly one Step 7 backstop marker"
+    )
+    return matches[0]
+
+
+@pytest.mark.parametrize("copies", (0, 2))
+def test_backstop_reader_refuses_missing_or_ambiguous_marker(copies: int) -> None:
+    block = f"```bash\n{BACKSTOP_MARKER}\necho backstop\n```\n"
+    document = "### Step 7: Finish\n```bash\necho earlier-guard\n```\n" + block * copies
+    assert document.count(BACKSTOP_MARKER) == copies
+    with pytest.raises(AssertionError, match="exactly one Step 7 backstop marker"):
+        _backstop_block(document)
+
+
+def test_backstop_reader_selects_marker_after_guard_and_ignores_step8() -> None:
+    expected = BACKSTOP_MARKER + "\necho owned-backstop\n"
+    document = ("### Step 7: Finish\n```bash\necho earlier-guard\n```\n```bash\n" + expected
+                + "```\n### Step 8: Cleanup\n```bash\n" + BACKSTOP_MARKER + "\necho cleanup\n```\n")
+    assert _backstop_block(document) == expected
 
 
 @requires_git

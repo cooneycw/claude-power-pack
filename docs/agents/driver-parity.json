@@ -4,8 +4,8 @@
     {
       "gate": "check-ignored-additions.sh",
       "driver": "codex",
-      "disposition": "exempt",
-      "reason": "Known gap: the precommit steps do not check ignored additions.",
+      "disposition": "run",
+      "reason": "Parent checks child edits before checkpoint and shipping commits.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -52,7 +52,7 @@
       "citations": [
         {
           "file": ".claude/commands/codex/auto.md",
-          "line": 1198,
+          "line": 1244,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
@@ -72,8 +72,8 @@
     {
       "gate": "flow-live-driver-guard.sh",
       "driver": "codex",
-      "disposition": "exempt",
-      "reason": "Known gap: the resolver guards resume only, not every pre-edit transition.",
+      "disposition": "run",
+      "reason": "Parent pre-child and fix/cleanup checkpoints invoke this helper (#1811).",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -135,8 +135,8 @@
     {
       "gate": "flow-stale-check.sh",
       "driver": "codex",
-      "disposition": "exempt",
-      "reason": "Known gap: the empty-diff merge-base check does not check stale-base collisions.",
+      "disposition": "run",
+      "reason": "Parent pre-child and fix/cleanup checkpoints invoke this helper (#1811).",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -149,15 +149,15 @@
     {
       "gate": "flow-worktree-claim.sh",
       "driver": "codex",
-      "disposition": "exempt",
-      "reason": "Known gap: the initial claim does not cover the explicit pre-edit check and release lifecycle.",
+      "disposition": "run",
+      "reason": "Parent pre-child and fix/cleanup checkpoints invoke this helper (#1811).",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
       "gate": "flow-worktree-guard.sh",
       "driver": "codex",
-      "disposition": "exempt",
-      "reason": "Known gap: a delegated sandbox does not check for edits leaked into main.",
+      "disposition": "run",
+      "reason": "Parent checks child edits before checkpoint and shipping commits.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -176,7 +176,7 @@
       "citations": [
         {
           "file": ".claude/commands/codex/auto.md",
-          "line": 1198,
+          "line": 1244,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
@@ -209,7 +209,7 @@
       "citations": [
         {
           "file": ".claude/commands/codex/auto.md",
-          "line": 1198,
+          "line": 1244,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
@@ -222,8 +222,8 @@
     {
       "gate": "check-ignored-additions.sh",
       "driver": "qwen",
-      "disposition": "exempt",
-      "reason": "Known gap: the precommit steps do not check ignored additions.",
+      "disposition": "run",
+      "reason": "Parent checks child edits before checkpoint and shipping commits.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -249,7 +249,7 @@
       "citations": [
         {
           "file": ".claude/commands/qwen/auto.md",
-          "line": 1328,
+          "line": 1374,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
@@ -269,8 +269,8 @@
     {
       "gate": "flow-live-driver-guard.sh",
       "driver": "qwen",
-      "disposition": "exempt",
-      "reason": "Known gap: the resolver guards resume only, not every pre-edit transition.",
+      "disposition": "run",
+      "reason": "Parent pre-child and fix/cleanup checkpoints invoke this helper (#1811).",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -332,8 +332,8 @@
     {
       "gate": "flow-stale-check.sh",
       "driver": "qwen",
-      "disposition": "exempt",
-      "reason": "Known gap: the empty-diff merge-base check does not check stale-base collisions.",
+      "disposition": "run",
+      "reason": "Parent pre-child and fix/cleanup checkpoints invoke this helper (#1811).",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -346,15 +346,15 @@
     {
       "gate": "flow-worktree-claim.sh",
       "driver": "qwen",
-      "disposition": "exempt",
-      "reason": "Known gap: the initial claim does not cover the explicit pre-edit check and release lifecycle.",
+      "disposition": "run",
+      "reason": "Parent pre-child and fix/cleanup checkpoints invoke this helper (#1811).",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
       "gate": "flow-worktree-guard.sh",
       "driver": "qwen",
-      "disposition": "exempt",
-      "reason": "Known gap: a delegated sandbox does not check for edits leaked into main.",
+      "disposition": "run",
+      "reason": "Parent checks child edits before checkpoint and shipping commits.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -373,7 +373,7 @@
       "citations": [
         {
           "file": ".claude/commands/qwen/auto.md",
-          "line": 1328,
+          "line": 1374,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
@@ -406,7 +406,7 @@
       "citations": [
         {
           "file": ".claude/commands/qwen/auto.md",
-          "line": 1328,
+          "line": 1374,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
@@ -419,8 +419,8 @@
     {
       "gate": "check-ignored-additions.sh",
       "driver": "gemma",
-      "disposition": "exempt",
-      "reason": "Known gap: the precommit steps do not check ignored additions.",
+      "disposition": "run",
+      "reason": "Parent checks child edits before checkpoint and shipping commits.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -446,7 +446,7 @@
       "citations": [
         {
           "file": ".claude/commands/gemma/auto.md",
-          "line": 1371,
+          "line": 1417,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
@@ -466,8 +466,8 @@
     {
       "gate": "flow-live-driver-guard.sh",
       "driver": "gemma",
-      "disposition": "exempt",
-      "reason": "Known gap: the resolver guards resume only, not every pre-edit transition.",
+      "disposition": "run",
+      "reason": "Parent pre-child and fix/cleanup checkpoints invoke this helper (#1811).",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -529,8 +529,8 @@
     {
       "gate": "flow-stale-check.sh",
       "driver": "gemma",
-      "disposition": "exempt",
-      "reason": "Known gap: the empty-diff merge-base check does not check stale-base collisions.",
+      "disposition": "run",
+      "reason": "Parent pre-child and fix/cleanup checkpoints invoke this helper (#1811).",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -543,15 +543,15 @@
     {
       "gate": "flow-worktree-claim.sh",
       "driver": "gemma",
-      "disposition": "exempt",
-      "reason": "Known gap: the initial claim does not cover the explicit pre-edit check and release lifecycle.",
+      "disposition": "run",
+      "reason": "Parent pre-child and fix/cleanup checkpoints invoke this helper (#1811).",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
       "gate": "flow-worktree-guard.sh",
       "driver": "gemma",
-      "disposition": "exempt",
-      "reason": "Known gap: a delegated sandbox does not check for edits leaked into main.",
+      "disposition": "run",
+      "reason": "Parent checks child edits before checkpoint and shipping commits.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -570,7 +570,7 @@
       "citations": [
         {
           "file": ".claude/commands/gemma/auto.md",
-          "line": 1371,
+          "line": 1417,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {
@@ -603,7 +603,7 @@
       "citations": [
         {
           "file": ".claude/commands/gemma/auto.md",
-          "line": 1371,
+          "line": 1417,
           "text": "If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:"
         },
         {

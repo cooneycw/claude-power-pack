@@ -117,6 +117,7 @@ wrong approach), STOP and report. Offer to re-prompt Qwen, escalate to
    QWEN_FIX_EXIT=$?
    echo "qwen fix attempt exited $QWEN_FIX_EXIT; output: $QWEN_FIX_OUTPUT"
    ```
+<!-- slot: FIX_PAYLOAD_CHECK -->
    ```bash
    ~/.claude/scripts/delegated-run-check.sh /tmp/qwen-fix-42-1.jsonl 0 --lane qwen --expect-tools
    ```
