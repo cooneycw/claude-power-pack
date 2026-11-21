@@ -103,6 +103,7 @@ NAMESPACES = {
     # Runs its stages in a subshell and prints the line from the parent, so the
     # diff stage's own cleanup trap cannot replace it (#1847).
     "codex-review-run.sh": "CODEX_REVIEW",
+    "counter-model-receipt.py": "COUNTER_MODEL",
     "cpp-commands-link.sh": "CPP_COMMANDS_LINK",
     "install-drift.sh": "INSTALL_DRIFT",
     "stash-worktree-guard.sh": "STASH_GUARD",
@@ -475,3 +476,56 @@ def test_project_next_reports_actual_status_on_stderr(arguments, expected, tmp_p
     lines = result.stderr.splitlines()
     assert lines and lines[-1] == f"PROJECT_NEXT_EXIT={expected}", result.stderr
     assert "PROJECT_NEXT_EXIT=" not in result.stdout
+
+
+@pytest.mark.parametrize(("arguments", "expected"), [
+    (["--help"], 0), ([], 2), (["parse", "fixture-absent.md"], 1),
+])
+def test_counter_model_exit_reports_actual_status(arguments, expected, tmp_path):
+    if arguments and arguments[0] == "parse":
+        assert not (tmp_path / arguments[1]).exists()
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS / "counter-model-receipt.py"), *arguments],
+        cwd=tmp_path, capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == expected, result.stderr
+    lines = result.stderr.splitlines()
+    assert lines and lines[-1] == f"COUNTER_MODEL_EXIT={expected}", result.stderr
+    assert "COUNTER_MODEL_EXIT=" not in result.stdout
+
+
+def test_counter_model_exit_follows_flushed_stdout() -> None:
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS / "counter-model-receipt.py"), "--help"],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False,
+    )
+    assert result.returncode == 0
+    assert "usage:" in result.stdout
+    assert result.stdout.splitlines()[-1] == "COUNTER_MODEL_EXIT=0"
+
+
+def test_counter_model_exit_follows_an_exception(tmp_path: Path) -> None:
+    source = (SCRIPTS / "counter-model-receipt.py").read_text()
+    needle = "def main() -> int:\n"
+    assert source.count(needle) == 1
+    source = source.replace(needle, needle + "    raise RuntimeError('injected-exit-test')\n")
+    assert "raise RuntimeError('injected-exit-test')" in source
+    driver = tmp_path / "driver.py"
+    driver.write_text(source)
+    result = subprocess.run([sys.executable, str(driver)], capture_output=True, text=True, check=False)
+    assert result.returncode == 1
+    assert "RuntimeError: injected-exit-test" in result.stderr
+    assert result.stderr.splitlines()[-1] == "COUNTER_MODEL_EXIT=1"
+
+
+@pytest.mark.skipif(not Path("/dev/full").exists(), reason="requires /dev/full")
+def test_counter_model_exit_reports_a_stdout_flush_failure() -> None:
+    assert Path("/dev/full").exists()
+    with open("/dev/full", "w") as output:
+        result = subprocess.run(
+            [sys.executable, str(SCRIPTS / "counter-model-receipt.py"), "--help"],
+            stdout=output, stderr=subprocess.PIPE, text=True, check=False,
+        )
+    assert result.returncode == 1, result.stderr
+    assert "OSError" in result.stderr
+    assert result.stderr.splitlines()[-1] == "COUNTER_MODEL_EXIT=1"

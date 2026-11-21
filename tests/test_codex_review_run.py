@@ -27,6 +27,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -53,7 +54,12 @@ def review_stage(name: str) -> str:
     text = HELPER.read_text(encoding="utf-8")
     match = re.search(rf"^{re.escape(name)}\(\) \{{\n(.*?)^\}}\n", text, re.S | re.M)
     assert match, f"{HELPER.name} defines no stage {name!r}"
-    return match.group(1)
+    # Extracted-stage tests bypass main's installed-helper context. Supply the
+    # real paired parser and running test interpreter; no copied vocabulary.
+    prefix = f'CM_RECEIPT="${{CM_RECEIPT:-{RECEIPT}}}"\n' if name == "review_run" else ""
+    if name == "review_run":
+        prefix += f'CM_PYTHON="${{CM_PYTHON:-{sys.executable}}}"\n'
+    return prefix + match.group(1)
 
 
 THREAD = "thread-for-codex-review-run-test"
@@ -543,3 +549,159 @@ def test_a_marker_missing_from_the_transcript_reads_empty_never_a_default(tmp_pa
     assert "CODEX_REVIEW_NETWORK" not in t.read_text(encoding="utf-8")  # the precondition
     flags = _read_flags(t)
     assert flags["SCOPE"] == "full" and flags["NETWORK"] == "", flags
+
+
+@requires_git
+@requires_python3
+def test_finding_kind_prompt_uses_canonical_list(tmp_path: Path) -> None:
+    work, env = _fixture(tmp_path)
+    proc, _ = _review(work, env)
+    try:
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        kinds = subprocess.run(["python3", str(RECEIPT), "finding-kinds"],
+                               capture_output=True, text=True, check=True).stdout.splitlines()
+        assert kinds
+        prompt = Path(env["STUB_ARGS"]).read_text()
+        assert "- Kind: <" + "|".join(kinds) + ">" in prompt
+    finally:
+        _cleanup_stream(proc.stdout)
+
+
+@requires_git
+@requires_python3
+@pytest.mark.parametrize("failure", ["missing", "error", "empty"])
+def test_finding_kind_helper_failure_refuses_review(tmp_path: Path, failure: str) -> None:
+    work, env = _fixture(tmp_path)
+    helper = tmp_path / "receipt.py"
+    if failure != "missing":
+        helper.write_text("import sys\n" + ("sys.exit(2)\n" if failure == "error" else ""))
+    assert not helper.exists() if failure == "missing" else helper.exists()
+    proc, _ = _review(work, env, CM_RECEIPT=str(helper), CLAUDE_PLUGIN_ROOT=str(tmp_path / "absent"))
+    try:
+        assert proc.returncode == 1, proc.stdout + proc.stderr
+        assert "CODEX_REVIEW: blocked (finding kinds unavailable)" in proc.stdout + proc.stderr
+        assert "exec" not in _calls(env), "must stop before invoking the reviewer"
+    finally:
+        _cleanup_stream(proc.stdout)
+
+
+@requires_git
+@requires_python3
+@pytest.mark.parametrize("layout", ["source", "repair-symlink", "repair-copy", "codex-bundle", "lone-symlink"])
+def test_finding_kind_shipped_pair_resolves_without_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, layout: str,
+) -> None:
+    work, env = _fixture(tmp_path)
+    env.pop("CM_RECEIPT", None)
+    env.pop("CLAUDE_PLUGIN_ROOT", None)
+    helper = HELPER
+    if layout.startswith("repair-"):
+        source = REPO / "scripts"
+        if layout == "repair-copy":
+            source = tmp_path / "cache" / "scripts"
+            source.mkdir(parents=True)
+            for path in (HELPER, RECEIPT):
+                shutil.copy2(path, source / path.name)
+        install = subprocess.run(["bash", str(REPO / "scripts/flow-helpers-install.sh")],
+                                 env={**env, "FLOW_HELPERS_SOURCE": str(source)},
+                                 capture_output=True, text=True)
+        assert install.returncode == 0, install.stdout + install.stderr
+        target = Path(env["HOME"]) / ".claude/scripts"
+        helper = target / HELPER.name
+        assert (target / RECEIPT.name).is_file(), "installer must ship the required parser"
+        assert helper.is_symlink() == (layout == "repair-symlink")
+    elif layout == "lone-symlink":
+        target = tmp_path / "links"
+        target.mkdir()
+        helper = target / HELPER.name
+        helper.symlink_to(HELPER)
+        assert not (target / RECEIPT.name).exists()
+    elif layout == "codex-bundle":
+        # Build the real generated output rather than a hand-written pair.
+        output = tmp_path / "generated-skills"
+        build = subprocess.run(
+            [sys.executable, str(REPO / "scripts/codex-skill-sync.py"),
+             "--write", "--output-root", str(output), "flow"],
+            cwd=tmp_path, env=env, capture_output=True, text=True)
+        assert build.returncode == 0, build.stdout + build.stderr
+        helper = output / "flow-auto/scripts" / HELPER.name
+        assert helper.read_bytes() == HELPER.read_bytes()
+        assert (helper.parent / RECEIPT.name).read_bytes() == RECEIPT.read_bytes()
+    monkeypatch.setattr("tests.test_codex_review_run.HELPER", helper)
+    proc, _ = _review(work, env)
+    try:
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "exec" in _calls(env)
+        assert "- Kind: <" in Path(env["STUB_ARGS"]).read_text()
+    finally:
+        _cleanup_stream(proc.stdout)
+
+
+@requires_git
+@requires_python3
+def test_finding_kind_lone_copy_refuses_without_parser(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    work, env = _fixture(tmp_path)
+    env.pop("CM_RECEIPT", None)
+    env.pop("CLAUDE_PLUGIN_ROOT", None)
+    target = tmp_path / "lone"
+    target.mkdir()
+    helper = target / HELPER.name
+    shutil.copy2(HELPER, helper)
+    assert not (target / RECEIPT.name).exists()
+    assert not (Path(env["HOME"]) / ".claude/scripts/counter-model-receipt.py").exists()
+    monkeypatch.setattr("tests.test_codex_review_run.HELPER", helper)
+    proc, _ = _review(work, env)
+    try:
+        assert proc.returncode == 1, proc.stdout + proc.stderr
+        assert "CODEX_REVIEW: blocked (finding kinds unavailable)" in proc.stdout + proc.stderr
+        assert "exec" not in _calls(env)
+    finally:
+        _cleanup_stream(proc.stdout)
+
+
+# Deliberately excludes python3 even on hosts that install it in /usr/bin.
+# The stage fixtures need a CI-shaped population, not the developer's PATH.
+def python_free_tools(directory: Path) -> str:
+    directory.mkdir(parents=True)
+    names = (
+        "awk", "basename", "bash", "cat", "chmod", "cp", "cut", "dirname", "env", "false", "find",
+        "git", "grep", "head", "ln", "ls", "mkdir", "mktemp", "mv", "pwd", "readlink", "realpath", "rm", "sed",
+        "sh", "sort", "tail", "tee", "test", "timeout", "tr", "true", "wc", "which", "xargs",
+    )
+    for name in names:
+        target = shutil.which(name)
+        if target:
+            (directory / name).symlink_to(target)
+    path = str(directory)
+    assert shutil.which("python3", path=path) is None
+    assert shutil.which("git", path=path) and shutil.which("bash", path=path)
+    return path
+
+
+@requires_git
+@requires_python3
+def test_finding_kind_lookup_does_not_preempt_size_refusal_without_python(tmp_path: Path) -> None:
+    work, env = _fixture(tmp_path)
+    (work / "a.txt").write_text("x" * 1048576 + "\n")
+    _git("commit", "-qam", "oversized patch", cwd=work, env=env)
+    tools = python_free_tools(tmp_path / "without-python")
+    env.update(PATH=f"{tmp_path / 'stub'}:{tools}", CM_PYTHON="python3")
+    assert shutil.which("python3", path=env["PATH"]) is None
+    assert shutil.which("git", path=env["PATH"]) and shutil.which("bash", path=env["PATH"])
+    proc, _ = _review(work, env)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "CODEX_REVIEW: blocked (patch too large:" in proc.stderr, proc.stdout + proc.stderr
+    assert "finding kinds unavailable" not in proc.stderr
+    assert "exec" not in _calls(env)
+
+
+@requires_git
+@requires_python3
+def test_finding_kind_missing_selected_interpreter_refuses_exec(tmp_path: Path) -> None:
+    work, env = _fixture(tmp_path)
+    missing = tmp_path / "absent-python"
+    assert not missing.exists()
+    proc, _ = _review(work, env, CM_PYTHON=str(missing))
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "CODEX_REVIEW: blocked (finding kinds unavailable)" in proc.stderr
+    assert "exec" not in _calls(env)
