@@ -108,6 +108,22 @@ def invocation_blocks(text: str, binary: str) -> list[str]:
     return [block for block in bash_blocks(text) if pattern.search(block)]
 
 
+def _pipeline_lines(block: str) -> list[str]:
+    """Numeric status alternatives are syntax; pipelines in their commands still count."""
+    findings = []
+    case_depth = 0
+    for line in _code_lines(block):
+        if re.fullmatch(r"case\s+.+\s+in", line):
+            case_depth += 1
+        elif case_depth and re.match(r"esac(?:\s|;|$)", line):
+            case_depth -= 1
+        elif case_depth:
+            line = re.sub(r"^\(?[0-9]+(?:\s*\|\s*[0-9]+)+\s*\)\s*", "", line, count=1)
+        if _PIPE.search(line):
+            findings.append(line)
+    return findings
+
+
 @pytest.mark.parametrize(("family", "kind"), SURFACES, ids=IDS)
 def test_the_run_is_never_piped(family: str, kind: str) -> None:
     """Bug 1: `| tee` makes `$?` tee's status, so every failure reads as 0."""
@@ -116,13 +132,11 @@ def test_the_run_is_never_piped(family: str, kind: str) -> None:
     assert blocks, f"no {binary} invocation block found in {family}/{kind}.md"
 
     for block in blocks:
-        for line in _code_lines(block):
+        for line in _pipeline_lines(block):
             # Reject ANY pipeline, not one spelling of `tee`. `|tee`, `| cat`,
             # `| jq .` and `| head` all mask `$?` identically, so pinning the
             # literal text would leave the defect a rename away (Codex review
             # of this PR raised exactly that evasion).
-            if not _PIPE.search(line):
-                continue
             assert False, (
                 f"{family}/{kind}.md pipes the delegated run: {line!r}. "
                 "`$?` after a pipeline is the LAST command's status, not the "
@@ -396,3 +410,28 @@ def test_no_lane_sets_pipefail_instead_of_fixing_the_pipe() -> None:
                 f"{family}/{kind}.md sets pipefail; #798 is fixed by removing the "
                 "pipe and co-locating the capture, not by changing pipe semantics."
             )
+
+
+@pytest.mark.parametrize("case", ("pipeline-good", "pipeline-bad"))
+def test_pipeline_reader_distinguishes_numeric_case_arms(case: str, monkeypatch) -> None:
+    document = (ROOT / "tests/fixtures/delegated-post-child" / f"{case}.md").read_text()
+    if case == "pipeline-good":
+        assert "4|5)" in document
+        assert 'codex exec "$PROMPT" > "$OUTPUT" 2>&1' in document
+    else:
+        assert 'codex exec "$PROMPT" | tail -40' in document
+    monkeypatch.setitem(globals(), "read", lambda family, kind: document)
+    if case == "pipeline-bad":
+        with pytest.raises(AssertionError, match="pipes the delegated run"):
+            test_the_run_is_never_piped("codex", "auto")
+    else:
+        test_the_run_is_never_piped("codex", "auto")
+
+
+@pytest.mark.parametrize("block", (
+    'case "$status" in\n4|5) codex exec "$PROMPT" | tail -40 ;;\nesac',
+    '4|5) codex exec "$PROMPT"',
+    'codex exec "$PROMPT" | tail -40',
+))
+def test_numeric_case_exception_never_hides_a_command_pipeline(block: str) -> None:
+    assert _pipeline_lines(block), "a real pipe must remain visible"

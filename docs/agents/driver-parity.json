@@ -4,8 +4,8 @@
     {
       "gate": "check-ignored-additions.sh",
       "driver": "codex",
-      "disposition": "exempt",
-      "reason": "Known gap: the precommit steps do not check ignored additions.",
+      "disposition": "run",
+      "reason": "Parent checks child edits before checkpoint and shipping commits.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -156,8 +156,8 @@
     {
       "gate": "flow-worktree-guard.sh",
       "driver": "codex",
-      "disposition": "exempt",
-      "reason": "Known gap: a delegated sandbox does not check for edits leaked into main.",
+      "disposition": "run",
+      "reason": "Parent checks child edits before checkpoint and shipping commits.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -222,8 +222,8 @@
     {
       "gate": "check-ignored-additions.sh",
       "driver": "qwen",
-      "disposition": "exempt",
-      "reason": "Known gap: the precommit steps do not check ignored additions.",
+      "disposition": "run",
+      "reason": "Parent checks child edits before checkpoint and shipping commits.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -353,8 +353,8 @@
     {
       "gate": "flow-worktree-guard.sh",
       "driver": "qwen",
-      "disposition": "exempt",
-      "reason": "Known gap: a delegated sandbox does not check for edits leaked into main.",
+      "disposition": "run",
+      "reason": "Parent checks child edits before checkpoint and shipping commits.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -419,8 +419,8 @@
     {
       "gate": "check-ignored-additions.sh",
       "driver": "gemma",
-      "disposition": "exempt",
-      "reason": "Known gap: the precommit steps do not check ignored additions.",
+      "disposition": "run",
+      "reason": "Parent checks child edits before checkpoint and shipping commits.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -550,8 +550,8 @@
     {
       "gate": "flow-worktree-guard.sh",
       "driver": "gemma",
-      "disposition": "exempt",
-      "reason": "Known gap: a delegated sandbox does not check for edits leaked into main.",
+      "disposition": "run",
+      "reason": "Parent checks child edits before checkpoint and shipping commits.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {

@@ -225,3 +225,43 @@ Validation
 Run new actual-driver regressions on pre-fix current-main and require red before edits. Extract active Bash calls and assert initial/fix ordering, literal paths, path/verdict mapping, suspected STOP, own-work checkpoint-and-recheck rather than bypass, claim held stop, release before deletion and no leave-for-review release, stale merge checkpoint and changed-artifact review renewal. Committed negative controls remove/move each call and invert verdict/ownership/cleanup behavior. Pair fixture verdicts with existing real helper tests; claim no live model compliance proof. Run focused helper + rendered contract/parity suites, vendor check, exact-cap checker plus one-word-over controls for all drivers, lint/typecheck/import audits, independent review and full exact-head finish gate.
 
 Approved by orchestrator mailbox verdict 36784 on 2026-11-21. Start from current main after the speckit PR is pushed. Additional required committed case: foreign dirt beside confirmed-own dirt in the same tree must STOP; the checkpoint must not sweep the foreign change in. The own-dirty policy is explicitly approved; no bypass of suspected is authorized.
+
+<!-- flow-run n=5 id=03776eb0b3d5448a9ab2d99b0e00cb74 -->
+## Run 5
+
+- Run-id:            03776eb0b3d5448a9ab2d99b0e00cb74
+- Run-start:         dbb485d4d1d7e9dc55e227822896c24f5b467712
+- Issue: #1811
+- Necessity verdict: Still needed
+- Approval: granted
+- Approver: run136:cp-orch mailbox 36767; cap-conflict rule 36773
+
+### Section B evidence
+The delegated shared lifecycle has a checkpoint commit before either post-child safety guard. The owner requires all #1811 rows adopted before release. This run adopts only the two post-child rows; prior runs and other workers own the others.
+
+### Section C - the approved plan
+1. `templates/delegated-driver-core.md` - parent strict worktree guard after Step 4 return, every Step 6 fix return, and before any Step 7 shipping commit; ignored-additions before first Step 5 checkpoint and Step 7 shipping commit. Guard leak exit 3 STOP, unknown/not-applicable 4/5 report exactly; attribute main edits before reverting. Ignored-additions exit 3 STOP.
+2. `.claude/commands/codex/auto.md`, `.claude/commands/qwen/auto.md`, `.claude/commands/gemma/auto.md` - regenerate from template, never hand-edit rendered regions.
+3. `docs/agents/driver-parity.json` - six adopted entries become run.
+4. `tests/test_delegated_post_child_guards.py` - actual rendered placement and verdict contract regression; committed good, missing-call and after-first-commit inputs reject broken placement. Red on unchanged main first.
+5. `tests/fixtures/delegated-post-child/` - committed bounded known-good and known-bad driver excerpts.
+6. `.claude/command-word-budgets.tsv` - raise only exceeded caps to exact measured count, owner ruling (f), executable gate step. On main conflicts preserve template changes, regenerate and recount, never choose either rendered side.
+Evidence: existing helper verdict tests/controls, targeted render/parity tests, command budgets, independent reviewer and CPP full gate; exact-head CI. Refs #1811, no closing reference. No helper implementation changes or unrelated rows.
+
+### Lanes for this change
+| Lane | Answer | How, or why not |
+|---|---|---|
+| Checkout | will test | main checkout / linked worktree: existing worktree guard and ignored-additions cases exercise each layout and third-state verdicts. |
+| Harness | will test | Claude install / Codex install: vendor/parity validates real Claude renders and generated Codex flow-auto mirror; delegated drivers intentionally unpackaged. |
+| Driver | will test | /flow:auto / delegated drivers: actual three delegated renders gain calls and parity membership against flow. |
+| Coordination | not applicable | Parent documentation only; no Kyle authority behavior. |
+| CI provider | not applicable | No provider logic changed; own Woodpecker CI separately required. |
+| Project state | will test | a repository that has adopted a feature's file or record / one that has not: existing ignored-addition tests distinguish suspicious ignored files and clean runs. |
+| Toolchain version | not covered | Host/pinned CI only; no version matrix. |
+| Clone shape | not applicable | No history/ref-resolution behavior changed. |
+| Run location | not applicable | Guard calls execute from target worktree as already required by lifecycle. |
+| Gate target | not applicable | No runner interpreter/PATH change. |
+| Wave role state | not applicable | No wave role changes. |
+
+### Changed output readers
+Parents read generated command documents. Rendered placement tests consume all three actual command files and committed bounded excerpts; parity consumes actual renders and policy. Existing tests/controls consume actual helper verdicts. No live delegated-run completeness claim.

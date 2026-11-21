@@ -389,3 +389,191 @@ proposed; 9 plus 9 already covered when proposed (the first renewal control was
 masked, corrected before pass 2). Final pass's nine groups are all covered.
 No product changes followed the clean second review; remaining full finish gate
 and exact-head CI are reported separately rather than implied by this evidence.
+
+
+## Post-child guard pair
+
+<!-- lanes-demonstrated run=03776eb0b3d5448a9ab2d99b0e00cb74 plan=5e74129bebf837f3bd5235f58668c13af39847d2b44cd1dfa7fa5b437efe38ae -->
+
+| Lane | Result | Evidence |
+|---|---|---|
+| Checkout | pending | Existing worktree guard / ignored-additions temporary layout cases queued. |
+| Harness | passed | delegated-core-check matches three actual Claude renders; parity reads generated Codex flow-auto mirror, delegated families intentionally unpackaged. |
+| Driver | passed | Actual three main renders red: 3 failed, 4 passed via make test in 0.86 seconds. Inserted guards: 7 passed in 0.89 seconds. Missing and after-first-commit committed cases distinguish broken placement. |
+| Project state | pending | Existing ignored-addition cases queued. |
+
+Owner/orchestrator approval mailbox 36767; exact budget conflict rule 36773.
+Touched-but-unplanned: templates/delegated-driver-values/codex.md, qwen.md and
+gemma.md, approved mailbox 36860. Their FIX_REEXEC slot was split so the shared
+guard runs before the delegated-run-check payload read. Codex also tailed the
+output first: mailbox 36863 approved closing/reopening only its bash fence to
+move the unchanged tail after the shared guard. Qwen/Gemma have no such tail.
+No invocation, sandbox, exit capture, payload-check command or flag changed.
+
+A removal check against unchanged main dbb485d4 reconstructed all three original
+driver byte strings exactly after stripping only the three inserted guard/text
+blocks (plus Codex's new closing/opening fence delimiters). No prose was trimmed.
+Counts use check-claude-md-budget.py's len(read_text().split()) method:
+
+| Driver | Before | After | Delta | Old cap | New cap |
+|---|---:|---:|---:|---:|---:|
+| codex | 8669 | 8886 | 217 | 8689 | 8886 |
+| qwen | 9883 | 10098 | 215 | 9905 | 10098 |
+| gemma | 10492 | 10707 | 215 | 10514 | 10707 |
+
+Raises use owner ruling (f), executable gate step, approved mailbox 36863.
+Codex's two extra words are fence delimiters; only exceeded caps were raised.
+Driver parity: 24 items, 72 pairs, 0 missing. Budget and lint checks passed.
+
+
+First independent gpt-6.2-sol captured-patch review accepted two findings:
+Step 5 ran after Step 4 had already processed child results, and a command
+between a guard invocation and case $? could erase its STOP verdict while the
+placement predicate passed. The committed overwritten-status input reproduced
+the latter red: **1 failed, 7 passed** in 0.72 seconds. The initial-child
+boundary assertion plus that case red: **7 failed, 4 passed** in 0.92 seconds;
+the Step 4 region was still byte-identical to unchanged main at that point.
+
+Mailbox 36875 approved identical non-generated Step 4 strict guard insertions
+immediately after captured child exit, before all payload/tail/overrun readers.
+The existing two-region vendor cannot own the middle of each driver-specific
+invocation fence. An equality test prevents these three blocks drifting.
+The predicate now binds each invocation directly to case $? in the same bash
+block and checks its actual branches; both guards have committed overwritten
+status inputs. Corrected cases initially passed **12 tests in 1.24 seconds**.
+Step 5's precheckpoint guard and Step 6/7 guards remain.
+
+Extended removal check strips four guard insertions plus Codex fence delimiters
+and reconstructs all three original renders byte-for-byte. Final counts so far:
+codex 8669 -> 8928 (+259), qwen 9883 -> 10140 (+257), gemma 10492 -> 10749 (+257).
+Caps equal those counts under owner ruling (f), mailbox 36875. No existing
+command/flag or prose instruction was removed.
+
+The first detached quick run completed exit 0 at 18:56:55Z: **277 passed in
+17.26 seconds**; lint/type/binary/budgets/parity, both audits and both registered
+worktree controls passed including provenance. Dependency audit: 43 packages,
+zero gating findings, two Windows-only pins not audited on Linux. Its tests
+started before the final Step 4 correction; corrected-head checks follow.
+
+
+Pass 2 found adjacent bash fences were concatenated by the test reader, so
+a guard and its case $? in different shells were accepted. Mailbox 36895
+authorized one pass 3 and a hard stop afterward. Committed split-fence BAD
+inputs for both guards failed before the reader correction: **2 failed, 13
+passed** in 0.93 seconds. A first delimiter edit rejected the GOOD fixture
+(**2 failed, 13 passed** in 0.97 seconds); retaining line breaks around the
+separator corrected it: **15 passed in 3.70 seconds**. Lint and type passed.
+
+Final pass 3 found no driver-text defect. Two further TEST-reader limitations
+are deferred under mailbox 36895, without executing new mutations after the
+hard stop: case-arm presence does not reject an earlier shadowing arm; and
+the before-commit position check and valid-block lookup can identify different
+command occurrences. Both current driver blocks are correct. Separate records
+after resolver verified the open Nit Store (source search):
+https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7067714178
+https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7067714377
+
+Receipt producer refused the original review transport as UNKNOWN: the exact
+diff was appended to prompt prose, not sent as bare diff or in its supported
+cpp-review-patch frame. Runtime transcripts are retained unchanged. Escalated
+this evidence error to the orchestrator in mailbox 36908; no receipt claim or
+additional review until disposition.
+
+
+Evidence recapture authorized mailbox 36909 counted as pass 4 (raised cap 4),
+on the same 13bc0c47 artifact. scripts/codex-review-run.sh supplied the exact
+canonical patch and returned CODEX_REVIEW: ran, actual reviewer codex/gpt-6.2-sol,
+diff-only, network unverified, local repository credentials absent. A private
+PATH shim selected that model and disabled reviewer shell tools; sandbox probes
+delegated unchanged. The runtime transcript was never edited.
+
+The new LOW fallback-presence TEST-reader limitation was deferred under the
+same hard stop; current driver blocks retain the fallback. Proposed deletion
+mutation was not executed. Recorded separately after Nit Store resolver:
+https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7067747358
+The other recapture finding requested exact-artifact evidence for existing
+lane checks; addressed with the final quick run on unchanged product code.
+
+Final quick run on evidence head 6aa7e9e2, whose product content equals reviewed
+13bc0c47, completed at 19:06:14Z: **285 passed in 19.02 seconds**. Lint, type
+(515 files), binary guards, budgets, vendor/parity, both audits and both worktree
+controls including provenance passed. Audit selftests found their planted bad
+inputs and accepted clean inputs; dependency audit had zero gating findings
+across 43 packages and two Windows-only pins not audited on Linux.
+
+| Promised lane | Final evidence |
+|---|---|
+| Checkout | Passed: test_a_clean_main_is_NO_LEAK_exit_0 plus registered clean-linked, bad-main-checkout and bad-git-cannot-answer control cases; leak control distinguishes fresh leak from clean/stale overlap. |
+| Harness | Passed: make delegated-core-check checks all three actual Claude renders; make driver-parity-check builds/reads actual Codex flow-auto mirror. Delegated families intentionally unpackaged; no live Codex installation claim. |
+| Driver | Passed: actual codex/qwen/gemma render tests and equality check; committed missing/late/overwritten-status/split-fence cases distinguish bad input. |
+| Project state | Passed: test_clean_repo_is_silent, test_warns_on_ignored_source_file, test_strict_exits_nonzero_on_finding and test_ignored_addition_in_a_linked_worktree_blocks exercise actual helpers in owned repositories. |
+
+Derived schema-5 receipt: accepted 4 (three code/test findings and exact-artifact
+lane evidence), rejected 0, deferred 3, passes 4 with cp-orch 36909 escalation.
+Pass 3 was substantive; pass 4 recaptured binding after the unframed input
+error. No code changed after pass 3. Waiting for #1878 to land before main merge
+and this row's full gate.
+
+
+Administrative merge/restamp, cp-orch mailbox 37075, executed after 37124:
+upstream Run 3 and Run 4 were preserved verbatim. Own stable run-id
+03776eb0b3d5448a9ab2d99b0e00cb74 moved from original ordinal 3 (interim 4)
+to free ordinal 5. Only the own flow-run n marker and Run heading changed in
+the plan; reversing that transformation reproduces the original 13bc0c47
+plan section byte-for-byte. Section A/B/C body and lane promises are unchanged.
+This is the single approved administrative re-approve, not a new substantive
+plan or new approval invented by the implementer. Original baseline:
+444ad53619e5cdf21878849c2ba9adbd4bf84cfcdd091d2c435c144dc9455df0.
+Restamped baseline and own lanes marker:
+5e74129bebf837f3bd5235f58668c13af39847d2b44cd1dfa7fa5b437efe38ae.
+
+Merged main 030f280c as d9975273, preserving pre-child and speckit additions.
+Template regenerated; stripping only our four insertions and Codex fence
+delimiters reconstructs all three NEW main renders exactly. Final measurements
+using the checker method, old/main -> merged cap:
+codex 9060 -> 9319 (+259), qwen 10274 -> 10531 (+257),
+gemma 10883 -> 11140 (+257). Caps equal the merged counts; owner ruling (f).
+No pre-existing instruction or other worker's driver change was dropped.
+
+
+Final-main quick refresh on 1e2b4d6c/main 030f280c completed exit 0 at
+20:25:18Z: **437 passed in 42.96 seconds**, including post-child, pre-child
+and speckit rendered-driver regressions and actual helper suites. Lint/type,
+binary guards, budgets, vendor/parity, both audit selftests/actual and both
+worktree controls with provenance passed. Receipt enrolment accepts the
+escalated four-pass receipt (private 11). No new review or product fix.
+
+
+The first final-main full gate on beea5b4c failed at test: **6 failed, 13404
+passed, 4 skipped** in 855.98 seconds, finished 20:49:12Z. This is a real
+integration red, not a queue timeout. Three pipeline-reader tests mistook Bash
+4|5) status alternatives for a command pipeline. Three backstop tests selected
+the first Step 7 bash fence, now a guard, and failed before the backstop reader.
+Mailbox 37164 authorized only these two existing-reader corrections as gate
+feedback; no driver text or deferred-reader fix.
+
+Committed GOOD numeric-case and BAD real-run-pipeline inputs, before correction:
+**7 failed, 61 passed** in 20.32 seconds (the six originals plus GOOD). Direct
+reader verdicts: before GOOD FAIL/BAD FAIL; after GOOD PASS/BAD FAIL. Numeric
+status alternatives are excluded only in active case syntax; a command pipeline
+inside such an arm and a numeric-looking alternative outside a case remain
+findings. Backstop selection now requires exactly one actual backstop marker
+in Step 7, with committed missing/multiple refusal tests and a positive case
+that ignores an earlier guard and a same-named Step 8 marker.
+
+Corrected three relevant modules: **89 passed in 6.80 seconds**. Lint and type
+(518 files) passed. Both integration files are touched-but-unplanned under
+mailbox 37164: tests/test_delegated_lane_failure_detection.py and
+tests/test_delegated_overrun_base.py. Driver render bytes/caps unchanged.
+
+
+Integration quick refresh completed exit 0 at 20:53:50Z on 11dc8164:
+**511 passed in 42.52 seconds**,
+including both corrected existing readers and all post/pre-child/speckit
+checks. Lint/type, budgets, binary guards, vendor/parity and both audits passed.
+Both worktree controls passed all GOOD/BAD cases and the blind-anchor checks.
+Provenance distinction: historical anchor reports ok; the constructed leak
+anchor reports unverified, not a verified historical-provenance claim. This
+clarifies earlier shorthand saying both control provenance checks passed.
+Receipt enrolment accepts existing four-pass receipt (private 11); mailbox
+37164 therefore requires no fifth review for the integration correction.
