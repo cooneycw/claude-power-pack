@@ -107,15 +107,15 @@
     {
       "gate": "flow-plan-record.py drift",
       "driver": "codex",
-      "disposition": "exempt",
-      "reason": "Known gap: delegated drivers do not invoke plan-record drift.",
+      "disposition": "run",
+      "reason": "Parent Step 7 invokes finish after push and PR creation; the helper composite expands to this verb.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
       "gate": "flow-plan-record.py head-check",
       "driver": "codex",
-      "disposition": "exempt",
-      "reason": "Known gap: delegated drivers do not invoke plan-record head-check.",
+      "disposition": "run",
+      "reason": "Parent Step 7 invokes finish after push and PR creation; the helper composite expands to this verb.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -304,15 +304,15 @@
     {
       "gate": "flow-plan-record.py drift",
       "driver": "qwen",
-      "disposition": "exempt",
-      "reason": "Known gap: delegated drivers do not invoke plan-record drift.",
+      "disposition": "run",
+      "reason": "Parent Step 7 invokes finish after push and PR creation; the helper composite expands to this verb.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
       "gate": "flow-plan-record.py head-check",
       "driver": "qwen",
-      "disposition": "exempt",
-      "reason": "Known gap: delegated drivers do not invoke plan-record head-check.",
+      "disposition": "run",
+      "reason": "Parent Step 7 invokes finish after push and PR creation; the helper composite expands to this verb.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -501,15 +501,15 @@
     {
       "gate": "flow-plan-record.py drift",
       "driver": "gemma",
-      "disposition": "exempt",
-      "reason": "Known gap: delegated drivers do not invoke plan-record drift.",
+      "disposition": "run",
+      "reason": "Parent Step 7 invokes finish after push and PR creation; the helper composite expands to this verb.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
       "gate": "flow-plan-record.py head-check",
       "driver": "gemma",
-      "disposition": "exempt",
-      "reason": "Known gap: delegated drivers do not invoke plan-record head-check.",
+      "disposition": "run",
+      "reason": "Parent Step 7 invokes finish after push and PR creation; the helper composite expands to this verb.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {

@@ -1103,22 +1103,17 @@ diffs.
    `$ISSUE_REF` then feeds the commit message, the PR title and the PR body, so an
    incomplete accounting cannot publish a closing reference anywhere.
 
-   The closing reference follows the acceptance accounting: use it only when every
-   material item is demonstrated, revised with evidence, or resolved by a recorded
-   transfer. Otherwise reference the issue without a closing keyword (`Refs #N`), in
-   the commit message, the PR title and the PR body alike. Do not print a closing
-   keyword beside an issue number even as an illustration - the merge helper refuses a
-   squash that carries one incidentally (exits 5 and 7).
-   **Acceptance disposition before closing (issue #860).** Account for the material
-   acceptance items first - demonstrated, revised with evidence, or deferred - and
-   record the accounting in the PR body as ordinary prose. When it is unresolved, use `Refs #N` in the commit
-   message, the PR title and the PR body instead of `Closes #N`, and check the earlier
-   branch commits too (read `git log origin/main..HEAD --format=%B` and the PR text yourself),
-   since the squash text may be derived from them - `gh-pr-merge.sh`
-   passes an explicit subject and body from the PR (#655), so check which sources are
-   actually in play rather than assuming a rewrite is needed. A delegated run that delivered part of
-   the work is still mergeable; it just must not close the promise. The canonical rule
-   is docs/agents/issue-contract.md.
+   Account for every material acceptance item in the PR body as ordinary prose
+   before selecting a closing reference: demonstrated, revised with evidence,
+   or resolved by a recorded transfer. Unresolved work uses `Refs #N` in commit
+   messages, PR title and body; partial delivery remains mergeable but never
+   closes the issue. Never print an incidental closing keyword beside an issue
+   number, even as an illustration: the merge helper refuses it (exits 5 and 7).
+   Inspect earlier branch commits (`git log origin/main..HEAD --format=%B`)
+   and PR text yourself. The squash may derive from them; `gh-pr-merge.sh`
+   explicitly supplies the PR subject/body (#655), so check the actual sources
+   before assuming a rewrite is needed. Canonical accounting rule:
+   docs/agents/issue-contract.md.
    - Include a `Co-Authored-By: <name> <noreply@anthropic.com>` trailer naming
      the current session's own assistant model - never copy a model+version
      literal from this document, which goes stale every time the assistant
@@ -1141,6 +1136,19 @@ diffs.
      - Test plan
      - `${ISSUE_REF}` - the selected reference, non-closing unless the
        accounting is complete
+
+4. **Close the plan record after push and PR creation:**
+   ```bash
+   ~/.claude/scripts/flow-plan-record.py finish 42
+   ```
+   Read every verdict, not only the combined exit. `ISSUE_DRIFT: clean` means
+   unchanged; `drift` prints changed issue bytes: resolve under existing
+   authority and explain in the PR. `unresolved` means unchecked, never clean.
+   Relay compliance/stability and lane verdicts as above; never rewrite approval
+   to match the diff. `FLOW_PLAN_RECORD: present` proceeds; `absent` STOP:
+   commit/push this run's record, rerun. `unverified` STOP: check authentication
+   and network, rerun. Neither permits cleanup/merge. Existing early compliance
+   stays in its merge-base shell block; `finish` checks the published PR head.
 
 Report: `Step 7/8: Finish complete - PR #{N} created`
 
