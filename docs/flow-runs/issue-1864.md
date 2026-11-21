@@ -130,3 +130,11 @@ The exact pinned scanner found one leak before correction and no leaks in a
 fresh single-branch clone after correction. Existing stale remote refs in the
 working clone retained the superseded commit and still triggered the scanner;
 the fresh clone excludes those obsolete refs, like the new CI checkout.
+
+### Review bound to rewritten history
+The second review found no defects on checkpoint acf3005dd21b988ffc77ce41e3bc3571e3cb5137.
+The receipt writer derived codex/gpt-6.1-sol and codex/gpt-6-astra from
+retained runtime session logs. Receipt: docs/measurements/counter-model/2026-11-21T151539Z-issue-1864.json.
+It records two total passes, including the superseded pre-rewrite pass.
+The reviewer observed kind inputs/refusals and confirmed that code and tests
+match the earlier checkpoint; the broad suite was not independently rerun.
