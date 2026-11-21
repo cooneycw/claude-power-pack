@@ -314,3 +314,58 @@ Scope: nit-store row only, Refs #1811. No resolver change, child GitHub writes, 
 Reader search: git grep for delegated-core-vendor, nit-store-resolve.sh and driver-parity.json positively found scripts/check-driver-parity.py and the actual vendor/routing tests. External reader exhaustiveness not claimed. No helper output format changes.
 
 Verification: related resolver/routing/vendor/parity tests and controls; budget check, bandit and undeclared-import audits including selftests; gitleaks --log-opts=HEAD; own-checkout full finish gate with self-notify and kyle-lock, normal HOME, private sibling TMPDIR and no inherited ADDOPTS/basetemp. Warm current-lock uv cache if necessary. Independent counter-model review with runtime-derived different model and honest receipt; instruction preservation review. Merge sibling template changes, regenerate/recount exact caps at final merge. Begin-run after main integration; if run-number collision remains, mailbox 37078 allows one header/marker-only administrative re-approve of unchanged approved body at final merge, preserving upstream sections verbatim. No declare-salvage work until this PR pushed.
+
+<!-- flow-run n=7 id=6f7f7f0788e9450abfb2e44acad594e8 -->
+## Run 7
+
+- Run-id:            6f7f7f0788e9450abfb2e44acad594e8
+- Run-start:         80418aef0613da0f5363f833b66c727ea097483f
+- Issue:             #1811
+- Base SHA:          2ede561d61d9ff2b4e680ad45b5117b877203af1
+- Necessity verdict: Partially addressed
+- Approval:          granted
+- Approver:          cp-orch, mailbox 37271 and parity adjustment 37295
+- Recorded at:       2026-11-21T22:24:00Z
+
+### Section B evidence
+Row A merged as #1883 before this run was minted. Row D remains exempt for all three drivers on that main. Row E is separate and follows this row. Original driver regressions failed 33 cases, with five committed controls passing, before the change.
+
+### Section C - the approved plan
+1. `templates/delegated-driver-core.md` - parent Step 3 conditional declaration after begin-run/before approve; only explicit unmodified preservation commit, no inference, no call for absent selection, nonzero STOP; child commit fence unchanged.
+2. `.claude/commands/codex/auto.md` - regenerate shared core.
+3. `.claude/commands/qwen/auto.md` - regenerate shared core.
+4. `.claude/commands/gemma/auto.md` - regenerate shared core.
+5. `docs/agents/driver-parity.json` - three declare-salvage entries exempt to run.
+6. `.claude/command-word-budgets.tsv` - +99 words per driver for executable gate step, approved +93 plus +6 for scanner-compatible plain call/status check. Exact caps after row A: 9616, 10828, 11437.
+7. `tests/test_delegated_salvage.py` - actual rendered conditional blocks, real helper records/approval, explicit empty/valid/invalid/nonancestor/ambient cases in both checkout layouts; parent/child ownership controls.
+8. `tests/fixtures/delegated-salvage/good.md` - accepted narrow policy control.
+9. `tests/fixtures/delegated-salvage/missing-call.md` - reject absent call.
+10. `tests/fixtures/delegated-salvage/after-approve.md` - reject late call.
+11. `tests/fixtures/delegated-salvage/unconditional.md` - reject unconditional call.
+12. `tests/fixtures/delegated-salvage/child-commit.md` - reject wrong commit owner.
+Scope: declare-salvage row only, Refs #1811. No helper/schema changes. Parent requires actual explicit preservation direction and never invents a salvage to satisfy the step. Row E worktree untouched. Orchestrator merges.
+Risks: exact document grammar is deliberately narrow; no live model obedience claim. Empty SHA resets ambient state; parent must substitute only its known explicitly preserved commit. Minted late after merging current main to avoid run-number collisions.
+
+### Lanes for this change
+| Lane | Answer | How, or why not |
+|---|---|---|
+| Checkout | will test | main checkout / linked worktree: fixture-owned actual rendered block and real helper. |
+| Harness | will test | Claude install / Codex install: real Claude source renders plus generated flow-auto parity. Delegated meta commands intentionally unpackaged; live installs not covered. |
+| Driver | will test | `/flow:auto` (Claude implements) / delegated drivers (`/codex:auto`, `/qwen:auto`, `/gemma:auto`): all three real rendered Step 3s and existing flow-auto/helper tests. No live model claim. |
+| Coordination | not applicable | No admission or mailbox authority change. |
+| CI provider | not applicable | No provider decision change; exact-head CI separately required. |
+| Project state | will test | a repository that has adopted a feature's file or record / one that has not: explicit preserved selection/no selection, existing ordinary history, real helper validation and baseline. |
+| Toolchain version | not covered | Host Python3.11/uv and pinned CI runtime; no version matrix. |
+| Clone shape | not applicable | No ref-discovery behavior change. |
+| Run location | will test | invoked from the CPP root / from another directory: CPP renderer/checkers and external fixture consumer roots. |
+| Gate target | not applicable | No finish/runtime toolchain behavior changes. |
+| Wave role state | not applicable | No role lifecycle changes. |
+| Reader: parent Step 3 | tested against real output | Execute actual generated conditional block, real helper and real record/baseline. No fabricated helper stdout. |
+| Reader: approve/compliance | tested against real output | Actual declared record and real approve baseline; existing helper/compliance suites use actual declaration schema. Format unchanged. |
+| Reader: renderer/parity/budget | tested against real output | Real generated documents and manifest/caps. |
+| Reader: child commit fence | reader unchanged | Existing fence unchanged; tests pin continued prohibition. |
+| Reader: external installs/live model | not covered | Source-level tests cannot establish live model obedience. |
+
+Reader search positively found /flow:auto's current declaration/approve reader and the helper _SALVAGE_LINE_RE before checking driver absence; repository tests and parity read actual generated files. External consumer exhaustiveness not claimed.
+
+Verification: original red 33 failed/5 passed; corrected new38 cases and broad existing suite385 passed17.68s. Merge main, regenerate/recount exact caps, late run checkpoint, different-model runtime-derived receipt, at most2 review passes, one full finish gate with normal HOME and ADDOPTS unset, import audits and checksum-verified pinned gitleaks8.30.1 --log-opts=HEAD before push, Refs#1811 PR and exact-head CI. Word cap +99 and executable gate step go in evidence/PR; receipt --raised-cap is a distinct review-pass escalation field and is not used for word budgets.

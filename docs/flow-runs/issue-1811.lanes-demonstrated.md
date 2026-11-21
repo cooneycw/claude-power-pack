@@ -620,3 +620,56 @@ Final-main integration administration (approver cp-orch, mailbox 37078 and GO 37
 | Reader: GitHub and closing report | not covered | Fake GitHub network boundary only; controls pin repo/context/refusal/closing-link instructions, not live posting. |
 
 After integration with main 34c417f9, repeated the related selection successfully. Budget and both audits/selftests also passed. The rows above apply to the header-only re-approved plan; their evidence and limits remain the same. Final caps: codex 9517, qwen 10729, gemma 11338, exactly +198 each versus integrated main. Receipt enrolment selected the existing receipt (documented receipt disposition, exit 10); no new review pass requested. Final full gate still pending.
+
+
+<!-- lanes-demonstrated run=6f7f7f0788e9450abfb2e44acad594e8 plan=8e30907014bc8eeb417efb41ff0d0aea21e1e0238665a5b403443701b6688925 -->
+
+## Declare-salvage row D
+
+| Lane | Result | Evidence |
+|---|---|---|
+| Checkout | passed | tests/test_delegated_salvage.py executes actual conditional block in fixture-owned main checkout and linked worktree. |
+| Harness | passed | make delegated-core-check reads actual Claude renders; make driver-parity-check builds/reads generated flow-auto. Delegated meta drivers intentionally unpackaged; no live install claim. |
+| Driver | passed | All three actual rendered Step 3s exercised; existing tests/test_flow_plan_record.py, tests/test_flow_plan_record_runs.py and tests/test_flow_plan_compliance.py exercise flow-auto/helper procedure. No live model obedience claim. |
+| Project state | passed | New empty/ancestor/invalid/nonancestor/ambient cases plus actual helper/approval records; existing compliance salvage cases. |
+| Run location | passed | External consumer fixture roots execute actual block; CPP root runs real renderer/parity/budget checks. |
+
+Reader evidence: actual generated blocks feed the real helper, declaration
+record and approval baseline, with fixture-owned identities and an explicit
+interpreter. Negative cases abort before the approval sentinel; empty/ambient
+cases produce no declaration output and leave the record unchanged. Child
+commit fence is unchanged and pinned. Existing helper/compliance suites read
+actual salvage records. Rendering/parity/budget read real files. External
+install/model behavior remains unexamined.
+
+On unchanged main 34c417f9: **33 failed, 5 passed**; all three new driver
+regressions and executed-block cases fail the missing declaration contract.
+After implementation: **38 passed**, and broad focused/helper suite
+**385 passed in 17.68 seconds**. The detached job recorded exit 0 and successful
+completion/notification. Committed good control is accepted; missing, late,
+unconditional and child-owned-commit controls are rejected with asserted
+negative preconditions. These test a narrow document grammar and actual shell
+blocks, not a live parent's interpretation.
+
+Integration correction: the initially approved +93-word block put `|| exit $?`
+on the helper line. Actual driver-parity rejected this as a non-plain shell
+construct. The helper invocation is now plain, with its status captured and
+checked on separate lines; every nonzero still stops with that original
+status before approval. This costs +6 words per driver, approved by cp-orch
+mailbox 37295. Total **+99 words per driver, executable gate step**, under
+owner ruling 7065030917. No checker or stop semantics weakened.
+
+Main-ready mailbox 37307 authorized integration of row A / #1883. Rebased
+onto main 2ede561d before minting this run. Only TSV conflicted; rendered
+files were regenerated and counted, not chosen from a conflict side.
+Exact upstream counts 9517 / 10729 / 11338 become caps/counts
+**9616 / 10828 / 11437** for codex / qwen / gemma. Existing upstream run
+sections preserved; this late run received next-free ordinal 7, so no
+header renumber or administrative re-approval was needed. The original
+baseline is 8e30907014bc8eeb417efb41ff0d0aea21e1e0238665a5b403443701b6688925.
+
+No touched-but-unplanned product files. Row E remains in its own untouched
+worktree and follows this row's merge. Review, receipt, full finish gate,
+push scans and exact-head CI are pending this checkpoint; later evidence will
+record their actual results. `--raised-cap` on the receipt writer controls
+review-pass escalation, not document word caps; no such escalation is used.
