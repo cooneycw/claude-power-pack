@@ -189,3 +189,16 @@ The pre-existing HOME sensitivity is recorded at Nit Store comment 7064941775.
   on pre-fix main; ten selected checks pass after the footer.
 - The production CLI reader scan found 13 calls, including the existing
   flow:auto parse reader, and no stderr merge in those logical commands.
+
+### Fourth review and moved base
+Origin/main advanced to 25f5066a through #1869. Mailbox 36472 directed a
+merge rather than rebase; it merged cleanly before pass 4 and the quick checks
+passed on that merged tree. Review bound HEAD 4b815719959cf8a441ff60be01ddd55045f9d46a, with no defects.
+Receipt: docs/measurements/counter-model/2026-11-21T154654Z-issue-1864.json.
+The writer accepted the explicit cap-4 ruling by cp-orch, reference mailbox
+36440, and derived both model identities from retained logs. The reviewer
+observed seven entry-point probes red on pre-footer sources and green here,
+stdout/status compatibility, imported silence and the 13-call reader search.
+The reviewer did not independently rerun the broad related suite.
+The gate now uses normal account HOME and clears PYTEST_ADDOPTS, retaining
+private TMPDIR outside HOME, as explicitly authorized in mailbox 36431.
