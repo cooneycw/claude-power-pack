@@ -370,6 +370,24 @@ Revise/abandon writes no approval; substitute the literal issue number:
 ~/.claude/scripts/flow-plan-record.py begin-run 42
 ```
 
+**Adopting preserved work (parent only).** Only if you explicitly preserved
+pre-existing dirty work, commit it unmodified as its own ancestor checkpoint.
+The parent, never the child, owns that commit. Never infer salvage from history.
+After `begin-run`, before `approve`, declare it; no preserved work means no call.
+Set the SHA below only to that explicit preservation commit; otherwise leave empty.
+
+```bash
+SALVAGE_SHA=""
+if [ -n "$SALVAGE_SHA" ]; then
+    ~/.claude/scripts/flow-plan-record.py declare-salvage 42 "$SALVAGE_SHA" --reason "<why>"
+    SALVAGE_EXIT=$?
+    [ "$SALVAGE_EXIT" -eq 0 ] || exit "$SALVAGE_EXIT"
+fi
+```
+
+Non-zero: STOP; correct the SHA/reason before approval. Declaring after the
+stamp changes the approved plan.
+
 Append the EXACT approved fields below its header in
 `docs/flow-runs/issue-42.md`, never overwriting an earlier run:
 

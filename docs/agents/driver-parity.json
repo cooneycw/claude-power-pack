@@ -100,8 +100,8 @@
     {
       "gate": "flow-plan-record.py declare-salvage",
       "driver": "codex",
-      "disposition": "exempt",
-      "reason": "Known gap: delegated drivers do not invoke plan-record declare-salvage.",
+      "disposition": "run",
+      "reason": "Parent Step 3 conditionally declares explicitly preserved ancestor work after begin-run and before approve.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -297,8 +297,8 @@
     {
       "gate": "flow-plan-record.py declare-salvage",
       "driver": "qwen",
-      "disposition": "exempt",
-      "reason": "Known gap: delegated drivers do not invoke plan-record declare-salvage.",
+      "disposition": "run",
+      "reason": "Parent Step 3 conditionally declares explicitly preserved ancestor work after begin-run and before approve.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -494,8 +494,8 @@
     {
       "gate": "flow-plan-record.py declare-salvage",
       "driver": "gemma",
-      "disposition": "exempt",
-      "reason": "Known gap: delegated drivers do not invoke plan-record declare-salvage.",
+      "disposition": "run",
+      "reason": "Parent Step 3 conditionally declares explicitly preserved ancestor work after begin-run and before approve.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
