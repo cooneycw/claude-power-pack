@@ -396,3 +396,19 @@ def test_no_lane_sets_pipefail_instead_of_fixing_the_pipe() -> None:
                 f"{family}/{kind}.md sets pipefail; #798 is fixed by removing the "
                 "pipe and co-locating the capture, not by changing pipe semantics."
             )
+
+
+@pytest.mark.parametrize("case", ("pipeline-good", "pipeline-bad"))
+def test_pipeline_reader_distinguishes_numeric_case_arms(case: str, monkeypatch) -> None:
+    document = (ROOT / "tests/fixtures/delegated-post-child" / f"{case}.md").read_text()
+    if case == "pipeline-good":
+        assert "4|5)" in document
+        assert 'codex exec "$PROMPT" > "$OUTPUT" 2>&1' in document
+    else:
+        assert 'codex exec "$PROMPT" | tail -40' in document
+    monkeypatch.setitem(globals(), "read", lambda family, kind: document)
+    if case == "pipeline-bad":
+        with pytest.raises(AssertionError, match="pipes the delegated run"):
+            test_the_run_is_never_piped("codex", "auto")
+    else:
+        test_the_run_is_never_piped("codex", "auto")
