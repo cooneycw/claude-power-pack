@@ -1,0 +1,75 @@
+{
+  "branch": "issue-1864-finding-kinds",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "escalation": {
+    "raised_cap": 4,
+    "reference": "mailbox 36440",
+    "ruled_by": "cp-orch"
+  },
+  "extra_passes_reason": "pass 4 reviews the exit-line footer required by HELPERS family membership",
+  "head": "4b815719959cf8a441ff60be01ddd55045f9d46a",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/21/rollout-2026-11-21T14-17-06-01a1fe77-cb46-7b43-9e55-ee09fc86097e.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 3790550,
+        "path": "2026/11/21/rollout-2026-11-21T14-17-06-01a1fe77-cb46-7b43-9e55-ee09fc86097e.jsonl",
+        "sha256": "612bf665c6788155da044c8bb763b68dd7faaf02ea297b53e17335d00ac59529"
+      }
+    ],
+    "thread_id": "01a1fe77-cb46-7b43-9e55-ee09fc86097e"
+  },
+  "issue": "1864",
+  "local_credentials": "unknown",
+  "network": "open",
+  "passes": 4,
+  "recorded_at": "2026-11-21T15:46:54Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewed_artifact": {
+    "base_sha": "25f5066ace01373faf0a63b4913a66d26b8becf9",
+    "merge_base": "25f5066ace01373faf0a63b4913a66d26b8becf9",
+    "method": "runtime-head",
+    "patch_sha256": "b62e7deff3303e8e552e968678a1acd19daae0deeb614d8d65a703378a57d76f",
+    "report_record": 68,
+    "target_head": "4b815719959cf8a441ff60be01ddd55045f9d46a"
+  },
+  "reviewer": "codex/gpt-6-astra",
+  "reviewer_evidence": {
+    "exec_log": "exec.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6-astra"
+    ],
+    "rollout": "2026/11/21/rollout-2026-11-21T15-44-24-01a1fec7-b8a0-72c1-9991-42018010a372.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 127105,
+        "path": "exec.jsonl",
+        "sha256": "8eafb1c20c6bfacb11c44c67c7094628e297181cf6fa4519dc143a9b0750ca2f"
+      },
+      {
+        "bytes": 493481,
+        "path": "2026/11/21/rollout-2026-11-21T15-44-24-01a1fec7-b8a0-72c1-9991-42018010a372.jsonl",
+        "sha256": "e9888763733728cb73856253baad1deaadc5ec8d310f7f4e6a31b80e30fc0aaf"
+      }
+    ],
+    "thread_id": "01a1fec7-b8a0-72c1-9991-42018010a372"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}
