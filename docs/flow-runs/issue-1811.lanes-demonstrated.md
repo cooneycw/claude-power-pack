@@ -80,3 +80,65 @@ Final independent gpt-6.2-sol pass: `None - no defects found.` Both passes were
 diff-only, using canonical captured patches with no reviewer shell. The
 schema-5 receipt derives codex/gpt-6.1-sol implementer and codex/gpt-6.2-sol
 reviewer from their runtime evidence; its artifact binding is captured-patch.
+
+
+<!-- lanes-demonstrated run=bee480efb058429fb5ae2a452abdbbfe plan=d4a2387090b956f5069c707fafeff835c11b86b8db8abb1078693bddb82498c6 -->
+
+## Friction capture row - run 2
+
+| Lane | Result | Evidence |
+|---|---|---|
+| Checkout | passed | `tests/test_friction_log.py` main checkout and linked-worktree default-main-buffer cases in focused suite. |
+| Harness | passed | `make delegated-core-check` reads actual Claude renders; `make driver-parity-check` generates/reads actual Codex flow-auto mirror; delegated families intentionally unpackaged. |
+| Driver | passed | Pre-change regression 3 failed, 39 passed; fixed focused suite 241 passed in 17.77 seconds. Actual renders and canonical flow pointer checked. |
+| Project state | passed | Existing friction helper append, absent-buffer/parent creation and fail-open tests passed in focused suite. |
+| Run location | passed | Existing helper root, subdirectory and outside-git cases passed in focused suite. |
+
+### Red cases and scope
+
+On unchanged main 25f5066a, real codex/qwen/gemma renders each failed the missing
+pre-Step-1 capture assertion: **3 failed, 39 passed** in 11.59 seconds. Committed
+good, missing-call, commented-call and after-step-1 excerpts pin the documented
+procedure. The optional no-self-approval guard checks all three actual renders;
+each deletion mutant raises the expected assertion. This does not claim live
+delegated capture completeness. Existing helper tests cover actual JSONL.
+
+### Word counts and old-versus-new audit
+
+The addition is 49 template words. Only Step 1's 117-word upstream-hazard
+history becomes 61 words, for **-7 words per driver**, including the approved
+amendment: an unresolved ref must never be read as zero.
+
+| Driver | Before | After | Cap |
+|---|---:|---:|---:|
+| codex | 8689 | 8682 | 8689 |
+| qwen | 9903 | 9896 | 9905 |
+| gemma | 10512 | 10505 | 10514 |
+
+Instructions retained: use audited resolver, never hand-build (preceding prose
+unchanged); resolver creates --no-track with OWN-name upstream; hand-built
+origin/main risks a main push (#1221); BOTH Step 4 overrun and Step 7 backstop
+use an explicit recorded base and never @{u}; upstream unresolved before first
+push; unresolved ref must never be counted as zero. Removed history examples:
+full erroneous worktree-add command, bare-push failure, exact unsafe suggested
+push command, and rhetorical blind-check explanation. Step 3 and everything
+from there onward in the template were compared byte-for-byte to main and are
+unchanged. No approval/review/merge/close instruction pays for capture.
+
+The 49-word capture pointer reads the canonical flow:auto friction section;
+new actual-render tests follow the real relative target and anchor and inspect
+that source for immediate/every-step/success-and-failure triggers, manual
+permission-prompt exclusion, fail-open missing-helper and capture-only/retro.
+The local command supplies required class/signal and driver/issue/8-step identity.
+
+### Pre-push scan control
+
+Private official gitleaks v8.30.1 Linux archive checksum verified against the
+release checksum manifest, no system install. The committed known-bad private-key
+fixture was relocated into a private temporary git repository and committed:
+`gitleaks detect --log-opts=HEAD` returned **1**, with **1 private-key finding**.
+Output was redacted. This controls the same history population used before
+push, unlike the existing working-tree-only secret-scan control. Actual branch
+history scan is pending; no clean-scan claim yet.
+
+Fixed focused capture, driver-gate, friction-helper, vendor and parity suites: **241 passed in 17.77 seconds**. Lint, core, budgets, parity and typecheck passed; mypy examined 511 source files.
