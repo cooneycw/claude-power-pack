@@ -52,3 +52,12 @@ uses raw actual-generator bytes. Git/scanner executable paths are absolute
 before any cwd change. Corrected test module: **10 passed in 6.56 seconds**.
 Lint/typecheck (515 files), binary guards and command budgets passed again.
 No additional fixture files, command-doc changes or scanner configuration edits.
+
+
+Second review found the history reader's own Git lookup still inherited a
+relative PATH after cwd changed. The new case supplies only a relative .ci-bin
+with git/scanner links and no absolute fallback; it failed on the pre-fix
+reader (**1 failed in 2.32 seconds**). The scan child now receives an absolute
+resolved Git directory on PATH, while CI argv/config/template stay unchanged.
+Corrected module: **11 passed in 5.85 seconds**. A third bounded review is
+requested for this concrete integration fix; no heavy gate or push yet.

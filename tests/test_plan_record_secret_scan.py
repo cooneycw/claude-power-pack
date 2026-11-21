@@ -85,7 +85,9 @@ def scan(repo: Path, content: bytes) -> subprocess.CompletedProcess[str]:
     command = commands[0]
     assert "--no-git" not in command
     command[0] = scanner  # Same CI argv; executable resolved before changing cwd.
-    return subprocess.run(command, cwd=repo, capture_output=True, text=True, check=False)
+    env = os.environ.copy()
+    env["PATH"] = str(Path(GIT).parent) + os.pathsep + env.get("PATH", "")
+    return subprocess.run(command, cwd=repo, env=env, capture_output=True, text=True, check=False)
 
 
 def test_section_b_guidance_does_not_restate_the_starting_commit() -> None:
@@ -195,5 +197,23 @@ def test_relative_path_scanner_is_resolved_before_changing_cwd(tmp_path: Path, m
     monkeypatch.setenv("PATH", ".ci-bin" + os.pathsep + os.environ["PATH"])
     found = shutil.which("gitleaks")
     assert found is not None and not Path(found).is_absolute()
+    result = scan(tmp_path / "scan", (CASES / "good-generated-header.md").read_bytes())
+    assert result.returncode == 0
+
+
+@requires_git
+@requires_scanner
+def test_history_reader_finds_git_from_a_relative_path_without_fallback(tmp_path: Path, monkeypatch) -> None:
+    assert GIT is not None
+    scanner = pinned_scanner()
+    launcher = tmp_path / "launcher"
+    (launcher / ".ci-bin").mkdir(parents=True)
+    (launcher / ".ci-bin/git").symlink_to(GIT)
+    (launcher / ".ci-bin/gitleaks").symlink_to(scanner)
+    monkeypatch.chdir(launcher)
+    monkeypatch.setenv("PATH", ".ci-bin")
+    found = shutil.which("git")
+    assert found is not None and not Path(found).is_absolute()
+    assert os.environ["PATH"] == ".ci-bin"
     result = scan(tmp_path / "scan", (CASES / "good-generated-header.md").read_bytes())
     assert result.returncode == 0
