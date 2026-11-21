@@ -1,3 +1,7 @@
+# #1811 pre-child live/claim/stale checks are executable gate steps.
+# Owner ruling: https://github.com/cooneycw/claude-power-pack/issues/1811#issuecomment-7065030917
+# Exact rendered counts: codex 8768 -> 9060; qwen 9982 -> 10274;
+# gemma 10591 -> 10883 (+292 each). No other cap changes.
 # #1811 executable gate step: spec-context adds 99 words per driver.
 # Owner ruling: https://github.com/cooneycw/claude-power-pack/issues/1811#issuecomment-7065030917
 # Existing headroom absorbs 20/22/22 words; caps rise 79/77/77 to exact new counts.
@@ -68,7 +72,7 @@
 242	claude-md/help.md
 1396	claude-md/lint.md
 1613	codex/ask.md
-9027	codex/auto.md
+9319	codex/auto.md
 2593	codex/code_review.md
 1134	codex/exec.md
 640	codex/help.md
@@ -101,7 +105,7 @@
 450	flow/status.md
 386	flow/sync.md
 11837	flow/wave.md
-10848	gemma/auto.md
+11140	gemma/auto.md
 1779	gemma/exec.md
 1859	gemma/help.md
 1831	gemma/status.md
@@ -123,7 +127,7 @@
 2443	project/next.md
 499	qa/help.md
 1279	qa/test.md
-10239	qwen/auto.md
+10531	qwen/auto.md
 1554	qwen/exec.md
 1521	qwen/help.md
 1243	qwen/status.md

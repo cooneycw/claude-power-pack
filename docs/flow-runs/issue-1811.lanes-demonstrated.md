@@ -316,6 +316,81 @@ clean pair. Refs #1811 only. Merges stay frozen until #1870; after it lands this
 branch must merge main, recheck and re-gate before orchestrator merge.
 
 
+<!-- flow-run n=4 id=f035e5fd6e3149d7936f5326621f165a -->
+## Run 4 - pre-child live/claim/stale trio
+
+Approved mailbox 36784, confirmed 36887; base 78749847. Parent checks now run
+after approval/before first child; stale check starts Step 6; live guard before
+each fix, with claim recheck for uncertain ownership. Confirmed own dirt alone
+may be checkpointed then guard rerun clean; unexplained dirt or persistent
+suspected stops. Own-only release before deletion; leave-for-review keeps claim.
+Nine parity pairs run. Only shared TEMPLATE is edited; renders are generated.
+
+<!-- lanes-demonstrated run=f035e5fd6e3149d7936f5326621f165a plan=bc3b78ae0d6c8f3288490db4b43fe397a4c975d18949e4223512d3fc581e413c -->
+| Lane | Result | Evidence |
+|---|---|---|
+| Checkout | passed | Real fixture-owned main checkout and linked worktree helper calls. |
+| Harness | passed | Claude install stable helper path fixture and generated documents; Codex install delegated drivers are intentionally not packaged (not applicable). |
+| Driver | passed | /flow:auto (Claude implements) unchanged; delegated drivers (/codex:auto, /qwen:auto, /gemma:auto) actual renders and real parity policy. |
+| Coordination | not run | No Kyle/no-Kyle authority behavior change. |
+| CI provider | not run | No status/provider logic change. |
+| Project state | passed | A repository that has adopted a feature's file or record / one that has not: clean/own-dirty/mixed foreign dirt; self/held claims; current/collision/unknown stale state. |
+| Toolchain version | not run | Installed runtime and pinned CI only; no matrix. |
+| Clone shape | not run | No new clone/ref-resolution behavior. |
+| Run location | passed | Invoked from the CPP root / from another directory: literal target path while helper caller is elsewhere. |
+| Gate target | not run | Parent helper checks do not alter runner interpreter selection. |
+| Wave role state | not run | No wave lifecycle change. |
+| Reader: parent session | not run | Live model compliance; documented ordering/verdict policy is tested against actual rendered text and committed bad cases. |
+| Reader: rendered command tests | passed | Execute actual extracted Bash calls against real helpers in fixture-owned repositories. |
+| Reader: parity checker | passed | Nine real run-policy entries and one missing-call control per driver/helper. |
+
+
+Final regression suite on detached pre-fix 78749847: 63 failed, 164 passed.
+With the change: 227 focused procedure/parity tests and 496 broader helper/
+driver/vendor tests pass. Fourteen committed document inputs distinguish good
+from late/missing/commented calls, suspected/held proceed, mixed-dirt sweep,
+missing review renewal, foreign release and before-approval/late-stale/late-fix/
+late-release ordering. These pin a literal procedure grammar, not arbitrary
+shell semantics. Mixed own/foreign execution proves real guard stays suspected;
+parent STOP/no-sweep obligation is separately a documented-policy assertion.
+The fixture performs no checkpoint in that case: HEAD, index and foreign bytes
+remain unchanged. It does not establish live parent compliance. Real helper
+suites own held/foreign claim and stale collision/unknown behavior.
+
+Exact words/caps: codex 8768 -> 9060; qwen 9982 -> 10274; gemma 10591 -> 10883
+(+292 each), executable gate steps under owner ruling 7065030917. Private copy
+of 100 documents passes unchanged and rejects one extra word in each driver
+(9061, 10275, 10884). Existing committed budget controls retain bad/good cases.
+Lint, typecheck (516 files), vendor, parity, budgets, binary guards, negative
+fixture checks and import selftest plus actual tree audit pass. Import selftest
+finds its planted import and is silent on the clean pair. No helper behavior
+or output format changes. Refs #1811 only; other rows remain outstanding.
+
+Run 4 independent review pass 1 found two LOW test-adequacy findings, both
+accepted and addressed. Actual helper commands now execute through a
+fixture-owned HOME populated by the supported flow-helpers installer, retaining
+the literal tilde path and executable permission check. Missing and
+non-executable installed helpers return 127/126 rather than repository-fallback
+success. Every negative procedure input now asserts its exact failing-check set;
+the missing-renewal input retains the independent quality-gate ordering marker.
+These additions fail 13 cases before the test-harness/control corrections
+(67 others pass), then all 239 procedure/parity cases pass after correction.
+The earlier 496-test broader result remains the pre-review checkpoint result;
+final broader verification and review pass 2 follow this correction. No product
+procedure or cap changed in response to these test findings.
+
+Final Run 4 checkpoint cb544e0e: 508 broader tests pass (including real supported
+installation), 239 procedure/parity tests pass; pre-fix 78749847 yields 75 failed
+and 164 passed. Lint, typecheck, vendor/parity/budgets and import selftest/actual
+scan pass again. Independent review pass 2 is clean. Final runtime-derived
+receipt 2026-11-21T191918Z-issue-1811.json records two passes, two accepted LOW
+findings, none rejected/deferred. Red-case groups across both passes: 10 plus 9
+proposed; 9 plus 9 already covered when proposed (the first renewal control was
+masked, corrected before pass 2). Final pass's nine groups are all covered.
+No product changes followed the clean second review; remaining full finish gate
+and exact-head CI are reported separately rather than implied by this evidence.
+
+
 ## Post-child guard pair
 
 <!-- lanes-demonstrated run=03776eb0b3d5448a9ab2d99b0e00cb74 plan=444ad53619e5cdf21878849c2ba9adbd4bf84cfcdd091d2c435c144dc9455df0 -->

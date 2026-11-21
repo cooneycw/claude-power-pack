@@ -502,6 +502,27 @@ Report: `Step 3/8: Approve - {approved|revised|abandoned}`
 
 There is deliberately no auto-approved outcome: a value that can still be produced means something can still skip the gate (issue #784).
 
+### Pre-child checkpoints (parent)
+
+After Step 3 approval, immediately before Step 4's first invocation, run these
+checks with the recorded literal `WT_PATH`, never an inferred cwd. Substitute
+that path for `/path/to/worktree`; verify emitted paths name this checkout:
+
+```bash
+~/.claude/scripts/flow-live-driver-guard.sh /path/to/worktree
+~/.claude/scripts/flow-worktree-claim.sh check /path/to/worktree
+~/.claude/scripts/flow-stale-check.sh origin/main /path/to/worktree
+```
+
+- Live `clear`: proceed. `suspected`: **STOP and ask** before invoking the child.
+- Claim `self`: healthy. `held` or `foreign`: **STOP**; never steal. For `free` or
+  `stale`, repeat Step 1's verified acquisition and recheck. Uncertain ownership
+  requires confirmation before the child; never infer ownership from freshness.
+- Missing helpers or `unknown` are reported as unchecked, never clear.
+- Stale `current`, or `moved-clean` without overlap: proceed. A `collision`, or
+  an intended file named as changed upstream: checkpoint only confirmed own work,
+  merge `origin/main` on a clean tree and resolve conflicts first; never stash.
+
 <!-- delegated-core:end A -->
 
 ---
@@ -1095,6 +1116,15 @@ Report: `Step 5/8: Review complete - {PASS|N issues found}`
 
 ### Step 6: Quality Gates - Lint, Test, Security (with Fix Loop)
 
+At Step 6 start, repeat the stale check and its pre-child dispositions:
+
+```bash
+~/.claude/scripts/flow-stale-check.sh origin/main /path/to/worktree
+```
+
+If a merge changes the reviewed artifact, return to Step 5: commit the new
+checkpoint, repeat independent review and derive a new receipt before finish.
+
 Run quality gates:
 
 ```bash
@@ -1117,6 +1147,22 @@ fi
 **Fix Loop (max 2 retries):**
 
 If quality gates fail:
+
+Before each fix invocation, rerun the live guard with the same literal path:
+
+```bash
+~/.claude/scripts/flow-live-driver-guard.sh /path/to/worktree
+```
+
+Attribute dirt only against this run's recorded checkpoint and child's result.
+Checkpoint ONLY confirmed-own changes, then rerun the guard on a CLEAN tree;
+never bypass `suspected`. Unexplained dirt, even beside own edits, or persistent
+`suspected`: STOP and ask; never stage or commit foreign changes. When
+ownership is uncertain, recheck; `held` or `foreign` STOPs the fix:
+
+```bash
+~/.claude/scripts/flow-worktree-claim.sh check /path/to/worktree
+```
 
 1. **Extract the error output** from the failed step.
 2. **Build a fix prompt** for Gemma with the error context. **The execution
@@ -1429,10 +1475,16 @@ If merge now, follow the same merge/cleanup pattern as `/flow:auto` Step 6:
 1. Squash-merge the PR
 2. Update local main
 3. **cd to main repo BEFORE removing worktree** (critical)
-4. Remove worktree and branch
-5. Close issue if still open
+4. Release only this run's confirmed self claim, before removing the worktree:
+   ```bash
+   ~/.claude/scripts/flow-worktree-claim.sh check /path/to/worktree
+   ~/.claude/scripts/flow-worktree-claim.sh release /path/to/worktree
+   ```
+   A foreign claim means STOP; never --force or release another owner's claim.
+5. Remove worktree and branch
+6. Close issue if still open
 
-If leave for review, report the PR URL and worktree location.
+Leave for review keeps the worktree and claim; report their location and PR URL.
 
 Report: `Step 8/8: Cleanup complete - PR merged, worktree removed` or `Step 8/8: PR #{N} left for review`
 
