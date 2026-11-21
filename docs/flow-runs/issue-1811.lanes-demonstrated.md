@@ -105,15 +105,16 @@ delegated capture completeness. Existing helper tests cover actual JSONL.
 
 ### Word counts and old-versus-new audit
 
-The addition is 49 template words. Only Step 1's 117-word upstream-hazard
-history becomes 61 words, for **-7 words per driver**, including the approved
+The final file-only-link addition is 51 template words. Only Step 1's
+117-word upstream-hazard history becomes 61 words, for **-5 words per driver**,
+including the approved
 amendment: an unresolved ref must never be read as zero.
 
 | Driver | Before | After | Cap |
 |---|---:|---:|---:|
-| codex | 8689 | 8682 | 8689 |
-| qwen | 9903 | 9896 | 9905 |
-| gemma | 10512 | 10505 | 10514 |
+| codex | 8689 | 8684 | 8689 |
+| qwen | 9903 | 9898 | 9905 |
+| gemma | 10512 | 10507 | 10514 |
 
 Instructions retained: use audited resolver, never hand-build (preceding prose
 unchanged); resolver creates --no-track with OWN-name upstream; hand-built
@@ -199,3 +200,25 @@ file-set divergence within the subsequent approvals, not edits to the original
 approved plan. Final focused suites: **249 passed in 15.52 seconds**. Lint,
 typecheck (512 files), core, parity and budgets passed. Product driver text and
 its -7-word counts are unchanged from the approved implementation.
+
+
+### Final scope reduction after fourth review
+
+Pass 4 found two defects: a promoted capture heading could include Step 1 and
+lend a later command to the preamble, and an earlier different heading could
+own the same GitHub-style fragment. Both controls were red on the pre-fix code
+(**2 failed**). The command/link token range is now bounded strictly before
+Step 1, independently of heading rank. The orchestrator removed the anchor
+claim rather than adding a slug dependency (mailbox 36504): driver links go to
+`../flow/auto.md` and name its Friction Capture (always-on) section. Tests require
+the file and one exact real heading; they do not claim fragment ownership.
+The slug-collision fixture is retained as a valid file-link case under this
+narrowed contract. No github-slugger dependency was added.
+
+Final focused suites: **251 passed in 12.62 seconds**. Final driver and own-flow
+checks separately: **18 passed in 1.30 seconds**. Static core, budget, parity,
+lint and typecheck (512 files) pass. The fifth review is authorized once as the
+hard stop, with reason `pass 4 found range and anchor defects; anchor claim
+removed, range bounded by token order`, cp-orch mailbox 36504, raised cap 5.
+Any further TEST-only finding is to be deferred with a reason/receipt/Nit Store
+record under that ruling; a product-procedure defect must be escalated.
