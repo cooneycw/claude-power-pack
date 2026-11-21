@@ -352,3 +352,38 @@ diff was appended to prompt prose, not sent as bare diff or in its supported
 cpp-review-patch frame. Runtime transcripts are retained unchanged. Escalated
 this evidence error to the orchestrator in mailbox 36908; no receipt claim or
 additional review until disposition.
+
+
+Evidence recapture authorized mailbox 36909 counted as pass 4 (raised cap 4),
+on the same 13bc0c47 artifact. scripts/codex-review-run.sh supplied the exact
+canonical patch and returned CODEX_REVIEW: ran, actual reviewer codex/gpt-6.2-sol,
+diff-only, network unverified, local repository credentials absent. A private
+PATH shim selected that model and disabled reviewer shell tools; sandbox probes
+delegated unchanged. The runtime transcript was never edited.
+
+The new LOW fallback-presence TEST-reader limitation was deferred under the
+same hard stop; current driver blocks retain the fallback. Proposed deletion
+mutation was not executed. Recorded separately after Nit Store resolver:
+https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7067747358
+The other recapture finding requested exact-artifact evidence for existing
+lane checks; addressed with the final quick run on unchanged product code.
+
+Final quick run on evidence head 6aa7e9e2, whose product content equals reviewed
+13bc0c47, completed at 19:06:14Z: **285 passed in 19.02 seconds**. Lint, type
+(515 files), binary guards, budgets, vendor/parity, both audits and both worktree
+controls including provenance passed. Audit selftests found their planted bad
+inputs and accepted clean inputs; dependency audit had zero gating findings
+across 43 packages and two Windows-only pins not audited on Linux.
+
+| Promised lane | Final evidence |
+|---|---|
+| Checkout | Passed: test_a_clean_main_is_NO_LEAK_exit_0 plus registered clean-linked, bad-main-checkout and bad-git-cannot-answer control cases; leak control distinguishes fresh leak from clean/stale overlap. |
+| Harness | Passed: make delegated-core-check checks all three actual Claude renders; make driver-parity-check builds/reads actual Codex flow-auto mirror. Delegated families intentionally unpackaged; no live Codex installation claim. |
+| Driver | Passed: actual codex/qwen/gemma render tests and equality check; committed missing/late/overwritten-status/split-fence cases distinguish bad input. |
+| Project state | Passed: test_clean_repo_is_silent, test_warns_on_ignored_source_file, test_strict_exits_nonzero_on_finding and test_ignored_addition_in_a_linked_worktree_blocks exercise actual helpers in owned repositories. |
+
+Derived schema-5 receipt: accepted 4 (three code/test findings and exact-artifact
+lane evidence), rejected 0, deferred 3, passes 4 with cp-orch 36909 escalation.
+Pass 3 was substantive; pass 4 recaptured binding after the unframed input
+error. No code changed after pass 3. Waiting for #1878 to land before main merge
+and this row's full gate.

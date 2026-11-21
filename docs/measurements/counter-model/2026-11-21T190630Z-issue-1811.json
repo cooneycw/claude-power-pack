@@ -1,0 +1,75 @@
+{
+  "branch": "issue-1811-post-child-guards",
+  "counts": {
+    "accepted": 4,
+    "deferred": 3,
+    "rejected": 0
+  },
+  "escalation": {
+    "raised_cap": 4,
+    "reference": "mailbox 36909",
+    "ruled_by": "cp-orch"
+  },
+  "extra_passes_reason": "evidence recapture: pass 3 input was unframed, so the receipt writer could not bind it; same artifact. Pass 3 was substantive; pass 4 recaptures binding under cp-orch mailbox 36909. Prior pass 3 authorization 36895: pass 2 found the shell reader joined adjacent fences, hiding a lost exit status. Hard-stop deferred TEST-reader limitations: shadowed case arms (Nit 7067714178), mismatched position/block identity (7067714377), missing fallback presence (7067747358). Existing-lane evidence finding addressed by exact-product quick/helper/control verification; no code changes after reviewed artifact.",
+  "head": "13bc0c47951f65136ab2bb1ddafcd6c65ec597c7",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/21/rollout-2026-11-21T14-18-41-01a1fe79-3f8f-71c1-80ba-492e1fb34c90.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 9236355,
+        "path": "2026/11/21/rollout-2026-11-21T14-18-41-01a1fe79-3f8f-71c1-80ba-492e1fb34c90.jsonl",
+        "sha256": "3b581e465cc8b0d7ee86f0c0a0dd078edadd901a5eb9152cdacdb8db45660538"
+      }
+    ],
+    "thread_id": "01a1fe79-3f8f-71c1-80ba-492e1fb34c90"
+  },
+  "issue": "1811",
+  "local_credentials": "absent",
+  "network": "unverified",
+  "passes": 4,
+  "recorded_at": "2026-11-21T19:06:30Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 6
+  },
+  "reviewed_artifact": {
+    "base_sha": "dbb485d4d1d7e9dc55e227822896c24f5b467712",
+    "merge_base": "dbb485d4d1d7e9dc55e227822896c24f5b467712",
+    "method": "captured-patch",
+    "patch_sha256": "a6a1f5513f98dd3a16a785b5aafe10a464fa987962767a488024ae84bdf46d0b",
+    "report_record": 17,
+    "target_head": "13bc0c47951f65136ab2bb1ddafcd6c65ec597c7"
+  },
+  "reviewer": "codex/gpt-6.2-sol",
+  "reviewer_evidence": {
+    "exec_log": "codex-review-stream.vaTAKm",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.2-sol"
+    ],
+    "rollout": "2026/11/21/rollout-2026-11-21T19-04-01-01a1ff7e-7b0d-7bc0-96bb-50ad8cd08dc4.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 4018,
+        "path": "codex-review-stream.vaTAKm",
+        "sha256": "a28f1c2b2dadb2efbc4c4759c91be34ba36b0cf0b3cb82c3bba82a9ff48c7451"
+      },
+      {
+        "bytes": 261801,
+        "path": "2026/11/21/rollout-2026-11-21T19-04-01-01a1ff7e-7b0d-7bc0-96bb-50ad8cd08dc4.jsonl",
+        "sha256": "cefe25b892e97f8a55fa7dfd00167293ec4f20d5a4866a8510683e40f614c8dd"
+      }
+    ],
+    "thread_id": "01a1ff7e-7b0d-7bc0-96bb-50ad8cd08dc4"
+  },
+  "schema": 5,
+  "scope": "diff-only",
+  "status": "ran"
+}
