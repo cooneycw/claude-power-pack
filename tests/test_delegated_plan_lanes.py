@@ -63,8 +63,8 @@ def test_rendered_driver_orders_approval_and_preserves_review_direction(driver):
     assert "Exit 1 is STOP: do not invoke" in step3
     assert "Other errors are STOP too" in step3
     step5 = text.split("### Step 5:", 1)[1].split("### Step 6:", 1)[0]
-    assert "each listed lane" in step5 and "no test in the diff" in step5
-    assert "With no LANE LIST, skip both questions" in step5
+    assert "each listed lane" not in step5 and "no test in the diff" in step5
+    assert "With no LANE LIST, skip this question" in step5
     assert "THIS Claude reviewer" in step5
     step7 = text.split("### Step 7:", 1)[1].split("### Step 8:", 1)[0]
     assert step7.index("compliance 42") < step7.index('ACCEPTANCE_COMPLETE=""')
