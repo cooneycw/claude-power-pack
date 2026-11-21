@@ -151,7 +151,7 @@ def test_pagination_keeps_pages_and_rejects_partial_page():
 
 
 @pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3")
-def test_cli_from_other_directory_reads_real_fixture_output(tmp_path):
+def test_cli_from_other_directory_reads_real_fixture_output(tmp_path):  # binary-guard: allow fixtures never call gh
     assert SCRIPT.is_file(), "review-yield report implementation is missing"
     done = subprocess.run([sys.executable, str(SCRIPT), "--since", SINCE, "--until", UNTIL,
                            "--fixture", str(FIXTURES / "provenance.json")],
