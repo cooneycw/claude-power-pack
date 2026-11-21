@@ -219,5 +219,6 @@ def test_history_reader_finds_git_from_a_relative_path_without_fallback(tmp_path
     with monkeypatch.context() as changed_cwd:
         changed_cwd.chdir(scan_dir)
         assert shutil.which("git") is None, "fixture must lack git after changing cwd"
+    scan_dir.rmdir()
     result = scan(scan_dir, (CASES / "good-generated-header.md").read_bytes())
     assert result.returncode == 0

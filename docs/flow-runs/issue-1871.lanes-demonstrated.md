@@ -95,3 +95,8 @@ Orchestrator mailbox 36757 authorized correcting this gate failure without
 reopening the deferred review finding. The case now directly asserts relative
 Git lookup succeeds in launcher cwd and is absent in scan cwd, before the
 reader runs. Two interrupted foreground checks are not counted as evidence.
+
+Quick checks and both audits passed on merged main. The focused run caught a
+setup error in this precondition correction: **1 failed, 79 passed** in 56.78
+seconds, because the lookup-probe directory still existed when scan() created
+it. The test now removes the empty probe directory before invoking scan().
