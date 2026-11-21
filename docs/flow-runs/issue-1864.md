@@ -113,3 +113,20 @@ The initial Section C above is retained unchanged as historical approval.
   not document re-approval after an amendment. PLAN_RECORD_STABILITY and
   TOUCHED BUT NOT PLANNED (installer) are reported with authority 36346;
   machine lane status remains NOT CHECKED despite the concrete test evidence.
+
+### CI finding and authorized history correction
+Woodpecker pipeline 3960 failed its secret scan before dependent steps ran.
+Pinned gitleaks classified the Section B label next to a commit hash as a
+credential. The value was a Git revision, not a secret. Mailbox 36375
+instructed a branch-history rewrite rather than widening the secret allowlist.
+Section B was reworded to remove the false positive; its factual content is
+unchanged. The historical stability signal remains disclosed.
+The superseded finish job was stopped at 2026-11-21T15:11:58Z with exit -15;
+its process group was confirmed gone and its partial run is not gate evidence.
+The earlier independent review found no defects, but its runtime HEAD belongs
+to the pre-rewrite history. A second review binds the corrected history;
+that previous receipt was not retained as current-head evidence.
+The exact pinned scanner found one leak before correction and no leaks in a
+fresh single-branch clone after correction. Existing stale remote refs in the
+working clone retained the superseded commit and still triggered the scanner;
+the fresh clone excludes those obsolete refs, like the new CI checkout.
