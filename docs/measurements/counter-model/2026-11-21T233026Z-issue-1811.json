@@ -1,0 +1,75 @@
+{
+  "branch": "wip/1811-delegated-salvage",
+  "counts": {
+    "accepted": 0,
+    "deferred": 1,
+    "rejected": 1
+  },
+  "escalation": {
+    "raised_cap": 4,
+    "reference": "mailbox:37517",
+    "ruled_by": "cp-orch"
+  },
+  "extra_passes_reason": "post-review integration fixes changed an instrument (lane-control parser) after gate fail 70/13493; delta pass4 authorized by cp-orch mailbox:37518 replying to mailbox:37517; no pass5",
+  "head": "1ece1cf69c6a15d9bd848fae52ec318e2377e8e2",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/21/rollout-2026-11-21T18-24-19-01a1ff5a-23a4-71e0-8f9a-e04e67099a92.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 3997598,
+        "path": "2026/11/21/rollout-2026-11-21T18-24-19-01a1ff5a-23a4-71e0-8f9a-e04e67099a92.jsonl",
+        "sha256": "37c51383d314d01491f4fd3a3382af727c3a76219318f0ee4565b5055e346d62"
+      }
+    ],
+    "thread_id": "01a1ff5a-23a4-71e0-8f9a-e04e67099a92"
+  },
+  "issue": "1811",
+  "local_credentials": "absent",
+  "network": "unverified",
+  "passes": 4,
+  "recorded_at": "2026-11-21T23:30:26Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewed_artifact": {
+    "base_sha": "a1ad48a669735b0dd51dab96c457edb0cbdac524",
+    "merge_base": "a1ad48a669735b0dd51dab96c457edb0cbdac524",
+    "method": "captured-patch",
+    "patch_sha256": "82b22a5f10b98bb80230e8b154eeabb1370e5affe9b619177659bf8f6da4d859",
+    "report_record": 17,
+    "target_head": "1ece1cf69c6a15d9bd848fae52ec318e2377e8e2"
+  },
+  "reviewer": "codex/gpt-6.2-sol",
+  "reviewer_evidence": {
+    "exec_log": "codex-review-stream.02QwV1",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.2-sol"
+    ],
+    "rollout": "2026/11/21/rollout-2026-11-21T23-29-00-01a20071-15ac-7383-b4b7-eab06a76ed43.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 3535,
+        "path": "codex-review-stream.02QwV1",
+        "sha256": "c8e03251a58157af52fa926d8d2426aef92a7a2502719b451af82647d14d8761"
+      },
+      {
+        "bytes": 178952,
+        "path": "2026/11/21/rollout-2026-11-21T23-29-00-01a20071-15ac-7383-b4b7-eab06a76ed43.jsonl",
+        "sha256": "d95a91c35882733ca4c844ae4e9b4bedbb8b04594e40610ec6f0e4e9ee27ddd8"
+      }
+    ],
+    "thread_id": "01a20071-15ac-7383-b4b7-eab06a76ed43"
+  },
+  "schema": 5,
+  "scope": "diff-only",
+  "status": "ran"
+}

@@ -869,3 +869,43 @@ compatibility corrections are tested but have no fourth model review, per the
 orchestrator's explicit hard stop. The receipt is neither rewritten nor
 represented as review of changes made after its report. A new full gate
 requires orchestrator instruction and a fresh load5<=24 check.
+
+
+### Row D authorized delta-only instrument review, pass 4
+
+Mailbox 37518 explicitly raised the review cap to4 because the post-gate
+compatibility correction changed an instrument. Scope was only the actual
+diff from reviewed head a1ad48a6 to compatibility head1ece1cf6. The branch
+helper consumed that canonical patch, measured reviewer codex/gpt-6.2-sol,
+diff-only, network unverified and local credentials absent. No fifth pass.
+
+Two LOW findings received explicit dispositions:
+
+- Alternate whitespace can miss the salvage-specific comparison. The current
+  generic fallback still rejects the helper invocation. A fixture-owned
+  reproduction changed the call to two spaces and actually returned exit3,
+  `DELEGATED_PLAN_LANES: unavailable - unsupported helper invocation`, before
+  setup. It does not admit or silently omit the unsupported command. Rejected
+  as a bypass claim; it changes which unknown diagnostic is selected, not
+  unknown versus acceptance.
+- A paired comment-only edit control for the exact-template boundary is
+  absent. The parser deliberately reports template identity, not semantic
+  salvage equivalence. This LOW test-adequacy gap is recorded at
+  https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7070914642.
+
+New genuine receipt `2026-11-21T233026Z-issue-1811.json` binds only that delta,
+with passes4, raised_cap4, cp-orch authority, mailbox37517 reference and the
+actual extra-pass reason. Delta dispositions are0fixed/1rejected/1deferred;
+the original main-range receipt retains its6fixed/2deferred findings. Together
+they establish what was actually reviewed; no fourth full review of the old
+driver text is claimed. No product changes followed the delta review.
+
+A separate supplemental pending-row issue was recorded without touching E:
+https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7070887122
+(the same loop-based skip marker in E is not statically recognized).
+
+Mailbox37518 authorizes one fresh gate after this review, with freshload5<=24,
+no other heavy CPP run, actual admission3600s and90-minute job deadline. The
+PR will preserve the full history: gate1 queue timeout; gate2 owner-paced
+cancellation before work; gate3 actual70/13493/4 integration failure, now fixed;
+gate4 pending actual execution/result. The source and caps remain unchanged.
