@@ -378,3 +378,14 @@ These additions fail 13 cases before the test-harness/control corrections
 The earlier 496-test broader result remains the pre-review checkpoint result;
 final broader verification and review pass 2 follow this correction. No product
 procedure or cap changed in response to these test findings.
+
+Final Run 4 checkpoint cb544e0e: 508 broader tests pass (including real supported
+installation), 239 procedure/parity tests pass; pre-fix 78749847 yields 75 failed
+and 164 passed. Lint, typecheck, vendor/parity/budgets and import selftest/actual
+scan pass again. Independent review pass 2 is clean. Final runtime-derived
+receipt 2026-11-21T191918Z-issue-1811.json records two passes, two accepted LOW
+findings, none rejected/deferred. Red-case groups across both passes: 10 plus 9
+proposed; 9 plus 9 already covered when proposed (the first renewal control was
+masked, corrected before pass 2). Final pass's nine groups are all covered.
+No product changes followed the clean second review; remaining full finish gate
+and exact-head CI are reported separately rather than implied by this evidence.
