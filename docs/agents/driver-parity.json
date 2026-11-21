@@ -189,8 +189,8 @@
     {
       "gate": "nit-store-resolve.sh",
       "driver": "codex",
-      "disposition": "exempt",
-      "reason": "Known gap: review findings do not provide the Nit Store resolver step.",
+      "disposition": "run",
+      "reason": "Parent Step 7 resolves and routes retained supplemental findings after PR creation, before reporting and cleanup.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -386,8 +386,8 @@
     {
       "gate": "nit-store-resolve.sh",
       "driver": "qwen",
-      "disposition": "exempt",
-      "reason": "Known gap: review findings do not provide the Nit Store resolver step.",
+      "disposition": "run",
+      "reason": "Parent Step 7 resolves and routes retained supplemental findings after PR creation, before reporting and cleanup.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {
@@ -583,8 +583,8 @@
     {
       "gate": "nit-store-resolve.sh",
       "driver": "gemma",
-      "disposition": "exempt",
-      "reason": "Known gap: review findings do not provide the Nit Store resolver step.",
+      "disposition": "run",
+      "reason": "Parent Step 7 resolves and routes retained supplemental findings after PR creation, before reporting and cleanup.",
       "issue": "https://github.com/cooneycw/claude-power-pack/issues/1811"
     },
     {

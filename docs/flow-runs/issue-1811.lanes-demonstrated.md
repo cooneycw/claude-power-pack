@@ -314,3 +314,23 @@ negative-fixture checks and both import-audit paths (selftest plus real tree)
 pass. The import selftest reports its planted import and stays silent on its
 clean pair. Refs #1811 only. Merges stay frozen until #1870; after it lands this
 branch must merge main, recheck and re-gate before orchestrator merge.
+
+<!-- lanes-demonstrated run=886f56f62f81479da3e05c5b76a2b489 plan=8f43b67a87c4b148ae8a05f7a4f3648d9e93a3d21c66180a610ca4b3bd27b35d -->
+
+| Lane | Result | Evidence |
+|---|---|---|
+| Checkout | passed | tests/test_delegated_nit_store_routing.py executes actual published blocks in main checkout / linked worktree fixture-owned repositories. |
+| Harness | passed | Actual Claude install-shaped helper symlink exercised; delegated Codex skills do not exist. Live model obedience not covered. |
+| Driver | passed | All three actual rendered delegated documents and existing canonical flow routing tests: 373 related tests passed. |
+| Project state | passed | Real resolver with open/absent/ambiguous/transport-failed store and missing installed helper. |
+| Toolchain version | passed | Host runtime and restricted PATH without python/python3, absolute test-stub interpreter. Pinned CI result pending, no broader matrix claim. |
+| Run location | passed | Actual installed block outside the target, including renamed linked worktree caller. |
+| Gate target | passed | Owned consumer repository/isolated PATH; CPP source and generated outputs checked. |
+| Reader: generated-command parent | not covered | Presence and scope/order controls only; live model obedience not established. |
+| Reader: parity checker | passed | Actual generated documents and updated ledger through tests/test_driver_parity.py. |
+| Reader: resolver output consumer | passed | Actual published block and real helper verdict output; subsequent live model branching not covered. |
+| Reader: GitHub and closing report | not covered | Fake GitHub network boundary only; controls pin repo/context/refusal/closing-link instructions, not live posting. |
+
+Regression evidence: on current-main pre-fix baseline all 102 new cases failed because retention/routing and the bare call were absent. Same cases passed after the shared-core change. Related resolver/routing/vendor/parity selection: 373 passed. Budget, Bandit live known-bad/clean selftest and undeclared-import planted/clean selftest passed. No unrelated findings recorded at this checkpoint.
+
+Rendered word counts on the integrated base: codex 8768 -> 8966; qwen 9982 -> 10180; gemma 10591 -> 10789. Each delta and cap increase is exactly 198 words for the executable gate step under ruling (f). Counts will be re-derived after final main integration. Full finish gate, review and exact-head CI pending.
