@@ -1,0 +1,69 @@
+{
+  "repos": {
+    "cooneycw/example": {
+      "prs": [
+        {
+          "number": 101,
+          "title": "fix(core): missing provenance",
+          "merged_at": "2026-11-11T00:00:00Z",
+          "issues": [
+            {
+              "number": 1,
+              "repo": "cooneycw/example",
+              "body": "A defect with no explanation",
+              "comments": []
+            }
+          ]
+        },
+        {
+          "number": 102,
+          "title": "fix(core): explained",
+          "merged_at": "2026-11-20T23:59:59Z",
+          "issues": [
+            {
+              "number": 2,
+              "repo": "cooneycw/example",
+              "body": "Origin: #44\nMissed because: no test covered it",
+              "comments": []
+            }
+          ]
+        }
+      ],
+      "receipts": [
+        {
+          "issue": "1",
+          "status": "ran",
+          "recorded_at": "2026-11-12T12:00:00Z",
+          "passes": 1,
+          "counts": {
+            "accepted": 2,
+            "rejected": 1,
+            "deferred": 0
+          },
+          "branch": "fixture-issue-1",
+          "implementer_evidence": {
+            "runtime": "codex",
+            "thread_id": "fixture-session"
+          }
+        },
+        {
+          "issue": "1",
+          "status": "ran",
+          "recorded_at": "2026-11-13T12:00:00Z",
+          "passes": 2,
+          "counts": {
+            "accepted": 3,
+            "rejected": 1,
+            "deferred": 1
+          },
+          "branch": "fixture-issue-1",
+          "implementer_evidence": {
+            "runtime": "codex",
+            "thread_id": "fixture-session"
+          }
+        }
+      ],
+      "errors": []
+    }
+  }
+}

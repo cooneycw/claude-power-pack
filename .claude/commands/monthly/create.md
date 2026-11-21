@@ -1,19 +1,16 @@
 ---
 description: Scan the repository and write this month's monitoring list as a monthly review issue
-allowed-tools: Bash(~/.claude/scripts/monthly-review.py:*), Bash(gh:*), Bash(git:*), Read
+allowed-tools: Bash(~/.claude/scripts/monthly-review.py:*), Bash(~/.claude/scripts/review-yield-report.py:*), Bash(gh:*), Bash(git:*), Read
 ---
 
 # Monthly: Create - Write This Month's Monitoring List
 
-Scan the repository for standing work and write it up as ONE ordinary,
-startable issue titled `Monthly review: YYYY-MM`, labelled `monthly-review`.
-`/project:next` reports when a month has no review; that report is the only
-trigger. There is no scheduler.
+Write standing work as one issue titled `Monthly review: YYYY-MM`, labelled `monthly-review`.
+`/project:next` triggers this when a month lacks a review; there is no scheduler.
 
 ## Arguments
 
-- `PROJECT` (optional): a directory under `~/Projects`, resolved like
-  `/project:next`. Default: the current repository.
+- `PROJECT` (optional): directory under `~/Projects`; defaults to this repository.
 
 ## Step 1: See what exists
 
@@ -41,7 +38,17 @@ user to run `/cpp:update`.
 ~/.claude/scripts/monthly-review.py create --dry-run
 ```
 
-It prints the title and body it would write. Show the user the three groups:
+Also show the previous calendar month's review yield and fix provenance:
+
+```bash
+~/.claude/scripts/review-yield-report.py --since YYYY-MM-01 --until YYYY-MM-DD
+```
+
+Use that month's first and last dates. On exit 127 use the CPP checkout copy.
+Keep UNKNOWN visible; this observation never blocks creation.
+Answers come from the [canonical contract](../../../docs/agents/closing-report-contract.md).
+
+Show the dry-run title, body and three groups:
 
 - **Checklist** - what the scan found due: the Nit Store rollover, each open
   `evergreen` issue, command documents over their word budget, friction signals waiting for a retro on this host, and
@@ -51,8 +58,7 @@ It prints the title and body it would write. Show the user the three groups:
   describe one as clear.
 - **Read, nothing due** - what was examined and needs nothing.
 
-A repository with no Nit Store, no evergreen issues and no friction log gets a
-short list. That is an ordinary result, not an error.
+An empty checklist is ordinary.
 
 ## Step 3: Create it
 
@@ -67,8 +73,7 @@ short list. That is an ordinary result, not an error.
   the reason. If it says the issue could not be created, check for a
   half-created issue before retrying.
 
-The helper re-reads the state itself before writing and creates the
-`monthly-review` label if the repository lacks it.
+The helper re-reads state and creates a missing `monthly-review` label.
 
 ## Declaring a dated follow-up
 
