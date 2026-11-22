@@ -942,3 +942,74 @@ not hidden by rewriting the approved plan.
 Next: rerun the required pre-push budget/import/dependency/gitleaks checks on
 this final evidence HEAD, push/open a Refs#1811 PR, and record exact-head CI.
 The historical gate failures/cancellation remain preserved above and in the PR.
+
+
+<!-- lanes-demonstrated run=3e3ef2b0d50a426497c1e7d49cf3b84b plan=f14ffde1f774a448cec82231372da1f01327c4662a24823b7cab8043067accd6 -->
+
+## Finish wrapper row E, final merged-main run
+
+This run was minted, began and received its approved plan on main bc7125e1
+BEFORE any product edit or implementation commit. It received ordinal8 and
+preserved every upstream run section. This avoids the default run-start scope
+limitation documented for D. Original E checkpoint/first review remain
+historical on their separate branch.
+
+| Lane | Result | Evidence |
+|---|---|---|
+| Checkout | passed | test_delegated_finish_gate.py actual generated bare calls execute the real wrapper in main-checkout and linked-worktree consumer fixtures. |
+| Harness | passed | Actual Claude renders, test_delegated_core_vendor.py real-repo/idempotent rendering cases and test_driver_parity.py generated flow-auto parity cases in801suite; live installs unexamined, delegated meta commands intentionally unpackaged. |
+| Driver | passed | All three actual Step6 documents, real wrapper suite, current pre/post-child guard suites and real wrapper helper/controls in801suite; no live model obedience. |
+| Coordination | passed | Existing wrapper tests include test_coordination_supervises_full_gate_once_only_when_enabled, test_coordination_refusal_starts_no_gate_work and other admission cases. Deterministic authority is stubbed; actual admission is pending own full gate. |
+| Project state | passed | Real receipt writer rejects stale review bytes after committed implementation fix and accepts fresh review; existing wrapper enrolled/unenrolled cases, including test_enrolment_names_the_receipt_for_this_head_not_the_oldest. |
+| Run location | passed | Actual bare calls from external consumer roots; CPP-root make delegated-core-check/driver-parity-check and their real-tree tests. |
+| Gate target | passed | Existing CPP wrapper suite and consumer fallback Makefile cases; own-checkout full gate pending, no consumer multi-interpreter matrix. |
+
+Reader evidence is the actual generated call and actual wrapper/receipt-writer
+output, with deliberately faulty installs clearly identified for no-verdict
+and interruption scenarios. Narrow policy pins check the instructions a
+parent receives, not an agent's real decision. Output records must be one
+complete unambiguous verdict with matching exit; committed controls include
+prefixed lookalikes, conflicts, status mismatch and trailer-only output.
+Missing-verdict and stale-receipt policy fixtures are rejected; the good one
+is accepted. Reader/producer formats are unchanged. External consumers and
+live model obedience remain unexamined.
+
+Current-main red before source edits: **60 failed, 9 passed**. After the
+wrapper replacement: **69 passed in1.89seconds**. Initial broad current-row
+integration then returned **6 failed,795 passed**: sibling placement checks
+used the semantic boundary instructions `Run quality gates:` and `Re-run
+quality gates`. The sibling guards themselves were intact. Restoring those
+instructions in the wrapper preface and renewed-review tail cost net0 words;
+no test instrument or guard was weakened. Final broad integration:
+**801 passed in29.28seconds**, covering wrapper, current pre/post-child,
+plan-lanes, renderer/parity and static binary-guard suites. Lint/render/parity
+and all command budgets pass.
+
+The source edit is surgical: old direct runner/fallback prefix and RUNNER_EXIT
+retry/report tail only. Current stale guard, fix live/claim checks,
+post-child guard and FIX_PAYLOAD_CHECK remain; Step8 is unchanged. Per-driver
+word delta **+173**, an **executable gate step** under owner ruling7065030917:
++138 originally approved, +35 interruption/unambiguous-output corrections.
+Current exact caps/counts: codex9789, qwen11001, gemma11610.
+
+The latent static skip-guard issue from
+https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7070887122
+is addressed by explicit git/bash/make `shutil.which` clauses, validated by
+the actual binary-guard suite. The output JSON fixture has one exact ignore
+negation, planned explicitly and following existing CPP fixture precedent;
+no wildcard ignore policy changes. No touched-but-unplanned product files.
+
+Historical E review pass1 measured gpt-6.2-sol/diff-only and found four issues:
+interruption precedence for missing verdict, ambiguous output assertions,
+lane evidence limits and old progress-line consumer inventory. The present
+source/tests correct the first two; this plan/evidence names exact existing
+lane tests and external limits, and its Reader table records progress-consumer
+search sensitivity and external coverage limits. The reserved pass2 now
+reviews the complete current-main artifact; no silent cap reset.
+
+Next: commit this source/evidence checkpoint, derive the different-model
+runtime receipt after reserved pass2, then one owner-paced full finish gate
+(normalHOME/ADDOPTSunset/shortprivateTMPDIR, actual admission, freshload5<=24,
+no other group heavy gate, own-slot deadline). Final-head scans, Refs#1811 PR,
+independent GraphQL references check after each body edit and exact-head CI
+follow; cp-orch handles merge and final issue disposition.
