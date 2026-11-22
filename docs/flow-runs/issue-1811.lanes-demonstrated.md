@@ -1049,3 +1049,35 @@ The two additional prompt fixtures are a disclosed review-control scope
 variance; the approved plan body stays unchanged. Source/evidence will be
 committed before requesting review authority beyond the spent two-pass cap.
 No full gate has run in E yet; D's passing gate is not borrowed as E evidence.
+
+
+### Row E authorized final review pass 3
+
+Mailbox37562 authorized one final continuity pass on ad843bc9 because pass2
+changed instrument controls; no fourth pass. The helper measured reviewer
+codex/gpt-6.2-sol, diff-only, network unverified, credentials absent. It
+reported no product/driver-text or MEDIUM-or-higher defect. Final LOW items:
+
+- The extraction test can still accept a dormant wrapper if an active legacy
+  directive is placed before its selected text marker. Current driver text
+  has no such route. This residual test-adequacy gap is recorded per ruling:
+  https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7071460595.
+- Existing-suite lane coverage and actual own-CPP admission/gate results must
+  remain distinct from added regression coverage. Named existing cases and
+  actual801/4 results are already recorded; own admission/full-gate results
+  will be appended only after execution. Live install/model limits remain.
+  This is a pending verification/evidence follow-up within this task, not a
+  claim that the pending gate passed or that unchanged tests were re-reviewed.
+
+Receipt `2026-11-22T001829Z-issue-1811.json` derives implementer
+codex/gpt-6.1-sol and reviewer codex/gpt-6.2-sol from their actual native
+runtime logs, binds the full current-main artifact, and records3passes with
+authority/reason in the parser-allowed extra-pass field. Seven earlier
+findings were fixed; two LOW items are recorded as remaining at review time.
+It is not a clean-review claim. No product/test code changed after this
+review; only this issue's evidence and the genuine receipt are added.
+
+Next is the single authorized own-checkout full gate under actual admission,
+after freshload5<=24 and no other heavy CPP run, with3600s admission wait and
+90-minute own-slot deadline. Gate target stays not-run/partial until that
+result. No source changes are proposed to chase the LOW final control gap.
