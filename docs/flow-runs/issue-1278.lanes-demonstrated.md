@@ -146,3 +146,14 @@ release reference and 245 its heading; 230/246 are blank. Current file and
 committed source agree, as does git grep. The existing accounting is correct;
 no content fix or second review is warranted. Receipt records rejected 1,
 accepted/deferred 0; no transcript was edited.
+
+
+Final-refresh quick checks completed exit 0 at 2026-11-22T01:13:06Z:
+**22 version-consistency tests passed in 4.66 seconds**. Lint, typecheck
+(521 source files), five-site version consistency, vendor/parity, command
+and CLAUDE budgets, Unicode, relative links and binary guards passed. Import
+audit selftest found the planted import and accepted the clean tree; dependency
+audit selftest found three vulnerable-fixture advisories and zero for the clean
+partner. Actual audit: 43 packages, zero gating findings, two Windows-only pins
+not audited on Linux. No product edits after the reviewed release artifact.
+Heavy-gate start awaits cp-orch confirmation plus a fresh load5 <= 24 check.
