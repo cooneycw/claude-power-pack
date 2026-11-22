@@ -1081,3 +1081,48 @@ Next is the single authorized own-checkout full gate under actual admission,
 after freshload5<=24 and no other heavy CPP run, with3600s admission wait and
 90-minute own-slot deadline. Gate target stays not-run/partial until that
 result. No source changes are proposed to chase the LOW final control gap.
+
+
+### Row E full gate 1 and launch-inventory integration correction
+
+Own-slot job f4583654-b9c8-428e-9d71-0c698ccf3705 launched at actualload5
+**3.05**, with no other CPP holder/queue. It acquired real full-suite
+request1211, accepted the native3-pass receipt and executed the full plan.
+Actual result: **`FLOW_FINISH_GATE: fail (at prerequisite test)`**, exit1;
+**2 failed,13633 passed,4 skipped in460.62seconds**. The two failures were
+`test_all_target_launchers_have_captured_path_policy` and
+`test_committed_inventory_matches_the_actual_source_and_generated_population`.
+No push or pass claim follows this result.
+
+Cause: removing the four old direct runner sites (three commands plus the
+shared template) makes `templates/` legitimately empty of direct lib.cicd
+launches. The existing population assertion demanded a launch in every source
+root, and its committed measured table still listed those removed sites.
+
+Correction is limited to the existing inventory test and measured report:
+`templates` remains in SCAN_ROOTS, all rows remain classified and checked for
+handoff errors, and the other three previously required non-generated roots
+remain nonempty requirements. The known committed missing-handoff, repaired
+and unclassified fixtures now run at five independently literal root paths,
+including templates and generated skills. Removing templates from the scanner
+would make its bad probe disappear and fail that test; it is not a zero-scan
+exception. The scanner classifier itself is unchanged. The current generated
+inventory has134 rows,0template rows,20captured source rows and22captured
+generated rows; its four obsolete inline rows were removed, with the original
+24/22 historical numbers clearly distinguished from the maintained table.
+
+Focused validation: **147 passed in6.00seconds**, including the previously
+failing launch-inventory checks, all five-root bad/good/unclassified controls
+and71finish-driver cases. Lint passes. An initial10-second tool cutoff was
+not counted as completed evidence; the retained result is the completed run.
+
+Touched-but-unplanned integration files are
+`tests/test_cicd_launch_handoff.py` and
+`docs/measurements/runner-target-path-1801.md`, in addition to the two disclosed
+review-control fixtures. These are necessary consequences of removing inline
+launches; no helper, driver text, verdict or word cap changed. The approved
+plan is unchanged. Because an inventory instrument changed after the final
+review, the new delta needs explicit orchestrator disposition before another
+full gate. The genuine receipt remains bound to its actual reviewed artifact;
+no later change is represented as already model-reviewed. No review4 or new
+full gate is launched without authority.

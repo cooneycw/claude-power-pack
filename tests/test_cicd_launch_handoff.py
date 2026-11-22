@@ -303,14 +303,19 @@ def inventory(root: Path) -> list[dict[str, object]]:
 def test_all_target_launchers_have_captured_path_policy() -> None:
     rows = inventory(ROOT)
     assert len(rows) >= 40, "the inventory must not pass after scanning no source population"
-    assert all(any(str(row["path"]).startswith(folder + "/") for row in rows) for folder in SCAN_ROOTS[:-1])
+    # #1811 routes delegated templates through the audited wrapper, so this
+    # root legitimately has no direct launch. It remains in SCAN_ROOTS; the
+    # committed bad/good probes below exercise every root independently.
+    required = (".claude/commands", "scripts", ".claude/skills")
+    assert all(any(str(row["path"]).startswith(folder + "/") for row in rows) for folder in required)
     failures = [row for row in rows if row["error"]]
     assert not failures, failures
 
 
-def test_committed_missing_handoff_case_is_red_and_repaired_case_is_green(tmp_path: Path) -> None:
+@pytest.mark.parametrize("folder", (".claude/commands", "templates", "scripts", ".claude/skills", "codex/skills"))
+def test_committed_missing_handoff_case_is_red_and_repaired_case_is_green(tmp_path: Path, folder: str) -> None:
     fixture = ROOT / "tests/fixtures/cicd_launch_handoff"
-    source = tmp_path / ".claude/commands/owned.md"
+    source = tmp_path / folder / "owned.md"
     source.parent.mkdir(parents=True)
     source.write_text((fixture / "bad-missing.md").read_text())
     bad = inventory(tmp_path)

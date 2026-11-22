@@ -38,8 +38,8 @@ extension). No consumer checkout or external service is scanned.
 ## Changed interfaces
 
 The first checkpoint changed eleven launchers but missed delegated/core and
-other query/probe surfaces. Review expanded this to the complete inventory
-below: 24 source launchers and 22 generated copies capture policy before uv.
+other query/probe surfaces. At that review, the inventory had 24 source
+launchers and 22 generated copies that captured policy before uv.
 The entrypoint refuses incomplete, malformed, absent-value-inconsistent,
 missing-current-policy and changed-topology records before CLI import. A valid
 record is an exact no-op or removal of the one leading actual-runner bin entry.
@@ -231,6 +231,14 @@ arbitrary executable aliases, eval and indirect shell expansion require review
 rather than a claim of static coverage.
 The runnable rationale source is included because Codex packages its examples.
 
+The inventory is maintained as launch surfaces change. Issue #1811 routes
+all three delegated Step 6 gates through `flow-finish-gate.sh`, removing their
+inline launches and the shared template's direct launch from this table.
+The current table has 20 captured source rows and 22 captured generated rows.
+`templates/` remains in the scanned population and now has zero direct launches;
+committed missing-handoff/good/unclassified fixtures are exercised in all five
+source roots, including templates, so that absence is not a scanner exclusion.
+
 <!-- launch-inventory:begin -->
 | Source | Subcommand | Class | Policy | Basis |
 | --- | --- | --- | --- | --- |
@@ -266,7 +274,6 @@ The runnable rationale source is included because Codex packages its examples.
 | `.claude/commands/cicd/woodpecker.md` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
 | `.claude/commands/cicd/woodpecker.md` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
 | `.claude/commands/cicd/woodpecker.md` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/codex/auto.md` | `run` | i | captured | PATH handoff before target execution/query boundary |
 | `.claude/commands/cpp/init.md` | `host-ci` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
 | `.claude/commands/cpp/status.md` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
 | `.claude/commands/flow/auto.md` | `verify` | i | captured | PATH handoff before target execution/query boundary |
@@ -283,15 +290,12 @@ The runnable rationale source is included because Codex packages its examples.
 | `.claude/commands/flow/doctor.md` | `doctor-ci` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
 | `.claude/commands/flow/finish.md` | `flow-host` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
 | `.claude/commands/flow/merge.md` | `flow-host` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/gemma/auto.md` | `run` | i | captured | PATH handoff before target execution/query boundary |
 | `.claude/commands/project/init.md` | `checks` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
 | `.claude/commands/project/init.md` | `detect` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
 | `.claude/commands/project/init.md` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
 | `.claude/commands/project/init.md` | `provider` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
 | `.claude/commands/project/init.md` | `pipeline` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
 | `.claude/commands/project/init.md` | `checks` | ii | not required | record/generation or fixed CPP probes; no target-configured step |
-| `.claude/commands/qwen/auto.md` | `run` | i | captured | PATH handoff before target execution/query boundary |
-| `templates/delegated-driver-core.md` | `run` | i | captured | PATH handoff before target execution/query boundary |
 | `scripts/bootstrap-check.sh` | `.bootstrap list` | ii | not required | lists configuration only |
 | `scripts/bootstrap-check.sh` | `.bootstrap check` | i | direct/no prepend | standalone original-PATH wrapper, no CPP uv activation |
 | `scripts/check-control-ci-deps.py` | `(reference)` | ii | not required | reference to module/import root, no dispatched subcommand |
