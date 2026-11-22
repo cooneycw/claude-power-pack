@@ -132,3 +132,17 @@ line positions for the original accounting: CHANGELOG.md:7 and :115;
 README.md:229 and :245; issue-1278.as-read.md:281; issue-1278.md:98,105,106,108,109,111.
 No active old-version site remains. Final review/receipt and the load-checked,
 orchestrator-confirmed single full gate still follow this refresh. No tag.
+
+
+Independent review pass 1 on f91737a1 used the audited helper and exact canonical
+patch. Runtime reviewer codex/gpt-6.2-sol differs from implementer; scope
+diff-only, network unverified, local repository credentials absent; reviewer
+shell tools disabled. No instrument changed, so red cases proposed 0.
+
+One LOW plan-bookkeeping finding was rejected with direct committed-source
+evidence: reviewer claimed the two README hits were lines 230/246 rather than
+229/245. Reading git show f91737a1:README.md confirms 229 contains the previous
+release reference and 245 its heading; 230/246 are blank. Current file and
+committed source agree, as does git grep. The existing accounting is correct;
+no content fix or second review is warranted. Receipt records rejected 1,
+accepted/deferred 0; no transcript was edited.
