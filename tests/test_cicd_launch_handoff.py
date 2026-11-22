@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import os
 import re
 import shlex
 from pathlib import Path
@@ -163,9 +164,28 @@ def earlier_command_block(path: Path, text: str, number: int) -> str:
     return "\n".join(block) if shell else ""
 
 
-def inventory(root: Path) -> list[dict[str, object]]:
+def readable_tree(directory: Path):
+    """Walk without rglob's silent permission-error suppression."""
+    with os.scandir(directory) as entries:
+        children = [Path(entry.path) for entry in entries]
+    for child in children:
+        yield child
+        if child.is_dir() and not child.is_symlink():
+            yield from readable_tree(child)
+
+
+def inventory(root: Path, *, complete: bool = False) -> list[dict[str, object]]:
     rows = []
-    populations = [path for folder in SCAN_ROOTS for path in sorted((root / folder).rglob("*"))]
+    populations = []
+    for folder in SCAN_ROOTS:
+        if complete:
+            try:
+                populations.extend(sorted(readable_tree(root / folder)))
+            except OSError as exc:
+                raise ValueError(f"unavailable scan root: {folder}") from exc
+        else:
+            # Small classification fixtures deliberately provide partial roots.
+            populations.extend(sorted((root / folder).rglob("*")))
     extra = root / "docs/reference/flow-auto-rationale.md"
     if extra.is_file():
         populations.append(extra)
@@ -300,17 +320,26 @@ def inventory(root: Path) -> list[dict[str, object]]:
     return rows
 
 
+def complete_inventory(root: Path) -> list[dict[str, object]]:
+    return inventory(root, complete=True)
+
+
 def test_all_target_launchers_have_captured_path_policy() -> None:
-    rows = inventory(ROOT)
+    rows = complete_inventory(ROOT)
     assert len(rows) >= 40, "the inventory must not pass after scanning no source population"
-    assert all(any(str(row["path"]).startswith(folder + "/") for row in rows) for folder in SCAN_ROOTS[:-1])
+    # #1811 routes delegated templates through the audited wrapper, so this
+    # root legitimately has no direct launch. It remains in SCAN_ROOTS; the
+    # committed bad/good probes below exercise every root independently.
+    required = (".claude/commands", "scripts", ".claude/skills")
+    assert all(any(str(row["path"]).startswith(folder + "/") for row in rows) for folder in required)
     failures = [row for row in rows if row["error"]]
     assert not failures, failures
 
 
-def test_committed_missing_handoff_case_is_red_and_repaired_case_is_green(tmp_path: Path) -> None:
+@pytest.mark.parametrize("folder", (".claude/commands", "templates", "scripts", ".claude/skills", "codex/skills"))
+def test_committed_missing_handoff_case_is_red_and_repaired_case_is_green(tmp_path: Path, folder: str) -> None:
     fixture = ROOT / "tests/fixtures/cicd_launch_handoff"
-    source = tmp_path / ".claude/commands/owned.md"
+    source = tmp_path / folder / "owned.md"
     source.parent.mkdir(parents=True)
     source.write_text((fixture / "bad-missing.md").read_text())
     bad = inventory(tmp_path)
@@ -321,6 +350,77 @@ def test_committed_missing_handoff_case_is_red_and_repaired_case_is_green(tmp_pa
     source.write_text((fixture / "bad-unclassified.md").read_text())
     unknown = inventory(tmp_path)
     assert len(unknown) == 1 and "unknown subcommand" in str(unknown[0]["error"])
+
+
+@pytest.mark.parametrize("mode,expected", [
+    line.split() for line in (ROOT / "tests/fixtures/cicd_launch_handoff/root-populations.tsv").read_text().splitlines()
+    if line and not line.startswith("#")
+])
+def test_complete_inventory_distinguishes_empty_and_unavailable_roots(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str, expected: str,
+) -> None:
+    # Independent literal roots: dropping one from SCAN_ROOTS must not drop
+    # its negative case too. All neighbors carry a known-good direct launch.
+    for folder in (".claude/commands", "templates", "scripts", ".claude/skills", "codex/skills"):
+        target = tmp_path / folder
+        target.mkdir(parents=True, exist_ok=True)
+        if folder != "templates":
+            for number in range(10):
+                target.joinpath(f"owned-{number}.md").write_text(
+                    (ROOT / "tests/fixtures/cicd_launch_handoff/good.md").read_text())
+    template = tmp_path / "templates"
+    baseline = inventory(tmp_path)
+    assert len(baseline) == 40 and not any(row["error"] for row in baseline), "precondition: populated good neighbors"
+    document = tmp_path / "docs/measurements/runner-target-path-1801.md"
+    document.parent.mkdir(parents=True)
+    document.write_text(INVENTORY_BEGIN + "\n" + render_inventory(baseline) + "\n" + INVENTORY_END)
+    monkeypatch.setitem(globals(), "ROOT", tmp_path)
+    if mode == "missing":
+        template.rmdir()
+        assert not template.exists(), "precondition: templates root absent"
+        assert len(inventory(tmp_path)) == 40, "the old sparse scan cannot distinguish the missing root"
+    elif mode == "unreadable":
+        template.chmod(0)
+        assert template.stat().st_mode & 0o777 == 0, "precondition: no directory access bits"
+        try:
+            with os.scandir(template) as entries:
+                list(entries)
+        except PermissionError:
+            pass
+        else:
+            # Privileged test users can bypass mode bits. Inject the same
+            # directory-read failure at the API both scanners consume.
+            original = os.scandir
+
+            def denied(path):
+                if isinstance(path, (str, bytes, os.PathLike)) and Path(os.fsdecode(path)) == template:
+                    raise PermissionError("owned templates directory is unreadable")
+                return original(path)
+
+            monkeypatch.setattr(os, "scandir", denied)
+        with pytest.raises(PermissionError):
+            with os.scandir(template) as entries:
+                list(entries)
+    else:
+        assert mode == "empty" and list(template.iterdir()) == [], "precondition: existing empty root"
+    try:
+        if expected == "unavailable":
+            with pytest.raises(ValueError, match="unavailable scan root: templates"):
+                complete_inventory(tmp_path)
+            with pytest.raises(ValueError, match="unavailable scan root: templates"):
+                test_all_target_launchers_have_captured_path_policy()
+            with pytest.raises(ValueError, match="unavailable scan root: templates"):
+                assert_committed_inventory_matches(tmp_path)
+        else:
+            assert expected == "ok"
+            rows = complete_inventory(tmp_path)
+            assert len(rows) == 40 and not any(row["error"] for row in rows)
+            assert not any(str(row["path"]).startswith("templates/") for row in rows)
+            test_all_target_launchers_have_captured_path_policy()
+            assert_committed_inventory_matches(tmp_path)
+    finally:
+        if template.exists():
+            template.chmod(0o700)
 
 
 def test_metadata_mentions_and_multiple_commands_are_not_a_handoff(tmp_path: Path) -> None:
@@ -347,7 +447,7 @@ def render_inventory(rows: list[dict[str, object]]) -> str:
     return "\n".join(lines)
 
 
-def assert_committed_inventory_matches(root: Path, scan=inventory) -> None:
+def assert_committed_inventory_matches(root: Path, scan=complete_inventory) -> None:
     document = (root / "docs/measurements/runner-target-path-1801.md").read_text()
     recorded = document.split(INVENTORY_BEGIN, 1)[1].split(INVENTORY_END, 1)[0].strip()
     assert recorded == render_inventory(scan(root)), (
@@ -366,7 +466,7 @@ def test_unrecorded_direct_file_launch_is_not_invisible() -> None:
     rows = inventory(case)
     assert len(rows) == 2, "the direct-file launch must be visible alongside the original module launch"
     with pytest.raises(AssertionError):
-        assert_committed_inventory_matches(case)
+        assert_committed_inventory_matches(case, inventory)
 
 
 def test_unchanged_scanner_anchor_misses_extra_direct_file_and_agrees_on_good() -> None:
@@ -382,7 +482,7 @@ def test_unchanged_scanner_anchor_misses_extra_direct_file_and_agrees_on_good() 
         case = fixture / name
         assert_committed_inventory_matches(case, anchor.inventory)
     good = fixture / "good-module-only"
-    assert_committed_inventory_matches(good)
+    assert_committed_inventory_matches(good, inventory)
 
 
 def test_recording_the_extra_file_launch_repairs_the_inventory(tmp_path: Path) -> None:
@@ -391,10 +491,10 @@ def test_recording_the_extra_file_launch_repairs_the_inventory(tmp_path: Path) -
     shutil.copytree(source, tmp_path / "repo")
     case = tmp_path / "repo"
     with pytest.raises(AssertionError):
-        assert_committed_inventory_matches(case)
+        assert_committed_inventory_matches(case, inventory)
     document = case / "docs/measurements/runner-target-path-1801.md"
     document.write_text(INVENTORY_BEGIN + "\n" + render_inventory(inventory(case)) + "\n" + INVENTORY_END)
-    assert_committed_inventory_matches(case)
+    assert_committed_inventory_matches(case, inventory)
 
 
 @pytest.mark.parametrize("line,command,category", [

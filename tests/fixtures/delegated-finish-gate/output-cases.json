@@ -1,0 +1,44 @@
+[
+  {
+    "name": "good-ok",
+    "output": "FLOW_FINISH_GATE: ok\n",
+    "verdict": "ok",
+    "exit": 0,
+    "valid": true
+  },
+  {
+    "name": "good-warn",
+    "output": "FLOW_FINISH_GATE: warn (skipped gates: verify)\n",
+    "verdict": "warn",
+    "exit": 3,
+    "valid": true
+  },
+  {
+    "name": "prefixed-lookalike",
+    "output": "make: FLOW_FINISH_GATE: ok\n",
+    "verdict": "ok",
+    "exit": 0,
+    "valid": false
+  },
+  {
+    "name": "conflicting-verdicts",
+    "output": "FLOW_FINISH_GATE: fail\nFLOW_FINISH_GATE: ok\n",
+    "verdict": "ok",
+    "exit": 0,
+    "valid": false
+  },
+  {
+    "name": "status-mismatch",
+    "output": "FLOW_FINISH_GATE: ok\n",
+    "verdict": "ok",
+    "exit": 3,
+    "valid": false
+  },
+  {
+    "name": "trailer-only",
+    "output": "FLOW_FINISH_GATE_EXIT=0\n",
+    "verdict": "ok",
+    "exit": 0,
+    "valid": false
+  }
+]

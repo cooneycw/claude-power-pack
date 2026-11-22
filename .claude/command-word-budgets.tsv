@@ -55,6 +55,8 @@
 # FLOW_CI_* listings to their script references: flow/auto.md drops from 9816 to
 # 9120 (696 words), flow/finish.md from 4744 to 4648 (Step 2d), and flow/eli5.md
 # absorbs the three Step 3 recommendations within its cap (2653 to 2650).
+# #1811 nit-store row: +198 executable gate-step words per delegated auto
+# document, parent retention and resolver routing; exact caps after rendering.
 464	browser/help.md
 1077	browser/session.md
 425	cicd/check.md
@@ -72,7 +74,7 @@
 242	claude-md/help.md
 1396	claude-md/lint.md
 1613	codex/ask.md
-9319	codex/auto.md
+9789	codex/auto.md
 2593	codex/code_review.md
 1134	codex/exec.md
 640	codex/help.md
@@ -105,7 +107,7 @@
 450	flow/status.md
 386	flow/sync.md
 11837	flow/wave.md
-11140	gemma/auto.md
+11610	gemma/auto.md
 1779	gemma/exec.md
 1859	gemma/help.md
 1831	gemma/status.md
@@ -127,7 +129,7 @@
 2443	project/next.md
 499	qa/help.md
 1279	qa/test.md
-10531	qwen/auto.md
+11001	qwen/auto.md
 1554	qwen/exec.md
 1521	qwen/help.md
 1243	qwen/status.md
@@ -155,3 +157,8 @@
 2645	self-improvement/retro.md
 585	spec/adopt.md
 608	spec/help.md
+# #1811 declare-salvage row: +99 words per delegated auto driver for an
+# executable gate step (owner ruling 7065030917); exact rendered caps.
+# #1811 adopts the audited finish wrapper: +173 words per delegated auto
+# driver for an executable gate step (+138 original, +35 review correction;
+# owner ruling 7065030917); caps equal rendered counts.

@@ -1,0 +1,75 @@
+{
+  "branch": "wip/1811-delegated-finish-final",
+  "counts": {
+    "accepted": 0,
+    "deferred": 1,
+    "rejected": 0
+  },
+  "escalation": {
+    "raised_cap": 4,
+    "reference": "mailbox:37574",
+    "ruled_by": "cp-orch"
+  },
+  "extra_passes_reason": "post-review change to the launch-inventory instrument after gate fail 2/13633; cp-orch authority mailboxes37575/37577; delta review4, no pass5",
+  "head": "f992abc777d6d1e1e824c271f9f6f613fa94a0a6",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/21/rollout-2026-11-21T18-24-19-01a1ff5a-23a4-71e0-8f9a-e04e67099a92.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 6847009,
+        "path": "2026/11/21/rollout-2026-11-21T18-24-19-01a1ff5a-23a4-71e0-8f9a-e04e67099a92.jsonl",
+        "sha256": "7777f036780942ea73b5f6adf8415f5c43c129a1ccdc307b507774085c195829"
+      }
+    ],
+    "thread_id": "01a1ff5a-23a4-71e0-8f9a-e04e67099a92"
+  },
+  "issue": "1811",
+  "local_credentials": "absent",
+  "network": "unverified",
+  "passes": 4,
+  "recorded_at": "2026-11-22T00:44:54Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewed_artifact": {
+    "base_sha": "ad843bc9e3186c0e51123cf4aa39a7e762eaf074",
+    "merge_base": "ad843bc9e3186c0e51123cf4aa39a7e762eaf074",
+    "method": "captured-patch",
+    "patch_sha256": "88165ac5f893631f87e0baa787ee9793c8c539304ca93bb0a7777bcb93454e22",
+    "report_record": 17,
+    "target_head": "f992abc777d6d1e1e824c271f9f6f613fa94a0a6"
+  },
+  "reviewer": "codex/gpt-6.2-sol",
+  "reviewer_evidence": {
+    "exec_log": "codex-review-stream.tayJBI",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-6.2-sol"
+    ],
+    "rollout": "2026/11/22/rollout-2026-11-22T00-42-59-01a200b4-ce81-77d1-b751-f81050aa08d5.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 2982,
+        "path": "codex-review-stream.tayJBI",
+        "sha256": "3f3e2544e63ebcb67ea8ba6d6a7dad5e6955f1036446a2ab7a072ffad7c84805"
+      },
+      {
+        "bytes": 200952,
+        "path": "2026/11/22/rollout-2026-11-22T00-42-59-01a200b4-ce81-77d1-b751-f81050aa08d5.jsonl",
+        "sha256": "1ae018094e2844f7189e4240b0b0217ccde600fb64c0dcd1e59e8de7a90eba1b"
+      }
+    ],
+    "thread_id": "01a200b4-ce81-77d1-b751-f81050aa08d5"
+  },
+  "schema": 5,
+  "scope": "diff-only",
+  "status": "ran"
+}

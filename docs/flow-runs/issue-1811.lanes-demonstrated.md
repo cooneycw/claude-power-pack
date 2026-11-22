@@ -577,3 +577,597 @@ anchor reports unverified, not a verified historical-provenance claim. This
 clarifies earlier shorthand saying both control provenance checks passed.
 Receipt enrolment accepts existing four-pass receipt (private 11); mailbox
 37164 therefore requires no fifth review for the integration correction.
+
+<!-- lanes-demonstrated run=886f56f62f81479da3e05c5b76a2b489 plan=8f43b67a87c4b148ae8a05f7a4f3648d9e93a3d21c66180a610ca4b3bd27b35d -->
+
+| Lane | Result | Evidence |
+|---|---|---|
+| Checkout | passed | tests/test_delegated_nit_store_routing.py executes actual published blocks in main checkout / linked worktree fixture-owned repositories. |
+| Harness | passed | Actual Claude install-shaped helper symlink exercised; delegated Codex skills do not exist. Live model obedience not covered. |
+| Driver | passed | All three actual rendered delegated documents and existing canonical flow routing tests: 373 related tests passed. |
+| Project state | passed | Real resolver with open/absent/ambiguous/transport-failed store and missing installed helper. |
+| Toolchain version | passed | Host runtime and restricted PATH without python/python3, absolute test-stub interpreter. Pinned CI result pending, no broader matrix claim. |
+| Run location | passed | Actual installed block outside the target, including renamed linked worktree caller. |
+| Gate target | passed | Owned consumer repository/isolated PATH; CPP source and generated outputs checked. |
+| Reader: generated-command parent | not covered | Presence and scope/order controls only; live model obedience not established. |
+| Reader: parity checker | passed | Actual generated documents and updated ledger through tests/test_driver_parity.py. |
+| Reader: resolver output consumer | passed | Actual published block and real helper verdict output; subsequent live model branching not covered. |
+| Reader: GitHub and closing report | not covered | Fake GitHub network boundary only; controls pin repo/context/refusal/closing-link instructions, not live posting. |
+
+Regression evidence: on current-main pre-fix baseline all 102 new cases failed because retention/routing and the bare call were absent. Same cases passed after the shared-core change. Related resolver/routing/vendor/parity selection: 373 passed. Budget, Bandit live known-bad/clean selftest and undeclared-import planted/clean selftest passed. No unrelated findings recorded at this checkpoint.
+
+Rendered word counts on the integrated base: codex 8768 -> 8966; qwen 9982 -> 10180; gemma 10591 -> 10789. Each delta and cap increase is exactly 198 words for the executable gate step under ruling (f). Counts will be re-derived after final main integration. Full finish gate, review and exact-head CI pending.
+
+Independent review completed on checkpoint 08cb158b: codex/gpt-6-astra against runtime-derived codex/gpt-6.1-sol, no findings. The reviewer independently reproduced 102 failures with pre-fix actual driver documents and 373 passing related tests at HEAD, and checked prior instructions byte-preserved. Generated full-scope runtime-HEAD-bound receipt: docs/measurements/counter-model/2026-11-21T201910Z-issue-1811.json. Eight committed negative procedure controls already cover the review's named malformed-input cases; no additional cases requested. Network open and local credential presence unknown; no live external writes or model-obedience evidence claimed. Full gate and CI remain pending.
+
+Final-main integration administration (approver cp-orch, mailbox 37078 and GO 37235): upstream Runs 3, 4 and 5 preserved verbatim. Only this run's header/marker ordinal changed from 4 to 6 in the record and as-read snapshot; its approved body is unchanged. Per that authority, performed the single header-only administrative re-approve after integration. Preliminary gate at 84a5e1b3 passed (13409 tests passed, 3 skipped); it is signal only, not final merge evidence. Final post-integration gate and enrolment pending.
+
+
+<!-- lanes-demonstrated run=886f56f62f81479da3e05c5b76a2b489 plan=b390bb7fbf40dd08530e67f319e8ff1c57a0f426d609af6ef700abeb6cf44adf -->
+
+| Lane | Result | Evidence |
+|---|---|---|
+| Checkout | passed | tests/test_delegated_nit_store_routing.py executes actual published blocks in main checkout / linked worktree fixture-owned repositories. |
+| Harness | passed | Actual Claude install-shaped helper symlink exercised; delegated Codex skills do not exist. Live model obedience not covered. |
+| Driver | passed | All three actual rendered delegated documents and existing canonical flow routing tests: 373 related tests passed. |
+| Project state | passed | Real resolver with open/absent/ambiguous/transport-failed store and missing installed helper. |
+| Toolchain version | passed | Host runtime and restricted PATH without python/python3, absolute test-stub interpreter. Pinned CI result pending, no broader matrix claim. |
+| Run location | passed | Actual installed block outside the target, including renamed linked worktree caller. |
+| Gate target | passed | Owned consumer repository/isolated PATH; CPP source and generated outputs checked. |
+| Reader: generated-command parent | not covered | Presence and scope/order controls only; live model obedience not established. |
+| Reader: parity checker | passed | Actual generated documents and updated ledger through tests/test_driver_parity.py. |
+| Reader: resolver output consumer | passed | Actual published block and real helper verdict output; subsequent live model branching not covered. |
+| Reader: GitHub and closing report | not covered | Fake GitHub network boundary only; controls pin repo/context/refusal/closing-link instructions, not live posting. |
+
+After integration with main 34c417f9, repeated the related selection successfully. Budget and both audits/selftests also passed. The rows above apply to the header-only re-approved plan; their evidence and limits remain the same. Final caps: codex 9517, qwen 10729, gemma 11338, exactly +198 each versus integrated main. Receipt enrolment selected the existing receipt (documented receipt disposition, exit 10); no new review pass requested. Final full gate still pending.
+
+
+<!-- lanes-demonstrated run=6f7f7f0788e9450abfb2e44acad594e8 plan=8e30907014bc8eeb417efb41ff0d0aea21e1e0238665a5b403443701b6688925 -->
+
+## Declare-salvage row D
+
+| Lane | Result | Evidence |
+|---|---|---|
+| Checkout | passed | tests/test_delegated_salvage.py executes actual conditional block in fixture-owned main checkout and linked worktree. |
+| Harness | passed | make delegated-core-check reads actual Claude renders; make driver-parity-check builds/reads generated flow-auto. Delegated meta drivers intentionally unpackaged; no live install claim. |
+| Driver | passed | All three actual rendered Step 3s exercised; existing tests/test_flow_plan_record.py, tests/test_flow_plan_record_runs.py and tests/test_flow_plan_compliance.py exercise flow-auto/helper procedure. No live model obedience claim. |
+| Project state | passed | New empty/ancestor/invalid/nonancestor/ambient cases plus actual helper/approval records; existing compliance salvage cases. |
+| Run location | passed | External consumer fixture roots execute actual block; CPP root runs real renderer/parity/budget checks. |
+
+Reader evidence: actual generated blocks feed the real helper, declaration
+record and approval baseline, with fixture-owned identities and an explicit
+interpreter. Negative cases abort before the approval sentinel; empty/ambient
+cases produce no declaration output and leave the record unchanged. Child
+commit fence is unchanged and pinned. Existing helper/compliance suites read
+actual salvage records. Rendering/parity/budget read real files. External
+install/model behavior remains unexamined.
+
+On unchanged main 34c417f9: **33 failed, 5 passed**; all three new driver
+regressions and executed-block cases fail the missing declaration contract.
+After implementation: **38 passed**, and broad focused/helper suite
+**385 passed in 17.68 seconds**. The detached job recorded exit 0 and successful
+completion/notification. Committed good control is accepted; missing, late,
+unconditional and child-owned-commit controls are rejected with asserted
+negative preconditions. These test a narrow document grammar and actual shell
+blocks, not a live parent's interpretation.
+
+Integration correction: the initially approved +93-word block put `|| exit $?`
+on the helper line. Actual driver-parity rejected this as a non-plain shell
+construct. The helper invocation is now plain, with its status captured and
+checked on separate lines; every nonzero still stops with that original
+status before approval. This costs +6 words per driver, approved by cp-orch
+mailbox 37295. Total **+99 words per driver, executable gate step**, under
+owner ruling 7065030917. No checker or stop semantics weakened.
+
+Main-ready mailbox 37307 authorized integration of row A / #1883. Rebased
+onto main 2ede561d before minting this run. Only TSV conflicted; rendered
+files were regenerated and counted, not chosen from a conflict side.
+Exact upstream counts 9517 / 10729 / 11338 become caps/counts
+**9616 / 10828 / 11437** for codex / qwen / gemma. Existing upstream run
+sections preserved; this late run received next-free ordinal 7, so no
+header renumber or administrative re-approval was needed. The original
+baseline is 8e30907014bc8eeb417efb41ff0d0aea21e1e0238665a5b403443701b6688925.
+
+No touched-but-unplanned product files. Row E remains in its own untouched
+worktree and follows this row's merge. Review, receipt, full finish gate,
+push scans and exact-head CI are pending this checkpoint; later evidence will
+record their actual results. `--raised-cap` on the receipt writer controls
+review-pass escalation, not document word caps; no such escalation is used.
+
+
+### Row D review pass 1 corrections
+
+The branch review helper measured reviewer `codex/gpt-6.2-sol`, scope
+`diff-only`, network `unverified`, credentials `absent`; `CODEX_REVIEW: ran`.
+Both LOW findings are accepted and corrected without changing driver text:
+
+- The late declaration fixture also broke the begin-run boundary. It now
+  isolates `begin-run -> approve -> declaration`; a separate early fixture
+  isolates `declaration -> begin-run -> approve`. The narrow contract asserts
+  each boundary separately and requires each fixture to fail for its named
+  reason.
+- Whole-document commit-command matching could accept permission or text
+  outside the child prompt. The checker now locates Step 4's execution fence,
+  requires the MUST NOT section and finds the commit/ref prohibition inside
+  it. Committed good, permission and outside-prompt controls preserve the
+  command phrase while proving the policy distinction.
+
+Before corrections the new controls produced **3 failed, 5 passed**. After
+corrections all **42 driver cases passed in 5.68 seconds**. Fixture-only
+scope variance: `before-begin-run.md` and `fence-{good,permission,outside-prompt}.md`
+under the already approved fixture directory were added to pin these findings.
+Approved plan body unchanged; no production helper/fence/policy changes or
+further cap increase. A first `make dep-audit` attempt hit the command tool's
+10-second limit and is not counted as a pass; rerun will be detached with the
+final gate/scans job. The audit's actual Makefile target is `dep-audit`, while
+its script and CI step are named dependency-audit.
+
+
+### Row D review pass 2 corrections and evidence clarification
+
+Pass 2 used the same measured different reviewer model and diff-only scope.
+Four LOW findings are accepted. The completed corrections are:
+
+1. Approval-reader evidence now verifies the actual stamped baseline digest
+   against the real current run section containing the selected salvage SHA.
+   The selected-ancestor case also runs actual compliance, requiring its
+   salvage-union diagnostic and agreement. This is a new assertion over real
+   helper output, not a claim that the unchanged helper previously failed.
+2. Empty selection now starts with only the original base commit, asserted by
+   its commit count; no explicit preservation checkpoint exists. Ambient SHA
+   contamination uses ordinary history rather than a commit described as
+   explicit preservation.
+3. `fence-contradiction.md` retains MUST NOT and grants commit permission in the
+   same fence. The narrow policy check now rejects commit/push in its permission
+   section as well as requiring the prohibition inside the Step 4 prompt.
+4. Harness/CPP-root evidence comes from separately executed verification, not
+   new shell-regression cases. Existing automated tests actually run in the
+   385-case suite include
+   `tests/test_delegated_core_vendor.py::test_real_repo_drivers_match_the_canonical_core`,
+   `tests/test_delegated_core_vendor.py::test_rendering_the_real_repo_is_idempotent`,
+   `tests/test_driver_parity.py::test_repository_driver_parity`, and
+   `tests/test_driver_parity.py::test_real_generator_preserves_flow_membership_and_leaves_delegated_families_unpackaged`.
+   The Make checks also executed from the CPP root separately. None establishes
+   a live installed delegated model run; those remain not covered.
+
+New empty-history/contradictory-permission checks first returned **7 failed,
+2 passed**, then all **43 driver cases passed in 4.76 seconds**. Lint passes.
+Only tests/fixtures and this evidence changed; production text/caps remain
++99 words per driver. The extra contradiction fixture is another disclosed
+control added under the approved fixture directory. The approved body remains
+unchanged; the existing compliance report transparently names extra fixtures
+as touched but not planned. No clean-review claim is made. A third review
+requires explicit orchestrator approval because the two-pass default is spent.
+
+
+### Row D final review and recorded limitations
+
+cp-orch mailbox 37365 authorized pass 3 on the corrected head with reviewer
+continuity and a hard stop after it. The receipt records the reason and
+cp-orch authority in `extra_pass_reason`; escalation flags reserved by the
+writer for passes beyond 3 are intentionally omitted. Pass 3 again measured
+`codex/gpt-6.2-sol`, diff-only, network unverified, credentials absent. No
+product/driver-text defect was reported. Two LOW test-adequacy findings remain,
+recorded separately as instructed rather than extending the review loop:
+
+- Explicit-preservation prerequisite/selected-SHA prose is present in the
+  driver but not fully pinned by the narrow policy assertions:
+  https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7070332671.
+- Exact existing case/command references for three variants are in this
+  evidence rather than directly linked from the immutable approved lane rows:
+  https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7070332869.
+
+Receipt `docs/measurements/counter-model/2026-11-21T223921Z-issue-1811.json`
+derives both identities from native runtime evidence, binds the reviewed
+artifact and records 3 passes / 6 fixed findings / 2 deferred findings. It is
+not a clean-review claim. There is no fourth pass.
+
+The live dependency audit passed: planted vulnerable fixture reported
+3 advisories and clean fixture none; actual project examined 43 packages,
+0 gating findings and 0 stale suppressions. Two Windows-only packages are
+not audited on Linux, stated by the audit. Undeclared-import audit/selftest
+passed earlier; repeat before push. Pinned gitleaks 8.30.1 downloaded into a
+private temporary root and checksum verified against its release checksums.
+Full finish gate and exact-head CI remain pending; their actual results will
+be appended after execution. Approval stability remains unchanged; file-set
+compliance transparently reports the five added review controls, not agreement.
+
+
+### Row D finish admission attempt 1
+
+The audited wrapper ran under the normal account HOME with ADDOPTS unset,
+private short TMPDIR, current-checkout receipt helper and the real Kyle
+admission client. Own-slot job 284d3790-7ba4-446d-b5a4-11a87324b356 published
+actual terminal completion and notification successfully.
+
+It did **not** acquire admission within the configured 600 seconds. Queue
+position moved from 4 to 1. Exact verdict:
+`FLOW_FINISH_GATE: fail (coordination not granted: no grant within 600s, last state queued (kyle-lock exit 10), no gate work started)`
+with `FLOW_FINISH_GATE_EXIT=1`.
+
+No lint/test/security/verify gate work started, so this is neither a full-suite
+pass nor a product test failure. No product changes are proposed in response.
+A new wrapper attempt requires a new own-slot job/ticket and orchestrator
+instruction under the one-heavy-run rule; request is for a longer admission
+wait, with admission still enforced. No push/PR yet.
+
+Pre-push scan evidence completed before this attempt: undeclared-import audit
+and live selftest pass; dependency-audit live positive control detects its
+planted advisories and project scan passes with its stated Windows-only
+exclusions; gitleaks 8.30.1 (checksum verified) git --log-opts=HEAD scans
+1032 commits / about46.35MB and returns0. The same pinned binary, same
+repository config and same git --log-opts=HEAD mode were also exercised
+against isolated committed copies of existing secret-scan fixtures: relocated
+bad-private-key returns1 with a leak diagnostic; good-clean returns0. No
+sensitive finding content was printed. Command budgets pass at the exact caps.
+
+
+### Row D owner-paced cancellation before gate work
+
+Mailbox 37410 authorized a replacement admission attempt with a 3600-second
+wait and 90-minute deadline. Own-slot job d901cfc7-47e2-4975-9026-1782b230920b
+queued without starting gate work. Mailbox 37423 then relayed the owner rule:
+at most one heavy local gate from this group, and no start while load5 > 24.
+Observed load5 was 34.53, so the queued attempt was withdrawn.
+
+Cancellation detail: the authority cancelled queued request 1201, but the
+waiting `kyle-lock run` client intentionally reacquired under a new request,
+1203. The verified owned waiting client was then stopped with SIGTERM and
+withdrew that request itself. Authority confirmed it was already cancelled;
+subsequent status showed no queued request or holder for this session. No
+other holder was signalled. No gate work started. The wrapper reported
+`FLOW_FINISH_GATE: fail (coordination supervisor exited 143 and the gate recorded no status)`
+and exit1; own-slot terminal completion/notification succeeded. This is an
+owner-directed pre-work cancellation, not a product test failure or evidence
+of a passing gate.
+
+A passive, self-notifying load watcher waits for load5 <= 24. Before the one
+replacement authorized by mailbox 37423, recheck load5, confirm the group has
+no other heavy run, and launch with the same admission/deadline parameters.
+Admission remains enforced. Apply the same pacing check to row E later.
+No push/PR until a permitted gate verdict and final-HEAD scans.
+
+
+### Row D first admitted full gate and compatibility corrections
+
+Owner-paced launch observed load5 **19.99**, below the owner limit24;
+admission granted full-suite request1205, and the real wrapper accepted the
+committed native receipt. The security scan examined2984 source files,
+blocked0 CRITICAL and warned5 HIGH (existing test fixtures); it continued.
+The runner deferred lint/test/typecheck to their direct verify prerequisites.
+`make verify` reached its real tests and stopped there:
+**70 failed, 13493 passed, 4 skipped in 536.42 seconds**.
+Exact wrapper result: `FLOW_FINISH_GATE: fail (at prerequisite test)`, exit1.
+No pass, push or CI claim is made.
+
+Diagnosed integration causes and completed corrections:
+
+- Existing `controls/delegated-plan-lanes/run-case.py` rejects a new helper verb
+  before exercising any existing approval/compliance/product controls. It now
+  accepts only the exact published empty-SHA conditional salvage block, which
+  makes no declaration for these fixtures. Selected or malformed blocks remain
+  unknown. The committed `unsupported-ambient-block.md` and its test require
+  the named unsupported-salvage diagnostic, not merely any nonzero exit.
+  Actual selected/invalid salvage execution remains owned by the new shell
+  tests; this control does not claim to interpret arbitrary conditions.
+- The test skip guard used `any(shutil.which(tool) ...)`, which works at runtime
+  but is not recognized by CPP's static binary-guard instrument. It now uses
+  explicit `shutil.which("git")` and `shutil.which("bash")` clauses. The
+  recognizer itself is unchanged.
+
+After corrections **260 focused tests passed in 18.94 seconds**, covering the
+new driver tests, the previously failing delegated-plan-lanes integration and
+actual binary-guard suite. Lint passes. An initial focused command was cut off
+by the command tool's10-second timeout; the completed result above comes from
+its separately prepared own-slot job, not the interrupted run.
+
+Touched-but-unplanned additions: the existing control runner compatibility
+change and one named bad fixture/test are necessary integrations of the new
+Step3 block. Driver text/helper/schema/caps are unchanged. The genuine native
+receipt continues to describe its actual reviewed artifact; these later
+compatibility corrections are tested but have no fourth model review, per the
+orchestrator's explicit hard stop. The receipt is neither rewritten nor
+represented as review of changes made after its report. A new full gate
+requires orchestrator instruction and a fresh load5<=24 check.
+
+
+### Row D authorized delta-only instrument review, pass 4
+
+Mailbox 37518 explicitly raised the review cap to4 because the post-gate
+compatibility correction changed an instrument. Scope was only the actual
+diff from reviewed head a1ad48a6 to compatibility head1ece1cf6. The branch
+helper consumed that canonical patch, measured reviewer codex/gpt-6.2-sol,
+diff-only, network unverified and local credentials absent. No fifth pass.
+
+Two LOW findings received explicit dispositions:
+
+- Alternate whitespace can miss the salvage-specific comparison. The current
+  generic fallback still rejects the helper invocation. A fixture-owned
+  reproduction changed the call to two spaces and actually returned exit3,
+  `DELEGATED_PLAN_LANES: unavailable - unsupported helper invocation`, before
+  setup. It does not admit or silently omit the unsupported command. Rejected
+  as a bypass claim; it changes which unknown diagnostic is selected, not
+  unknown versus acceptance.
+- A paired comment-only edit control for the exact-template boundary is
+  absent. The parser deliberately reports template identity, not semantic
+  salvage equivalence. This LOW test-adequacy gap is recorded at
+  https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7070914642.
+
+New genuine receipt `2026-11-21T233026Z-issue-1811.json` binds only that delta,
+with passes4, raised_cap4, cp-orch authority, mailbox37517 reference and the
+actual extra-pass reason. Delta dispositions are0fixed/1rejected/1deferred;
+the original main-range receipt retains its6fixed/2deferred findings. Together
+they establish what was actually reviewed; no fourth full review of the old
+driver text is claimed. No product changes followed the delta review.
+
+A separate supplemental pending-row issue was recorded without touching E:
+https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7070887122
+(the same loop-based skip marker in E is not statically recognized).
+
+Mailbox37518 authorizes one fresh gate after this review, with freshload5<=24,
+no other heavy CPP run, actual admission3600s and90-minute job deadline. The
+PR will preserve the full history: gate1 queue timeout; gate2 owner-paced
+cancellation before work; gate3 actual70/13493/4 integration failure, now fixed;
+gate4 pending actual execution/result. The source and caps remain unchanged.
+
+
+### Row D gate 4 final result
+
+Own-slot job3e74d1eb-1b56-4b48-a1fe-7b3ba7cf79ab launched at freshload5
+**17.26**; no other CPP gate was held/queued. It acquired real full-suite
+request1206 and accepted the escalated4-pass delta receipt. It discarded the
+old failed resumable state because the tree changed and started fresh.
+
+Actual wrapper verdict: **`FLOW_FINISH_GATE: ok`**, **exit0**. Actual test
+summary: **13564 passed, 4 skipped in 512.32 seconds**. The four skip reasons
+were not emitted in the retained summary; this does not claim those cases ran.
+`make verify` completed, including lint/typecheck as direct prerequisites;
+the wrapper reported lint/test/typecheck subsumed by verify, rather than
+pretending to execute them again. The deterministic security scan examined
+2984 files, blocked0 CRITICAL and warned5 HIGH in existing test fixtures.
+Negative controls, renderer, parity, exact word budgets and binary guards
+completed under the full verification target. Completion and notification
+both succeeded. The gate ran on source/evidence checkpoint b6e27d08; this
+later commit changes only this issue's evidence, not tested source.
+
+Verification is bounded by each check's printed population. Existing advisory
+skill-coverage and behavioral-eval outputs are not promoted to clean coverage;
+behavioral eval explicitly reported inconclusive. Static CI dependency/link
+checks retain their stated exclusions. Live installed delegated-model
+obedience remains unexamined. File-set compliance still reports seven extra
+review/integration paths with its actual divergence verdict; approval stability
+and issue-body drift are unchanged. These extra paths are disclosed in the PR,
+not hidden by rewriting the approved plan.
+
+Next: rerun the required pre-push budget/import/dependency/gitleaks checks on
+this final evidence HEAD, push/open a Refs#1811 PR, and record exact-head CI.
+The historical gate failures/cancellation remain preserved above and in the PR.
+
+
+<!-- lanes-demonstrated run=3e3ef2b0d50a426497c1e7d49cf3b84b plan=f14ffde1f774a448cec82231372da1f01327c4662a24823b7cab8043067accd6 -->
+
+## Finish wrapper row E, final merged-main run
+
+This run was minted, began and received its approved plan on main bc7125e1
+BEFORE any product edit or implementation commit. It received ordinal8 and
+preserved every upstream run section. This avoids the default run-start scope
+limitation documented for D. Original E checkpoint/first review remain
+historical on their separate branch.
+
+| Lane | Result | Evidence |
+|---|---|---|
+| Checkout | passed | test_delegated_finish_gate.py actual generated bare calls execute the real wrapper in main-checkout and linked-worktree consumer fixtures. |
+| Harness | passed | Actual Claude renders, test_delegated_core_vendor.py real-repo/idempotent rendering cases and test_driver_parity.py generated flow-auto parity cases in801suite; live installs unexamined, delegated meta commands intentionally unpackaged. |
+| Driver | passed | All three actual Step6 documents, real wrapper suite, current pre/post-child guard suites and real wrapper helper/controls in801suite; no live model obedience. |
+| Coordination | passed | Existing wrapper tests include test_coordination_supervises_full_gate_once_only_when_enabled, test_coordination_refusal_starts_no_gate_work and other admission cases. Deterministic authority is stubbed; actual admission is pending own full gate. |
+| Project state | passed | Real receipt writer rejects stale review bytes after committed implementation fix and accepts fresh review; existing wrapper enrolled/unenrolled cases, including test_enrolment_names_the_receipt_for_this_head_not_the_oldest. |
+| Run location | passed | Actual bare calls from external consumer roots; CPP-root make delegated-core-check/driver-parity-check and their real-tree tests. |
+| Gate target | not run | Partial: rendered consumer fallback cases pass; four real target-PATH/independent-venv probe cases now pass separately. Own CPP full gate is pending, so the full lane is not yet demonstrated. No consumer version matrix. |
+
+Reader evidence is the actual generated call and actual wrapper/receipt-writer
+output, with deliberately faulty installs clearly identified for no-verdict
+and interruption scenarios. Narrow policy pins check the instructions a
+parent receives, not an agent's real decision. Output records must be one
+complete unambiguous verdict with matching exit; committed controls include
+prefixed lookalikes, conflicts, status mismatch and trailer-only output.
+Missing-verdict and stale-receipt policy fixtures are rejected; the good one
+is accepted. Reader/producer formats are unchanged. External consumers and
+live model obedience remain unexamined.
+
+Current-main red before source edits: **60 failed, 9 passed**. After the
+wrapper replacement: **69 passed in1.89seconds**. Initial broad current-row
+integration then returned **6 failed,795 passed**: sibling placement checks
+used the semantic boundary instructions `Run quality gates:` and `Re-run
+quality gates`. The sibling guards themselves were intact. Restoring those
+instructions in the wrapper preface and renewed-review tail cost net0 words;
+no test instrument or guard was weakened. Final broad integration:
+**801 passed in29.28seconds**, covering wrapper, current pre/post-child,
+plan-lanes, renderer/parity and static binary-guard suites. Lint/render/parity
+and all command budgets pass.
+
+The source edit is surgical: old direct runner/fallback prefix and RUNNER_EXIT
+retry/report tail only. Current stale guard, fix live/claim checks,
+post-child guard and FIX_PAYLOAD_CHECK remain; Step8 is unchanged. Per-driver
+word delta **+173**, an **executable gate step** under owner ruling7065030917:
++138 originally approved, +35 interruption/unambiguous-output corrections.
+Current exact caps/counts: codex9789, qwen11001, gemma11610.
+
+The latent static skip-guard issue from
+https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7070887122
+is addressed by explicit git/bash/make `shutil.which` clauses, validated by
+the actual binary-guard suite. The output JSON fixture has one exact ignore
+negation, planned explicitly and following existing CPP fixture precedent;
+no wildcard ignore policy changes. No touched-but-unplanned product files.
+
+Historical E review pass1 measured gpt-6.2-sol/diff-only and found four issues:
+interruption precedence for missing verdict, ambiguous output assertions,
+lane evidence limits and old progress-line consumer inventory. The present
+source/tests correct the first two; this plan/evidence names exact existing
+lane tests and external limits, and its Reader table records progress-consumer
+search sensitivity and external coverage limits. The reserved pass2 now
+reviews the complete current-main artifact; no silent cap reset.
+
+Next: commit this source/evidence checkpoint, derive the different-model
+runtime receipt after reserved pass2, then one owner-paced full finish gate
+(normalHOME/ADDOPTSunset/shortprivateTMPDIR, actual admission, freshload5<=24,
+no other group heavy gate, own-slot deadline). Final-head scans, Refs#1811 PR,
+independent GraphQL references check after each body edit and exact-head CI
+follow; cp-orch handles merge and final issue disposition.
+
+
+### Row E reserved review pass 2 corrections
+
+The current-main review helper measured reviewer codex/gpt-6.2-sol,
+diff-only, network unverified and local credentials absent. It returned one
+MEDIUM and two LOW test-adequacy findings; all three are accepted:
+
+- Rendered prompts did not pin rejection of ambiguous/mismatched/unknown,
+  interrupted or admission-refused results. The real rendered-policy check now
+  requires the unambiguous-record instruction and explicit STOP/remedy rules
+  in all three actual Step6 sections. `accepts-conflicting-status.md` retains
+  all four valid verdict/status labels while permitting conflicts/mismatch,
+  and must be rejected.
+- Invocation extraction found any bare wrapper block and returned a constant.
+  It now reads the operative `Run quality gates:` segment before verdict
+  admission, requires its sole Bash block to be the bare audited helper,
+  rejects the legacy direct route/fallback there and returns the actual
+  extracted command. `mixed-route.md` keeps an active old runner and a dormant
+  bare-wrapper example, and must be rejected.
+- The Gate target row was prematurely marked passed. It is now not-run with
+  explicit partial evidence until the own CPP full gate succeeds. Separately,
+  existing real tests
+  `test_runner_target_path.py::test_bare_python_uses_the_target_callers_interpreter`
+  and `test_the_runners_own_interpreter_stays_in_cpp` passed all four parameter
+  cases in1.97seconds. They create a real independent target venv and PATH and
+  execute the shipped CPP_RUN array plus real runner on an owned custom plan;
+  they do not claim to execute a full finish plan or a version matrix.
+
+New committed prompt controls first returned **2 failed** with the old
+checking functions. Corrected full driver suite: **71 passed in2.39seconds**;
+lint passes. Production driver text/caps/helper formats did not change.
+The two additional prompt fixtures are a disclosed review-control scope
+variance; the approved plan body stays unchanged. Source/evidence will be
+committed before requesting review authority beyond the spent two-pass cap.
+No full gate has run in E yet; D's passing gate is not borrowed as E evidence.
+
+
+### Row E authorized final review pass 3
+
+Mailbox37562 authorized one final continuity pass on ad843bc9 because pass2
+changed instrument controls; no fourth pass. The helper measured reviewer
+codex/gpt-6.2-sol, diff-only, network unverified, credentials absent. It
+reported no product/driver-text or MEDIUM-or-higher defect. Final LOW items:
+
+- The extraction test can still accept a dormant wrapper if an active legacy
+  directive is placed before its selected text marker. Current driver text
+  has no such route. This residual test-adequacy gap is recorded per ruling:
+  https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7071460595.
+- Existing-suite lane coverage and actual own-CPP admission/gate results must
+  remain distinct from added regression coverage. Named existing cases and
+  actual801/4 results are already recorded; own admission/full-gate results
+  will be appended only after execution. Live install/model limits remain.
+  This is a pending verification/evidence follow-up within this task, not a
+  claim that the pending gate passed or that unchanged tests were re-reviewed.
+
+Receipt `2026-11-22T001829Z-issue-1811.json` derives implementer
+codex/gpt-6.1-sol and reviewer codex/gpt-6.2-sol from their actual native
+runtime logs, binds the full current-main artifact, and records3passes with
+authority/reason in the parser-allowed extra-pass field. Seven earlier
+findings were fixed; two LOW items are recorded as remaining at review time.
+It is not a clean-review claim. No product/test code changed after this
+review; only this issue's evidence and the genuine receipt are added.
+
+Next is the single authorized own-checkout full gate under actual admission,
+after freshload5<=24 and no other heavy CPP run, with3600s admission wait and
+90-minute own-slot deadline. Gate target stays not-run/partial until that
+result. No source changes are proposed to chase the LOW final control gap.
+
+
+### Row E full gate 1 and launch-inventory integration correction
+
+Own-slot job f4583654-b9c8-428e-9d71-0c698ccf3705 launched at actualload5
+**3.05**, with no other CPP holder/queue. It acquired real full-suite
+request1211, accepted the native3-pass receipt and executed the full plan.
+Actual result: **`FLOW_FINISH_GATE: fail (at prerequisite test)`**, exit1;
+**2 failed,13633 passed,4 skipped in460.62seconds**. The two failures were
+`test_all_target_launchers_have_captured_path_policy` and
+`test_committed_inventory_matches_the_actual_source_and_generated_population`.
+No push or pass claim follows this result.
+
+Cause: removing the four old direct runner sites (three commands plus the
+shared template) makes `templates/` legitimately empty of direct lib.cicd
+launches. The existing population assertion demanded a launch in every source
+root, and its committed measured table still listed those removed sites.
+
+Correction is limited to the existing inventory test and measured report:
+`templates` remains in SCAN_ROOTS, all rows remain classified and checked for
+handoff errors, and the other three previously required non-generated roots
+remain nonempty requirements. The known committed missing-handoff, repaired
+and unclassified fixtures now run at five independently literal root paths,
+including templates and generated skills. Removing templates from the scanner
+would make its bad probe disappear and fail that test; it is not a zero-scan
+exception. The scanner classifier itself is unchanged. The current generated
+inventory has134 rows,0template rows,20captured source rows and22captured
+generated rows; its four obsolete inline rows were removed, with the original
+24/22 historical numbers clearly distinguished from the maintained table.
+
+Focused validation: **147 passed in6.00seconds**, including the previously
+failing launch-inventory checks, all five-root bad/good/unclassified controls
+and71finish-driver cases. Lint passes. An initial10-second tool cutoff was
+not counted as completed evidence; the retained result is the completed run.
+
+Touched-but-unplanned integration files are
+`tests/test_cicd_launch_handoff.py` and
+`docs/measurements/runner-target-path-1801.md`, in addition to the two disclosed
+review-control fixtures. These are necessary consequences of removing inline
+launches; no helper, driver text, verdict or word cap changed. The approved
+plan is unchanged. Because an inventory instrument changed after the final
+review, the new delta needs explicit orchestrator disposition before another
+full gate. The genuine receipt remains bound to its actual reviewed artifact;
+no later change is represented as already model-reviewed. No review4 or new
+full gate is launched without authority.
+
+
+### Row E root-population controls required before delta review
+
+Mailboxes37575/37577 authorize the narrow inventory correction, one scoped
+review pass4 and then one paced full gate. Before review they require both a
+bad template-launch control and missing/unreadable-root refusal.
+
+(a) Existing committed `bad-missing.md` is injected into each of five literal
+roots, including templates, and must yield one detected missing-handoff error;
+its repaired and unclassified partners retain their distinct results. These
+five-root controls pass. The roots are independently literal in the controls,
+so removing templates from SCAN_ROOTS cannot remove its test population too.
+
+(b) New committed `root-populations.tsv` declares existing-empty (accepted),
+missing (unavailable) and unreadable (unavailable) cases. Forty valid neighbor
+launches satisfy the other population requirements and a matching inventory
+record removes unrelated failure causes. The new cases exercise the actual
+population test and actual recorded-inventory reader, as well as the scanner.
+The directory-read PermissionError precondition is asserted; mode000 uses real
+permission denial when effective, with deterministic os.scandir fault injection
+when privileges bypass mode bits. This is explicit error-path evidence, not a
+claim about access restrictions in every environment.
+
+Before the complete-root fix, new controls reported **2failed/1passed**.
+After the correction, **8boundary controls passed**. A separately copied blind
+variant changed only complete_inventory's delegation back to the sparse mode;
+with the final strengthened controls it again reported **2failed/1passed**
+(missing/unreadable did not refuse, empty accepted). The genuine current code
+reports **150focused tests passed in3.58seconds**, including these controls,
+the inventory report and71driver cases. Lint passes. This is not a full-gate
+rerun.
+
+Complete reads now walk every declared directory without rglob's silent
+permission suppression and fail by name for an unavailable source root.
+The canonical population check and recorded-inventory comparison both use
+that complete reader. The existing small classification fixtures explicitly
+use their partial-population reader; the launch classifier/MATCH rules and
+other populated-root requirements are unchanged. Current full source output
+still has134rows and the same regenerated report.
+
+One additional committed TSV fixture is disclosed integration scope variance.
+The approved plan is unchanged. No driver text/helper/word cap changes. This
+completed delta, including the error-path controls, is ready for the explicitly
+authorized continuity review4 from ad843bc9; no fifth pass is authorized.

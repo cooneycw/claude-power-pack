@@ -43,6 +43,23 @@ def calls(text):
     """Only literal invocations in bash fences, never a comment or prose mention."""
     found = []
     for block in re.findall(r"^```bash\n(.*?)^```", text, re.M | re.S):
+        if any("flow-plan-record.py declare-salvage" in line and not line.lstrip().startswith("#")
+               for line in block.splitlines()):
+            # These lane fixtures select no preserved work. Accept only the
+            # published empty-selection block, which makes no declaration.
+            # Selected salvage is executed by test_delegated_salvage.py; never
+            # pretend to evaluate a different conditional here.
+            expected = (
+                'SALVAGE_SHA=""\n'
+                'if [ -n "$SALVAGE_SHA" ]; then\n'
+                '    ~/.claude/scripts/flow-plan-record.py declare-salvage 42 "$SALVAGE_SHA" --reason "<why>"\n'
+                '    SALVAGE_EXIT=$?\n'
+                '    [ "$SALVAGE_EXIT" -eq 0 ] || exit "$SALVAGE_EXIT"\n'
+                'fi'
+            )
+            if block.strip() != expected:
+                unavailable("unsupported salvage block")
+            continue
         for line in block.splitlines():
             match = re.fullmatch(
                 r'~/.claude/scripts/flow-plan-record\.py '
