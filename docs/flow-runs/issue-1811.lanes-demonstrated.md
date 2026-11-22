@@ -1126,3 +1126,48 @@ review, the new delta needs explicit orchestrator disposition before another
 full gate. The genuine receipt remains bound to its actual reviewed artifact;
 no later change is represented as already model-reviewed. No review4 or new
 full gate is launched without authority.
+
+
+### Row E root-population controls required before delta review
+
+Mailboxes37575/37577 authorize the narrow inventory correction, one scoped
+review pass4 and then one paced full gate. Before review they require both a
+bad template-launch control and missing/unreadable-root refusal.
+
+(a) Existing committed `bad-missing.md` is injected into each of five literal
+roots, including templates, and must yield one detected missing-handoff error;
+its repaired and unclassified partners retain their distinct results. These
+five-root controls pass. The roots are independently literal in the controls,
+so removing templates from SCAN_ROOTS cannot remove its test population too.
+
+(b) New committed `root-populations.tsv` declares existing-empty (accepted),
+missing (unavailable) and unreadable (unavailable) cases. Forty valid neighbor
+launches satisfy the other population requirements and a matching inventory
+record removes unrelated failure causes. The new cases exercise the actual
+population test and actual recorded-inventory reader, as well as the scanner.
+The directory-read PermissionError precondition is asserted; mode000 uses real
+permission denial when effective, with deterministic os.scandir fault injection
+when privileges bypass mode bits. This is explicit error-path evidence, not a
+claim about access restrictions in every environment.
+
+Before the complete-root fix, new controls reported **2failed/1passed**.
+After the correction, **8boundary controls passed**. A separately copied blind
+variant changed only complete_inventory's delegation back to the sparse mode;
+with the final strengthened controls it again reported **2failed/1passed**
+(missing/unreadable did not refuse, empty accepted). The genuine current code
+reports **150focused tests passed in3.58seconds**, including these controls,
+the inventory report and71driver cases. Lint passes. This is not a full-gate
+rerun.
+
+Complete reads now walk every declared directory without rglob's silent
+permission suppression and fail by name for an unavailable source root.
+The canonical population check and recorded-inventory comparison both use
+that complete reader. The existing small classification fixtures explicitly
+use their partial-population reader; the launch classifier/MATCH rules and
+other populated-root requirements are unchanged. Current full source output
+still has134rows and the same regenerated report.
+
+One additional committed TSV fixture is disclosed integration scope variance.
+The approved plan is unchanged. No driver text/helper/word cap changes. This
+completed delta, including the error-path controls, is ready for the explicitly
+authorized continuity review4 from ad843bc9; no fifth pass is authorized.

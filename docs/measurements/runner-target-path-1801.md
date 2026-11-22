@@ -238,6 +238,12 @@ The current table has 20 captured source rows and 22 captured generated rows.
 `templates/` remains in the scanned population and now has zero direct launches;
 committed missing-handoff/good/unclassified fixtures are exercised in all five
 source roots, including templates, so that absence is not a scanner exclusion.
+Complete-repository checks also require every declared root to exist and be
+readable. Their directory walk propagates read errors instead of treating them
+as an empty population. Committed empty/missing/unreadable root cases exercise
+the actual population check and recorded-inventory reader with forty valid
+neighbor launches; deliberately sparse classification fixtures use the separate
+partial-scan mode explicitly.
 
 <!-- launch-inventory:begin -->
 | Source | Subcommand | Class | Policy | Basis |
