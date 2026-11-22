@@ -36,9 +36,16 @@ def step6(driver: str) -> str:
 
 
 def invocation(step: str) -> str:
-    blocks = re.findall(r"```bash\n(.*?)\n```", step, re.S)
-    assert CALL in blocks, "Step 6 must invoke the audited wrapper bare"
-    return CALL
+    marker = "Run quality gates:"
+    reader = "Read the actual `FLOW_FINISH_GATE:` verdict AND exit status"
+    assert step.count(marker) == 1, "one operative quality-gate instruction required"
+    after = step.split(marker, 1)[1]
+    assert reader in after, "operative invocation must precede verdict admission"
+    operative = after.split(reader, 1)[0]
+    blocks = re.findall(r"```bash\n(.*?)\n```", operative, re.S)
+    assert len(blocks) == 1 and blocks[0].strip() == CALL, "operative gate must be the bare audited wrapper"
+    assert not any(old in operative for old in ("-m lib.cicd", "make lint", "make test")), "legacy operative route"
+    return blocks[0].strip()
 
 
 def assert_verdict(output: str, verdict: str, code: int) -> None:
@@ -188,12 +195,16 @@ def test_old_review_cannot_mint_receipt_after_fix(receipt_evidence: dict, driver
 def reader_contract(step: str) -> None:
     """Narrow policy pin, not a general parser or proof of live execution."""
     invocation(step)
+    flat = " ".join(step.split())
     for clause in (
         "Missing verdict, even exit 0", "`fail` / 1: STOP",
         "no runnable gates, no evidence; never pass", "never call a rerun a clean pass",
         "Invalidate the prior receipt", "derive and commit a fresh receipt",
+        "require one unambiguous verdict record, never prefixed lookalikes or conflicting lines.",
+        "Unknown verdict, mismatched exit, interruption or admission refusal: STOP;",
+        "Non-zero alone never authorizes retry.",
     ):
-        assert clause in step, f"missing policy: {clause}"
+        assert clause in flat, f"missing policy: {clause}"
 
 
 @pytest.mark.parametrize("driver", DRIVERS)
@@ -211,3 +222,19 @@ def test_committed_reader_controls(name: str) -> None:
         assert absent not in text, "precondition: bad fixture omits its stopping policy"
         with pytest.raises(AssertionError, match="missing policy"):
             reader_contract(text)
+
+
+@pytest.mark.parametrize("name", ("accepts-conflicting-status", "mixed-route"))
+def test_rendered_route_and_rejection_controls(name: str) -> None:
+    text = (ROOT / f"tests/fixtures/delegated-finish-gate/{name}.md").read_text()
+    if name == "accepts-conflicting-status":
+        for verdict, code in (("ok", 0), ("warn", 3), ("fail", 1), ("skipped", 4)):
+            assert f"`{verdict}` / {code}:" in text, "precondition: all valid verdict labels retained"
+        assert "Conflicting records or mismatched exit: proceed" in text
+        with pytest.raises(AssertionError, match="missing policy"):
+            reader_contract(text)
+    else:
+        assert CALL in text and "-m lib.cicd run --plan finish" in text, "precondition: both routes retained"
+        assert text.index("-m lib.cicd") < text.index(CALL), "precondition: active runner before dormant wrapper"
+        with pytest.raises(AssertionError, match="operative"):
+            invocation(text)

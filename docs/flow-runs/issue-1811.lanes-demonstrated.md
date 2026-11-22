@@ -962,7 +962,7 @@ historical on their separate branch.
 | Coordination | passed | Existing wrapper tests include test_coordination_supervises_full_gate_once_only_when_enabled, test_coordination_refusal_starts_no_gate_work and other admission cases. Deterministic authority is stubbed; actual admission is pending own full gate. |
 | Project state | passed | Real receipt writer rejects stale review bytes after committed implementation fix and accepts fresh review; existing wrapper enrolled/unenrolled cases, including test_enrolment_names_the_receipt_for_this_head_not_the_oldest. |
 | Run location | passed | Actual bare calls from external consumer roots; CPP-root make delegated-core-check/driver-parity-check and their real-tree tests. |
-| Gate target | passed | Existing CPP wrapper suite and consumer fallback Makefile cases; own-checkout full gate pending, no consumer multi-interpreter matrix. |
+| Gate target | not run | Partial: rendered consumer fallback cases pass; four real target-PATH/independent-venv probe cases now pass separately. Own CPP full gate is pending, so the full lane is not yet demonstrated. No consumer version matrix. |
 
 Reader evidence is the actual generated call and actual wrapper/receipt-writer
 output, with deliberately faulty installs clearly identified for no-verdict
@@ -1013,3 +1013,39 @@ runtime receipt after reserved pass2, then one owner-paced full finish gate
 no other group heavy gate, own-slot deadline). Final-head scans, Refs#1811 PR,
 independent GraphQL references check after each body edit and exact-head CI
 follow; cp-orch handles merge and final issue disposition.
+
+
+### Row E reserved review pass 2 corrections
+
+The current-main review helper measured reviewer codex/gpt-6.2-sol,
+diff-only, network unverified and local credentials absent. It returned one
+MEDIUM and two LOW test-adequacy findings; all three are accepted:
+
+- Rendered prompts did not pin rejection of ambiguous/mismatched/unknown,
+  interrupted or admission-refused results. The real rendered-policy check now
+  requires the unambiguous-record instruction and explicit STOP/remedy rules
+  in all three actual Step6 sections. `accepts-conflicting-status.md` retains
+  all four valid verdict/status labels while permitting conflicts/mismatch,
+  and must be rejected.
+- Invocation extraction found any bare wrapper block and returned a constant.
+  It now reads the operative `Run quality gates:` segment before verdict
+  admission, requires its sole Bash block to be the bare audited helper,
+  rejects the legacy direct route/fallback there and returns the actual
+  extracted command. `mixed-route.md` keeps an active old runner and a dormant
+  bare-wrapper example, and must be rejected.
+- The Gate target row was prematurely marked passed. It is now not-run with
+  explicit partial evidence until the own CPP full gate succeeds. Separately,
+  existing real tests
+  `test_runner_target_path.py::test_bare_python_uses_the_target_callers_interpreter`
+  and `test_the_runners_own_interpreter_stays_in_cpp` passed all four parameter
+  cases in1.97seconds. They create a real independent target venv and PATH and
+  execute the shipped CPP_RUN array plus real runner on an owned custom plan;
+  they do not claim to execute a full finish plan or a version matrix.
+
+New committed prompt controls first returned **2 failed** with the old
+checking functions. Corrected full driver suite: **71 passed in2.39seconds**;
+lint passes. Production driver text/caps/helper formats did not change.
+The two additional prompt fixtures are a disclosed review-control scope
+variance; the approved plan body stays unchanged. Source/evidence will be
+committed before requesting review authority beyond the spent two-pass cap.
+No full gate has run in E yet; D's passing gate is not borrowed as E evidence.
