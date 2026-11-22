@@ -2,10 +2,10 @@
 
 ## [Unreleased]
 
-## [13.0.0] - 2026-11-21
+## [13.0.0] - 2026-11-22
 
-Twenty-three merged PRs since v12.0.0 (`3ed25469`), through #1881. Counts by
-#1278's consumer-action rule: 9 major, 6 minor, 8 patch. This is a major
+Twenty-six merged PRs since v12.0.0 (`3ed25469`), through #1885. Counts by
+#1278's consumer-action rule: 12 major, 6 minor, 8 patch. This is a major
 release because review producers, workflow callers and delegated parents must
 update the contracts and acceptance steps below.
 
@@ -32,7 +32,7 @@ update the contracts and acceptance steps below.
   live in Step 7. Update integrations that name the former step numbers.
   An approved Tier 1 docs-only plan may skip counter-model review with the
   recorded `tier-1-docs-only` reason; this is not a blanket review bypass.
-- **Delegated parents run the missing lifecycle gates** (#1811):
+- **Delegated parents run all twelve missing gate/verb rows** (#1811, now closed):
   - Published runs finish their plan records after push/PR, checking drift and
     the published head (PR #1869).
   - Parents capture friction throughout the lifecycle, including before STOP;
@@ -45,6 +45,19 @@ update the contracts and acceptance steps below.
     checked before the first checkpoint and shipping commits (PR #1881).
     Leak/ignored-addition status 3 stops; strict statuses 4/5 are reported
     without a clean-main claim. Attribute main edits before reverting them.
+  - Parents retain supplemental findings during review and route them after
+    the PR/plan finish, before reporting or cleanup. A resolved store receives
+    one finding per comment in the returned repository; no store means a
+    normal issue; unknown/missing resolution leaves the finding visibly
+    unrouted. Children never post to GitHub (PR #1883).
+  - Only an explicitly selected, unchanged ancestor checkpoint is declared as
+    salvage, after `begin-run` and before approval. Selection defaults empty;
+    ordinary history does not imply salvage. The parent owns preservation
+    commits and children remain forbidden to commit (PR #1884).
+  - Step 6 uses the audited finish wrapper and an enrolled current-artifact
+    receipt. Missing/ambiguous verdicts, status mismatches, interruption and
+    admission refusal stop; warn/skipped preserve their limited claims.
+    The direct runner/lint-test fallback is retired (PR #1885).
 
 ### Upgrading
 
