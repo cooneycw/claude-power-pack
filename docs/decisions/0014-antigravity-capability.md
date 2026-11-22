@@ -31,31 +31,43 @@ owner accepts the ADR.
 
 ## The decision, in plain language
 
-The cited Antigravity specification describes user-global customizations in
-`~/.gemini/config/` and project-local customizations in `.agents/`; empirical
-confirmation remains pending as listed below. Like Claude Code (`~/.claude/`)
-and Codex (`~/.codex/`), CPP is installed as a user-global toolkit rather than
-per-project. Adding Antigravity as an opt-in CPP capability follows these
-principles:
+Owner direction on 2026-11-22 selects **Option B: a separate copy-generator
+and managed loose copies**, with **topic skills first** and **no symlinks**.
+Option A (native plugins) is rejected for the initial delivery. These selected
+choices do not change the ADR's Proposed status; owner acceptance remains
+separate from a review approval.
 
-1. **One shared `/cpp:update` procedure across all installed harnesses.**
-   `/cpp:update` discovers the host's existing CPP-managed installations,
-   refreshes each from the same CPP revision, verifies the installed result,
-   and reports an outcome for each harness - even when the CPP checkout is
-   already current. Harness-specific details are limited to what the CLI
-   requires, such as destination paths, packaging format, and native commands.
-   The invoking CLI does not determine which installations get updated: a user
-   with Claude Code, Codex, and `agy` runs `/cpp:update` once from any of them
-   and sees the per-harness outcome for all three. Partial failures are isolated
-   (if one destination is unwritable, other harnesses still refresh and the
-   summary identifies the failed destination).
-2. **Global install target is `~/.gemini/config/`, with packaging behind the
-   shared updater interface.** Whether Antigravity receives a native CPP plugin
-   bundle (`agy plugin install`, Option A) or managed loose copies under
-   `~/.gemini/config/skills/` (Option B) is a packaging detail encapsulated
-   behind the shared harness-adapter contract, evaluated in Wave 1.1 before
-   committing to custom copy/prune/MCP-merge logic.
-3. **Separate thin Antigravity script first; `scripts/codex-skill-sync.py` stays
+CPP owns one shared `/cpp:update` procedure: discover existing CPP-managed
+installations, refresh from one CPP revision, verify actual installed output,
+and report per-harness outcomes with fault isolation. A current source
+checkout must still refresh stale installations. The invoking CLI does not
+choose which installed harnesses refresh.
+
+The first delivery covers **Claude Code, Codex and AGY only, explicitly
+PARTIAL**. The final all-harness contract also includes **pi (the pi coding
+agent), Qwen and Gemma/OpenCode**. Those are named follow-up adapter and
+acceptance deliveries under #1876/#1889, not delivered by the first subset.
+Reports must name included and unimplemented harnesses; partial coverage must
+never be reported as all-harness parity.
+
+Topic skill availability does not establish workflow parity. The named
+**command-derived skills and real AGY `cpp-update` invocation follow-up**
+under #1876/#1888/#1889 must deliver command adaptation and actual invocation
+before that claim. Full receipt-backed flow parity also requires the AGY
+runtime evidence adapter in **#1886**.
+
+## Selected Option B pipeline and ownership contract
+
+Canonical `.claude/skills/<slug>/` packages plus their external
+`docs/skills/*.md` guides feed a separate Antigravity builder. Its self-contained
+output is ignored build output under `antigravity/skills/` (ADR 0013).
+Referenced guides are bundled into each skill's `references/`, and links are
+rewritten relative to the package. The installer copies that output into
+`~/.gemini/config/skills/<slug>/`; installed skills must work in unrelated
+repositories with the source unavailable. No symlinks, live-checkout references
+or dependence on Codex being installed are permitted.
+
+**Separate thin Antigravity script first; `scripts/codex-skill-sync.py` stays
    untouched.** Wave 1 starts with a separate thin Antigravity generator/bundler
    script (`scripts/antigravity-skill-sync.py`) and leaves
    `scripts/codex-skill-sync.py` untouched so downstream consumers
@@ -69,368 +81,237 @@ principles:
    - be declared a versioned interface change with coordination issues filed in
      `cooneycw/kyle`, `cooneycw/skillc`, and `cooneycw/kyle-candidate` before
      merging.
-4. **Published skills are self-contained and kept as gitignored build output
-   (ADR 0013).**
-   - **Topic skills** (`.claude/skills/<slug>/`): canonical packages omit
-     `metadata.source` and 11+ reference external repo-relative guides such as
-     `docs/skills/code-quality.md`. Publishing topic skills (under either
-     Option A or Option B) MUST bundle referenced `docs/skills/*.md` files into
-     each package's `references/` directory and rewrite `SKILL.md` links to
-     relative `./references/<topic>.md` paths so they work from any unrelated
-     repository.
-   - **Command-derived workflow skills** (`.claude/commands/<family>/<cmd>.md`,
-     per ADR 0001 section 5): generated on demand with minimal harness-required
-     adaptations (frontmatter, tool fallbacks, `/family:cmd` references).
-     Whether topic skills ship alone in Wave 1 with command-derived skills in a
-     follow-up wave, or both ship together, is an open owner ruling.
-   - Under Option B (loose copies), the installer MUST inject `metadata.source`
-     pointing to `claude-power-pack/.claude/skills/<slug>` on copied topic
-     skills and `GENERATED` markers on command-derived skills, and verify the
-     expected package-name set so `skills-check.py --managed-root` never
-     reports a 0-validated false green.
-5. **Global rules and MCP servers respect Antigravity's native contracts.**
-   - Rules mirror `~/.claude/CLAUDE.md` plus optional host-local additions
-     (following `#1441`), respecting Antigravity's per-file cap and refusing to
-     overwrite unmanaged or hand-edited files without `--adopt` (or shipped as
-     plugin `rules/AGENTS.md` if Option A proves clean for host-local
-     additions).
-   - MCP servers use Streamable HTTP (`/mcp`) or Stdio only; legacy HTTP+SSE
-     (`/sse`) is rejected. Because `/cpp:status` and `/cpp:init` act on
-     `mcp-drift.py`'s verdict without re-deriving it, Antigravity MCP drift
-     detection sits **inside** the ADR 0008 negative-control bound and ships
-     with a committed negative control (e.g., a stale `/sse` entry that must be
-     reported).
-   - All Antigravity check helpers share the same verdict vocabulary as
-     `scripts/codex-global-agents.py` (`current`, `stale`, `hand-edited`,
-     `unmanaged`, `absent`, `not-applicable` exit 5, `unknown` exit 4).
-6. **Capability selection goes through `scripts/cpp-install-receipt.py`.**
-   `/cpp:init` delegates capability planning and receipt persistence to
-   `scripts/cpp-install-receipt.py`. Adding `antigravity` requires updating its
-   planner (`CAPABILITY_ORDER`, `CAPABILITY_DEPENDENCIES`, `TIER_CAPABILITIES` /
-   `CAPABILITY_REQUIRED`, `REFERENCES`, `STEP_REFS`, `OPTIONAL_STEPS`) and its
-   negative controls alongside the command documents.
-7. **Flow parity is explicitly gated on a runtime evidence adapter.**
-   CPP's counter-model review receipts (schema 5, `docs/agents/counter-model-evidence.md`)
-   derive the implementing model from runtime session records, not typed labels.
-   Without an Antigravity (`agy`) runtime evidence adapter, an `agy` session
-   cannot issue a normal `ran` counter-model receipt even when reviewed by an
-   independent model. Full `/flow:auto` parity therefore requires adding an
-   `agy` runtime evidence adapter and end-to-end receipt test (Wave 2.3); until
-   that lands, `/flow:auto` support in Antigravity is scoped to skill
-   availability, not receipt-backed flow parity.
 
-## Measured facts vs. premises pending Wave 1.1 probe
+Topic copies carry CPP ownership/provenance metadata, including
+`metadata.source` pointing to `claude-power-pack/.claude/skills/<slug>`.
+The later command-derived follow-up carries `GENERATED` markers. Ownership
+markers do not grant permission to delete unexpected user content: define
+expected package names and owned members explicitly, preserve foreign skills
+and unexpected content, and refuse collisions or require an explicit reviewed
+adoption rather than silently overwriting/pruning them. Prune only proven owned
+orphans. A zero-validated install never establishes a clean result.
 
-### Historical observations reported in PR #1875 (2026-11-21)
+An advisory CPP write lock at `~/.gemini/config/.cpp-skill-install.lock`
+serializes cooperating CPP mutations, including shared configuration writes.
+It does not protect against direct AGY commands or other writers that ignore
+it. Test actual adapter concurrency and both expected updates, not just valid
+JSON or process exit. Native plugin lifecycle guarantees are not assumed.
 
-These are the original draft's reports, not measurements repeated by the
-Codex adopter. In particular, plugin list output establishes reported staging
-metadata, not installed-byte fidelity, actual invocation, orphan cleanup or
-concurrent-write safety; Wave 1.1 must test those separately.
+After copying, compare actual installed membership, bytes/hashes and modes to
+a fresh expected build. Native list/validate output and successful CLI exit
+cannot replace that comparison. Include stale, missing-member, tampered,
+foreign-content, collision and unreadable-target controls with committed
+negative cases under ADR 0008.
 
-- **Native plugin listing survives source deletion (`agy 1.5.14`):** In an
-  isolated `$HOME`, installing a test plugin with `agy plugin install` and
-  deleting its source directory left `agy plugin list --json` reporting the
-  enabled plugin and its skill intact (measured during PR #1875 review).
-- **Canonical topic skills omit `metadata.source` and reference external docs:**
-  With raw `.claude/skills/` copies as `--managed-root`, `skills-check.py`
-  exited 0, skipped all 18 packages, and validated 0 managed installs. At least
-  11 canonical topic skills reference repo-relative `docs/skills/<topic>.md`
-  files outside the skill directory.
-- **Capability planner gate:** `scripts/cpp-install-receipt.py` currently
-  accepts `["codex"]` and rejects `["antigravity"]` with exit 1.
-- **Command word budgets on `main`:** `.claude/commands/cpp/init.md`,
-  `update.md`, and `status.md` sit at their `#1669` interim caps in
-  `.claude/command-word-budgets.tsv` (19,467 / 14,666 / 3,817 words).
+## Attributed B0-B4 observations and remaining uncertainty
 
-### Premises from spec (pending empirical verification in Wave 1.1)
+The following are AGY test-session/helper reports from 2026-11-22, relayed in
+[#1887](https://github.com/cooneycw/claude-power-pack/issues/1887).
+The Codex adopter has read the reports, not independently inspected the raw
+probe artifacts or repeated the experiments. These observations inform the
+selected design; they are not delivered CPP acceptance tests or an AGY receipt.
+The preserved private archive contains 199 files and has SHA256
+`56e8a3b3a932dc061450a5b6f620e4d582ddf245b10cc422e8bbf295bbb2dd9c`.
+Archive preservation is not additional validation. Future sanitized fixtures
+must retain mapping/digests to originals without publishing private paths,
+credentials or unrelated session contents.
 
-All items below are cited from Antigravity's built-in `agy-customizations`
-documentation (observed 2026-11-21) and MUST be verified empirically in
-Wave 1.1 before implementation commits to them:
-
-| Premise | Source (`agy-customizations`, 2026-11-21) | What changes if the premise is wrong |
+| Batch and report | Reported positive/comparison evidence | Design consequence and limit |
 |---|---|---|
-| Global loose skills are discovered from `~/.gemini/config/skills/<name>/SKILL.md` | `SKILL.md`, `docs/skills.md` | Option B's destination path changes to the measured global skill root (or Option A becomes mandatory if loose global skills are unsupported). |
-| Global rules load from `~/.gemini/config/GEMINI.md` or `AGENTS.md` (or plugin `rules/AGENTS.md`) across all workspaces | `SKILL.md`, `docs/rules.md`, `docs/plugins.md` | Wave 2.1 targets the exact measured global rules path; if only plugin `rules/AGENTS.md` is global, Wave 2.1 merges host-local additions into the plugin rules stage rather than a standalone file. |
-| Per-file rule size cap is 24 KB (24,000 bytes) with a 20,000-token aggregate budget | `docs/rules.md` | Wave 2.1's size-warning threshold updates to the measured cap (or is dropped if no cap is enforced). |
-| Legacy HTTP+SSE (`/sse`) MCP transport is unsupported; only Streamable HTTP (`/mcp`) and Stdio work | `docs/mcp_servers.md` | If `/sse` is accepted or another transport key is required, Wave 2.2's validator and `mcp-drift.py` negative control update to match the observed transport contract. |
+| [B0 isolation](https://github.com/cooneycw/claude-power-pack/issues/1887#issuecomment-7079256159) | A fresh process with a disposable home isolated marker and MCP configuration writes; helper re-checked regular configuration unchanged. Absent markers and enabling an absent plugin failed. | No supported profile/config-dir flag was available. Isolation covers configuration, not the whole filesystem; never repurpose HOME in a running session or transplant credentials. Configuration writes alone do not prove MCP tool execution. |
+| [B1 skills/lifecycle](https://github.com/cooneycw/claude-power-pack/issues/1887#issuecomment-7079330832) | Loose skills loaded; fresh-session removal returned NOT_FOUND. Native v1-to-v2 reinstall removed a dropped skill, matched hashes/modes, worked with source moved aside and preserved sibling loose skills. Installed files were copies; reinstall repaired tampering. | Native concurrent disable lost an update in 1/10 trials; same-plugin installs were last-writer-wins. Native list/validate missed byte tampering. Reinstall removed foreign internal plugin files. These support CPP locking, installed-output comparison and explicit ownership boundaries, not native safety assumptions. |
+| [B2 rules](https://github.com/cooneycw/claude-power-pack/issues/1887#issuecomment-7079368856) | Global GEMINI.md, global AGENTS.md and plugin rules/AGENTS.md loaded markers in fresh sessions across two unrelated repositories; removal removed markers. A 23,800-byte fixture loaded completely. | A 26,000-byte fixture silently dropped its tail, exit 0 and empty stderr; diagnostic logs revealed truncation. Native strict validation failed but install accepted it. The exact byte boundary was not established; the documented 20,000-token aggregate budget is unmeasured. |
+| [B3 MCP](https://github.com/cooneycw/claude-power-pack/issues/1887#issuecomment-7079419121) | Reported real stdio handshake and Streamable HTTP operation; foreign global entry survived plugin lifecycle. Dead-server comparisons yielded TOOL_UNAVAILABLE. A working legacy SSE server failed with AGY while a compatible-client control succeeded before/after. | Use stdio or Streamable HTTP, not legacy SSE. Broken MCP in -p mode still exited 0. Actual health needs tool/server nonce artifacts; the relay did not include the nonce/call artifact, so this adoption makes no independent live-call acceptance claim. |
+| [B4 runtime metadata](https://github.com/cooneycw/claude-power-pack/issues/1887#issuecomment-7079661668) | Native hooks.json lifecycle hooks exposed session ID, resolved modelName and turn provenance without transcript reads; spoofed user model labels did not override identity. Missing/unreadable identity remained unknown. | JSON/stream-json stdout alone lacks model identity. Hooks are a candidate source for #1886, not a delivered adapter, valid receipt or proof of complete implementing-model retention. |
 
-## Epic acceptance criterion
+The original #1875 report of `agy 1.5.14` plugin-list survival after source
+deletion remains historical metadata evidence only. B0-B4 reports have their
+own retained version/command artifacts; do not silently assign the older
+version to them. The inspected `agy-customizations` specification describes
+24,000 bytes per rules file and 20,000 aggregate tokens; B2 demonstrates a
+truncation risk without measuring every threshold or aggregate-budget behavior.
+Unsupported versions or incomplete inputs must remain unknown.
+
+Canonical topic packages currently omit `metadata.source`; the original
+report counted 18 packages and at least 11 external guide references, with
+raw copies yielding 0 validated managed packages. This motivates metadata,
+self-contained bundling and the expected-membership floor. The current planner
+does not yet accept `antigravity`; all capabilities described here are planned.
+
+## Rules and MCP under managed copies
+
+Global rules mirror `~/.claude/CLAUDE.md` plus optional host-local additions
+(following #1441) into a measured global GEMINI.md or AGENTS.md target.
+Explicitly select/document the exact target and avoid duplicate loading.
+Refuse unmanaged or hand-edited destinations without explicit `--adopt`.
+Do not overwrite personal rules implicitly.
+
+Enforce a per-file size **below the documented 24,000-byte ceiling at both
+build and installation**, checking the actual bytes about to be installed.
+Warning-only handling is insufficient after B2. Preserve semantics and local
+additions: no silent truncation or summarization. If the full rules do not
+fit, stop and obtain a separately measured design for splitting/loading order
+and treatment of the still-unmeasured 20,000-token aggregate budget. Keep a
+committed oversized fixture with a tail marker and a within-limit positive
+fixture; prove oversize rejection and complete positive loading.
+
+MCP uses key-scoped merges into `~/.gemini/config/mcp_config.json`, preserving
+foreign registrations and refusing ambiguous ownership collisions. Use stdio
+or Streamable HTTP `/mcp` (or an explicit stdio bridge); reject legacy `/sse`.
+Native plugin MCP scoping was observed but is not the selected installation
+mechanism. Managed-copy update/removal must independently demonstrate foreign
+registration preservation.
+
+Keep static config/byte drift separate from live health. Live health requires
+an actual tool call with an independently observed server-response nonce and
+retained call/server artifacts. A dead-server case must fail that claim even
+if AGY returns exit 0; unperformed/unreadable health is unknown. Because
+`/cpp:init` and `/cpp:status` consume `mcp-drift.py` without re-deriving its
+verdict, it is inside ADR 0008's committed-negative-control bound. Retain the
+working-compatible-client SSE control as well as stale-config and dead-server
+cases. Validate operands using measured syntax: the B0 `plugin uninstall
+--help` hazard is already recorded in the Nit Store; help-looking arguments
+and exit 0 are insufficient evidence of read-only behavior or success.
+
+## Epic acceptance criterion and fidelity boundaries
 
 > `/cpp:update` discovers the host's existing CPP-managed installations,
-> refreshes each from the same CPP revision, verifies the installed result, and
-> reports an outcome for each harness. Harness-specific details are limited to
-> what the CLI requires, such as destination paths, packaging format, and native
-> commands. The invoking CLI does not determine which installations get updated.
+> refreshes each from the same CPP revision, verifies installed output, and
+> reports an outcome for each harness. The invoking CLI does not determine
+> which installations get updated. Initial Claude/Codex/AGY coverage is PARTIAL;
+> pi, Qwen and Gemma/OpenCode are named follow-up deliveries before claiming
+> the final all-harness contract.
 
-**Acceptance test:** Start with a current checkout, stale managed Codex and
-`agy` skills, and a user-authored skill beside them. Invoke `/cpp:update` once.
-Both managed copies must become current and the user skill must retain its
-original bytes. Repeat with one destination unwritable: the other must still
-refresh, and the summary must identify the failed destination.
+Start with a current checkout, stale managed Codex and AGY topic skills, and a
+user-authored neighboring skill. One update must refresh both managed copies
+from the same revision and retain the user's bytes. Repeat with a genuinely
+unwritable destination, proving that precondition for the executing identity:
+the other destination still refreshes and the summary identifies the failure.
+Test unexpected internal content/collisions as well as neighboring skills.
+Actual AGY invocation of `cpp-update` belongs to the command-derived follow-up;
+do not count topic-only availability as that acceptance result.
 
-## Why
+| Surface | Selected Option B target | Required evidence / controls |
+|---|---|---|
+| Shared updater | One driver; initial Claude/Codex/AGY PARTIAL | Current checkout + stale installs, user preservation, unwritable-destination isolation; pi/Qwen/GemmaOpenCode follow-up acceptance |
+| Topic skills | Managed copies in `~/.gemini/config/skills/` with CPP provenance | Fresh installed membership/bytes/hashes/modes, source-unavailable and unrelated-repo invocation, `controls/antigravity-skill-install-fidelity` |
+| CPP writes | Advisory CPP lock, not native serialization | Controlled concurrent adapter updates; direct non-cooperating AGY writers explicitly outside lock guarantee |
+| Global rules | Selected measured global file, explicit adopt protection | `controls/antigravity-global-rules`, build/install oversize rejection, full positive tail-marker loading, hand-edit/unmanaged protection |
+| MCP | Key-scoped global configuration merge | Foreign-entry preservation, stale `/sse` and dead-server controls, actual nonce-backed health separate from static drift |
+| Capability receipt | `scripts/cpp-install-receipt.py` | Planner/select/write/status round trip and existing capability/receipt controls |
+| Review receipt | #1886 lifecycle-hook adapter | Complete model history, independent reviewer, exact-artifact binding and writer/validator/enrolment good/bad/unexaminable round trip |
 
-- **Stop multiplying per-CLI update code.** `.claude/commands/cpp/update.md`
-  already carries separate Qwen and OpenCode refresh sections alongside Codex.
-  Adding another specialized Antigravity refresh block would entrench per-CLI
-  duplication and drift. Designing a single harness-agnostic discovery/refresh/
-  verify/report loop in Wave 1 keeps CLI specifics strictly confined to thin
-  target adapters.
-- **Protect downstream Codex consumers.** Leaving `scripts/codex-skill-sync.py`
-  untouched initially eliminates interface risk to `cooneycw/kyle`,
-  `cooneycw/skillc`, and `cooneycw/kyle-candidate` while Antigravity support
-  stabilizes.
-- **Use the harness's native distribution unit when it fits.** Evaluating
-  native `agy` plugins behind the shared updater interface avoids building
-  custom copy, orphan-pruning, and `mcp_config.json` merge logic if Antigravity
-  already provides those lifecycle guarantees.
-- **No checkout coupling (ADR 0005, ADR 0013).** Neither symlinks into a
-  checkout nor a `skills.json` pointing at a working tree should tie the live
-  host skill set to whichever branch happens to be checked out in
-  `claude-power-pack`.
-- **Self-contained topic skills and closed ownership blind spots.** Bundling
-  `docs/skills/*.md` into each published skill's `references/` directory fixes
-  cross-repo invocation; injecting `metadata.source` (Option B) or verifying
-  installed plugin bytes directly (Option A) with a membership floor closes the
-  0-validated blind spot in `skills-check.py`.
-- **Honest parity claims.** Promising `/flow:auto` parity without a counter-model
-  runtime evidence adapter for `agy` would break CPP's receipt contract on the
-  first real PR.
+All check helpers follow `scripts/codex-global-agents.py`'s vocabulary:
+`current`, `stale`, `hand-edited`, `unmanaged`, `absent`, `not-applicable`
+(exit 5), `unknown` (exit 4). No selected installation and no applicable AGY
+surface is not-applicable; unreadable or incomplete applicable input is unknown.
 
-## What was rejected
+## Alternatives and reversal trigger
 
-- **Add another standalone Antigravity refresh section to `/cpp:update`.**
-  - Repeats the per-CLI sprawl already present for Qwen and OpenCode and makes
-    each new harness another bespoke maintenance surface.
-- **Refactor `scripts/codex-skill-sync.py` in Wave 1.**
-  - Introduces unnecessary interface risk to `cooneycw/kyle`, `cooneycw/skillc`,
-    and `cooneycw/kyle-candidate` before Antigravity packaging has even passed
-    its Wave 1.1 spike. Deferred to a later, parity-tested unification.
-- **Point `~/.gemini/config/skills.json` directly at `{CPP_DIR}/.claude/skills`
-  and `~/.codex/skills`.**
-  - Ties topic skills to the live branch state of a checkout (rejected in
-    ADR 0013) and leaves external `docs/skills/*.md` references broken outside
-    CPP.
-  - Couples Antigravity to Codex being installed and feeds Codex-adapted
-    instructions to Antigravity.
-- **Symlink `~/.gemini/config/skills/<skill>` to `{CPP_DIR}/...`.**
-  - Same checkout-coupling and broken-reference problems, and cannot express
-    generated command-derived skills without a persistent checkout build tree.
-- **Place `.agents/skills/` at `~/Projects/`.**
-  - `~/Projects/` is a workspace container, not a git repository; Antigravity's
-    workspace walk stops at a repository root (`.git`), so skills placed at
-    `~/Projects/.agents/skills/` would not be discovered inside individual project
-    repos.
-- **Ship Antigravity skills as a separate hand-maintained directory.**
-  - Violates ADR 0001 section 5's single-source-of-truth invariant and
-    guarantees silent drift from `.claude/commands/`.
+Native plugins (Option A) are rejected for the initial delivery. B1 reported
+useful staging/lifecycle behavior, but native serialization and integrity
+checks did not satisfy CPP's contract and foreign internal content was removed.
+Owner-selected managed copies provide an explicit CPP ownership boundary and
+copy-generator path. Reconsider native packaging only through a later owner
+ruling with proven locking, fidelity, adoption/preservation and rules/MCP
+semantics; it is not an automatic fallback or currently open choice.
 
-## Host surface and fidelity boundaries
+Symlinks, `skills.json` references into a checkout, a separate hand-maintained
+Antigravity skill tree, and another bespoke per-CLI updater section remain
+rejected (ADR 0001 section 5, ADR 0005 and ADR 0013). The shared driver reduces
+existing per-CLI duplication while leaving Codex output untouched. Managed
+copies require CPP to own bundling, pruning, locking, global-rule protection
+and key-scoped MCP merges; native list/validate cannot stand in for that work.
 
-The exact host paths in the skill, rules, and MCP rows depend on the Wave 1.1
-packaging gate (Option A: native `agy` plugin vs. Option B: managed loose
-copies), both invoked through the shared `/cpp:update` harness-refresh driver.
-Both options enforce fresh-build parity, membership floors, and negative
-controls.
+## Rollout, owner acceptance and delivery boundaries
 
-| Surface | Option A (Native plugin) | Option B (Loose managed copies) | Fidelity / Drift check & Negative control (ADR 0008) |
-|---|---|---|---|
-| Shared updater | One `/cpp:update` harness-refresh driver discovering and updating all installed CPP harnesses | Same | Acceptance test: current checkout + stale Codex & `agy` + user skill + unwritable-destination fault isolation |
-| Skills (command + topic) | Installed CPP plugin via `agy plugin install` (checkout-independent staged copy) | `~/.gemini/config/skills/<skill>/` (`GENERATED` marker on command skills; injected `metadata.source` on topic skills) | Fresh-build comparison in `install-drift.sh` with membership floor; `controls/antigravity-skill-install-fidelity`; cross-repo topic-skill invocation test |
-| Concurrency lock | Native serialization must be demonstrated in Wave 1.1; do not assume it from plugin listing | Advisory `flock` on `~/.gemini/config/.cpp-skill-install.lock` (matching Codex installer; kernel releases lock on process exit so stale locks cannot persist) | Unit test for concurrent install serialization |
-| Global rules | Plugin `rules/AGENTS.md` (plus host-local additions check) or verified global rules file | Verified `~/.gemini/config/<global-rules>` (`--write`, `--adopt`) | Report-only `--check` (`current`/`stale`/`hand-edited`/`unmanaged`/`absent`/`not-applicable` exit 5/`unknown` exit 4) + cap warning; `controls/antigravity-global-rules` |
-| MCP servers | Plugin `mcp_config.json` (scoped to plugin lifecycle) | Key-scoped merge into `~/.gemini/config/mcp_config.json` | Inside ADR 0008 bound (acted on by `/cpp:init` and `/cpp:status`): committed negative control with stale `/sse` entry that must be reported by `mcp-drift.py`; preserves foreign servers |
-| Capability receipt | `scripts/cpp-install-receipt.py` (`antigravity` capability, steps, refs) | Same | Planner + receipt round-trip test and `controls/cpp-capability-selection` |
-| Counter-model receipts | `scripts/counter-model-receipt.py` `agy` runtime evidence adapter | Same | End-to-end receipt test proving independent model derivation from `agy` session records |
+One AGY PR is in flight at a time, with full suites in PR CI only and Kyle
+series-27 taking CI, host-resource and merge priority. No pushes or CI reruns
+without the orchestrator's explicit window clearance. Kyle's CPP pin remains
+**v13.0.0**; this document does not authorize a pin change. The owner must accept
+this Proposed ADR and it must merge before code merges. The ADR/plan lands
+before activating child-issue scaffolding. The nine existing children remain
+**open and parked pending that merge**; this docs-only revision closes none and
+starts no implementation. Codex authors CPP work; AGY is the test bed.
 
-## Consequences
+Packaging B, topic-first and the partial first harness set are settled owner
+choices. Remaining owner acceptance of the ADR is not implied by those choices,
+probe completion or review approval. Exact global-rule target/loading choices
+and follow-up delivery scheduling must be explicit in their implementation
+plans. The five LOW findings from the first review remain recorded in Nit
+Store comments linked from PR #1895; this revision is driven by the new owner
+direction, not a separate nit-cleanup change.
 
-- **Unified updater lands in Wave 1, not Wave 3.** Designing the shared
-  discover/refresh/verify/report contract up front ensures Antigravity plugs
-  into a single CPP update mechanism alongside Claude Code and Codex rather
-  than bolting on another CLI-specific branch.
-- **Zero immediate risk to Codex consumers.** Keeping
-  `scripts/codex-skill-sync.py` untouched in Wave 1 avoids breaking `kyle`,
-  `skillc`, and `kyle-candidate`. Any later unification is gated by a committed
-  byte-identical parity test or coordinated downstream versioned-interface
-  issues.
-- **Native plugin vs. loose copies is an encapsulated adapter detail.** Wave 1.1
-  validates `agy plugin install` against the shared contract; either packaging
-  choice plugs into the same updater and drift-reporting interface.
-- **Topic skill bundling improves portability regardless of packaging.**
-  Bundling `docs/skills/*.md` into each published topic skill's `references/`
-  directory fixes cross-repo invocation for both Option A and Option B.
-- **No impact on non-Antigravity hosts.** When Antigravity is absent and the
-  `antigravity` capability is not selected, discovery skips it cleanly and
-  checks return `not-applicable` (exit 5) with zero noise.
+## Three-wave plan: nine existing open delivery issues
 
-## Reversal trigger
+### Wave 1: contract, topic builder and partial shared updater
 
-Switch between Option A (native plugin) and Option B (loose managed copies)
-behind the shared updater interface if:
+1. **1.1 - #1887: measured packaging and updater contract.** Incorporate B0-B4
+   evidence and sanitized fixture provenance; specify selected B, ownership,
+   lock limits, exact invocation/report behavior and the PARTIAL first harness
+   set. Preserve remaining unmeasured premises. The owner accepts the ADR;
+   probe completion does not close this issue or activate scaffolding.
+2. **1.2 - #1888: separate topic-only Antigravity builder.** Bundle canonical
+   topics and external guides into ignored `antigravity/skills/` output with
+   relative `references/`, CPP metadata and proposed Makefile build/check
+   targets. Leave `scripts/codex-skill-sync.py` untouched. Verify real unrelated
+   repository invocation with source unavailable and a missing-skill comparison.
+   Depends on 1.1. The named command-derived/real-AGY-`cpp-update` follow-up
+   under #1876/#1888/#1889 is outside topic-first delivery and must be tracked
+   before workflow parity is claimed.
+3. **1.3 - #1889: shared updater and managed-copy AGY adapter.** Implement the
+   common driver and initial Claude/Codex/AGY coverage, always labelled PARTIAL.
+   Copy/verify fresh output, serialize cooperating CPP writes, preserve foreign
+   content and prune only owned orphans. Include `HOST-SURFACE` declarations,
+   fidelity controls and the epic acceptance test. Depends on 1.2. Named
+   follow-up deliveries are **pi adapter/acceptance**, **Qwen adapter/acceptance**
+   and **Gemma/OpenCode adapter/acceptance** under #1876/#1889; none is implied
+   complete by the first subset. Command-derived invocation remains a separate
+   named follow-up as above.
 
-1. Option A's plugin staging, update/reinstall, rule-merging, or MCP-scoping
-   behavior proves unable to preserve host-local rules/MCP overrides or clean
-   drift inspection (fall back to Option B); or
-2. Under Option B, Antigravity plugin management later closes any gap found in
-   Wave 1.1 (migrate to Option A).
+### Wave 2: rules, MCP and runtime evidence
 
-## Planned Rollout (IDD Issue Breakdown)
+4. **2.1 - #1890: global rules sync.** Use the measured global file, preserve
+   source semantics/local additions, protect unmanaged/hand-edited content with
+   explicit adopt, and enforce build/install byte-size gates and tail-marker
+   controls. Aggregate token budget remains unmeasured. Add `HOST-SURFACE`
+   declarations and `controls/antigravity-global-rules`. Depends on 1.1.
+5. **2.2 - #1891: global MCP merge, drift and actual health.** Key-scoped merges
+   preserve foreign entries; use stdio/Streamable HTTP, reject legacy SSE, and
+   separate static drift from nonce-backed health. Retain committed SSE,
+   dead-server, foreign-entry and unknown-input controls. Expose CPP services
+   such as second-opinion via `/mcp` and Playwright via stdio. Depends on 1.1.
+6. **2.3 - #1886: AGY runtime evidence adapter.** Build on native lifecycle-hook
+   metadata, not typed labels, stdout guesses or unrelated transcripts.
+   Retain version/schema provenance, session/turn ordering and complete
+   implementing-model sets; an unambiguous independent reviewer and exact
+   artifact binding are required. Prove writer -> validator -> enrolment with
+   good, spoofed-label, self-review, missing/unreadable and incomplete-history
+   fixtures. Unsupported/unreadable histories fail unknown. Hook availability
+   alone does not establish receipt-backed full flow parity. Depends on 1.1.
 
-Following `ISSUE_DRIVEN_DEVELOPMENT.md`, the planned implementation breakdown
-belongs under Epic #1876 across three Waves and nine atomic Micro-Issues.
-This adoption changes documentation only and starts no code wave.
+### Wave 3: drift, capability selection and maintained documentation
 
-The owner's current slow-unpark rule supersedes the earlier parked-until-pin
-wording: **one AGY PR in flight at a time**, PR CI only for full-suite
-validation, and Kyle series-27 work has priority. The replacement ADR PR may
-temporarily overlap #1875 solely to supersede it; this does not authorize a
-parallel code PR. The owner must accept this ADR and it must merge before any
-code under the epic merges. **Kyle's CPP pin stays at v13.0.0**; a new pin is
-not a prerequisite for this paced preparation, and this ADR does not authorize
-changing Kyle's pin. No heavy local full-suite runs or direct main pushes.
-
-## Open owner decisions
-
-1. **Packaging:** Option A (native plugin) or Option B (managed loose copies),
-   based on Wave 1.1 evidence. Neither is selected by this adoption.
-2. **Wave 1 skill scope:** topic-only or topic plus command-derived skills.
-   If topic-only, name a follow-up delivery item for command-derived skills
-   and real AGY invocation of `cpp-update` before claiming workflow parity.
-   Full flow parity also depends on the runtime evidence adapter in 2.3.
-3. **Initial harness scope:** the target contract says all installed CPP-managed
-   harnesses, while item 1.3 currently enumerates Claude Code, Codex and AGY.
-   The owner must decide whether Qwen, OpenCode and other managed installations
-   join the initial shared driver or receive explicitly named follow-up work.
-   An initial subset must be reported as partial scope, not all-harness parity.
-4. **ADR acceptance:** the owner rules on acceptance after reviewing the
-   proposal and premise-probe evidence. A review approval is not acceptance.
-
-## Wave details
-
-### Wave 1: Unified Updater Design, Packaging Gate, and Skill Pipeline
-
-1. **1.1 - Unified `/cpp:update` harness-refresh contract and Antigravity packaging spike (decision gate)**
-   - Define the shared discover -> refresh -> verify -> report contract for
-     `/cpp:update` across all installed CPP harnesses (invoking CLI does not
-     determine which harnesses refresh; current checkout still refreshes stale
-     installations; per-harness fault isolation when one destination is
-     unwritable).
-   - Empirically verify every spec premise listed above with `agy` in a
-     disposable, verified isolated profile/config root (never repurpose HOME
-     inside a running session or copy credentials): global skill discovery path,
-     exact global rules path and
-     per-file cap, MCP transport contract, and a representative CPP native
-     plugin bundle (`plugin.json` + sample skills with bundled `references/` +
-     `rules/AGENTS.md` + `mcp_config.json`) via `agy plugin install` (checkout
-     independence, reinstall/orphan cleanup, foreign-content preservation,
-     installed-byte fidelity, actual invocation and concurrent-write safety).
-     Use fresh-session comparison cases and retain exact inputs and artifacts;
-     if supported isolation cannot be demonstrated, stop configuration probes.
-   - Record measured results in ADR 0014; **the owner rules on Option A vs.
-     Option B, Wave 1 skill scope, and ADR acceptance.**
-2. **1.2 - Implement thin Antigravity skill bundler/generator (`scripts/antigravity-skill-sync.py`)**
-   - Leave `scripts/codex-skill-sync.py` untouched (no changes to Codex output
-     or CLI).
-   - Bundle external `docs/skills/*.md` guides referenced by canonical
-     `.claude/skills/*/SKILL.md` into each published skill's `references/`
-     directory and rewrite links to `./references/<topic>.md`.
-   - Per the owner's Wave 1 scope ruling, include topic skills first (with
-     command-derived skills in a follow-up wave) or both topic and
-     command-derived skills.
-   - Keep `antigravity/skills/` (or plugin build dir) as gitignored build output
-     (ADR 0013) with `make antigravity-skills` and `make antigravity-skills-check`
-     in CI.
-   - Acceptance test: invoke a real published CPP topic skill (e.g.,
-     `code-quality`) from an unrelated repository and verify it resolves the
-     intended bundled CPP guide rather than failing or reading the other repo's
-     files.
-   - Depends on: 1.1.
-3. **1.3 - Implement shared multi-harness `/cpp:update` driver and Antigravity refresh adapter**
-   - Implement the unified host-refresh driver (invoked by `/cpp:update` and
-     `Makefile`) that discovers existing CPP-managed installations (Claude Code,
-     Codex, Antigravity; Qwen/OpenCode/others per the open owner scope ruling),
-     refreshes each from the same CPP revision, verifies
-     each installed result against a fresh build, and reports per-harness
-     outcomes with fault isolation.
-   - Implement the Antigravity adapter for the chosen Wave 1.1 packaging
-     (Option A: `agy plugin install`; Option B: managed copies into
-     `~/.gemini/config/skills/` with injected `metadata.source` on topic skills,
-     `GENERATED` markers on command skills, and advisory `flock` on
-     `~/.gemini/config/.cpp-skill-install.lock`), preserving user-authored
-     skills.
-   - Add `HOST-SURFACE` annotations, `controls/antigravity-skill-install-fidelity`,
-     and the Epic acceptance test (current checkout + stale Codex & `agy` +
-     user-authored skill preserved + unwritable-destination isolation).
-   - Depends on: 1.2.
-
-### Wave 2: Global Rules, MCP Registration, and Counter-Model Evidence Adapter
-
-4. **2.1 - Global rules sync (`scripts/antigravity-global-rules.py`)**
-   - Mirror `~/.claude/CLAUDE.md` verbatim + optional host-local additions file
-     into the verified Antigravity global rules path (or plugin rules path per
-     Wave 1.1), matching `scripts/codex-global-agents.py`'s verdict contract
-     (`current`, `stale`, `hand-edited`, `unmanaged`, `absent`, `not-applicable`
-     exit 5, `unknown` exit 4), plugged into the shared updater summary.
-   - Warn when combined size exceeds the measured per-file cap.
-   - Add `HOST-SURFACE` annotations and `controls/antigravity-global-rules`.
-   - Depends on: 1.1.
-5. **2.2 - Antigravity MCP registration and drift check**
-   - Expose CPP's external MCP servers (`second-opinion` via Streamable HTTP
-     `/mcp`, Playwright via stdio) via plugin `mcp_config.json` (Option A) or
-     key-scoped merge into `~/.gemini/config/mcp_config.json` (Option B).
-   - Preserve unrelated `mcpServers` entries; explicitly reject legacy `/sse`
-     endpoints.
-   - Extend `scripts/mcp-drift.py` with an Antigravity check path and a
-     committed ADR 0008 negative control (a stale `/sse` entry that must be
-     reported).
-   - Depends on: 1.1.
-6. **2.3 - Antigravity (`agy`) runtime evidence adapter for counter-model receipts**
-   - Add an `agy` session/transcript runtime evidence adapter to
-     `scripts/counter-model-receipt.py` conforming to
-     `docs/agents/counter-model-evidence.md` (schema 5), deriving the
-     implementing model set from runtime records (never typed labels or prose).
-   - Add an end-to-end receipt test verifying that an `agy` implementer paired
-     with an independent reviewer produces a valid `ran` receipt, and that
-     self-review or unreadable turns fail closed.
-   - Gate full `/flow:auto` parity claims on this issue.
-   - Depends on: 1.1.
-
-### Wave 3: Drift Detection, Capability Selection, and Documentation
-
-7. **3.1 - Extend `scripts/install-drift.sh` for Antigravity**
-   - Compare the installed Antigravity surface (staged plugin tree under
-     Option A, or `~/.gemini/config/skills/` under Option B) against a fresh
-     generation (command-derived skills, when enabled) and canonical
-     `.claude/skills/` (topic skills), enforcing a membership floor (explicit
-     expected package names; 0 validated is never clean) and ownership boundary.
-   - Report `not-applicable` cleanly on hosts without Antigravity.
-   - Add tests in `tests/test_install_drift.py`.
-   - Depends on: 1.3.
-8. **3.2 - Wire `antigravity` capability into `cpp-install-receipt.py` and `/cpp:{init,update,status}`**
-   - Update `scripts/cpp-install-receipt.py`: add `antigravity` to
-     `CAPABILITY_ORDER`, `CAPABILITY_DEPENDENCIES`, `TIER_CAPABILITIES` /
-     `TIER_STEPS` / `CAPABILITY_REQUIRED`, `REFERENCES`, `STEP_REFS`, and
-     `OPTIONAL_STEPS`, plus negative-control coverage under
-     `controls/cpp-capability-selection` and `controls/cpp-install-receipt`.
-   - Wire `antigravity` into `.claude/commands/cpp/{init,update,status}.md`
-     (with `/cpp:update` delegating to the Wave 1.3 shared updater rather than
-     adding a bespoke Antigravity section) and host-surface disclosures.
-   - **Word-budget accounting (`#1669`):** `.claude/commands/cpp/init.md`,
-     `update.md`, and `status.md` sit at their interim caps in
-     `.claude/command-word-budgets.tsv` (19,467 / 14,666 / 3,817 words). Every
-     added word in Wave 3.2 MUST be paid for via offsets (accompanied by an
-     old-vs-new instruction audit - delegating `/cpp:update`'s per-CLI refresh
-     blocks to the Wave 1.3 shared driver is expected to reclaim words in
-     `update.md`) or an explicit owner cap ruling before merge.
-   - Add an end-to-end test that plans/selects `["antigravity"]`, writes the
-     install receipt, and reads it back through status.
-   - Depends on: 1.3, 2.1, 2.2, 3.1.
-9. **3.3 - Documentation and `HOST_MANAGED_ARTIFACTS.md` update**
-   - Update `docs/HOST_MANAGED_ARTIFACTS.md`, `docs/agents/counter-model-evidence.md`,
-     `README.md`, and add an Antigravity setup reference (analogous to
-     `.agents/CODEX_SETUP.md`).
-   - Verify `host-account-paths-check`, `make verify`, and CI gates pass.
-   - Depends on: 2.3, 3.2.
+7. **3.1 - #1892: install drift.** Compare actual installed Option B copies to a
+   fresh self-contained build, including bundled references, membership,
+   bytes/hashes/modes and ownership limits. Enforce explicit package-name floor;
+   zero validated never means clean. Use `tests/test_install_drift.py` and
+   fidelity controls; command-derived output is covered only when delivered.
+   Depends on 1.3.
+8. **3.2 - #1893: capability planner and `/cpp:{init,update,status}`.** Add
+   `antigravity` through `CAPABILITY_ORDER`, `CAPABILITY_DEPENDENCIES`,
+   `TIER_CAPABILITIES`, `TIER_STEPS`, `CAPABILITY_REQUIRED`, `REFERENCES`,
+   `STEP_REFS` and `OPTIONAL_STEPS` in `scripts/cpp-install-receipt.py`, with
+   `controls/cpp-capability-selection` and `controls/cpp-install-receipt`.
+   Delegate update to the common driver. Prove select/write/status round trip;
+   do not mistake this wiring for delivered AGY command-derived invocation.
+   Respect #1669 caps (init/update/status: 19,467 / 14,666 / 3,817 words): pay
+   added words with offsets and old-vs-new instruction audit, or obtain an
+   explicit owner cap ruling. Depends on 1.3, 2.1, 2.2 and 3.1.
+9. **3.3 - #1894: maintained documentation.** Update
+   `docs/HOST_MANAGED_ARTIFACTS.md`, `docs/agents/counter-model-evidence.md`,
+   `README.md` and an AGY setup reference. State topic-only/partial harness
+   boundaries and named follow-ups truthfully. Focused docs checks locally;
+   full `make verify` and remaining gates in PR CI under Kyle priority.
+   Depends on 2.3 and 3.2. None of these nine issues closes merely because this
+   ADR/plan merges.
