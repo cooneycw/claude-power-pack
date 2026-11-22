@@ -942,3 +942,232 @@ not hidden by rewriting the approved plan.
 Next: rerun the required pre-push budget/import/dependency/gitleaks checks on
 this final evidence HEAD, push/open a Refs#1811 PR, and record exact-head CI.
 The historical gate failures/cancellation remain preserved above and in the PR.
+
+
+<!-- lanes-demonstrated run=3e3ef2b0d50a426497c1e7d49cf3b84b plan=f14ffde1f774a448cec82231372da1f01327c4662a24823b7cab8043067accd6 -->
+
+## Finish wrapper row E, final merged-main run
+
+This run was minted, began and received its approved plan on main bc7125e1
+BEFORE any product edit or implementation commit. It received ordinal8 and
+preserved every upstream run section. This avoids the default run-start scope
+limitation documented for D. Original E checkpoint/first review remain
+historical on their separate branch.
+
+| Lane | Result | Evidence |
+|---|---|---|
+| Checkout | passed | test_delegated_finish_gate.py actual generated bare calls execute the real wrapper in main-checkout and linked-worktree consumer fixtures. |
+| Harness | passed | Actual Claude renders, test_delegated_core_vendor.py real-repo/idempotent rendering cases and test_driver_parity.py generated flow-auto parity cases in801suite; live installs unexamined, delegated meta commands intentionally unpackaged. |
+| Driver | passed | All three actual Step6 documents, real wrapper suite, current pre/post-child guard suites and real wrapper helper/controls in801suite; no live model obedience. |
+| Coordination | passed | Existing wrapper tests include test_coordination_supervises_full_gate_once_only_when_enabled, test_coordination_refusal_starts_no_gate_work and other admission cases. Deterministic authority is stubbed; actual admission is pending own full gate. |
+| Project state | passed | Real receipt writer rejects stale review bytes after committed implementation fix and accepts fresh review; existing wrapper enrolled/unenrolled cases, including test_enrolment_names_the_receipt_for_this_head_not_the_oldest. |
+| Run location | passed | Actual bare calls from external consumer roots; CPP-root make delegated-core-check/driver-parity-check and their real-tree tests. |
+| Gate target | not run | Partial: rendered consumer fallback cases pass; four real target-PATH/independent-venv probe cases now pass separately. Own CPP full gate is pending, so the full lane is not yet demonstrated. No consumer version matrix. |
+
+Reader evidence is the actual generated call and actual wrapper/receipt-writer
+output, with deliberately faulty installs clearly identified for no-verdict
+and interruption scenarios. Narrow policy pins check the instructions a
+parent receives, not an agent's real decision. Output records must be one
+complete unambiguous verdict with matching exit; committed controls include
+prefixed lookalikes, conflicts, status mismatch and trailer-only output.
+Missing-verdict and stale-receipt policy fixtures are rejected; the good one
+is accepted. Reader/producer formats are unchanged. External consumers and
+live model obedience remain unexamined.
+
+Current-main red before source edits: **60 failed, 9 passed**. After the
+wrapper replacement: **69 passed in1.89seconds**. Initial broad current-row
+integration then returned **6 failed,795 passed**: sibling placement checks
+used the semantic boundary instructions `Run quality gates:` and `Re-run
+quality gates`. The sibling guards themselves were intact. Restoring those
+instructions in the wrapper preface and renewed-review tail cost net0 words;
+no test instrument or guard was weakened. Final broad integration:
+**801 passed in29.28seconds**, covering wrapper, current pre/post-child,
+plan-lanes, renderer/parity and static binary-guard suites. Lint/render/parity
+and all command budgets pass.
+
+The source edit is surgical: old direct runner/fallback prefix and RUNNER_EXIT
+retry/report tail only. Current stale guard, fix live/claim checks,
+post-child guard and FIX_PAYLOAD_CHECK remain; Step8 is unchanged. Per-driver
+word delta **+173**, an **executable gate step** under owner ruling7065030917:
++138 originally approved, +35 interruption/unambiguous-output corrections.
+Current exact caps/counts: codex9789, qwen11001, gemma11610.
+
+The latent static skip-guard issue from
+https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7070887122
+is addressed by explicit git/bash/make `shutil.which` clauses, validated by
+the actual binary-guard suite. The output JSON fixture has one exact ignore
+negation, planned explicitly and following existing CPP fixture precedent;
+no wildcard ignore policy changes. No touched-but-unplanned product files.
+
+Historical E review pass1 measured gpt-6.2-sol/diff-only and found four issues:
+interruption precedence for missing verdict, ambiguous output assertions,
+lane evidence limits and old progress-line consumer inventory. The present
+source/tests correct the first two; this plan/evidence names exact existing
+lane tests and external limits, and its Reader table records progress-consumer
+search sensitivity and external coverage limits. The reserved pass2 now
+reviews the complete current-main artifact; no silent cap reset.
+
+Next: commit this source/evidence checkpoint, derive the different-model
+runtime receipt after reserved pass2, then one owner-paced full finish gate
+(normalHOME/ADDOPTSunset/shortprivateTMPDIR, actual admission, freshload5<=24,
+no other group heavy gate, own-slot deadline). Final-head scans, Refs#1811 PR,
+independent GraphQL references check after each body edit and exact-head CI
+follow; cp-orch handles merge and final issue disposition.
+
+
+### Row E reserved review pass 2 corrections
+
+The current-main review helper measured reviewer codex/gpt-6.2-sol,
+diff-only, network unverified and local credentials absent. It returned one
+MEDIUM and two LOW test-adequacy findings; all three are accepted:
+
+- Rendered prompts did not pin rejection of ambiguous/mismatched/unknown,
+  interrupted or admission-refused results. The real rendered-policy check now
+  requires the unambiguous-record instruction and explicit STOP/remedy rules
+  in all three actual Step6 sections. `accepts-conflicting-status.md` retains
+  all four valid verdict/status labels while permitting conflicts/mismatch,
+  and must be rejected.
+- Invocation extraction found any bare wrapper block and returned a constant.
+  It now reads the operative `Run quality gates:` segment before verdict
+  admission, requires its sole Bash block to be the bare audited helper,
+  rejects the legacy direct route/fallback there and returns the actual
+  extracted command. `mixed-route.md` keeps an active old runner and a dormant
+  bare-wrapper example, and must be rejected.
+- The Gate target row was prematurely marked passed. It is now not-run with
+  explicit partial evidence until the own CPP full gate succeeds. Separately,
+  existing real tests
+  `test_runner_target_path.py::test_bare_python_uses_the_target_callers_interpreter`
+  and `test_the_runners_own_interpreter_stays_in_cpp` passed all four parameter
+  cases in1.97seconds. They create a real independent target venv and PATH and
+  execute the shipped CPP_RUN array plus real runner on an owned custom plan;
+  they do not claim to execute a full finish plan or a version matrix.
+
+New committed prompt controls first returned **2 failed** with the old
+checking functions. Corrected full driver suite: **71 passed in2.39seconds**;
+lint passes. Production driver text/caps/helper formats did not change.
+The two additional prompt fixtures are a disclosed review-control scope
+variance; the approved plan body stays unchanged. Source/evidence will be
+committed before requesting review authority beyond the spent two-pass cap.
+No full gate has run in E yet; D's passing gate is not borrowed as E evidence.
+
+
+### Row E authorized final review pass 3
+
+Mailbox37562 authorized one final continuity pass on ad843bc9 because pass2
+changed instrument controls; no fourth pass. The helper measured reviewer
+codex/gpt-6.2-sol, diff-only, network unverified, credentials absent. It
+reported no product/driver-text or MEDIUM-or-higher defect. Final LOW items:
+
+- The extraction test can still accept a dormant wrapper if an active legacy
+  directive is placed before its selected text marker. Current driver text
+  has no such route. This residual test-adequacy gap is recorded per ruling:
+  https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7071460595.
+- Existing-suite lane coverage and actual own-CPP admission/gate results must
+  remain distinct from added regression coverage. Named existing cases and
+  actual801/4 results are already recorded; own admission/full-gate results
+  will be appended only after execution. Live install/model limits remain.
+  This is a pending verification/evidence follow-up within this task, not a
+  claim that the pending gate passed or that unchanged tests were re-reviewed.
+
+Receipt `2026-11-22T001829Z-issue-1811.json` derives implementer
+codex/gpt-6.1-sol and reviewer codex/gpt-6.2-sol from their actual native
+runtime logs, binds the full current-main artifact, and records3passes with
+authority/reason in the parser-allowed extra-pass field. Seven earlier
+findings were fixed; two LOW items are recorded as remaining at review time.
+It is not a clean-review claim. No product/test code changed after this
+review; only this issue's evidence and the genuine receipt are added.
+
+Next is the single authorized own-checkout full gate under actual admission,
+after freshload5<=24 and no other heavy CPP run, with3600s admission wait and
+90-minute own-slot deadline. Gate target stays not-run/partial until that
+result. No source changes are proposed to chase the LOW final control gap.
+
+
+### Row E full gate 1 and launch-inventory integration correction
+
+Own-slot job f4583654-b9c8-428e-9d71-0c698ccf3705 launched at actualload5
+**3.05**, with no other CPP holder/queue. It acquired real full-suite
+request1211, accepted the native3-pass receipt and executed the full plan.
+Actual result: **`FLOW_FINISH_GATE: fail (at prerequisite test)`**, exit1;
+**2 failed,13633 passed,4 skipped in460.62seconds**. The two failures were
+`test_all_target_launchers_have_captured_path_policy` and
+`test_committed_inventory_matches_the_actual_source_and_generated_population`.
+No push or pass claim follows this result.
+
+Cause: removing the four old direct runner sites (three commands plus the
+shared template) makes `templates/` legitimately empty of direct lib.cicd
+launches. The existing population assertion demanded a launch in every source
+root, and its committed measured table still listed those removed sites.
+
+Correction is limited to the existing inventory test and measured report:
+`templates` remains in SCAN_ROOTS, all rows remain classified and checked for
+handoff errors, and the other three previously required non-generated roots
+remain nonempty requirements. The known committed missing-handoff, repaired
+and unclassified fixtures now run at five independently literal root paths,
+including templates and generated skills. Removing templates from the scanner
+would make its bad probe disappear and fail that test; it is not a zero-scan
+exception. The scanner classifier itself is unchanged. The current generated
+inventory has134 rows,0template rows,20captured source rows and22captured
+generated rows; its four obsolete inline rows were removed, with the original
+24/22 historical numbers clearly distinguished from the maintained table.
+
+Focused validation: **147 passed in6.00seconds**, including the previously
+failing launch-inventory checks, all five-root bad/good/unclassified controls
+and71finish-driver cases. Lint passes. An initial10-second tool cutoff was
+not counted as completed evidence; the retained result is the completed run.
+
+Touched-but-unplanned integration files are
+`tests/test_cicd_launch_handoff.py` and
+`docs/measurements/runner-target-path-1801.md`, in addition to the two disclosed
+review-control fixtures. These are necessary consequences of removing inline
+launches; no helper, driver text, verdict or word cap changed. The approved
+plan is unchanged. Because an inventory instrument changed after the final
+review, the new delta needs explicit orchestrator disposition before another
+full gate. The genuine receipt remains bound to its actual reviewed artifact;
+no later change is represented as already model-reviewed. No review4 or new
+full gate is launched without authority.
+
+
+### Row E root-population controls required before delta review
+
+Mailboxes37575/37577 authorize the narrow inventory correction, one scoped
+review pass4 and then one paced full gate. Before review they require both a
+bad template-launch control and missing/unreadable-root refusal.
+
+(a) Existing committed `bad-missing.md` is injected into each of five literal
+roots, including templates, and must yield one detected missing-handoff error;
+its repaired and unclassified partners retain their distinct results. These
+five-root controls pass. The roots are independently literal in the controls,
+so removing templates from SCAN_ROOTS cannot remove its test population too.
+
+(b) New committed `root-populations.tsv` declares existing-empty (accepted),
+missing (unavailable) and unreadable (unavailable) cases. Forty valid neighbor
+launches satisfy the other population requirements and a matching inventory
+record removes unrelated failure causes. The new cases exercise the actual
+population test and actual recorded-inventory reader, as well as the scanner.
+The directory-read PermissionError precondition is asserted; mode000 uses real
+permission denial when effective, with deterministic os.scandir fault injection
+when privileges bypass mode bits. This is explicit error-path evidence, not a
+claim about access restrictions in every environment.
+
+Before the complete-root fix, new controls reported **2failed/1passed**.
+After the correction, **8boundary controls passed**. A separately copied blind
+variant changed only complete_inventory's delegation back to the sparse mode;
+with the final strengthened controls it again reported **2failed/1passed**
+(missing/unreadable did not refuse, empty accepted). The genuine current code
+reports **150focused tests passed in3.58seconds**, including these controls,
+the inventory report and71driver cases. Lint passes. This is not a full-gate
+rerun.
+
+Complete reads now walk every declared directory without rglob's silent
+permission suppression and fail by name for an unavailable source root.
+The canonical population check and recorded-inventory comparison both use
+that complete reader. The existing small classification fixtures explicitly
+use their partial-population reader; the launch classifier/MATCH rules and
+other populated-root requirements are unchanged. Current full source output
+still has134rows and the same regenerated report.
+
+One additional committed TSV fixture is disclosed integration scope variance.
+The approved plan is unchanged. No driver text/helper/word cap changes. This
+completed delta, including the error-path controls, is ready for the explicitly
+authorized continuity review4 from ad843bc9; no fifth pass is authorized.

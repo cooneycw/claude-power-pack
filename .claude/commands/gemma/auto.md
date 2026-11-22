@@ -1147,24 +1147,39 @@ At Step 6 start, repeat the stale check and its pre-child dispositions:
 If a merge changes the reviewed artifact, return to Step 5: commit the new
 checkpoint, repeat independent review and derive a new receipt before finish.
 
-Run quality gates:
+Step 5 must finish first: in an enrolled repository, its current-artifact review
+receipt must exist. Missing or refused receipt: STOP; repeat Step 5, never skip
+enrolment or manufacture evidence. Commit the reviewed checkpoint and receipt.
+If the project's gate requires a pushed head, push that checkpoint first:
+`git push -u origin "$BRANCH"`. This prerequisite applies again after fixes.
+
+Run quality gates: the audited wrapper owns counter-model enrolment, runner,
+Makefile fallback, resume and coordination admission. Invoke BARE:
 
 ```bash
-CPP_DIR=""
-for dir in ~/Projects/claude-power-pack /opt/claude-power-pack ~/.claude-power-pack; do
-  if [ -d "$dir" ] && [ -f "$dir/CLAUDE.md" ]; then
-    CPP_DIR="$dir"
-    break
-  fi
-done
-
-if [ -n "$CPP_DIR" ]; then
-    PYTHONPATH="$CPP_DIR:$PYTHONPATH" env "CPP_RUNNER_TARGET_PATH=${PATH-}" "CPP_RUNNER_TARGET_PATH_PRESENT=${PATH+x}" uv run --project "$CPP_DIR" python -m lib.cicd run --plan finish
-    RUNNER_EXIT=$?
-fi
+~/.claude/scripts/flow-finish-gate.sh
 ```
 
-**Fallback:** Run `make lint` and `make test` directly if runner unavailable.
+Read the actual `FLOW_FINISH_GATE:` verdict AND exit status before proceeding:
+require one unambiguous verdict record, never prefixed lookalikes or conflicting lines.
+
+- Missing verdict, even exit 0 or only `FLOW_FINISH_GATE_EXIT=`: STOP; the gate
+  supplied no usable result. An invoked wrapper without a verdict is indeterminate:
+  STOP; follow interruption, admission and resume remedies before any retry.
+  Try another copy only when the executable could not launch: plugin-root
+  scripts, then CPP-checkout, each bare. No verdict from any copy: report unavailable; never ship.
+- `ok` / 0: proceed; the gates ran successfully.
+- `warn` / 3: proceed with limitations. Repeat warning lines and counts
+  verbatim; zero tests or zero coverage proved nothing about that part.
+  Relay `RERUN_PASSED:` ids; never call a rerun a clean pass. Report skipped
+  gates and carried, unverified results. Name missing prerequisites and offer
+  fuller targets for load-bearing skips; never claim "tests passed".
+- `fail` / 1: STOP and report the failed step. Only a diagnosed, authorized
+  implementation defect enters the bounded fix loop below.
+- `skipped` / 4: warn, then proceed: no runnable gates, no evidence; never pass.
+- Unknown verdict, mismatched exit, interruption or admission refusal: STOP;
+  relay the remedy. Non-zero alone never authorizes retry. Follow wrapper
+  resume instructions without bypassing admission or stale-result checks.
 
 **Fix Loop (max 2 retries):**
 
@@ -1279,38 +1294,15 @@ ownership is uncertain, recheck; `held` or `foreign` STOPs the fix:
    On `DELEGATED_RUN_STATUS: failure`, **STOP** the fix loop and report the
    signals - the retry did not run, so re-running the gate only re-reports the
    same failure and consumes a retry that fixed nothing.
-4. **Re-run quality gates.**
-If a quality-gate fix changes implementation, return to Step 5: commit the
-new checkpoint, repeat the independent review and derive its receipt before
-re-running the finish gates. An earlier receipt describes an earlier artifact.
+4. **Invalidate the prior receipt after any implementation fix.** Do not
+re-gate yet: return to Step 5, commit the new checkpoint, repeat independent
+review, derive and commit a fresh receipt. The earlier receipt describes an
+earlier artifact and cannot authorize this head. Repeat pushed-head
+prerequisites when required. Re-run quality gates through the wrapper; read its verdict.
+5. At most two implementation fix attempts; still failing: STOP and report. Offer escalation: re-run the remaining fix loop under `/codex:auto` (frontier model) or fix manually.
 
-5. If still failing after 2 retries, STOP and report. Offer escalation: re-run the remaining fix loop under `/codex:auto` (frontier model) or fix manually.
-
-```
-RETRY_COUNT=0
-MAX_RETRIES=2
-
-while [ "$RUNNER_EXIT" -ne 0 ] && [ "$RETRY_COUNT" -lt "$MAX_RETRIES" ]; do
-    RETRY_COUNT=$((RETRY_COUNT + 1))
-    echo "Quality gates failed. Re-prompting Gemma (attempt $RETRY_COUNT/$MAX_RETRIES)..."
-
-    # Build fix prompt with error context
-    # Re-execute Gemma
-    # Re-run quality gates
-
-    if [ "$RUNNER_EXIT" -eq 0 ]; then
-        echo "Quality gates passed after $RETRY_COUNT fix attempt(s)."
-    fi
-done
-
-if [ "$RUNNER_EXIT" -ne 0 ]; then
-    echo "ERROR: Quality gates still failing after $MAX_RETRIES retries."
-    echo "Manual intervention required."
-    exit 1
-fi
-```
-
-Report: `Step 6/8: Quality gates passed (attempt {N}/{MAX})`
+Report: `Step 6/8: FLOW_FINISH_GATE: {ok|warn|skipped} (exit {0|3|4})`,
+with the limitations above. Never collapse these into "quality gates passed".
 
 ---
 

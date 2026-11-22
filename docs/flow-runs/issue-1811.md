@@ -369,3 +369,75 @@ Risks: exact document grammar is deliberately narrow; no live model obedience cl
 Reader search positively found /flow:auto's current declaration/approve reader and the helper _SALVAGE_LINE_RE before checking driver absence; repository tests and parity read actual generated files. External consumer exhaustiveness not claimed.
 
 Verification: original red 33 failed/5 passed; corrected new38 cases and broad existing suite385 passed17.68s. Merge main, regenerate/recount exact caps, late run checkpoint, different-model runtime-derived receipt, at most2 review passes, one full finish gate with normal HOME and ADDOPTS unset, import audits and checksum-verified pinned gitleaks8.30.1 --log-opts=HEAD before push, Refs#1811 PR and exact-head CI. Word cap +99 and executable gate step go in evidence/PR; receipt --raised-cap is a distinct review-pass escalation field and is not used for word budgets.
+
+<!-- flow-run n=8 id=3e3ef2b0d50a426497c1e7d49cf3b84b -->
+## Run 8
+
+- Run-id:            3e3ef2b0d50a426497c1e7d49cf3b84b
+- Run-start:         bc7125e18610db06fbb71ef0a5859b7026845622
+- Issue:             #1811
+- Base SHA:          bc7125e18610db06fbb71ef0a5859b7026845622
+- Necessity verdict: Partially addressed
+- Approval:          granted
+- Approver:          cp-orch mailbox 37544 (release), 36770 (plan), 36811 (+35 correction), 36824 (fixture precedent)
+- Recorded at:       2026-11-22T00:03:00Z
+
+### Section B evidence
+All preceding #1811 gate rows are now on main through row D / PR #1884. The original row E checkpoint and first review remain historical on a separate branch. Main still bypasses the audited finish wrapper in Step 6. This run begins on merged main before any implementation and preserves all upstream run sections.
+
+### Section C - the approved plan
+1. `templates/delegated-driver-core.md` - replace only Step 6 direct runner/fallback and RUNNER_EXIT tail with audited bare wrapper and distinct verdict/status admission, Step5 receipt prerequisite, fix invalidation/review refresh and honest report. Preserve current stale/live/claim guards, post-child guard and FIX_PAYLOAD_CHECK; Step8 unchanged.
+2. `.claude/commands/codex/auto.md` - regenerate current shared core only.
+3. `.claude/commands/qwen/auto.md` - regenerate current shared core only.
+4. `.claude/commands/gemma/auto.md` - regenerate current shared core only.
+5. `docs/agents/driver-parity.json` - three flow-finish-gate.sh entries exempt to run.
+6. `.claude/command-word-budgets.tsv` - exact +173 words per driver for executable gate step, original +138 plus approved +35 corrections; caps 9789, 11001, 11610 on merged main.
+7. `tests/test_delegated_finish_gate.py` - port rendered/executed wrapper and real stale-review writer cases; explicit git/bash/make prerequisite guards resolve Nit Store7070887122.
+8. `tests/fixtures/delegated-finish-gate/good.md` - accepted narrow reader-contract input.
+9. `tests/fixtures/delegated-finish-gate/missing-verdict.md` - rejected missing policy input.
+10. `tests/fixtures/delegated-finish-gate/stale-receipt.md` - rejected old receipt reuse input.
+11. `tests/fixtures/delegated-finish-gate/output-cases.json` - committed good verdict and bad lookalike/conflicting/status-mismatch/trailer inputs.
+12. `.gitignore` - one exact JSON-fixture negation, established precedent approved in mailbox36824; no wildcard policy change.
+Scope: finish wrapper row only, Refs #1811. Parent commits reviewed checkpoint/receipt before wrapper and pushes first only when the project's gate requires a pushed head. Missing/refused receipt in an enrolled repository stops. Missing/ambiguous verdict or status mismatch, interruption and admission refusal stop; fallback copy only when executable could not launch. Distinct ok0/warn3/fail1/skipped4 retain their limited claims. Implementation fixes return through Step5 and fresh receipt before any re-gate. Two fix attempts unchanged. Keep all already-merged row guards and Step8 flow-auto delegation. No helper/schema changes. No incidental closing keywords in PR text; independently inspect closingIssuesReferences after every edit.
+Risks: shell/output tests and narrow policy pins do not establish live model obedience. Every known-bad input asserts its negative precondition. No source deletion from preceding rows is authorized. The first historical E review's four findings are already corrected; only the reserved second review remains before any cap escalation request. One heavy group gate; freshload5<=24, actual admission and own-slot deadline notification.
+
+### Lanes for this change
+| Lane | Answer | How, or why not |
+|---|---|---|
+| Checkout | will test | main checkout / linked worktree: actual rendered bare wrapper call in both consumer fixture layouts; test_delegated_finish_gate.py. |
+| Harness | will test | Claude install / Codex install: source render and generated flow-auto parity, test_delegated_core_vendor.py::test_real_repo_drivers_match_the_canonical_core and test_driver_parity.py::test_real_generator_preserves_flow_membership_and_leaves_delegated_families_unpackaged. No live install/model invocation; delegated meta commands intentionally unpackaged. |
+| Driver | will test | `/flow:auto` (Claude implements) / delegated drivers (`/codex:auto`, `/qwen:auto`, `/gemma:auto`): all three actual Step6 renders; test_flow_finish_gate.py and existing pre/post-child guard suites. No live model obedience. |
+| Coordination | will test | without Kyle / with Kyle: test_flow_finish_gate.py::test_coordination_supervises_full_gate_once_only_when_enabled and test_coordination_refusal_starts_no_gate_work; authority is stubbed in deterministic tests, actual admission in our full gate. |
+| CI provider | not applicable | No provider-read logic changed; exact-head CI separately required. |
+| Project state | will test | a repository that has adopted a feature's file or record / one that has not: actual receipt writer stale-artifact rejection plus existing wrapper enrolled/unenrolled cases, including test_enrolment_names_the_receipt_for_this_head_not_the_oldest. |
+| Toolchain version | not covered | Host Python3.11/uv and pinned CI runtime; no version matrix. |
+| Clone shape | not applicable | No custom ref-discovery changes. |
+| Run location | will test | invoked from the CPP root / from another directory: real make delegated-core-check/driver-parity-check from CPP root, plus actual wrapper invocation from external consumer fixtures. |
+| Gate target | will test | CPP itself / a consumer with its own interpreter and PATH: own-checkout full gate, existing wrapper suite and actual fallback Makefile consumers; no consumer multi-interpreter matrix. |
+| Wave role state | not applicable | No role lifecycle changes. |
+| Reader: parent Step6 | tested against real output | Actual generated bare call feeds real wrapper ok/fail/warn/skipped output. Deliberately faulty installs produce no-verdict/interruption inputs. Policy pins test instructions, not agent decisions. |
+| Reader: receipt writer/enrolment | tested against real output | Real writer rejects stale review after implementation fix, accepts fresh review; existing wrapper suite checks enrolled admission. Receipt format unchanged. |
+| Reader: renderer/parity/budget | tested against real output | Real generated files, manifest and exact split-based caps. |
+| Reader: Step6 progress consumers | not covered externally | Existing search found old literal in frozen anchors/base fixtures and negative assertions, proving search sensitivity. No active production parser found in scripts/lib/tests/commands/templates. External progress tooling is unexamined. |
+| Reader: installed prompts/live models | not covered | No live consumer install/model obedience claim. |
+
+Reader search inspects current core/renders, wrapper verdict contract, parity and repository consumers. Known positive /flow:auto consumes FLOW_FINISH_GATE and missing-verdict states. The exact known-bad output fixtures distinguish missing, lookalike, conflicting and mismatched records. Prior parent guard/callback rows remain verified through their real tests.
+
+Verification: run new cases red on current main before source edits, then green; existing wrapper controls and current pre/post-child/lane/binaryguard suites. Stamp on-time before implementation so default run-start scope remains valid. Preserve immutable approved body and report any integration extras. Native different-model runtime evidence, reserved review pass2; seek authority before any beyond2. One paced full finish gate with normalHOME, ADDOPTS unset, own checkout, short privateTMPDIR, actual kyle-lock. Required final-head budgets/import/dependency/gitleaks8.30.1 scans, Refs#1811 PR, GraphQL references check after body edits, exact-head CI; cp-orch merges and handles issue disposition.
+
+### Row E implementation and integration evidence
+
+Source checkpoint f992abc777d6d1e1e824c271f9f6f613fa94a0a6 retains all prior Step6 guards and Step8. Exact +173-word caps are 9789/11001/11610. Initial current-main regression run: 60 failed, 9 controls passed; corrected driver cases: 71 passed. Existing integration selection: 801 passed; existing owned-interpreter/PATH probes: 4 passed. These selections are separate evidence, not newly added coverage or a toolchain matrix.
+
+Full gate attempt 1, job f4583654-b9c8-428e-9d71-0c698ccf3705, actual admission lease 1211, fresh load5 3.05, failed with 2 failed / 13633 passed / 4 skipped. Both failures were the stale launch-inventory template-population assertion and snapshot after removal of the inline launches. Skips: non-macOS bash3.2, unsignalable pid1, missing node, absent declared .ci-bin. No pass is claimed for that gate.
+
+Integration variance beyond the immutable approved file list: two driver-reader negative fixtures, tests/test_cicd_launch_handoff.py, docs/measurements/runner-target-path-1801.md, and tests/fixtures/cicd_launch_handoff/root-populations.tsv. Inventory now keeps templates in scan roots while permitting an existing empty root, and complete scans refuse missing/unreadable roots. Committed missing/unreadable controls fail on the sparse-reader mutation (2 failed, 1 passed) and pass on the real complete reader; 8 boundary controls and all 150 focused cases pass. A separate direct complete-reader probe detects bad-missing and unclassified template launches and accepts the repaired fixture; this probe is supplementary, not a committed mutation control.
+
+Reviews: historical pass1 and pass2 findings corrected; full-range pass3 receipt 2026-11-22T001829Z-issue-1811.json is diff-only with network unverified. Its dormant-wrapper coverage gap is recorded at https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7071460595. cp-orch mailboxes 37575/37577 authorized one instrument delta review4 and one subsequent paced gate, no pass5. Runtime receipt 2026-11-22T004454Z-issue-1811.json covers ad843bc9..f992abc7 only, reviewer codex/gpt-6.2-sol versus implementer codex/gpt-6.1-sol; diff-only, network unverified, credentials absent. One LOW gap remains: sparse five-root launch controls do not automate complete-mode entry-discard detection. Recorded at https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7071753297; no further source change or fifth review. Own corrected full-gate result and final-head scans/CI remain pending; Gate target and actual coordination lanes are not yet claimed complete.
+
+
+### Row E corrected full-gate result
+
+Authorized gate2 job cddea2cf-2f53-441a-aa90-5d2b7a1a0dcd, clean source/evidence checkpoint 6e9f415f, /tmp/c.sifgvnxj/gate.log: actual lease1214, fresh load5 4.33, normal HOME, private TMPDIR, PYTEST_ADDOPTS unset, own checkout and real kyle-lock admission. Completed 2026-11-22T01:00:24Z, FLOW_FINISH_GATE: ok, exit0. Full verify: 13642 passed / 4 skipped in467.68s; mypy521 files. Gate target CPP and actual coordination lanes are now tested; the separate existing4 consumer interpreter/PATH cases and actual fallback consumers cover the stated limited consumer lane. No version-matrix or live-model claim.
+
+Limits retained: four skips (non-macOS bash3.2, unsignalable pid1, missing node, absent declared .ci-bin); host jq1.7 differs from pinned1.7.1. Quick security scan passed with0 blocked and5 HIGH warnings in existing test fixtures (2989 files scanned). Negative-control runner emitted existing good-signal indistinguishability warnings; these are not a claim that every good control has a distinct signal. Native review receipt was accepted as escalated4 per cp-orch, not a new review or a clean-findings claim. No source changes after the successful gate; this result is appended documentation. Final-head scans and exact-head CI are tracked separately.
