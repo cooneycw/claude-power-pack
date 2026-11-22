@@ -1,6 +1,6 @@
 # Claude Power Pack
 
-**v12.0.0** - Lane results become stated outcomes with evidence, and plans name the values they test, for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and Codex.
+**v13.0.0** - Seven-step workflows, matched review helpers, and delegated lifecycle gates for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and Codex.
 
 ## What It Does
 
@@ -221,6 +221,26 @@ real annotated tag at [`626a96d9`](https://github.com/cooneycw/claude-power-pack
 It can be fetched with `git fetch origin tag v10.1.0`. No GitHub Release has
 been published. Further release/tag decisions remain the operator checkpoint
 tracked at [#1278](https://github.com/cooneycw/claude-power-pack/issues/1278).
+
+### v13.0.0 (2026-11-22)
+
+A major release for workflow and review consumers. See
+[CHANGELOG.md](CHANGELOG.md) for Breaking and Upgrading, including every
+feature and user-visible fix since v12.0.0.
+
+- **Review contracts (#1864):** ship matching review/receipt helpers, emit a
+  closed finding Kind, accept kind counts, and read the exit footer on stderr.
+- **Seven-step flow (#1850/#1857):** documentation moves to its own workflow;
+  approved Tier 1 docs-only plans can record the bounded review skip.
+- **Delegated lifecycle (#1811):** parents check specification context,
+  ownership and stale bases, detect post-child worktree leaks and ignored
+  additions before commits, capture friction, finish published records, route
+  supplemental findings, declare only explicit parent salvage, and use the
+  audited finish wrapper. All twelve tracked gate/verb rows are adopted.
+- **New capabilities:** charter mirroring, plan-record convenience verbs,
+  plan-only review binding, and an informational monthly review-yield report.
+- **Acceptance/fixes:** documented helper flags are verified; shell/citation
+  readers, review questions and API-only checkout artifacts are corrected.
 
 ### v12.0.0 (2026-11-14)
 

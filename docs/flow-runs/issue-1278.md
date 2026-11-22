@@ -116,3 +116,29 @@ Risks: a missed version site (grep 11.1.1 afterwards); the re-lock picking up un
 Lanes: none - a release records version numbers and notes only; no behaviour changes in any listed lane
 
 Reader: kyle (re-pin) reads the version and changelog; the kyle#2348 comment hands it the Upgrading section.
+
+<!-- flow-run n=5 id=c6b0e02de89042b8a96abe51ad2a1d31 -->
+## Run 5
+
+- Run-id:            c6b0e02de89042b8a96abe51ad2a1d31
+- Run-start:         34c417f9b7c419118b68a5a42b23b3d194d4fdb0
+- Issue: #1278
+- Necessity verdict: Still needed
+- Approval: granted
+- Approver: release owner cp-orch, mailbox 37236
+
+### Section B evidence
+The release owner selected v13.0.0 MAJOR from consumer acceptance/contract changes. Enumerate every commit since release base 3ed25469, initially through 34c417f9. Rows A/D/E remain pending; publish only a DRAFT PR now and refresh once after the final row before review/full gate. No tag or release publication is authorized here.
+
+### Section C - the approved plan
+1. `CHANGELOG.md` - empty Unreleased plus v13.0.0 release, classify each merged commit, cover every feature and user-visible fix, explicit Breaking/Upgrading.
+2. `pyproject.toml` - project version 13.0.0.
+3. `uv.lock` - re-lock; only the root package version changes.
+4. `README.md` - line 3 v13.0.0 banner and dated v13.0.0 notes; historical headings remain historical.
+5. `CLAUDE.md` - Current version 13.0.0.
+Evidence files and PR body retain full commit enumeration, counts, old-version hit accounting and validation. All five version/notes files land in one commit. Draft PR Refs #1278, no closing reference. Refresh once after remaining rows merge, then independent review/derived receipt, full finish gate, budget/audits/gitleaks and exact-head CI. Owner alone authorizes merge/tag sequence; tagging is a separate later action.
+Risks: missed version site, incomplete changelog or unrelated dependency resolution; validate all sites and enumerate historical old-version hits. Draft push precedes the final release gate only because mailbox 37236 explicitly requires that order; do not claim final gate or completed release.
+
+Lanes: none - release metadata and notes only; no product behavior or listed lane changes
+
+Reader: package consumers read pyproject/lock, Claude/Codex users read README/CLAUDE version and migration notes, release owner reads changelog and complete PR enumeration, next release reads #1278 checkpoint. Existing version-consistency check consumes real edited sites; lock diff must be root-version-only. No new instrument.

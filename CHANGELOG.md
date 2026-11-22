@@ -2,6 +2,116 @@
 
 ## [Unreleased]
 
+## [13.0.0] - 2026-11-22
+
+Twenty-six merged PRs since v12.0.0 (`3ed25469`), through #1885. Counts by
+#1278's consumer-action rule: 12 major, 6 minor, 8 patch. This is a major
+release because review producers, workflow callers and delegated parents must
+update the contracts and acceptance steps below.
+
+### Breaking
+
+- **Command examples are checked against helper flags** (#1835, PR #1840).
+  `make verify` now rejects unsupported options in documented helper calls.
+  Delegated Step 3 escalation no longer passes the unsupported `--kind` option.
+  The checker covers the documented bounded shell forms; it does not claim a
+  complete Bash parser.
+- **Review producers ship a matching helper pair and finding format** (#1847,
+  PR #1854; #1864, PR #1870). Install `codex-review-run.sh` with the matching
+  `counter-model-receipt.py`. The review helper refuses an unavailable or
+  malformed finding-kind vocabulary before calling the reviewer. Each finding
+  carries a `Kind` from the closed list: correctness, security, edge-case,
+  test-adequacy, plan-bookkeeping, simplification. `parse` reports kind counts
+  through `COUNTER_MODEL_KIND` lines, including unstated. The receipt helper
+  emits its `COUNTER_MODEL_EXIT` footer on stderr. Readers must separate that
+  diagnostic stream from stdout results. `CM_PYTHON` selects one interpreter
+  executable for the helper calls.
+- **`/flow:auto` is seven steps, with proportional Tier 1 handling** (#1850,
+  PR #1858; #1857, PR #1868). The former documentation step is retired;
+  documentation has its own workflow. Verify CI and optional deployment now
+  live in Step 7. Update integrations that name the former step numbers.
+  An approved Tier 1 docs-only plan may skip counter-model review with the
+  recorded `tier-1-docs-only` reason; this is not a blanket review bypass.
+- **Delegated parents run all twelve missing gate/verb rows** (#1811, now closed):
+  - Published runs finish their plan records after push/PR, checking drift and
+    the published head (PR #1869).
+  - Parents capture friction throughout the lifecycle, including before STOP;
+    missing capture remains fail-open (PR #1873).
+  - Specification context is checked before delegated planning (PR #1879).
+  - Ownership, live-driver and stale-base checks precede initial/fix children;
+    cleanup releases only the run's own claim (PR #1880).
+  - Strict worktree checks run immediately after child returns, before payload
+    reads, and before checkpoint/shipping commits. Ignored additions are
+    checked before the first checkpoint and shipping commits (PR #1881).
+    Leak/ignored-addition status 3 stops; strict statuses 4/5 are reported
+    without a clean-main claim. Attribute main edits before reverting them.
+  - Parents retain supplemental findings during review and route them after
+    the PR/plan finish, before reporting or cleanup. A resolved store receives
+    one finding per comment in the returned repository; no store means a
+    normal issue; unknown/missing resolution leaves the finding visibly
+    unrouted. Children never post to GitHub (PR #1883).
+  - Only an explicitly selected, unchanged ancestor checkpoint is declared as
+    salvage, after `begin-run` and before approval. Selection defaults empty;
+    ordinary history does not imply salvage. The parent owns preservation
+    commits and children remain forbidden to commit (PR #1884).
+  - Step 6 uses the audited finish wrapper and an enrolled current-artifact
+    receipt. Missing/ambiguous verdicts, status mismatches, interruption and
+    admission refusal stop; warn/skipped preserve their limited claims.
+    The direct runner/lint-test fallback is retired (PR #1885).
+
+### Upgrading
+
+- Update the installed review helper and receipt parser together, including
+  copied repair installs and generated bundles. Update review producers to
+  emit `Kind`, and consumers to accept kind-count lines and read the exit
+  footer from stderr. Set `CM_PYTHON` to one executable when the caller's
+  interpreter must be selected explicitly.
+- Refresh `/flow:auto` callers to its seven-step sequence. Use the dedicated
+  documentation workflow; a Tier 1 docs-only review skip still needs an
+  approved plan and its recorded skip reason.
+- Refresh the three delegated command documents and their matching helpers
+  together. Preserve unknown/not-applicable verdicts as such, STOP on the
+  documented blocking verdicts, and repeat independent review when the
+  committed implementation artifact changes.
+- Correct unsupported flags in local command examples rather than bypassing
+  the new documentation/helper check.
+
+### Added
+
+- Reserve `charters/` and mirror `CHARTER.md` into generated Codex skills
+  (#1838, PR #1841).
+- Support accepting a valid finding as a documented limitation under the
+  existing decision authority; this cannot waive an agreed requirement or a
+  mandatory failing check (#1846, PR #1852).
+- Run cross-model review through the single `codex-review-run.sh` helper,
+  retaining scope/network/credential markers and the runtime stream for
+  receipt derivation (#1847, PR #1854).
+- Add plan-record `start`, `approve --plan` and `finish` run verbs for the
+  parent lifecycle (#1849, PR #1856).
+- Bind the reviewed head after a change confined to that issue's plan-record
+  files, without forcing a new substantive review. Other files and base
+  merges remain outside that bounded exception (#1862, PR #1866).
+- Add the informational review-yield and escaped-defect report to monthly
+  creation, with missing/incomplete evidence reported as UNKNOWN rather than
+  silently omitted (#1865, PR #1872).
+
+### Fixed
+
+- Use one shell reader for every documentation/helper flag question, and
+  recognize bounded backtick substitutions (#1839, PR #1843; #1842/#1844,
+  PR #1845).
+- Relay helper STOP lines and state the missing-helper fallback once in the
+  parent procedure (#1848, PR #1855).
+- Cite driver-parity evidence by unique text instead of stale line numbers
+  (#1851, PR #1859).
+- Use a printable oscillation commit marker and remove orphaned C4 PNGs so
+  API-only checkouts remain byte-exact (#1860, PR #1861).
+- Remove duplicate lane-review questions already enforced at plan approval,
+  with parity coverage for retained clauses (#1863, PRs #1867/#1874).
+- Add pinned history-scan controls for old free-text hash labels versus real
+  generated plan metadata, and guide Section B authors to use the existing
+  Run-start field (#1871, PR #1878). Scanner rules and exemptions are unchanged.
+
 ## [12.0.0] - 2026-11-14
 
 Seven merged pull requests since 11.1.1 (#1826 through #1836). It is a major
