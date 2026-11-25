@@ -5,7 +5,7 @@
 | Lane | Result | Evidence |
 |---|---|---|
 | Checkout | passed | Actual CLI from full main-style checkout and real linked worktree in test_actual_cli_build_then_verify_complete_output |
-| Harness | not run | Independent Codex generator/parser parity passes; first AGY probe aborted before model turns, rerun remains UNKNOWN |
+| Harness | passed | Independent Codex parity plus actual AGY 1.5.17 python-packaging consumer, authorized attempt 4 at product 85dd9397; see maintained measurement |
 | Driver | not applicable | No flow or delegated-driver instruction change |
 | Coordination | not applicable | Core local-lock implementation unchanged; final full gate will use its direct renewing supervisor |
 | CI provider | not run | PR not opened; no provider behavior change |
@@ -17,13 +17,14 @@
 | Wave role state | not applicable | No role/mailbox registry change |
 | Reader: core adapter | passed | Real ExpectedBuild package/member bytes feed actual core refresh/inspect and are rehashed |
 | Reader: CLI | passed | Actual subprocess CLI emits real core reports across six shape/cwd combinations |
-| Reader: AGY skill invocation | not run | First host probe aborted at stdout-only help check before model turns; corrected probe rerun pending |
+| Reader: AGY skill invocation | passed | Attempt 4 consumed the real two-member package in an unrelated project with decoys and scratch source/build removed; guide hash/tail matched, fresh missing-guide run reported missing |
 | Reader: Codex consumers | passed | Independently loaded historical/current generators with separate parsers compare exact paths/bytes/modes; current generator unchanged |
 | Reader: status/shared updater | not covered | #1889-B/#1892/#1893 |
 
 At fcad40b6 the complete focused suite passed 19 tests, and the actual default
-Make build/check both reported current for all 18 topics. The full corrected
-focused suite now passes 29 tests. Registered controls pass 2 GOOD, 3 BAD and
+Make build/check both reported current for all 18 topics. The approved product
+passed 29 focused tests; the final probe/evidence delta passes 31 focused tests.
+Registered controls pass 2 GOOD, 3 BAD and
 1 UNKNOWN; a blind inspector misses all three BAD inputs.
 
 Regression evidence against the preceding WIP: reference-style/image/HTML
@@ -43,7 +44,8 @@ hash, project decoy path, wrong tail, native failure and false missing state.
 Its missing-guide positive input requires the guide to be physically absent.
 Profile guard tests reject a symlink before touching its descendants.
 
-Live acceptance is still UNKNOWN. The separate probe path and per-case control
+Live topic acceptance was observed in attempt 4; attempts 1-3 remain UNKNOWN
+and are recorded individually in the maintained measurement. The separate probe path and per-case control
 seed files instantiate the approved mailbox 40220 probe/control conditions;
 they do not widen product scope. No host production adapter is enrolled.
 
@@ -56,4 +58,13 @@ red against exact 3066cb85 (closure, system ancestor, snapshot parser binding)
 then green after correction. The stderr-help regression ran red on the
 extracted unchanged stdout-only check, then green with both streams. The
 probe fix is cherry-picked without a separate push from 078e7426. See the
-maintained measurement for per-topic counts and the initial host abort.
+maintained measurement for per-topic counts and all four host attempts.
+
+The final evidence delta imports the exact 5e95f3f7 probe, pinned 1.5.17 help
+fixture and argv/environment tests, with no builder/core change. Extra formal
+pass 3 is justified by the post-pass-2 probe runtime corrections, new observed
+live evidence and the one-run owner exception for keyring exposure. The owner
+[ruling](https://github.com/cooneycw/claude-power-pack/issues/1888#issuecomment-7176568634)
+applies only to attempt 4, not future reruns. Authentication uses the inherited
+user-session keyring. This establishes configuration isolation; it does not
+establish credential isolation. No unobserved adapter/runtime capability was upgraded.

@@ -3,8 +3,10 @@
 
 Fetch this exact file with git show <frozen-sha>:<path>, then run:
 python3 <fetched-file> --checkout <CPP-checkout> --revision <frozen-sha>
-No credentials are read, copied or printed. HOME is set only on fresh child
-processes. JSON/stdout artifacts remain private for the helper to sanitize.
+The probe never inspects, copies or logs credentials. HOME is set only on
+fresh child processes. Consumer authentication uses the inherited user-session
+keyring; this lane isolates configuration, with no credential-isolation claim.
+JSON/stdout artifacts remain private for the helper to sanitize.
 """
 from __future__ import annotations
 
@@ -86,6 +88,36 @@ def checked_help(result):
     return help_text
 
 
+def consumer_argv(agy, prompt):
+    # AGY 1.5.17 help (pinned in the argv test): booleans take no value,
+    # output-format enum is text/json/stream-json, and -p aliases --print.
+    # Native parsing rejected integer '180'; Go duration '180s' is required.
+    # Keep the prompt one final argv element; never join/shell-evaluate it.
+    return [str(agy), "--dangerously-skip-permissions", "--output-format", "json",
+            "--print-timeout", "180s", "-p", prompt]
+
+
+def isolated_environment(inherited, profile, scratch):
+    env = dict(inherited)
+    env.update({"HOME": str(profile), "DBUS_SESSION_BUS_ADDRESS": "", "XDG_RUNTIME_DIR": str(scratch / "runtime"),
+                "XDG_CONFIG_HOME": str(profile / ".config"), "XDG_DATA_HOME": str(profile / ".local/share"),
+                "XDG_STATE_HOME": str(profile / ".local/state"), "XDG_CACHE_HOME": str(scratch / "cache"),
+                "UV_CACHE_DIR": str(scratch / "uv-cache")})
+    for key in tuple(env):
+        if key.startswith("GIT_"):
+            del env[key]
+    return env
+
+
+def consumer_environment(inherited, profile, _scratch):
+    """Match the observed HOME-only profile; retain session keyring access."""
+    return {**inherited, "HOME": str(profile)}
+
+
+def environment_names(child, overridden):
+    return {"set_names": sorted(overridden), "inherited_names": sorted(set(child) - set(overridden))}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkout", type=Path, required=True)
@@ -119,25 +151,18 @@ def main():
     scratch.mkdir(mode=0o700)
     runtime = scratch / "runtime"
     runtime.mkdir(mode=0o700)
-    env = dict(os.environ)
-    env.update({"HOME": str(profile), "DBUS_SESSION_BUS_ADDRESS": "", "XDG_RUNTIME_DIR": str(runtime),
-                "XDG_CONFIG_HOME": str(profile / ".config"), "XDG_DATA_HOME": str(profile / ".local/share"),
-                "XDG_STATE_HOME": str(profile / ".local/state"), "XDG_CACHE_HOME": str(scratch / "cache"),
-                "UV_CACHE_DIR": str(scratch / "uv-cache")})
-    for key in tuple(env):
-        if key.startswith("GIT_"):
-            del env[key]
-    emit("isolation-env", values={key: env[key] for key in (
+    env = isolated_environment(os.environ, profile, scratch)
+    emit("isolation-env", policy="build-and-preflight", **environment_names(env, (
         "HOME", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME",
-        "XDG_STATE_HOME", "XDG_CACHE_HOME", "UV_CACHE_DIR")},
+        "XDG_STATE_HOME", "XDG_CACHE_HOME", "UV_CACHE_DIR")),
         auto_update="no documented disable variable; version checked before each fresh invocation")
     copied = False
     created_skills_parent = False
 
-    def command(argv, *, cwd=scratch, label, timeout=240):
+    def command(argv, *, cwd=scratch, label, timeout=240, child_env=None):
         emit("argv", label=label, argv=list(map(str, argv)), cwd=str(cwd))
-        result = subprocess.run(list(map(str, argv)), cwd=cwd, env=env, capture_output=True,
-                                text=True, timeout=timeout)
+        result = subprocess.run(list(map(str, argv)), cwd=cwd, env=env if child_env is None else child_env,
+                                capture_output=True, text=True, timeout=timeout)
         (scratch / f"{label}.stdout").write_text(result.stdout)
         (scratch / f"{label}.stderr").write_text(result.stderr)
         emit("command-result", label=label, exit=result.returncode,
@@ -162,7 +187,7 @@ def main():
             raise RuntimeError("AGY version changed; re-confirm invocation contract")
         help_text = checked_help(command([agy, "--help"], label="help"))
         # All option/value pairs precede -p; the prompt is its final argument.
-        emit("argv-order", form="agy --dangerously-skip-permissions --output-format json --print-timeout 180 -p PROMPT",
+        emit("argv-order", form=" ".join(consumer_argv("agy", "PROMPT")),
              help_sha256=digest(help_text.encode()), reconstruction="validated against this run's version/help")
         source = scratch / "cpp-source"
         output = scratch / "built-skills"
@@ -210,6 +235,9 @@ def main():
             "read a same-named project file or another source."
         )
         observed = []
+        consumer_env = consumer_environment(os.environ, profile, scratch)
+        emit("consumer-env", **environment_names(consumer_env, ("HOME",)),
+             isolation_limit="configuration-isolated; authentication uses inherited user-session keyring")
         for label in ("positive", "missing-guide"):
             if label == "missing-guide":
                 guide.unlink()
@@ -218,8 +246,7 @@ def main():
             now = require(command([agy, "--version"], label=f"{label}-version")).strip()
             if now != version:
                 raise RuntimeError("AGY changed version during experiment")
-            result = command([agy, "--dangerously-skip-permissions", "--output-format", "json",
-                              "--print-timeout", "180", "-p", prompt], cwd=repo, label=label)
+            result = command(consumer_argv(agy, prompt), cwd=repo, label=label, child_env=consumer_env)
             try:
                 payload = response_payload(result.stdout)
                 matches = matches_response(label, payload, guide, expected_hash, tail, result.returncode)
