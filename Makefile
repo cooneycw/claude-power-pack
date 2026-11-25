@@ -990,9 +990,9 @@ pi-skills-fidelity:
 .PHONY: pi-skills-controls
 ## verify-coverage: excluded pi-skills-controls - targeted subset of the registered controls already exercised by negative-controls in verify
 pi-skills-controls:
-	@python3 scripts/check-negative-controls.py --control controls/pi-skill-build --strict
-	@python3 scripts/check-negative-controls.py --control controls/pi-bundled-parity --strict
-	@python3 scripts/check-negative-controls.py --control controls/pi-drift-reader --strict
+	@python3 scripts/check-negative-controls.py --control controls/pi-skill-build --strict --verify-provenance
+	@python3 scripts/check-negative-controls.py --control controls/pi-bundled-parity --strict --verify-provenance
+	@python3 scripts/check-negative-controls.py --control controls/pi-drift-reader --strict --verify-provenance
 
 ## verify-coverage: utility codex-init - builds codex/skills/ in the checkout, checks it, and installs it
 codex-init:
