@@ -167,3 +167,40 @@ and readers independently; attribution must distinguish host execution from
 local analysis. UNKNOWN/unexecuted rows stay visible until actual evidence
 arrives. This protocol proves no runtime bearer isolation, live-provider
 behavior, owner-session validation or container boundary.
+
+## Real-core allowance amendment
+
+The plan now binds to merged core #1908 at main
+`adf70c291cf3aa457e56a21cec17983dc761da13`; coding approval is still pending.
+The proposed pi layout supplies these exact coordination files:
+
+- Primary: `<agent>/.cpp-skills.lock`.
+- Ledger sibling: `<agent>/skills/.cpp-managed/.ownership.json.cpp-lock`.
+- Work sibling: `<agent>/skills/.cpp-managed/.work.cpp-lock`.
+
+The last two are derived by core from `ownership.json` and `work`, not optional
+CLI choices. Refresh may create/open them and take exclusive locks. Verify may
+open only existing files read-only/shared, with no root/directory/file creation;
+an appearing lock causes a retry and unstable evidence becomes UNKNOWN. Trace
+allowances must distinguish these operations per mode. No blanket permission
+to enumerate the lock parent, management neighbors or agent directory follows.
+Use exact policy paths, plus the core's derived sibling formula, in each case's
+independent allowance; do not learn allowed files from the trace under test.
+
+Core accepts system symlink ancestors above its approved root; root and
+descendants are no-follow. Pi preflight must independently reject user-controlled
+aliases above skills, including the primary-lock parent, before core IO. A1's
+stricter no-follow preflight remains the proposed policy. Add actual traced
+above-root alias-escape refusals; do not classify all ancestor traversal as
+trusted because the generic scope supports system aliases.
+
+Record-only refresh may change pending/transaction metadata, ledger and locks
+under the above allowances, while leaving installed package files untouched.
+Verify never reconciles a stale record. The host fixture must compare actual
+package identities/bytes/modes and classify management writes separately, then
+reject a seeded package rewrite masquerading as metadata reconciliation. A
+valid prior claim and exact fresh-build population are prerequisites. An
+unmarked package or a package claimed by another identity is never adopted by
+this exception; explicit adoption also cannot override another identity's claim.
+These live fixture cases supplement the committed reader controls and remain
+UNKNOWN/unexecuted until returned records demonstrate them.

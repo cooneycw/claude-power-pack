@@ -496,3 +496,100 @@ retained GOOD/UNKNOWN behavior. Provenance stays "constructed", without a
 historical-regression claim. Registration must demonstrate rejected known-bad
 inputs, accepted known-good inputs, explicit UNKNOWNs and the declared anchor
 misses. Descriptor count alone is not detection evidence.
+
+### Real-core binding amendment for approval (mailbox 40215)
+
+Core #1889-A merged in #1908 at main
+`adf70c291cf3aa457e56a21cec17983dc761da13`. This supersedes Run 2's earlier
+WIP dependency and stub-based assumptions; it does not grant coding approval.
+Main has been merged into `issue-1896-pi-a2-plan` without rebasing. Inspected
+the merged `driver.py`, `scope.py`, `store.py`, adapter documentation and
+core/transaction test cases. A2 now binds to these real semantics:
+
+1. **Mandatory shared-resource locks.** Proposed pi `Policy` retains canonical
+   install root `<agent>/skills`, ledger
+   `<agent>/skills/.cpp-managed/ownership.json`, work root
+   `<agent>/skills/.cpp-managed/work` and primary lock
+   `<agent>/.cpp-skills.lock`. The core additionally derives
+   `<agent>/skills/.cpp-managed/.ownership.json.cpp-lock` and
+   `<agent>/skills/.cpp-managed/.work.cpp-lock`. These are mandatory cooperating
+   resource locks, not optional adapter settings. Core acquisition deduplicates
+   and orders opened device/inode identities, so aliases or different primary
+   locks do not remove shared-ledger/work serialization. All three exact lock
+   paths enter host disclosure and the syscall allowance. Only the primary lock
+   lies outside skills; none of their parents becomes a new enumeration scope.
+   Refresh opens/creates locks with exclusive locking; verify opens existing
+   locks read-only/shared, creates no lock/root/directory, and retries if a
+   previously absent lock appears during inspection. Persistent derived locks
+   stay outside work cleanup. Missing locks alone are not proof of failure or
+   permission to create them during verify.
+2. **Ancestor authority belongs to pi preflight.** The core opens install root
+   and descendants with no-follow semantics, while allowing system aliases
+   above that approved root and following the explicitly approved lock parent.
+   Therefore pi must validate user-controlled home/agent/skills prefixes and
+   the primary lock's parent before granting `Policy`, before discovery or any
+   core access. Reuse A1's stricter ancestor no-follow checks; do not infer that
+   every above-root alias is safe just because core permits system aliases.
+   No relaxation of A1 protected-root, credential-path or every-history-
+   candidate guards is proposed. An allowed system-alias policy, if needed,
+   requires an explicit amendment rather than broad `resolve()` acceptance.
+   Source snapshot prefixes are likewise adapter-approved. Trace opposites
+   include agent/lock-parent alias escape above skills and symlink root/member
+   below it; refusal must precede target access.
+3. **Dual identity always refuses.** `PiAdapter.harness = "pi"` is a stable
+   ledger namespace, not an adoption mechanism. The core checks all namespaces
+   in the same approved ledger for an expected package claimed by another CPP
+   identity. It reports unmanaged and refuses refresh even with explicit
+   adoption, before transaction publication. Preserve the other identity's
+   records and installed bytes. Renaming/copying an identity needs a separately
+   reviewed migration, absent from A2. Test same-byte dual claims as well as
+   edited claims; fidelity equality cannot authorize a second owner. This
+   inspection reads the exact ledger, not other harness installations.
+4. **Record-only reconciliation is narrow.** Core inspection still reports the
+   native conflicts against the prior record; verify never updates metadata.
+   Refresh may reconcile only when complete installed membership/bytes/modes
+   equal the fresh build, prior ownership is valid for every expected package,
+   sources match, package key sets match, and no other identity owns a package.
+   Retired absent member records can then be removed. The adapter passes this
+   result through, including `metadata_refreshed`; it must not rewrite package
+   files to implement the exception or turn unmarked files into owned files.
+   Core may write its pending journal/ledger and clean its transaction under
+   management scope. Tests distinguish those allowed writes from package
+   republishing and assert exact package bytes/modes and stable file identity.
+   Any installed mismatch, orphan package, invalid ownership, foreign identity
+   or changed canonical source prevents this exception. Hand-edited-before-
+   stale remains the normal rule outside it.
+
+Public callbacks/value types remain the ones already mapped in Section C.
+Use real `inspect` / `refresh` and public `build_manifest_sha256`; no copied core
+transaction logic. Core source validation binds a full revision to a clean
+snapshot before/after build and strips inherited Git redirection. The pi builder
+must also read the approved pinned canonical inputs, not silently attribute
+ignored/untracked source members to that commit; source-binding integration
+tests include that distinction. No fixture-core installation stands in for pi.
+
+Additional concrete descriptors required by the real behavior:
+
+- `controls/pi-skill-install/cases/dual-identity-refused/case.json`
+- `controls/pi-skill-install/cases/record-only-reconciliation/case.json`
+- `controls/pi-skill-install/cases/record-only-unmanaged-refused/case.json`
+- `controls/pi-skill-install/cases/user-prefix-alias-refused/case.json`
+- `controls/pi-skill-install/cases/ignored-source-member-refused/case.json`
+- `controls/pi-syscall-observer/cases/derived-locks-refresh/case.json`
+- `controls/pi-syscall-observer/cases/derived-locks-existing-only-verify/case.json`
+- `controls/pi-syscall-observer/cases/record-only-management-writes/case.json`
+- `controls/pi-syscall-observer/cases/user-prefix-alias-probe/case.json`
+
+Local real-core integration tests additionally contend each actual derived lock
+with a subprocess, demonstrate verify's no-create behavior for all three lock
+paths, and ensure different primary locks cannot bypass shared-resource
+coordination. Those tests consume core behavior instead of assuming the primary
+lock covers everything. Existing declared concurrency/installation test files
+hold these cases; no additional implementation files are implied.
+
+The [host protocol](../measurements/pi/issue-1896-a2-host-fixture-plan.md)
+retains both RPC and syscall fixture lanes and now names the exact derived
+lock allowances and record-only distinction. Host commands remain drafts until
+implemented, pinned and reviewed; execution goes through the orchestrator.
+Approval requested on this real-core amendment before any A2 code. No provisional
+counter-model review, implementation or PR has been requested or performed.
