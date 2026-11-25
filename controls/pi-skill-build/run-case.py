@@ -59,6 +59,30 @@ def main() -> int:
             output.parent.mkdir()
             (agent / "settings.json").write_text(json.dumps({"sessionDir": str(output.parent)}))
             assert output.parent.is_dir()
+        elif scenario == "history-under-output":
+            history = output / "topic"
+            assert history.is_dir() and output in history.parents
+            (agent / "settings.json").write_text(json.dumps({"sessionDir": str(history)}))
+        elif scenario == "agent-under-output":
+            agent = output / "topic"
+            assert agent.is_dir() and output in agent.parents
+        elif scenario == "source-0664":
+            for member in [topic / "SKILL.md", guide]:
+                member.chmod(0o664)
+                assert member.stat().st_mode & 0o777 == 0o664
+        elif scenario == "source-executable":
+            member = topic / "SKILL.md"
+            member.chmod(0o755)
+            assert member.stat().st_mode & 0o111
+        elif scenario == "installed-0664":
+            member = output / "topic/SKILL.md"
+            member.chmod(0o664)
+            assert member.stat().st_mode & 0o777 == 0o664
+        elif scenario == "unrelated-settings":
+            project = work / ".pi"
+            project.mkdir()
+            (project / "settings.json").write_text("{malformed fixture")
+            assert (project / "settings.json").read_text() == "{malformed fixture"
         elif scenario == "unknown":
             shutil.rmtree(source / ".claude/skills")
             assert not (source / ".claude/skills").exists()

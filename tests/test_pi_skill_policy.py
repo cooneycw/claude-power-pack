@@ -173,3 +173,27 @@ def test_metadata_allowance_is_closed_and_refuses_seeded_descendant_and_auth_sta
     # The actual resolver refuses a selected credential path before the probe.
     with pytest.raises(PolicyError, match="credential"):
         history_root(credential)
+
+
+@pytest.mark.parametrize("contained", ["history", "agent", "project-config"])
+def test_inverse_containment_refuses_output_ancestor(tmp_path, contained):
+    home, cwd, agent = context(tmp_path)
+    output = tmp_path / "build/skills"
+    output.mkdir(parents=True)
+    kwargs = {}
+    if contained == "history":
+        forbidden = output / "topic"
+        forbidden.mkdir()
+        kwargs["session_dir"] = str(forbidden)
+    elif contained == "agent":
+        agent = output / "topic"
+        agent.mkdir()
+        forbidden = agent
+    else:
+        cwd = output / "project"
+        cwd.mkdir()
+        forbidden = cwd / ".pi"
+        forbidden.mkdir()
+    assert output in forbidden.parents
+    with pytest.raises(PolicyError, match="trusted_config|sessions"):
+        preflight(output, cwd=cwd, home=home, agent=agent, environ={}, **kwargs)

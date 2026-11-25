@@ -47,6 +47,31 @@
       "name": "history",
       "input": "cases/history",
       "expect": "BAD"
+    },
+    {
+      "name": "history-under-output",
+      "input": "cases/history-under-output",
+      "expect": "BAD"
+    },
+    {
+      "name": "agent-under-output",
+      "input": "cases/agent-under-output",
+      "expect": "BAD"
+    },
+    {
+      "name": "source-0664",
+      "input": "cases/source-0664",
+      "expect": "GOOD"
+    },
+    {
+      "name": "source-executable",
+      "input": "cases/source-executable",
+      "expect": "BAD"
+    },
+    {
+      "name": "installed-0664",
+      "input": "cases/installed-0664",
+      "expect": "BAD"
     }
   ],
   "anchors": [

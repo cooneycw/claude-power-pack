@@ -1,6 +1,8 @@
 {
   "commit": "40d25173c8c09987fac851cffa565efdc0f11c72",
   "provenance": "Independently built via make codex-skills in pinned detached worktree; names/SHA256/modes only. Never silently regenerate from candidate.",
+  "generator_path": "reference/codex-skill-sync-40d25173.py",
+  "generator_sha256": "395696707af11e0bd181741879534fbe02807fe56f659c189b44e3e45bc5d7ea",
   "members": {
     "browser-help/SKILL.md": ["9dc207f511b12fd7d5ff45fad126dba38f87b9dc53b28b311ccf986934e1ab60", 420],
     "browser-session/PROVENANCE.md": ["15dc5689565d1b663f778f40e015ab216c6f416e092e24aa78d196167c637d0b", 420],

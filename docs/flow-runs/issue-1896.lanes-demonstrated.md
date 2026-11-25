@@ -1,6 +1,6 @@
 # P1-A1 demonstrated lanes
 
-<!-- lanes-demonstrated run=491e55fba4da40ac91d983677dceecde plan=0e27a2e1431353c014742dc6ef7ef80924d4b22cc431bb48c97595782ad5e749 -->
+<!-- lanes-demonstrated run=491e55fba4da40ac91d983677dceecde plan=cf3f5f27d6b3d32dce08e9c6b2c50d029d36694139cd97a21274852958c1e47c -->
 
 | Lane | Result | Evidence |
 |---|---|---|
@@ -30,3 +30,11 @@ verify-coverage JSON entry proved unnecessary because Makefile statically
 invokes the new script; its derived classification is the source of truth.
 The future exact-head receipt is absent until review runs. These differences
 must be reported rather than rewriting the approved plan to disguise them.
+
+Pass 1 corrections: five F1/F2/F3 regressions failed before the fix and pass
+afterward. The old frozen-output comparison failed under umask 002; the new
+same-input/two-generator comparison passes 022/002 and legitimate input evolution,
+then rejects the deliberately changed real transform. The actual pinned source
+is retained and digest-checked, so this comparison is re-derivable without Git
+or network. Full focused suite: 162 passed. No real-pi or syscall acceptance
+is added by these corrections.

@@ -218,7 +218,7 @@ PI_SKILLS_JSON='{"fidelity":"not-examined","effectiveness":"unknown","scope":"fi
 if [ -f "$CHECKOUT/scripts/pi-skill-sync.py" ] && command -v python3 >/dev/null 2>&1; then
     pi_output="$(python3 "$CHECKOUT/scripts/pi-skill-sync.py" --root "$CHECKOUT" \
         --home "$HOME_DIR" --agent-dir "${PI_CODING_AGENT_DIR:-$HOME_DIR/.pi/agent}" \
-        --fidelity-root "${PI_CODING_AGENT_DIR:-$HOME_DIR/.pi/agent}/skills" --json 2>/dev/null)"
+        --fidelity-root "${PI_CODING_AGENT_DIR:-$HOME_DIR/.pi/agent}/skills" --host-fidelity --json 2>/dev/null)"
     if pi_parsed="$(python3 -c 'import json,sys; x=json.loads(sys.argv[1]); assert isinstance(x,dict) and x.get("fidelity") in {"matches","differs","absent","unknown","refused"}; assert x.get("effectiveness")=="unknown"; assert x["fidelity"]!="matches" or (type(x.get("expected")) is int and x["expected"]>0 and x.get("checked")==x["expected"]); print(json.dumps(x))' "$pi_output" 2>/dev/null)"; then
         PI_SKILLS_JSON="$pi_parsed"
         case "$pi_parsed" in

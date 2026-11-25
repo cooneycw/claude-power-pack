@@ -207,3 +207,35 @@ rows. The generator code SHA256 was independently equal for both sources. The
 committed deliberately changed real transform writes altered SKILL.md output and
 is rejected. These are separate claims and must be described separately in the
 future PR body. This record-only amendment changes no reviewed product bytes.
+
+### Counter-model pass 1 corrections (mailbox 39991)
+
+Accepted F1-F4. F1 now requires disjoint roots in both directions, including
+agent/project/history roots nested below output, with materialized inverse
+cases. F2 separates regular non-executable source permissions from exact 0644
+generated/fidelity members; GOOD source-0664 and BAD installed-0664/executable
+cases retain both sides of that contract. F3 host-global fidelity ignores
+caller project settings through an explicit canonical-root-only read context;
+ordinary build/check preflight still reads bounded project inputs. F4 compares
+exact pinned generator source and candidate source on the SAME candidate inputs,
+under both 022 and 002 umasks, with a legitimate input change and rejected
+changed transform. Historical payload inventory is separate documentary data.
+
+The exact pinned reference is additionally retained at
+`controls/pi-skill-build/reference/codex-skill-sync-40d25173.py`, byte-digest
+checked before execution, so this instrument does not depend on Git availability
+or network fetches in CI. This is frozen evidence source, not a second product
+generator; the maintained generator remains unchanged. Extra inverse/mode/cwd
+case descriptors materialize the accepted corrections within the approved
+control families. No installation or A2 scope is introduced.
+
+Before product fixes, five new F1/F2/F3 regression cases failed on the reviewed
+code: three inverse-root cases failed to refuse; 0664 source was incorrectly
+refused; unrelated caller settings changed host fidelity. All five pass after
+the fix. The old frozen-output parity test also failed under umask 002 before
+replacement. The new same-input instrument passes both umasks, tolerates an
+intentional input change and rejects the changed real transform. Focused total:
+162 passing cases; actual RPC/syscall acceptance remains UNKNOWN/unexecuted A2.
+
+Supplemental control-strengthening suggestion recorded without widening this
+fix: [axis-specific blind anchors](https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7172647280).

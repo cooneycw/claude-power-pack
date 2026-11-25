@@ -129,7 +129,7 @@ class BuildPolicy:
 
 def preflight(destination: Path, *, cwd: Path, home: Path, agent: str | Path | None = None,
               session_dir: str | None = None, environ: dict[str, str] | None = None,
-              fidelity_only: bool = False) -> BuildPolicy:
+              fidelity_only: bool = False, include_project: bool = True) -> BuildPolicy:
     """Pi-only policy inputs for the future core Adapter.preflight seam."""
     env = os.environ if environ is None else environ
     cwd = nofollow(cwd.absolute())
@@ -137,7 +137,7 @@ def preflight(destination: Path, *, cwd: Path, home: Path, agent: str | Path | N
     agent_path = nofollow(normalized(agent or env.get("PI_CODING_AGENT_DIR") or home / ".pi/agent", cwd, home))
     try:
         global_settings = settings(agent_path / "settings.json")
-        project_settings = settings(cwd / ".pi/settings.json")
+        project_settings = settings(cwd / ".pi/settings.json") if include_project else {}
     except (OSError, UnicodeError, ValueError) as error:
         raise PolicyError("settings unreadable or malformed: " + str(error)) from error
     raw = [("cli", session_dir), ("environment", env.get("PI_CODING_AGENT_SESSION_DIR")),
@@ -147,11 +147,14 @@ def preflight(destination: Path, *, cwd: Path, home: Path, agent: str | Path | N
                       for label, value in raw if isinstance(value, str) and value)
     output = normalized(destination, cwd, home)
     canonical_install = output == agent_path / "skills"
-    if output == home or within(output, cwd / ".pi"):
+    if not include_project and not (fidelity_only and canonical_install):
+        raise PolicyError("host fidelity is confined to canonical agent skills")
+    project_root = cwd / ".pi"
+    if output == home or (include_project and (within(output, project_root) or within(project_root, output))):
         raise PolicyError("output_root_under_trusted_config")
-    if within(output, agent_path) and not (fidelity_only and canonical_install):
+    if (within(output, agent_path) or within(agent_path, output)) and not (fidelity_only and canonical_install):
         raise PolicyError("output_root_under_trusted_config")
-    if any(within(output, root) for _, root in histories):
+    if any(within(output, root) or within(root, output) for _, root in histories):
         raise PolicyError("output_root_under_sessions")
     if output.name != "skills":
         raise PolicyError("build/fidelity destination must end in skills")
@@ -159,19 +162,20 @@ def preflight(destination: Path, *, cwd: Path, home: Path, agent: str | Path | N
     return BuildPolicy(agent_path, histories, histories[0][1], output)
 
 
-def markdown(path: Path) -> bytes:
+def markdown(path: Path, *, exact_mode: bool = True) -> bytes:
     nofollow(path)
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     with os.fdopen(fd, "rb") as stream:
         mode = os.fstat(stream.fileno()).st_mode
-        if not stat.S_ISREG(mode) or stat.S_IMODE(mode) != 0o644:
-            raise PolicyError("requires regular 0644 Markdown: " + str(path))
+        if not stat.S_ISREG(mode) or mode & 0o111 or (exact_mode and stat.S_IMODE(mode) != 0o644):
+            rule = "regular 0644" if exact_mode else "regular non-executable"
+            raise PolicyError("requires " + rule + " Markdown: " + str(path))
         content = stream.read()
     content.decode("utf-8")
     return content
 
 
-def package_files(directory: Path) -> dict[str, bytes]:
+def package_files(directory: Path, *, exact_mode: bool = True) -> dict[str, bytes]:
     nofollow(directory)
     found: dict[str, bytes] = {}
     def fail(error: OSError) -> None:
@@ -187,7 +191,7 @@ def package_files(directory: Path) -> dict[str, bytes]:
             member = path.relative_to(directory).as_posix()
             if member != "SKILL.md" and not re.fullmatch(r"references/[A-Za-z0-9_.-]+\.md", member):
                 raise PolicyError("unsupported package member: " + member)
-            found[member] = markdown(path)
+            found[member] = markdown(path) if exact_mode else markdown(path, exact_mode=False)
     if "SKILL.md" not in found:
         raise PolicyError("missing SKILL.md: " + str(directory))
     return found
@@ -235,7 +239,7 @@ def build(source: Path) -> tuple[Package, ...]:
             raise PolicyError("invalid topic slug: " + slug)
         if entry.is_symlink() or not entry.is_dir():
             raise PolicyError("canonical entry is not a real package: " + slug)
-        members = package_files(entry)
+        members = package_files(entry, exact_mode=False)
         text = members["SKILL.md"].decode("utf-8")
         front, body = header(text)
         declared = re.search(r"(?m)^name:\s*([^\n]+)$", front)
@@ -266,7 +270,7 @@ def build(source: Path) -> tuple[Package, ...]:
                 raise PolicyError("bundled reference collision: " + target)
             bundled[path] = target
             members[target] = b""  # reserve for recursive links
-            content = markdown(path).decode("utf-8")
+            content = markdown(path, exact_mode=False).decode("utf-8")
             members[target] = rewrite(content, path, reference=True).encode()
             return target
 

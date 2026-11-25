@@ -30,12 +30,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--home", type=Path, help="explicit home for hermetic callers; does not change process HOME")
     parser.add_argument("--session-dir")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--host-fidelity", action="store_true",
+                        help="canonical host skill snapshot, independent of caller project settings")
     args = parser.parse_args(argv)
+    if args.host_fidelity and not args.fidelity_root:
+        parser.error("--host-fidelity requires --fidelity-root")
     output = args.fidelity_root or args.output_root or args.root / "pi/skills"
     try:
         policy = preflight(output, cwd=Path.cwd(), home=args.home or Path(os.environ["HOME"]),
                            agent=args.agent_dir, session_dir=args.session_dir,
-                           fidelity_only=bool(args.fidelity_root))
+                           fidelity_only=bool(args.fidelity_root), include_project=not args.host_fidelity)
         expected = build(args.root.absolute())
         if args.write:
             write(expected, policy.destination)
@@ -47,6 +51,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             result = fidelity(expected, policy.destination)
         result["history_source"] = policy.histories[0][0]
+        result["context"] = "host-global" if args.host_fidelity else "explicit-context"
         result["runtime_observation"] = "UNKNOWN: real-pi RPC and syscall lanes are A2"
         code = 0 if result["fidelity"] == "matches" else 4 if result["fidelity"] == "unknown" else 1
     except (OSError, ValueError, UnicodeError, KeyError) as error:

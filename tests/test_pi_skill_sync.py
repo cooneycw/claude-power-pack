@@ -1,8 +1,11 @@
 """Real package bytes feed builders and fidelity readers; no host installation."""
 import hashlib
 import json
+import os
 import shutil
 import subprocess
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -12,32 +15,69 @@ from lib.pi_skills import PolicyError, build, fidelity, write
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _assert_codex_baseline(output, baseline):
-    actual = {p.relative_to(output).as_posix(): [hashlib.sha256(p.read_bytes()).hexdigest(),
-                                               p.stat().st_mode & 0o777]
-              for p in output.rglob("*") if p.is_file() and p.name != "README.md"}
-    assert actual and actual == baseline["members"]
+def _codex_inventory(output):
+    return {p.relative_to(output).as_posix(): [hashlib.sha256(p.read_bytes()).hexdigest(),
+                                             p.stat().st_mode & 0o777]
+            for p in output.rglob("*") if p.is_file() and p.name != "README.md"}
 
 
-def test_pinned_codex_outputs_and_deliberately_changed_transform(tmp_path, monkeypatch):
-    from tests.test_codex_skill_sync import codex_skill_sync as generator
+def _codex_module(name, code):
+    module = types.ModuleType(name)
+    # Both versions deliberately see the SAME candidate sources, helpers, docs
+    # and charters. Pinned code bytes are separately digest-checked below.
+    module.__file__ = str(ROOT / "scripts/codex-skill-sync.py")
+    sys.modules[name] = module
+    exec(compile(code, module.__file__, "exec"), module.__dict__)
+    return module
+
+
+def _assert_generator_parity(pinned, candidate, output):
+    assert pinned.main(["--write", "--output-root", str(output / "pinned")]) == 0
+    assert candidate.main(["--write", "--output-root", str(output / "candidate")]) == 0
+    actual, expected = _codex_inventory(output / "candidate"), _codex_inventory(output / "pinned")
+    assert actual and actual == expected
+    return actual
+
+
+@pytest.mark.parametrize("mask", [0o022, 0o002])
+def test_same_inputs_two_generators_and_changed_transform(tmp_path, monkeypatch, mask):
     baseline = json.loads((ROOT / "controls/pi-skill-build/codex-baseline.json").read_text())
     assert baseline["commit"] == "40d25173c8c09987fac851cffa565efdc0f11c72"
-    output = tmp_path / "codex-good"
-    assert generator.main(["--write", "--output-root", str(output)]) == 0
-    _assert_codex_baseline(output, baseline)
-    original = generator.generate_skill
+    pinned_code = (ROOT / "controls/pi-skill-build" / baseline["generator_path"]).read_bytes()
+    assert hashlib.sha256(pinned_code).hexdigest() == baseline["generator_sha256"]
+    pinned = _codex_module("pi_pinned_generator", pinned_code)
+    candidate = _codex_module("pi_candidate_generator", (ROOT / "scripts/codex-skill-sync.py").read_bytes())
+    assert pinned.REPO_ROOT == candidate.REPO_ROOT == ROOT
+    previous_mask = os.umask(mask)
+    try:
+        actual = _assert_generator_parity(pinned, candidate, tmp_path / "good")
+        # Historical payload delta is a separate observation, not the generator
+        # verdict. Intentional source changes need attribution in the PR report.
+        print("HISTORICAL_PAYLOAD_DELTA", sorted(p for p in actual.keys() | baseline["members"].keys()
+                                                if actual.get(p) != baseline["members"].get(p)))
+        commands = tmp_path / "candidate-commands"
+        shutil.copytree(ROOT / ".claude/commands", commands)
+        changed_input = commands / "browser/help.md"
+        changed_input.write_text(changed_input.read_text() + "\nLegitimate candidate input change.\n")
+        assert changed_input.read_text().endswith("Legitimate candidate input change.\n")
+        monkeypatch.setattr(pinned, "SOURCE_ROOT", commands)
+        monkeypatch.setattr(candidate, "SOURCE_ROOT", commands)
+        changed = _assert_generator_parity(pinned, candidate, tmp_path / "changed-input")
+        assert changed != actual  # a same-input check must tolerate real input evolution
+        original = candidate.generate_skill
 
-    def changed_transform(*args, **kwargs):
-        files = original(*args, **kwargs)
-        return {**files, "SKILL.md": files["SKILL.md"] + "\nSeeded transform difference.\n"}
+        def changed_transform(*args, **kwargs):
+            files = original(*args, **kwargs)
+            return {**files, "SKILL.md": files["SKILL.md"] + "\nSeeded transform difference.\n"}
 
-    monkeypatch.setattr(generator, "generate_skill", changed_transform)
-    bad = tmp_path / "codex-bad"
-    assert generator.main(["--write", "--output-root", str(bad)]) == 0
-    assert next(bad.glob("*/SKILL.md")).read_text().endswith("Seeded transform difference.\n")
-    with pytest.raises(AssertionError):
-        _assert_codex_baseline(bad, baseline)
+        monkeypatch.setattr(candidate, "generate_skill", changed_transform)
+        with pytest.raises(AssertionError):
+            _assert_generator_parity(pinned, candidate, tmp_path / "changed-transform")
+        assert next((tmp_path / "changed-transform/candidate").glob("*/SKILL.md")).read_text().endswith(
+            "Seeded transform difference.\n"
+        )
+    finally:
+        os.umask(previous_mask)
 
 
 def source(tmp_path):
@@ -80,7 +120,7 @@ def test_bundled_bytes_marker_and_drift(tmp_path):
     assert fidelity(packages, output)["fidelity"] == "differs"
 
 
-@pytest.mark.parametrize("change", ["missing", "marker", "mode", "symlink"])
+@pytest.mark.parametrize("change", ["missing", "marker", "mode", "group-mode", "symlink"])
 def test_fidelity_never_skips_missing_or_unsafe_expected_package(tmp_path, change):
     packages = build(source(tmp_path))
     output = tmp_path / "skills"
@@ -95,6 +135,9 @@ def test_fidelity_never_skips_missing_or_unsafe_expected_package(tmp_path, chang
     elif change == "mode":
         skill.chmod(0o755)
         assert skill.stat().st_mode & 0o111
+    elif change == "group-mode":
+        skill.chmod(0o664)
+        assert skill.stat().st_mode & 0o777 == 0o664
     else:
         skill.unlink()
         skill.symlink_to(tmp_path / "never-open")
@@ -140,6 +183,19 @@ def test_unreadable_installed_bytes_are_unknown(tmp_path, monkeypatch):
     assert report["fidelity"] == "unknown"
     assert report["checked"] == 0
     assert report["unexamined"] == 1
+
+
+def test_group_writable_source_produces_exact_0644_output(tmp_path):
+    root = source(tmp_path)
+    files = list(root.rglob("*.md"))
+    for file in files:
+        file.chmod(0o664)
+    assert all(file.stat().st_mode & 0o777 == 0o664 for file in files)
+    packages = build(root)
+    output = tmp_path / "skills"
+    write(packages, output)
+    assert all(file.stat().st_mode & 0o777 == 0o644 for file in output.rglob("*.md"))
+    assert fidelity(packages, output)["fidelity"] == "matches"
 
 
 def test_reference_portability_after_source_hidden(tmp_path):
@@ -203,6 +259,7 @@ def test_consumer_own_interpreter_and_path(tmp_path):
     venv.EnvBuilder(with_pip=False).create(environment)
     python = environment / "bin/python"
     assert python.is_file()
+    assert shutil.which("git", path=str(environment / "bin")) is None
     caller, home = tmp_path / "consumer", tmp_path / "home"
     caller.mkdir()
     home.mkdir()
