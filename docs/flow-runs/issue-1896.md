@@ -593,3 +593,18 @@ lock allowances and record-only distinction. Host commands remain drafts until
 implemented, pinned and reviewed; execution goes through the orchestrator.
 Approval requested on this real-core amendment before any A2 code. No provisional
 counter-model review, implementation or PR has been requested or performed.
+
+### Run 2 implementation approval (mailbox 40218)
+
+Approval granted for the plan at
+`e0c018ea1b77bb703ebd6513c39d32ddc8d59fd2`. Implement on the branch merged
+from current main without rebasing and retain this plan history. Host RPC and
+syscall evidence remains UNKNOWN locally and in CI until the frozen committed
+probe is fetched with `git show <sha>:path` and executed through the authorized
+host lane. Record returned results in the lane record. Every acceptance item
+needs actual evidence before claiming completion; otherwise a future PR uses
+Refs #1896 and names the remaining work without closing keywords. Committed
+negative controls, red-first regressions, direct paired finish gate with full
+history, independent runtime receipt and PR CI remain required. Freeze code
+when requesting review. Branch pushes are authorized; PR opening requires
+separate clearance. This approval precedes A2 product changes.
