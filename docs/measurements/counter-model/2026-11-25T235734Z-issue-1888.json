@@ -1,0 +1,69 @@
+{
+  "branch": "issue-1888-agy-topic-builder",
+  "counts": {
+    "accepted": 3,
+    "deferred": 1,
+    "rejected": 0
+  },
+  "escalation": {
+    "raised_cap": 7,
+    "reference": "https://github.com/cooneycw/claude-power-pack/issues/1888#issuecomment-7178106505",
+    "ruled_by": "owner"
+  },
+  "extra_passes_reason": "pass 3 reviewed the post-pass-2 live-probe runtime fixes and attempt-4 evidence under the owner's one-run keyring ruling (#1888 comment 7176568634); pass 4 reviewed the test-only CI fixture isolation fix ce0a5730 pushed after the pass-3 receipt",
+  "head": "ce0a573037c5606489635f739fa42bc6e1f53e90",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/25/rollout-2026-11-25T16-21-16-01a21382-e9f4-78b2-8dbd-a63068a99358.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 16130330,
+        "path": "2026/11/25/rollout-2026-11-25T16-21-16-01a21382-e9f4-78b2-8dbd-a63068a99358.jsonl",
+        "sha256": "31072a859693f73425ad2d1c4531ed4f370b393ba8d65ef80226b6b35a6d2b3f"
+      }
+    ],
+    "thread_id": "01a21382-e9f4-78b2-8dbd-a63068a99358"
+  },
+  "issue": "1888",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 4,
+  "recorded_at": "2026-11-25T23:57:34Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 2
+  },
+  "reviewed_artifact": {
+    "base_sha": "adf70c291cf3aa457e56a21cec17983dc761da13",
+    "merge_base": "adf70c291cf3aa457e56a21cec17983dc761da13",
+    "method": "runtime-head",
+    "patch_sha256": "3b3605cb839934f136cfca935a8631c9a9f8b05d554e7c642e420bae5a78bc41",
+    "report_record": 3414,
+    "target_head": "ce0a573037c5606489635f739fa42bc6e1f53e90"
+  },
+  "reviewer": "claude/claude-opus-5-5",
+  "reviewer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2",
+    "sources": [
+      {
+        "bytes": 7161428,
+        "path": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl",
+        "sha256": "4d1d61036a137ec46a49770ae6e4e3357a69b7278744838ffa135fa8ece170d8"
+      }
+    ],
+    "transcript": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}
