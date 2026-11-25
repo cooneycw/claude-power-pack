@@ -236,6 +236,25 @@ def test_probe_consumer_argv_matches_documented_agy_1517_flag_forms():
             contract.parse_args(invalid[1:])
 
 
+def test_probe_consumer_environment_changes_only_home_and_logs_names(tmp_path, capsys):
+    probe = probe_module()
+    inherited = {name: f"private-sentinel-{index}" for index, name in enumerate((
+        "HOME", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME",
+        "XDG_STATE_HOME", "XDG_CACHE_HOME", "UV_CACHE_DIR", "GIT_OPTIONAL_LOCKS", "OTHER_SETTING"))}
+    original = dict(inherited)
+    profile = tmp_path / ".agy-probe-home"
+    child = probe.consumer_environment(inherited, profile, tmp_path / "scratch")
+    assert child["DBUS_SESSION_BUS_ADDRESS"] == inherited["DBUS_SESSION_BUS_ADDRESS"]
+    assert child == {**inherited, "HOME": str(profile)}
+    assert inherited == original
+    report = probe.environment_names(child, ("HOME",))
+    assert report == {"set_names": ["HOME"], "inherited_names": sorted(set(inherited) - {"HOME"})}
+    probe.emit("consumer-env", **report)
+    logged = capsys.readouterr().out
+    assert all(value not in logged for value in inherited.values())
+    assert str(profile) not in logged
+
+
 @pytest.mark.parametrize("kind", ["missing", "escape", "symlink", "zero"])
 def test_required_inputs_never_skip_to_green(tmp_path, kind):
     revision = source(tmp_path)
