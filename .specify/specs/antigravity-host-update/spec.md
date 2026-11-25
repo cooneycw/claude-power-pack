@@ -287,55 +287,69 @@ bad and unexaminable inputs under the
 Regression tests run red on pre-fix code. Assertions establish each negative
 precondition before invoking the checker.
 
-#1888/#1889 package fidelity cases belong in
+#1888/#1889-B AGY package fidelity cases belong in
 `controls/antigravity-skill-install-fidelity`; #1890 rule-size and adoption
 cases belong in `controls/antigravity-global-rules`, as named by ADR 0014. Those
 directories and executable controls are delivered with their implementations,
-not asserted to exist in this docs change. The detailed committed acceptance
-inputs below bind #1889's no-lock and concurrency controls.
+not asserted to exist in this docs change. #1889-A delivers the harness-neutral
+core's committed lock, verify-no-lock, same-package concurrency, prune, drift
+and hand-edit-precedence controls through a fixture adapter root. They ship
+with A, before real harness integration; they must not wait for B. A's plan
+names their control directory and red cases. The detailed committed acceptance
+inputs below bind A's real core through that fixture adapter, then B repeats
+them through actual harness adapters where applicable. A fixture-adapter result
+never establishes live AGY acceptance.
 
 | Delivery | Positive case | Bad/unknown comparison |
 |---|---|---|
 | #1888 builder (`controls/antigravity-skill-install-fidelity`) | Fresh nonzero full topic set, valid portable references, deterministic output | Changed output, removed package, missing guide, escaping reference; unreadable source is unknown |
 | #1888 Codex compatibility | Pre/post generator and real output match membership/bytes/modes | Deliberately changed transform makes parity fail |
 | #1888 real AGY consumer | Install real built fixture skill, hide source, invoke in two unrelated repos; load nonce from bundled guide absent from prompt | Fresh session with missing skill/reference cannot recover nonce; unrelated same-name local guide cannot substitute |
-| #1889 discovery/revision | Claude/Codex/AGY selection independent of invoking harness/cwd; same full revision everywhere | CLI-only/foreign directory is not ownership; unreadable root is unknown; dirty/moving source cannot mix revisions |
-| #1889 stale host update (`controls/antigravity-skill-install-fidelity`) | Current checkout, stale managed Codex and AGY copies both refreshed; foreign sibling bytes retained | Missing member and tampered bytes fail fidelity; unexpected internal file and unmanaged same-name target survive/refuse |
-| #1889 fault isolation | Other selected harness refreshes while one fails | Destination genuinely unwritable by executing identity, precondition proven by failed write; chmod under root alone is insufficient |
-| #1889 lock/prune (`controls/antigravity-skill-install-fidelity`) | Different-package updates both survive; same-package updates leave one complete revision and matching record; unchanged owned orphan pruned | Held lock times out; modified orphan preserved; interrupted publication is incomplete, never current |
-| #1889 read-only verify (`controls/antigravity-skill-install-fidelity`) | Existing installation without a lock verifies without creating one; tree remains identical | Unreadable lock or exclusive-lock timeout gives unknown; always-create-lock mutation fails the no-mutation case |
+| #1889-A discovery/revision | Fixture adapters receive one full revision independent of cwd/invoker | Foreign paths are not ownership; unreadable root is unknown; dirty/moving source cannot mix revisions |
+| #1889-A fault isolation | One fixture adapter refreshes while another fails; actual driver report records both | Genuinely unwritable fixture destination, precondition proven by failed write; chmod under root alone is insufficient |
+| #1889-A lock/prune | In fixture adapter roots, different-package updates both survive; same-package updates leave one complete revision and matching record; unchanged owned orphan pruned | Held lock times out; modified orphan preserved; interrupted publication is incomplete, never current |
+| #1889-A read-only verify | Fixture installation without a lock verifies without creating one; tree remains identical | Unreadable lock or exclusive-lock timeout gives unknown; always-create-lock mutation fails the no-mutation case |
+| #1889-A drift/precedence | Fixture bytes/modes/member inventory match fresh build; explicit record-only reconciliation works | Missing+edited mixture preserves per-member conflicts; hand-edited beats stale; zero validated and always-current mutation fail |
+| #1889-B discovery/integration | Real Claude/Codex/AGY adapters are selected independent of invoking harness/cwd | CLI-only/foreign directory is not ownership; fixture-only success cannot count as real adapter coverage |
+| #1889-B stale host update (`controls/antigravity-skill-install-fidelity`) | Current checkout, stale managed Codex and AGY copies both refreshed; foreign sibling bytes retained; A's core controls repeated through AGY adapter | Missing member and tampered bytes fail fidelity; unexpected internal file and unmanaged same-name target survive/refuse |
+| #1889-B fault isolation | Real other selected harness refreshes while one fails | Destination genuinely unwritable by executing identity, precondition proven by failed write; summary identifies actual failure |
 | #1890 rules (`controls/antigravity-global-rules`) | Within-limit rule loads completely including its tail marker | Oversized actual build/install bytes rejected; unmanaged/hand-edited rules preserved |
 | #1892/report consumers | Actual installed trees and real driver report feed drift/status readers | Always-current mutation fails; zero validated, unreadable input and partial reports cannot pass |
 
-### Committed acceptance input: verify-no-lock
+### #1889-A committed acceptance input: verify-no-lock
 
-This is a fixture specification for #1889, not an executed probe. Create a
-fixture-owned readable AGY configuration root containing a valid managed topic
-package and its matching ownership record, plus a foreign sibling. Assert that
-`.cpp-skill-install.lock` does not exist, and capture complete relative membership,
-file hashes and modes of the configuration tree before verification. Invoke the
-real read-only verifier against that root. Expect `current`, the full nonzero
+This is a fixture specification for #1889-A, not an executed probe. Create a
+fixture-owned readable adapter root containing a valid managed fixture package
+and its matching ownership record, plus a foreign sibling. The fixture adapter
+defines its exact lock location inside its permitted scope; no AGY installation
+is required. Assert that the lock does not exist, and capture complete relative
+membership, file hashes and modes of that scope before verification. Invoke the
+real core read-only verifier through the fixture adapter. Expect `current`, the full nonzero
 package count, no lock file afterward, and identical membership/hashes/modes
 including the foreign sibling and ownership record. Verify must also succeed
 on the same readable tree made unwritable to the executing identity; establish
 that precondition with a failed write. A verifier changed to create the lock
 must fail this case. Companion inputs hold an existing exclusive lock past the
 deadline or make an existing lock unreadable; each must report `unknown` and
-leave the tree unchanged. #1889 commits these materialized inputs and executable
-assertions alongside its real adapter, and demonstrates the mutation red.
+leave the tree unchanged. #1889-A commits these materialized inputs and executable
+assertions alongside the core and fixture adapter, and demonstrates the mutation
+red. #1889-B repeats them against the actual AGY adapter's configuration root and
+`.cpp-skill-install.lock` path in its committed fidelity controls.
 
-### Committed acceptance input: concurrent-same-package
+### #1889-A committed acceptance input: concurrent-same-package
 
 Prepare two valid immutable source revisions with distinct bytes in at least
 two owned members of the same slug and distinct revision-bound ownership
-records. Assert those differences. Start two real cooperating refreshes with
+records in a fixture adapter root, without AGY-specific discovery. Assert those
+differences. Start two real core cooperating refreshes through that adapter with
 controlled overlap at lock acquisition. After both exit, compare the entire
 package and record against each expected build: exactly one complete build and
 its matching record must match. No combination of members from both revisions
 is acceptable. Repeat the schedule in both lock-acquisition orders. The paired
-different-package case requires both intended updates to survive. #1889's
-committed fidelity controls must reject a deliberately interleaved unlocked
-copy that produces a mixed package or a record from the other revision.
+different-package case requires both intended updates to survive. #1889-A's
+committed core controls must reject a deliberately interleaved unlocked copy
+that produces a mixed package or a record from the other revision. #1889-B
+repeats the schedules through the actual AGY adapter's fidelity controls.
 
 Live AGY work uses only the isolated probe profile via the approved host helper,
 with exact short commands and undo reviewed before execution. Never copy
