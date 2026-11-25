@@ -189,3 +189,21 @@ claiming syscall evidence. This is an attributable approved amendment, not a
 relaxation inferred by the implementer.
 
 Control registration refinement: separate producer/bundled/drift subjects and finite per-case descriptors materialize the already approved opposite-input scope; no new product behavior.
+
+### Generator parity ruling (mailbox 39963)
+
+Approval authority clarified the claim: execute the generator pinned to
+40d25173 and the candidate generator against the SAME candidate input tree;
+compare complete output membership, bytes and modes. A deliberately changed
+transform must fail that comparison. Separately enumerate payload differences
+from independently built historical `40d25173` output and attribute each to an
+intentional source change; any unattributed difference is a failure. This does
+not permit silent re-pinning or an unqualified claim about different-input trees.
+
+At the reviewed product head `6d06ac7b`, the separate same-input executions each
+produced 404 members with no generator-parity difference. Historical payload
+comparison separately found 0 differences, hence no changed payload attribution
+rows. The generator code SHA256 was independently equal for both sources. The
+committed deliberately changed real transform writes altered SKILL.md output and
+is rejected. These are separate claims and must be described separately in the
+future PR body. This record-only amendment changes no reviewed product bytes.
