@@ -1,0 +1,69 @@
+{
+  "branch": "issue-1887-agy-contract",
+  "counts": {
+    "accepted": 6,
+    "deferred": 3,
+    "rejected": 0
+  },
+  "escalation": {
+    "raised_cap": 7,
+    "reference": "https://github.com/cooneycw/claude-power-pack/issues/1887#issuecomment-7170162801",
+    "ruled_by": "owner"
+  },
+  "extra_passes_reason": "ADR 0007 counts a review of a correction as a pass: pass 1 (294c8ceb) found 5 findings, pass 2 (50c804a1) reviewed their corrections, pass 3 (dfe6b6b5) was the formal review of new manifest/order content, pass 4 (22aa1f06) reviewed the correction to pass 3's LOW",
+  "head": "22aa1f069057bc1091d9f3e5a49ab0fcb79670ae",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/25/rollout-2026-11-25T16-21-16-01a21382-e9f4-78b2-8dbd-a63068a99358.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 2491409,
+        "path": "2026/11/25/rollout-2026-11-25T16-21-16-01a21382-e9f4-78b2-8dbd-a63068a99358.jsonl",
+        "sha256": "00f916b014cbabb5ec85a1b356a641b556858818175549a49b62d75dee3517ac"
+      }
+    ],
+    "thread_id": "01a21382-e9f4-78b2-8dbd-a63068a99358"
+  },
+  "issue": "1887",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 4,
+  "recorded_at": "2026-11-25T18:25:18Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewed_artifact": {
+    "base_sha": "9af6d36127b5edaebe193ea204ddc87c2370a6ed",
+    "merge_base": "458ee7c108721de090043ba2f70893e69c85dc6e",
+    "method": "runtime-head",
+    "patch_sha256": "88768dce324780f7617168e12790d121dea5287884d08579779e7a59839a040c",
+    "report_record": 777,
+    "target_head": "22aa1f069057bc1091d9f3e5a49ab0fcb79670ae"
+  },
+  "reviewer": "claude/claude-opus-5-5",
+  "reviewer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2",
+    "sources": [
+      {
+        "bytes": 2860098,
+        "path": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl",
+        "sha256": "7aa4670ff560ced3439049866f1a9cf98f0404467e76e69007f0154a0274141e"
+      }
+    ],
+    "transcript": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}
