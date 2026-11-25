@@ -95,8 +95,9 @@ initial enrollment and `/cpp:status` consumes read-only verification through
 For each selected adapter: discover, construct fresh expected output, inspect
 ownership and drift, acquire the write lock, re-inspect under lock, refresh
 permitted members, and verify actual installed output before releasing the lock.
-Read-only verification takes the same lock while inspecting a cooperating
-writer's state. Build failure in one adapter does not suppress the others.
+Read-only verification follows the non-mutating shared-lock rules below while
+inspecting a cooperating writer's state. Build failure in one adapter does not
+suppress the others.
 
 ## Topic builder and Codex compatibility
 
@@ -112,7 +113,9 @@ Retain canonical topic semantics and valid measured frontmatter. Include
 `metadata.source: claude-power-pack/.claude/skills/<slug>` and versioned CPP
 ownership/provenance metadata. Stable inputs produce the same file set, bytes
 and executable modes; volatile timestamps and absolute build paths must not
-affect package bytes. Bind revision provenance in the manifest.
+affect package bytes. Bind revision provenance in the manifest. #1888 injects
+AGY metadata in its generated copies; it does not edit canonical
+`.claude/skills/*/SKILL.md` to add that metadata.
 
 Define an explicit expected topic-name set derived from the canonical inventory
 and validate its nonzero floor. Compare complete membership, not only files
@@ -121,8 +124,13 @@ bundled references cannot become a zero-validated green. Build/check must work
 from unrelated cwd and from a checkout or linked worktree.
 
 Leave `scripts/codex-skill-sync.py` byte-identical. #1888 includes a parity test
-against the pre-change generator and its real generated output (file set, bytes
-and modes), with a deliberately changed transform as its committed bad case.
+against the generator and real generated output from CPP baseline
+`40d25173c8c09987fac851cffa565efdc0f11c72`
+(main before #1887), comparing file set, bytes and modes. Compare independently
+built baseline and candidate trees, not two invocations of the candidate script.
+Retain a deliberately changed transform as the committed bad case. This test
+also detects changed canonical inputs that alter Codex output; injecting AGY
+metadata in generated copies must not move the Codex baseline.
 Known consumers include Kyle, skillc and kyle-candidate; no downstream interface
 change is authorized. Future generator unification follows the ADR's separate
 parity or coordinated versioned-change rule.
@@ -145,6 +153,25 @@ an edited owned member as `hand-edited` and require explicit reviewed adoption
 before overwriting it. An unmanaged same-name target is a collision: preserve
 it and refuse automatic replacement. New topic source revisions may update
 unchanged proven-owned installed members.
+
+Classification precedence is explicit. Unreadable or invalid ownership evidence
+is `unknown`; a readable target without CPP ownership is `unmanaged`. With valid
+ownership, a present member whose observed bytes or mode differ from its recorded
+installation is `hand-edited`, even if it also differs from the fresh build.
+This takes precedence over `stale` and forbids automatic overwrite. Missing
+members remain `absent`; only unchanged recorded members that differ from the
+fresh build are `stale` and eligible for automatic refresh. Report per-member
+conflicts rather than collapsing a package with both missing and edited members
+to repairable stale output.
+
+If observed membership, bytes and modes already equal the complete fresh build
+but differ from a previous valid record, read-only verify reports the record
+mismatch as `hand-edited` and does not rewrite it. An explicit refresh may
+reconcile only the ownership record, under the exclusive lock and after full
+membership/byte/mode verification with no unexpected content. It does not
+overwrite package bytes or adopt an unmanaged target. Report this as a metadata
+refresh; publish `current` only after verifying the new record as well. This is
+the sole automatic record-reconciliation exception to hand-edit refusal.
 
 Unexpected internal content is foreign unless previous ownership proves
 otherwise. Preserve it; if it prevents exact package membership or safe refresh,
@@ -172,12 +199,28 @@ another harness's lock while waiting for this one. Staged publication and
 cleanup remain within the selected root; no production mutation is part of the
 research or local fixture lane.
 
+Read-only verify never creates a root, lock file, staging directory or ownership
+record. Open an existing lock file read-only without create/truncate flags and
+take `LOCK_SH` for the inspection. A lock absent under a readable root does not
+by itself stop verification; inspect existing content without creating it. If a
+lock appears during that inspection, retry under the shared lock or report
+`unknown` instead of claiming a stable unlocked snapshot. An unreadable lock,
+unsupported locking or an exclusive holder exceeding the bounded wait gives
+`unknown` (exit 4) for verify. These are not proof of absent or stale output.
+Root absence with no selection remains `not-applicable`; selected missing output
+remains `absent`. Verify never reconciles an ownership record.
+
 The lock does not serialize native AGY CLI commands or other non-cooperating
 writers. State that limit in acceptance. Two controlled cooperating updates to
 different owned packages must both survive, with installed membership and bytes
-checked afterward. Valid JSON and two successful exits alone do not establish
-that both updates survived. Test interruption and lock failure without claiming
-global cross-harness transactionality.
+checked afterward. Also exercise two cooperating refreshes of the same owned
+package from distinct revisions: the resulting package must be exactly one
+complete revision's membership, bytes and modes, with its matching ownership
+record, never a mixture. The two runs may finish at different times; each run
+verifies its own result while holding the lock, not a promise that a subsequent
+valid refresh will never replace it. Valid JSON and successful exits alone do
+not establish either concurrency result. Test interruption and lock failure
+without claiming global cross-harness transactionality.
 
 Failure is isolated by harness. Attempt the other selected harnesses after a
 destination failure; do not roll them back to hide partial success. Preflight a
@@ -233,16 +276,55 @@ bad and unexaminable inputs under the
 Regression tests run red on pre-fix code. Assertions establish each negative
 precondition before invoking the checker.
 
+#1888/#1889 package fidelity cases belong in
+`controls/antigravity-skill-install-fidelity`; #1890 rule-size and adoption
+cases belong in `controls/antigravity-global-rules`, as named by ADR 0014. Those
+directories and executable controls are delivered with their implementations,
+not asserted to exist in this docs change. The detailed committed acceptance
+inputs below bind #1889's no-lock and concurrency controls.
+
 | Delivery | Positive case | Bad/unknown comparison |
 |---|---|---|
-| #1888 builder | Fresh nonzero full topic set, valid portable references, deterministic output | Changed output, removed package, missing guide, escaping reference; unreadable source is unknown |
+| #1888 builder (`controls/antigravity-skill-install-fidelity`) | Fresh nonzero full topic set, valid portable references, deterministic output | Changed output, removed package, missing guide, escaping reference; unreadable source is unknown |
 | #1888 Codex compatibility | Pre/post generator and real output match membership/bytes/modes | Deliberately changed transform makes parity fail |
 | #1888 real AGY consumer | Install real built fixture skill, hide source, invoke in two unrelated repos; load nonce from bundled guide absent from prompt | Fresh session with missing skill/reference cannot recover nonce; unrelated same-name local guide cannot substitute |
 | #1889 discovery/revision | Claude/Codex/AGY selection independent of invoking harness/cwd; same full revision everywhere | CLI-only/foreign directory is not ownership; unreadable root is unknown; dirty/moving source cannot mix revisions |
-| #1889 stale host update | Current checkout, stale managed Codex and AGY copies both refreshed; foreign sibling bytes retained | Missing member and tampered bytes fail fidelity; unexpected internal file and unmanaged same-name target survive/refuse |
+| #1889 stale host update (`controls/antigravity-skill-install-fidelity`) | Current checkout, stale managed Codex and AGY copies both refreshed; foreign sibling bytes retained | Missing member and tampered bytes fail fidelity; unexpected internal file and unmanaged same-name target survive/refuse |
 | #1889 fault isolation | Other selected harness refreshes while one fails | Destination genuinely unwritable by executing identity, precondition proven by failed write; chmod under root alone is insufficient |
-| #1889 lock/prune | Two cooperating updates survive; proven unchanged orphan pruned | Held lock times out; modified orphan preserved; interrupted publication is incomplete, never current |
+| #1889 lock/prune (`controls/antigravity-skill-install-fidelity`) | Different-package updates both survive; same-package updates leave one complete revision and matching record; unchanged owned orphan pruned | Held lock times out; modified orphan preserved; interrupted publication is incomplete, never current |
+| #1889 read-only verify (`controls/antigravity-skill-install-fidelity`) | Existing installation without a lock verifies without creating one; tree remains identical | Unreadable lock or exclusive-lock timeout gives unknown; always-create-lock mutation fails the no-mutation case |
+| #1890 rules (`controls/antigravity-global-rules`) | Within-limit rule loads completely including its tail marker | Oversized actual build/install bytes rejected; unmanaged/hand-edited rules preserved |
 | #1892/report consumers | Actual installed trees and real driver report feed drift/status readers | Always-current mutation fails; zero validated, unreadable input and partial reports cannot pass |
+
+### Committed acceptance input: verify-no-lock
+
+This is a fixture specification for #1889, not an executed probe. Create a
+fixture-owned readable AGY configuration root containing a valid managed topic
+package and its matching ownership record, plus a foreign sibling. Assert that
+`.cpp-skill-install.lock` does not exist, and capture complete relative membership,
+file hashes and modes of the configuration tree before verification. Invoke the
+real read-only verifier against that root. Expect `current`, the full nonzero
+package count, no lock file afterward, and identical membership/hashes/modes
+including the foreign sibling and ownership record. Verify must also succeed
+on the same readable tree made unwritable to the executing identity; establish
+that precondition with a failed write. A verifier changed to create the lock
+must fail this case. Companion inputs hold an existing exclusive lock past the
+deadline or make an existing lock unreadable; each must report `unknown` and
+leave the tree unchanged. #1889 commits these materialized inputs and executable
+assertions alongside its real adapter, and demonstrates the mutation red.
+
+### Committed acceptance input: concurrent-same-package
+
+Prepare two valid immutable source revisions with distinct bytes in at least
+two owned members of the same slug and distinct revision-bound ownership
+records. Assert those differences. Start two real cooperating refreshes with
+controlled overlap at lock acquisition. After both exit, compare the entire
+package and record against each expected build: exactly one complete build and
+its matching record must match. No combination of members from both revisions
+is acceptable. Repeat the schedule in both lock-acquisition orders. The paired
+different-package case requires both intended updates to survive. #1889's
+committed fidelity controls must reject a deliberately interleaved unlocked
+copy that produces a mixed package or a record from the other revision.
 
 Live AGY work uses only the isolated probe profile via the approved host helper,
 with exact short commands and undo reviewed before execution. Never copy
