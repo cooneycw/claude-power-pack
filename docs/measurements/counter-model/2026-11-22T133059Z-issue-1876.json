@@ -1,0 +1,63 @@
+{
+  "branch": "docs/adr0014-codex-adoption",
+  "counts": {
+    "accepted": 1,
+    "deferred": 3,
+    "rejected": 0
+  },
+  "head": "3f3b36ecc2d5ce0d3b58f191e8fd22b851fe9c15",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "rollout",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "rollout-2026-11-22T11-51-12-01a20318-93f3-7382-a526-4a7896802d6d.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 1366062,
+        "path": "rollout-2026-11-22T11-51-12-01a20318-93f3-7382-a526-4a7896802d6d.jsonl",
+        "sha256": "b140e42a3b49053ff4aea6189703f8f97489bde99428e82757ff061fc19c962f"
+      }
+    ],
+    "thread_id": "01a20318-93f3-7382-a526-4a7896802d6d"
+  },
+  "issue": "1876",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 2,
+  "recorded_at": "2026-11-22T13:30:59Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewed_artifact": {
+    "base_sha": "40d25173c8c09987fac851cffa565efdc0f11c72",
+    "merge_base": "40d25173c8c09987fac851cffa565efdc0f11c72",
+    "method": "runtime-head",
+    "patch_sha256": "08a0f80fdd0f7a98befb821039321ef028bf948710c2d9e0351c909c52460525",
+    "report_record": 608,
+    "target_head": "3f3b36ecc2d5ce0d3b58f191e8fd22b851fe9c15"
+  },
+  "reviewer": "claude/claude-opus-5-5",
+  "reviewer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "d869e16e-3698-4a48-ba93-36f8695a269d",
+    "sources": [
+      {
+        "bytes": 1947120,
+        "path": "-workspace/d869e16e-3698-4a48-ba93-36f8695a269d.jsonl",
+        "sha256": "6831d0d1eff0691556795caf012f947cc2f8e03290a8bdecd87d4f562b88e16c"
+      }
+    ],
+    "transcript": "-workspace/d869e16e-3698-4a48-ba93-36f8695a269d.jsonl"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}
