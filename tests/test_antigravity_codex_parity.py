@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import shutil
 import sys
 import types
 from pathlib import Path
@@ -18,7 +19,7 @@ def inventory(output):
             for p in output.rglob("*") if p.is_file() and p.name != "README.md"}
 
 
-def load(path, name):
+def load(path, name, source_root=ROOT):
     module = types.ModuleType(name)
     module.__file__ = str(path)
     sys.modules[name] = module
@@ -27,8 +28,25 @@ def load(path, name):
     for constant, suffix in (("REPO_ROOT", ""), ("SOURCE_ROOT", ".claude/commands"),
                              ("SCRIPTS_ROOT", "scripts"), ("DOCS_ROOT", "docs"),
                              ("CHARTERS_ROOT", "charters")):
-        setattr(module, constant, ROOT / suffix)
+        setattr(module, constant, source_root / suffix)
     return module
+
+
+def canonical_source(destination):
+    """Fix checkout permission inputs to the historical 022 measurement.
+
+    copy2 preserves the source checkout modes regardless of the generator's
+    umask. CI checks out sources as 0666/0777; Git records only executability.
+    Normalize disposable inputs, retaining exact output mode comparisons.
+    """
+    for suffix in (".claude/commands", "scripts", "docs", "charters", "lib", "controls"):
+        target = destination / suffix
+        shutil.copytree(ROOT / suffix, target, symlinks=True,
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        for path in target.rglob("*"):
+            if not path.is_symlink() and path.is_file():
+                path.chmod(0o755 if path.stat().st_mode & 0o111 else 0o644)
+    return destination
 
 
 def baseline():
@@ -51,8 +69,9 @@ def assert_parity(pinned, candidate, output):
 @pytest.mark.parametrize("mask", [0o022, 0o002])
 def test_two_generators_use_independent_parsers_and_identical_inputs(tmp_path, mask):
     data = baseline()
-    pinned = load(CONTROL / data["generator_path"], "agy_pinned_codex")
-    candidate = load(ROOT / "scripts/codex-skill-sync.py", "agy_current_codex")
+    source = canonical_source(tmp_path / "inputs")
+    pinned = load(CONTROL / data["generator_path"], "agy_pinned_codex", source)
+    candidate = load(ROOT / "scripts/codex-skill-sync.py", "agy_current_codex", source)
     previous = os.umask(mask)
     try:
         actual = assert_parity(pinned, candidate, tmp_path)
@@ -117,3 +136,26 @@ def test_missing_baseline_is_an_error_not_a_skip(tmp_path, monkeypatch):
     assert not (tmp_path / "codex-baseline.json").exists()
     with pytest.raises(FileNotFoundError):
         baseline()
+
+
+@pytest.mark.parametrize("mode", [0o666, 0o755])
+def test_changed_output_mode_is_detected(tmp_path, monkeypatch, mode):
+    data = baseline()
+    pinned = load(CONTROL / data["generator_path"], "agy_mode_pinned")
+    candidate = load(ROOT / "scripts/codex-skill-sync.py", "agy_mode_candidate")
+    original = candidate.main
+
+    def changed(argv):
+        result = original(argv)
+        skill = next((tmp_path / "candidate").glob("*/SKILL.md"))
+        skill.chmod(mode)
+        assert skill.stat().st_mode & 0o777 == mode
+        return result
+
+    monkeypatch.setattr(candidate, "main", changed)
+    previous = os.umask(0o022)
+    try:
+        with pytest.raises(AssertionError, match="transform parity"):
+            assert_parity(pinned, candidate, tmp_path)
+    finally:
+        os.umask(previous)

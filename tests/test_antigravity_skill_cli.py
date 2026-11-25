@@ -3,6 +3,7 @@ import json
 import shutil
 import subprocess
 import sys
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -13,20 +14,45 @@ pytestmark = pytest.mark.skipif(not shutil.which("git"), reason="git required fo
 
 
 def command(*args, cwd=None):
-    return subprocess.run(list(map(str, args)), cwd=cwd, capture_output=True, text=True, check=True).stdout.strip()
+    result = subprocess.run(list(map(str, args)), cwd=cwd, capture_output=True, text=True)
+    assert result.returncode == 0, (args, result.returncode, result.stdout, result.stderr)
+    return result.stdout.strip()
 
 
 @pytest.mark.parametrize("shape", ["checkout", "worktree", "shallow"])
 @pytest.mark.parametrize("location", ["root", "external"])
 def test_actual_cli_build_then_verify_complete_output(tmp_path, shape, location):
     source = tmp_path / "source"
+    # Snapshot committed build inputs, not the CI checkout's transport/history.
+    # Sibling CI steps may deepen that shared repository while tests run.
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    archive = tmp_path / "inputs.tar"
+    command("git", "-C", ROOT, "archive", "--format=tar", f"--output={archive}",
+            "HEAD", ".claude/skills", "docs", "scripts")
+    with tarfile.open(archive) as members:
+        for member in members:
+            target = seed / member.name
+            assert target.resolve().is_relative_to(seed)
+            assert member.isdir() or member.isfile(), member.name
+            if member.isdir():
+                target.mkdir(parents=True, exist_ok=True)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                content = members.extractfile(member)
+                assert content is not None
+                target.write_bytes(content.read())
+                target.chmod(0o755 if member.mode & 0o111 else 0o644)
+    command("git", "-C", seed, "init", "-q")
+    command("git", "-C", seed, "add", ".")
+    command("git", "-C", seed, "-c", "user.name=Fixture",
+            "-c", "user.email=fixture@example.invalid", "commit", "-qm", "source")
     if shape == "worktree":
-        clone = tmp_path / "clone"
-        command("git", "clone", "-q", "--no-hardlinks", ROOT, clone)
-        command("git", "-C", clone, "worktree", "add", "--detach", source, "HEAD")
+        command("git", "-C", seed, "worktree", "add", "--detach", source, "HEAD")
+    elif shape == "shallow":
+        command("git", "clone", "-q", "--depth=1", seed.as_uri(), source)
     else:
-        args = ["git", "clone", "-q"] + (["--depth=1"] if shape == "shallow" else [])
-        command(*args, ROOT.as_uri(), source)
+        source = seed
     if shape == "shallow":
         assert command("git", "-C", source, "rev-parse", "--is-shallow-repository") == "true"
     output = tmp_path / "output"
