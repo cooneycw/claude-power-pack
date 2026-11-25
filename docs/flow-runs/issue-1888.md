@@ -14,8 +14,8 @@ section; nothing earlier is edited, and every check reads only its own run.
 
 - Issue:             #1888
 - Necessity verdict: Needs reframing
-- Approval:          pending
-- Approver:          pending ch-orch review of Section C
+- Approval:          granted
+- Approver:          ch-orch mailbox 40220, approving Section C at 30c4b23a
 
 ### Section A - intent
 
@@ -43,6 +43,11 @@ as a builder adapter over the merged core, without another copier or premature
 production discovery. The pi builder is Markdown-only and includes pi-specific
 policy; it is precedent rather than an AGY dependency or an authorized shared
 generator refactor.
+
+Current scope follows approved-order comment
+https://github.com/cooneycw/claude-power-pack/issues/1888#issuecomment-7168491832,
+merged contract #1906 and merged core #1908. These supersede the stale parked
+and rulings-open issue text; the issue body is not edited.
 
 Host worktrees are the completed #1887/#1889 branches and this fresh main-based
 branch. No unpublished AGY implementation was found; other hosts' unpublished
@@ -121,7 +126,7 @@ Challenge: reusing pi's Markdown-only bundler would discard AGY-required scripts
 and resources. Prefer AGY policy over the neutral core and keep Codex untouched;
 do not force cross-harness unification as part of this change.
 
-### Lanes and changed-output readers
+### Lanes for this change
 
 | Lane | Answer | Note |
 |---|---|---|
@@ -130,10 +135,10 @@ do not force cross-harness unification as part of this change.
 | Driver | not applicable | no flow or delegated-driver instruction change |
 | Coordination | not applicable | product local core locks; validation heavy gate uses renewing Kyle supervisor |
 | CI provider | not covered | local checks and eventual Woodpecker PR CI; no provider behavior change |
-| Project state | will test | complete generated/managed output, absent/foreign/colliding output, unrelated AGY project with decoy guide |
+| Project state | will test | a repository that has adopted a feature's file or record / one that has not; complete managed and absent/foreign/colliding output, unrelated AGY project with decoy |
 | Toolchain version | not covered | host and pinned CI only, no version matrix; record actual live AGY version |
-| Clone shape | will test | full clone / fresh shallow source; vendored baseline still compared, missing provenance never skipped |
-| Run location | will test | CPP root / unrelated cwd with identical explicit source and output |
+| Clone shape | will test | a full clone with all refs / a fresh or shallow main-only clone; vendored baseline still compared, missing provenance never skipped |
+| Run location | will test | invoked from the CPP root / from another directory with identical explicit source and output |
 | Gate target | not applicable | no consumer quality-gate runtime selection change |
 | Wave role state | not applicable | no role or mailbox registry edits |
 | Reader: core adapter | tested against real output | expected build feeds actual core refresh/inspect and resulting trees are rehashed |
@@ -145,6 +150,14 @@ do not force cross-harness unification as part of this change.
 Reader search positively found Makefile's Codex generator invocations before
 listing consumers. Known downstream consumers Kyle/skillc/kyle-candidate retain
 their current generator interface. Lane file reviewed 11 days ago: fresh.
+Approval conditions from mailbox 40220: both transform/parser negative cases
+must fail parity; missing baseline is unknown/failure. Once implementation is
+frozen, commit exact scratch-only host commands in a probe file for master to
+fetch with git show at the frozen SHA and run in agy-probe's isolated profile.
+Log undo first; never touch the owner's real configuration. Live results remain
+unknown until observed and this issue closes only on real evidence. Branch
+pushes are allowed; PR requires ch-orch clearance.
+
 Focused Make targets and registered controls precede formal counter-model
 review; direct paired finish gate follows truthful runtime receipt. One AGY PR
 in flight, PR CI only and owner CPP pin unchanged. Approval required before
