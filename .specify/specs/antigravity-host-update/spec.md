@@ -30,11 +30,13 @@ constraints; this document changes neither the owner host nor its CPP pin.
 The owner directed generic framework first on 2026-11-25: implement the
 harness-neutral driver core before harness-specific AGY work. The core carries
 discover/refresh/verify/report, fault isolation, ownership, hash drift and
-locking contracts so additional harnesses can reuse them. The proposed issue
-split is #1889 core, then #1888 bundler, then #1889 adapter/integration; issue
-scope/dependency revisions await the owner's scheduling decision and do not
-change any acceptance promise here. pi P1-A may start after #1887 merges; that
-work is not delivery of the initial adapter subset.
+locking contracts so additional harnesses can reuse them. The approved order is
+#1887, #1889-A core, #1888 bundler, then #1889-B adapter/integration, recorded on
+[#1889](https://github.com/cooneycw/claude-power-pack/issues/1889#issuecomment-7168491284)
+and [#1888](https://github.com/cooneycw/claude-power-pack/issues/1888#issuecomment-7168491832).
+#1889 remains open through integration; the split changes no acceptance promise
+here. pi P1-A may start after #1887 merges against the core interface; that work
+is not delivery of the initial Claude/Codex/AGY subset, which remains PARTIAL.
 
 ## Outcome
 
