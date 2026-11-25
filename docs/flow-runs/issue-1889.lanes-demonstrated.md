@@ -20,8 +20,8 @@
 | Reader: pi adapter | not run | Interface and additive manifest helper coordinated; pi A2 awaits completed core review/gate evidence |
 | Reader: real adapter/status/drift | not run | Claude/Codex/AGY integrations belong to B and later reader deliveries |
 
-Local focused result: 41 tests passed. The real transaction suite's 9 tests
-passed 20 consecutive runs (180 executions) under the full-suite lease
+Local focused result: 49 tests passed. The real transaction suite's 12 tests
+passed 20 consecutive runs (240 executions) under the full-suite lease
 supervisor. Pipe handshakes establish real flock EAGAIN before the other process
 is released, and both same-package acquisition orders are tested.
 
@@ -39,6 +39,16 @@ left in the ledger was incorrectly current, and explicit adoption could give
 two CPP identities ownership of one package. They now require metadata refresh
 and refuse ambiguous cross-identity takeover, respectively; both passed after
 the corrections, along with the complete focused suite.
+
+Review pass 1 requested two corrections, both accepted: independent shared
+ledger/work serialization and support for system aliases above the approved
+root. Four regression instances ran against the exact reviewed `e62b003b`
+implementation and all failed: deterministic ledger record loss, shared-ledger
+and shared-work process lock handshakes, and a symlinked system ancestor.
+All four pass after correction. Additional cases refuse a symlink at/below the
+root, descriptor-selected aliases below the fixture anchor, and primary locks
+colliding with management data or transaction cleanup. Public signatures remain
+unchanged; the pi consumer was notified of the derived management lock paths.
 
 The registered negative-control inputs report exit 1 for stale bytes, missing
 members, hand edits, unmanaged collisions and modified orphans; current/no-lock/

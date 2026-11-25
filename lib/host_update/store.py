@@ -14,6 +14,7 @@ import uuid
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from .models import (
@@ -211,48 +212,63 @@ def locked(scope: Scope, request: Request, *, write: bool) -> Iterator[bool]:
     timeout = request.lock_timeout_seconds
     if not math.isfinite(timeout) or timeout < 0 or timeout > 3600:
         raise AdapterError("lock timeout must be finite and between 0 and 3600")
-    location = scope.policy.lock_path
-    if write and location.is_relative_to(scope.root):
-        scope.mkdir(location.parent)
+    descriptors: dict[tuple[int, int], int] = {}
     try:
-        with scope.directory(location.parent) as parent:
-            flags = os.O_NOFOLLOW | os.O_NONBLOCK | (os.O_RDWR | os.O_CREAT if write else os.O_RDONLY)
-            fd = os.open(location.name, flags, 0o600, dir_fd=parent)
-    except FileNotFoundError:
-        if write:
-            raise
-        yield False
-        return
-    try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            raise AdapterError("lock is not a regular file", state=State.UNMANAGED)
-        deadline = time.monotonic() + timeout
-        while True:
+        for location in lock_paths(scope):
+            if write and location.is_relative_to(scope.root):
+                scope.mkdir(location.parent)
             try:
-                fcntl.flock(fd, (fcntl.LOCK_EX if write else fcntl.LOCK_SH) | fcntl.LOCK_NB)
-                break
-            except OSError as exc:
-                if exc.errno not in (errno.EACCES, errno.EAGAIN):
+                with scope.directory(location.parent) as parent:
+                    flags = os.O_NOFOLLOW | os.O_NONBLOCK | (os.O_RDWR | os.O_CREAT if write else os.O_RDONLY)
+                    fd = os.open(location.name, flags, 0o600, dir_fd=parent)
+            except FileNotFoundError:
+                if write:
                     raise
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise AdapterError("lock wait exceeded bounded deadline", exit_code=1 if write else 4)
-                time.sleep(min(remaining, 0.01))
-        yield True
+                continue
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode):
+                os.close(fd)
+                raise AdapterError("lock is not a regular file", state=State.UNMANAGED)
+            identity = (info.st_dev, info.st_ino)
+            if identity in descriptors:
+                os.close(fd)
+            else:
+                descriptors[identity] = fd
+        # Device/inode order is stable even when two approved roots have
+        # different system-alias spellings. Dedup avoids locking one inode twice.
+        deadline = time.monotonic() + timeout
+        for identity in sorted(descriptors):
+            while True:
+                try:
+                    fcntl.flock(descriptors[identity], (fcntl.LOCK_EX if write else fcntl.LOCK_SH) | fcntl.LOCK_NB)
+                    break
+                except OSError as exc:
+                    if exc.errno not in (errno.EACCES, errno.EAGAIN):
+                        raise
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise AdapterError("lock wait exceeded bounded deadline", exit_code=1 if write else 4)
+                    time.sleep(min(remaining, 0.01))
+        yield bool(descriptors)
     finally:
-        os.close(fd)
+        for fd in descriptors.values():
+            os.close(fd)
+
+
+def lock_paths(scope: Scope) -> tuple[Path, ...]:
+    """Shared resources coordinate independently of an adapter's chosen lock."""
+    return scope.coordination_paths()
 
 
 def inspect_locked(scope: Scope, build: ExpectedBuild, request: Request) -> Snapshot:
-    with locked(scope, request, write=False) as held:
-        answer = snapshot(scope, build)
-        appeared = not held and scope.stat(scope.policy.lock_path) is not None
-    if appeared:
-        with locked(scope, request, write=False) as held:
-            if not held:
-                raise _unknown("lock changed during verification")
-            return snapshot(scope, build)
-    return answer
+    for _attempt in range(2):
+        absent = {path for path in lock_paths(scope) if scope.stat(path) is None}
+        with locked(scope, request, write=False):
+            answer = snapshot(scope, build)
+            appeared = any(scope.stat(path) is not None for path in absent)
+        if not appeared:
+            return answer
+    raise _unknown("lock changed during verification")
 
 
 def _ledger_bytes(scope: Scope, build: ExpectedBuild) -> bytes:

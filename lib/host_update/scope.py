@@ -1,7 +1,7 @@
 """Descriptor-relative filesystem access inside an adapter-approved scope.
 
-Never resolve a symlink to decide whether its target would be permitted. Open
-each ancestor with O_NOFOLLOW, and retain directory descriptors for leaf IO.
+Trust adapter-approved system prefixes above the install root. Open the root
+and each descendant with O_NOFOLLOW; retain directory descriptors for leaf IO.
 Unexpected package files are inventoried without reading their contents.
 """
 
@@ -61,8 +61,17 @@ class Scope:
             raise AdapterError("ledger cannot be inside transient work scope", state=State.UNMANAGED)
         if policy.work_root.is_relative_to(policy.ledger_path):
             raise AdapterError("work scope cannot be inside ledger file", state=State.UNMANAGED)
-        if policy.lock_path in (policy.ledger_path, policy.work_root, self.root):
-            raise AdapterError("lock collides with another management path", state=State.UNMANAGED)
+        for location in self.coordination_paths():
+            if (location in (policy.ledger_path, policy.work_root, self.root)
+                    or policy.ledger_path.is_relative_to(location)
+                    or policy.work_root.is_relative_to(location)
+                    or location.is_relative_to(policy.work_root)):
+                raise AdapterError("lock collides with management data or cleanup scope", state=State.UNMANAGED)
+
+    def coordination_paths(self) -> tuple[Path, ...]:
+        ledger, work = self.policy.ledger_path, self.policy.work_root
+        return (self.policy.lock_path, ledger.with_name(f".{ledger.name}.cpp-lock"),
+                work.with_name(f".{work.name}.cpp-lock"))
 
     def package(self, name: str) -> Path:
         target = self.root / slug(name)
@@ -78,32 +87,59 @@ class Scope:
 
     @contextmanager
     def directory(self, path: Path, *, create: bool = False) -> Iterator[int]:
-        """No-follow ancestor walk; mkdir only within the approved install root."""
+        """Open the approved root once; no-follow every descendant below it.
+
+        Trusted system ancestors above the adapter-approved root may be aliases
+        (for example /home -> /var/home). The root itself is not followed.
+        Adapter preflight must validate user-controlled prefixes before granting
+        a root. The fixture adapter does so beneath its marked fixture anchor.
+        """
         absolute(path)
-        fd = os.open("/", _DIRECTORY)
-        current = Path("/")
+        fd = -1
         try:
-            for item in path.parts[1:]:
-                current /= item
+            if path.is_relative_to(self.root):
                 try:
-                    child = os.open(item, _DIRECTORY, dir_fd=fd)
+                    fd = os.open(self.root, _DIRECTORY)
                 except FileNotFoundError:
-                    if not create or not current.is_relative_to(self.root):
+                    if not create:
                         raise
+                    # Only the selected root may be bootstrapped. Its approved
+                    # parent may include system aliases; no parent is created.
+                    parent = os.open(self.root.parent, os.O_RDONLY | os.O_DIRECTORY)
                     try:
-                        os.mkdir(item, 0o755, dir_fd=fd)
-                    except FileExistsError:
-                        pass
-                    child = os.open(item, _DIRECTORY, dir_fd=fd)
-                os.close(fd)
-                fd = child
+                        try:
+                            os.mkdir(self.root.name, 0o755, dir_fd=parent)
+                        except FileExistsError:
+                            pass
+                        fd = os.open(self.root.name, _DIRECTORY, dir_fd=parent)
+                    finally:
+                        os.close(parent)
+                for item in path.relative_to(self.root).parts:
+                    try:
+                        child = os.open(item, _DIRECTORY, dir_fd=fd)
+                    except FileNotFoundError:
+                        if not create:
+                            raise
+                        try:
+                            os.mkdir(item, 0o755, dir_fd=fd)
+                        except FileExistsError:
+                            pass
+                        child = os.open(item, _DIRECTORY, dir_fd=fd)
+                    os.close(fd)
+                    fd = child
+            else:
+                # Source roots and the explicitly approved lock parent are
+                # separate bounded authorities, not additional inventory roots.
+                ancestor = self.root.is_relative_to(path) or path == self.policy.lock_path.parent
+                fd = os.open(path, (os.O_RDONLY | os.O_DIRECTORY) if ancestor else _DIRECTORY)
             yield fd
         except OSError as exc:
             if exc.errno in (errno.ELOOP, errno.ENOTDIR):
                 raise AdapterError("symlink or non-directory ancestor refused", state=State.UNMANAGED) from exc
             raise
         finally:
-            os.close(fd)
+            if fd >= 0:
+                os.close(fd)
 
     def stat(self, path: Path) -> os.stat_result | None:
         self._allowed(path)

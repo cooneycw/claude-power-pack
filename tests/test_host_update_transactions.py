@@ -243,6 +243,50 @@ def test_different_packages_shared_lock_and_ledger_preserve_both_updates(tmp_pat
     assert (case.root / "a/skills/old/SKILL.md").is_file()
 
 
+def test_shared_ledger_different_policy_locks_cannot_lose_record(tmp_path, monkeypatch):
+    case = Case(tmp_path / "fixture", second_package=True)
+    first = dict(case.spec(), packages=case.rows[:1])
+    second = dict(case.spec(), harness="fixture-b", packages=case.rows[1:],
+                  lock="a/second.lock", work="a/skills/.managed/work-b")
+    assert first["ledger"] == second["ledger"] and first["lock"] != second["lock"]
+    original = store._ledger_bytes
+    interleaved = []
+
+    def capture_then_interleave(scope, build):
+        captured = original(scope, build)
+        if scope.owner == "fixture-b" and not interleaved:
+            result = refresh(FixtureAdapter(case.root, first), case.request(lock_timeout_seconds=0.05))
+            interleaved.append(result)
+        return captured
+
+    monkeypatch.setattr(store, "_ledger_bytes", capture_then_interleave)
+    result = refresh(FixtureAdapter(case.root, second), case.request())
+    assert result.exit_code == 0 and len(interleaved) == 1
+    if interleaved[0].exit_code:
+        assert "deadline" in interleaved[0].reason, interleaved[0]
+        assert refresh(FixtureAdapter(case.root, first), case.request()).exit_code == 0
+    ledger = json.loads((case.root / "a/skills/.managed/ownership.json").read_bytes())
+    assert set(ledger["adapters"]) == {"fixture-a", "fixture-b"}, "successful update lost its ownership record"
+    for spec in (first, second):
+        assert inspect(FixtureAdapter(case.root, spec), case.request()).exit_code == 0
+
+
+@pytest.mark.parametrize("shared", ["ledger", "work"])
+def test_shared_resource_serializes_different_policy_locks(tmp_path, shared):
+    case = Case(tmp_path / "fixture", second_package=True)
+    first = dict(case.spec(), packages=case.rows[:1])
+    second = dict(case.spec(), harness="fixture-b", packages=case.rows[1:], lock="a/second.lock")
+    if shared == "ledger":
+        second["work"] = "a/skills/.managed/work-b"
+    else:
+        second["ledger"] = "a/skills/.managed/second-ledger.json"
+    assert first["lock"] != second["lock"]
+    assert first[shared] == second[shared]
+    ordered_pair(case, first, case.revision, second, case.revision)
+    for spec in (first, second):
+        assert inspect(FixtureAdapter(case.root, spec), case.request()).exit_code == 0
+
+
 def test_interrupted_publication_retains_backup_and_reports_unknown(tmp_path, monkeypatch):
     case = Case(tmp_path / "fixture")
     assert refresh(case.adapter(), case.request()).exit_code == 0

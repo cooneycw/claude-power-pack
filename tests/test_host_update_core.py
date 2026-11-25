@@ -322,6 +322,58 @@ def test_symlink_root_is_refused_without_touching_target(tmp_path):
     assert tree_snapshot(protected) == before
 
 
+def test_symlinked_system_ancestor_above_install_root_is_supported(tmp_path):
+    actual = tmp_path / "actual-home"
+    actual.mkdir()
+    alias = tmp_path / "system-home"
+    alias.symlink_to(actual, target_is_directory=True)
+    case = Case(alias / "fixture")
+    assert alias.is_symlink() and not (case.root / "a").is_symlink()
+    result = refresh(case.adapter(), case.request())
+    assert result.exit_code == 0, result.reason
+    assert inspect(case.adapter(), case.request()).exit_code == 0
+
+
+def test_symlink_below_install_root_remains_refused(tmp_path):
+    case = Case(tmp_path / "fixture")
+    assert refresh(case.adapter(), case.request()).exit_code == 0
+    references = case.root / "a/skills/topic/references"
+    shutil.rmtree(references)
+    protected = case.root / "protected-fixture"
+    protected.mkdir()
+    (protected / "sentinel").write_bytes(b"must not be opened")
+    references.symlink_to(protected, target_is_directory=True)
+    assert references.is_symlink()
+    before = tree_snapshot(protected)
+    result = refresh(case.adapter(), case.request())
+    assert result.exit_code == 1
+    assert tree_snapshot(protected) == before
+
+
+def test_descriptor_alias_below_fixture_anchor_is_not_a_system_ancestor(tmp_path):
+    case = Case(tmp_path / "fixture")
+    protected = case.root / "protected-fixture"
+    protected.mkdir()
+    (protected / "sentinel").write_bytes(b"untouched")
+    (case.root / "alias").symlink_to(protected, target_is_directory=True)
+    assert (case.root / "alias").is_symlink()
+    spec = dict(case.spec(), install="alias/skills", ledger="alias/skills/.managed/ownership.json",
+                work="alias/skills/.managed/work")
+    before = tree_snapshot(protected)
+    assert refresh(FixtureAdapter(case.root, spec), case.request()).exit_code == 1
+    assert tree_snapshot(protected) == before
+
+
+@pytest.mark.parametrize("lock", ["a/skills/.managed", "a/skills/.managed/work/lock"])
+def test_coordination_lock_cannot_be_management_data_or_transient_content(tmp_path, lock):
+    case = Case(tmp_path / "fixture")
+    spec = dict(case.spec(), lock=lock)
+    before = tree_snapshot(case.root / "a")
+    result = refresh(FixtureAdapter(case.root, spec), case.request())
+    assert result.exit_code == 1
+    assert tree_snapshot(case.root / "a") == before
+
+
 def test_dirty_source_and_wrong_build_revision_fail_unknown(tmp_path):
     case = Case(tmp_path / "fixture")
     (case.source / "topic/SKILL.md").write_bytes(b"not committed")

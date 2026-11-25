@@ -42,6 +42,22 @@ class FixtureAdapter:
         paths = {key: self.path(key) for key in ("install", "ledger", "lock", "work", "source")}
         if request.revision.snapshot_root != paths["source"]:
             raise AdapterError("fixture source scope mismatch", state=State.UNMANAGED)
+        if (paths["install"].is_relative_to(paths["source"])
+                or paths["source"].is_relative_to(paths["install"])
+                or paths["lock"].is_relative_to(paths["source"])):
+            raise AdapterError("fixture write scope overlaps the immutable source", state=State.UNMANAGED)
+        # The fixture anchor is approved, but descriptor-chosen descendants
+        # beneath it are not system ancestors. Validate their existing prefixes
+        # no-follow before returning a policy the core may open as a root.
+        anchor = Scope(Policy(self.root, self.root / ".unused-ledger", self.root / ".unused-lock",
+                              self.root / ".unused-work"))
+        for key, path in paths.items():
+            parent = path.parent if key in ("ledger", "lock") else path
+            try:
+                with anchor.directory(parent):
+                    pass
+            except FileNotFoundError:
+                pass
         return Policy(paths["install"], paths["ledger"], paths["lock"], paths["work"])
 
     def discover(self, policy: Policy, request: Request) -> Discovery:

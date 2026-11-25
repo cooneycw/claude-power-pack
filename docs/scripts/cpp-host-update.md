@@ -58,8 +58,20 @@ The ownership schema records source, revision and relative member SHA256/mode
 with a CPP producer/schema marker. A single external ledger may hold these
 records. No ownership marker authorizes deletion of unexpected foreign content.
 Installed bytes and modes are re-inspected before a record is published. A
-shared ledger uses adapter-identity namespaces to preserve cooperating adapters'
-records under their common lock.
+shared ledger uses adapter-identity namespaces. The core serializes its
+read-modify-write with a sibling lock derived from the ledger path, even when
+adapters supply different primary locks. A shared work root likewise has a
+derived sibling lock protecting transaction state. For ledger `ledger.json`
+and work directory `work`, these are `.ledger.json.cpp-lock` and
+`.work.cpp-lock` in their respective parents, inside the approved install root.
+Locks are acquired in file-identity order and duplicate identities are acquired
+once. Verify opens existing locks shared and never creates them; refresh uses
+exclusive locks. Lock files persist outside transient cleanup trees.
+
+System symlink ancestors above the adapter-approved install root are accepted.
+The root itself and every descendant are opened without following symlinks.
+Adapter preflight must validate user-controlled prefixes before granting that
+root; fixture preflight enforces this below its marked fixture anchor.
 
 Changing these public signatures requires notifying the pi worker before its
 consumer changes. Internal implementation may evolve without duplicating the
