@@ -197,6 +197,37 @@ def test_record_only_reconciliation_does_not_republish_package(tmp_path, monkeyp
     assert inspect(case.adapter(), case.request()).exit_code == 0
 
 
+def test_retired_missing_record_member_requires_metadata_refresh(tmp_path):
+    case = Case(tmp_path / "fixture")
+    assert refresh(case.adapter(), case.request()).exit_code == 0
+    ledger_path = case.root / "a/skills/.managed/ownership.json"
+    ledger = json.loads(ledger_path.read_bytes())
+    members = ledger["adapters"]["fixture-a"]["topic"]["members"]
+    members["retired.md"] = {"sha256": hashlib.sha256(b"retired fixture").hexdigest(), "mode": 0o644}
+    ledger_path.write_text(json.dumps(ledger))
+    assert not (case.root / "a/skills/topic/retired.md").exists()
+    before = tree_snapshot(case.root / "a/skills/topic")
+    assert inspect(case.adapter(), case.request()).after.state == State.STALE
+    result = refresh(case.adapter(), case.request())
+    assert result.exit_code == 0 and result.metadata_refreshed
+    assert tree_snapshot(case.root / "a/skills/topic") == before
+    updated = json.loads(ledger_path.read_bytes())
+    assert "retired.md" not in updated["adapters"]["fixture-a"]["topic"]["members"]
+
+
+def test_adoption_cannot_create_two_cpp_owners_for_one_package(tmp_path):
+    case = Case(tmp_path / "fixture")
+    assert refresh(case.adapter(), case.request()).exit_code == 0
+    policy = dict(case.spec(), harness="another-fixture-owner")
+    ledger = json.loads((case.root / "a/skills/.managed/ownership.json").read_bytes())
+    assert "topic" in ledger["adapters"]["fixture-a"]
+    assert "another-fixture-owner" not in ledger["adapters"]
+    before = tree_snapshot(case.root / "a")
+    result = refresh(FixtureAdapter(case.root, policy), case.request(adopt_paths=("topic",)))
+    assert result.exit_code == 1
+    assert tree_snapshot(case.root / "a") == before
+
+
 @pytest.mark.parametrize("change", ["unchanged", "edited", "foreign"])
 def test_prune_requires_every_orphan_member_to_be_proven_unchanged(tmp_path, change):
     case = Case(tmp_path / "fixture", second_package=True)

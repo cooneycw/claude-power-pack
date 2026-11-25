@@ -126,6 +126,7 @@ class Snapshot:
     records: dict[str, OwnershipRecord]
     actual: dict[str, dict[str, OwnedMember]]
     record_only: bool
+    foreign_owned: frozenset[str] = frozenset()
 
 
 def snapshot(scope: Scope, build: ExpectedBuild, *, ignore_pending: bool = False) -> Snapshot:
@@ -133,6 +134,12 @@ def snapshot(scope: Scope, build: ExpectedBuild, *, ignore_pending: bool = False
         raise _unknown("incomplete transaction retained; inspect recovery work before another refresh")
     records = read_ledger(scope)
     packages = {package.name: package for package in build.packages}
+    foreign_owned: set[str] = set()
+    for owner, rows in _document(scope)["adapters"].items():
+        if not isinstance(rows, dict):
+            raise _unknown("shared ownership namespace is incomplete")
+        if owner != scope.owner:
+            foreign_owned.update(packages.keys() & rows.keys())
     conflicts: list[Conflict] = []
     actual: dict[str, dict[str, OwnedMember]] = {}
     examined = 0
@@ -146,6 +153,9 @@ def snapshot(scope: Scope, build: ExpectedBuild, *, ignore_pending: bool = False
         package, record = packages.get(name), records.get(name)
         wanted = {p: OwnedMember(m.sha256, m.mode) for p, m in package.members.items()} if package else {}
         previous = dict(record.members) if record else {}
+        if name in foreign_owned:
+            conflict(name, "", State.UNMANAGED, "package claimed by another CPP adapter identity")
+            matches_build = False
         exists = scope.stat(target)
         if exists is None:
             matches_build &= package is None
@@ -177,6 +187,8 @@ def snapshot(scope: Scope, build: ExpectedBuild, *, ignore_pending: bool = False
                 conflict(name, path, State.STALE, "unchanged owned member differs from fresh build")
         for path in wanted.keys() - files.keys():
             conflict(name, path, State.ABSENT, "expected member missing")
+        for path in previous.keys() - files.keys() - wanted.keys():
+            conflict(name, path, State.STALE, "record retains a missing retired member")
         for path in dirs - (_directories(wanted) | _directories(previous)):
             conflict(name, path, State.UNMANAGED, "unexpected directory preserved")
         if package and record.revision != build.revision:
@@ -191,7 +203,7 @@ def snapshot(scope: Scope, build: ExpectedBuild, *, ignore_pending: bool = False
     record_only = bool(conflicts) and matches_build and records.keys() == packages.keys() and all(
         records[name].canonical_source == package.canonical_source for name, package in packages.items()
     )
-    return Snapshot(inspection, records, actual, record_only)
+    return Snapshot(inspection, records, actual, record_only, frozenset(foreign_owned))
 
 
 @contextmanager
@@ -255,6 +267,9 @@ def _ledger_bytes(scope: Scope, build: ExpectedBuild) -> bytes:
 
 def publish(scope: Scope, build: ExpectedBuild, before: Snapshot, request: Request) -> tuple[Inspection, bool, str]:
     """Caller holds LOCK_EX. Leave pending evidence and recoverable bytes on failure."""
+    if before.foreign_owned:
+        raise AdapterError("another CPP identity owns this package; explicit migration required",
+                           state=State.UNMANAGED)
     adopted = set(request.adopt_paths)
     for path in adopted:
         parts(path)

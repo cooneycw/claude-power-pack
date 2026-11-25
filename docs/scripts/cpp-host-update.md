@@ -116,6 +116,8 @@ The current ledger format is schema 1, producer `claude-power-pack`, with an
 explicit package-record map. Adapters sharing a ledger must use the same exact
 lock; the core preserves other identities' records under that lock. Renaming
 an identity does not silently adopt its old packages.
+An existing claim by another CPP identity is an ownership collision even with
+`--adopt`; it needs an explicit migration rather than two simultaneous owners.
 
 Verify opens an existing lock read-only and takes LOCK_SH. An absent lock does
 not create any file, directory or record; a lock appearing during inspection
@@ -130,7 +132,8 @@ Unexpected files/directories and unmanaged same-name targets are preserved and
 refused. An unchanged valid owned orphan can be pruned; edited or unexpected
 orphan content is preserved for review. If the complete installed output already
 equals the new build and prior ownership is valid, refresh may update only the
-record; verify never reconciles it.
+record, including removal of retired absent record members; verify never
+reconciles it.
 
 Explicit reviewed adoption names the conflicted package/member paths. Old
 package bytes are moved to recoverable backups inside the allowed work scope;
