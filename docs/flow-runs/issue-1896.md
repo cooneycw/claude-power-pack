@@ -389,3 +389,110 @@ Sequence: proposed amendment review; final core evidence/seam confirmation;
 explicit implementation approval; real adapter and local opposite controls;
 immutable host scripts reviewed and executed by the authorized fixture lane;
 independent review/receipt; direct paired finish gate; PR only on clearance.
+
+### Proposed control paths refined (mailbox 40148)
+
+This records concrete planned paths only. It grants no implementation approval
+and adds no control code or fixture evidence. The final plan still waits for
+stable #1889-A internals. No provisional counter-model read is requested.
+The earlier directory-level entries resolve to the files below; no glob is a
+file declaration. Any additional seed/helper path requires another explicit
+plan amendment before implementation.
+
+Each descriptor is `case.json`, containing finite synthetic inputs and explicit
+preconditions. The runner materializes them beneath its disposable root and
+invokes the actual subject; it does not emulate the product verdict. Raw RPC
+and syscall parser seeds are embedded data in the descriptors, so no undeclared
+transcript files are implied. Actual host traces/diagnostics remain separate
+execution evidence; synthetic parser cases alone cannot satisfy that lane.
+
+Install control scaffolding:
+
+- `controls/pi-skill-install/control.json`
+- `controls/pi-skill-install/run-case.py`
+- `controls/pi-skill-install/README.md`
+- `controls/pi-skill-install/anchors/constructed-blind.py`
+
+Install descriptors:
+
+- `controls/pi-skill-install/cases/fresh-install/case.json`
+- `controls/pi-skill-install/cases/current-install/case.json`
+- `controls/pi-skill-install/cases/hand-edited-before-stale/case.json`
+- `controls/pi-skill-install/cases/foreign-collision/case.json`
+- `controls/pi-skill-install/cases/adopt-with-backup/case.json`
+- `controls/pi-skill-install/cases/missing-expected-skill/case.json`
+- `controls/pi-skill-install/cases/stripped-source-marker/case.json`
+- `controls/pi-skill-install/cases/modified-reference/case.json`
+- `controls/pi-skill-install/cases/auth-helper-rejected/case.json`
+- `controls/pi-skill-install/cases/path-escape-rejected/case.json`
+- `controls/pi-skill-install/cases/manifest-rejected/case.json`
+- `controls/pi-skill-install/cases/executable-rejected/case.json`
+- `controls/pi-skill-install/cases/output-under-trusted-config/case.json`
+- `controls/pi-skill-install/cases/output-under-sessions/case.json`
+- `controls/pi-skill-install/cases/unreadable-install/case.json`
+- `controls/pi-skill-install/cases/zero-expected-population/case.json`
+
+Root descriptors enumerate a finite matrix in JSON: direct/nested/inverse and
+alias spellings; CLI/env/global/project/default history sources and overridden
+non-empty candidates; external history/skills; legal isolated comparison. A
+runner must report each matrix row independently and assert the defining root
+relationship before calling the subject. Unreadable uses an actual permission
+boundary or is UNKNOWN; running as a privileged reader is not a negative case.
+
+RPC observer scaffolding:
+
+- `controls/pi-rpc-observer/control.json`
+- `controls/pi-rpc-observer/run-case.py`
+- `controls/pi-rpc-observer/README.md`
+- `controls/pi-rpc-observer/anchors/constructed-blind.py`
+
+RPC descriptors:
+
+- `controls/pi-rpc-observer/cases/populated-baseline-pair/case.json`
+- `controls/pi-rpc-observer/cases/missing-response/case.json`
+- `controls/pi-rpc-observer/cases/duplicate-response-id/case.json`
+- `controls/pi-rpc-observer/cases/empty-success/case.json`
+- `controls/pi-rpc-observer/cases/missing-expected-skill/case.json`
+- `controls/pi-rpc-observer/cases/malformed-response/case.json`
+- `controls/pi-rpc-observer/cases/added-diagnostic/case.json`
+- `controls/pi-rpc-observer/cases/replaced-builtin-tool/case.json`
+- `controls/pi-rpc-observer/cases/unavailable-tool-inventory/case.json`
+
+The good pair includes a non-empty baseline diagnostic so "no added diagnostic"
+cannot mean "ignore stderr" or "stderr must always be empty". Added-diagnostic
+data is a reader opposite input; the separate host malformed-skill run must
+produce an actual additional diagnostic. Unsupported tool inventory is UNKNOWN.
+
+Syscall observer scaffolding:
+
+- `controls/pi-syscall-observer/control.json`
+- `controls/pi-syscall-observer/run-case.py`
+- `controls/pi-syscall-observer/README.md`
+- `controls/pi-syscall-observer/anchors/constructed-blind.py`
+
+Syscall descriptors:
+
+- `controls/pi-syscall-observer/cases/allowed-install/case.json`
+- `controls/pi-syscall-observer/cases/allowed-readonly-verify/case.json`
+- `controls/pi-syscall-observer/cases/auth-file-stat/case.json`
+- `controls/pi-syscall-observer/cases/transient-trusted-write/case.json`
+- `controls/pi-syscall-observer/cases/history-root-resolution/case.json`
+- `controls/pi-syscall-observer/cases/history-descendant-probe/case.json`
+- `controls/pi-syscall-observer/cases/child-descriptor-relative-write/case.json`
+- `controls/pi-syscall-observer/cases/readonly-verify-created-lock/case.json`
+- `controls/pi-syscall-observer/cases/truncated-path/case.json`
+- `controls/pi-syscall-observer/cases/unresolved-directory-fd/case.json`
+- `controls/pi-syscall-observer/cases/incomplete-child-trace/case.json`
+
+History data pairs allowed no-follow ancestor/root operations with forbidden
+descendant stat/list/open operations. Child/fd data exercises cwd and descriptor
+resolution with actual annotated trace syntax selected for the pinned strace;
+unsupported relevant syntax is UNKNOWN. Known-bad fixture traces distinguish
+failed forbidden probes from successful transient writes. The live host lane
+still must trace the seeded stat/write child, not merely replay these strings.
+
+Each family's constructed anchor declares its exact missed BAD verdicts and
+retained GOOD/UNKNOWN behavior. Provenance stays "constructed", without a
+historical-regression claim. Registration must demonstrate rejected known-bad
+inputs, accepted known-good inputs, explicit UNKNOWNs and the declared anchor
+misses. Descriptor count alone is not detection evidence.
