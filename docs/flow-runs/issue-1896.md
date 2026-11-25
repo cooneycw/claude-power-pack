@@ -13,8 +13,8 @@ section; nothing earlier is edited, and every check reads only its own run.
 - Run-start:         790174a3f3994c5433429ddf8df6fe3296762ce9
 
 - Issue: #1896 (Tier 2), parent #1876
-- Approval: pending - concrete plan submitted before product coding
-- Delivery: one pi adapter PR, opened only after explicit clearance
+- Approval: granted subject to recorded A1/A2 split and four conditions (mailbox 39937)
+- Delivery: separate P1-A1 and P1-A2 PRs, each opened only after explicit clearance
 
 ### Section A - intent
 
@@ -70,61 +70,74 @@ Known downstream Codex consumers Kyle/skillc/candidate motivate leaving the
 Codex generator and canonical topic inputs unchanged. No downstream pi format
 compatibility is claimed before an interface exists.
 
-### Section C - proposed changes (pending approval)
+### Section C - approved P1-A1 delivery
 
-1. `scripts/pi-skill-sync.py` - thin check/write/install/verify-installed CLI, output-root/session-dir policy inputs and explicit adoption; delegates installation to the generic core through the agreed pi adapter.
-2. `lib/host_update/pi_adapter.py` - pi package policy, source bundling, positive destination preflight, session-history candidate resolver and adapter callbacks; final module placement agreed with core author before import wiring.
-3. `scripts/skills-check.py` - bundled-topic expected-root comparison and strict pi member checks without changing existing canonical/Claude behavior.
-4. `scripts/install-drift.sh` - read-only pi installed-fidelity/count reporting against actual fresh expected output; no shared updater enrollment or effective-selection claim from file hashes.
-5. `Makefile` - pi build/check/install/verify and focused fixture/control test entry points, with host-local inspection kept distinct from hermetic CI.
-6. `.gitignore` - ignore generated pi/skills packages and keep only the maintained README.
-7. `pi/skills/README.md` - document generated output, canonical source and regeneration interface.
-8. `tests/test_pi_skill_sync.py` - real-builder package inventory/bytes/modes, portable references, malformed inputs, explicit paths, root/cwd/checkout layouts and core adapter integration.
-9. `tests/test_pi_skill_boundaries.py` - B1-B6 fixture cases, per-source history exclusions and aliases, adoption/collision safety, syscall transient-write observer and its seeded bad writer.
-10. `tests/test_pi_skill_discovery.py` - actual installed builder output into offline fixture pi RPC, membership/source paths and unchanged built-in tool population; real binary guard and explicit unavailable status.
-11. `tests/test_skills_check.py` - fresh bundled builder output into existing checker; missing expected package/marker and one-byte reference drift fail; existing unbundled behavior remains valid.
-12. `tests/test_install_drift.py` - actual pi adapter report into drift consumer, nonzero expected-population floor, unknown/missing/unmanaged/current and fidelity-vs-effectiveness separation.
-13. `controls/pi-skill-install-fidelity/control.json` - register load-bearing pi verifier/control subjects, immutable blind-anchor provenance and complete bad/good/unexaminable cases.
-14. `controls/pi-skill-install-fidelity/run-case.sh` - drive real CLI/core subject and assert opposite/unknown verdicts without interpreting skipped observations as proof.
-15. `controls/pi-skill-install-fidelity/cases.json` - materialized input definitions for missing member/marker, byte drift, foreign collision, unsupported payload, history/trusted-root escape, transient write and unavailable evidence, each paired with a healthy case.
-16. `controls/pi-skill-install-fidelity/README.md` - fixture construction, blind-subject mutations, safety scope and exact negative-control evidence.
-17. `controls/census.md` - enumerate new gate/readiness surfaces and their registered controls.
-18. `.claude/verify-coverage.json` - account for new scripts not statically reached by a build gate, naming actual consumers.
-19. `docs/scripts.md` - index the new thin pi CLI.
-20. `docs/scripts/pi-skill-sync.md` - CLI contract, known limits, state/exit meanings and recovery/adoption instructions.
-21. `docs/HOST_MANAGED_ARTIFACTS.md` - skills root and exact advisory-lock HOST-SURFACE disclosure; staging/ledger/adoption backup confined within skills root.
-22. `docs/measurements/pi/2026-11-25-discovery-reload.md` - durable sanitized probe summary copied with provenance from the immutable note above, before scratch-branch retirement.
-23. `docs/flow-runs/issue-1896.md` - append-only approved plan and attributable later disposition.
-24. `docs/flow-runs/issue-1896.as-read.md` - helper-produced issue snapshot at approval.
-25. `docs/flow-runs/issue-1896.lanes-demonstrated.md` - actual lane results, including unrun host/CI gaps rather than guessed passes.
-26. `docs/measurements/counter-model/*-issue-1896.json` - runtime-derived independent exact-head review receipt through the designated reviewer.
+Approval: granted by task orchestrator, mailbox 39937, for the original Section C
+at df7c0faa as amended by the four conditions recorded here. This is P1-A1 only;
+P1-A2 is a separate later PR. The [stderr ruling](https://github.com/cooneycw/claude-power-pack/issues/1896#issuecomment-7171775775)
+requires paired no-CPP-skills baseline diagnostics, reported verbatim, and a
+committed bad skill that adds a diagnostic. No PR is authorized by this approval.
 
-Scope: approximately 26 paths, 1,500-2,200 implementation/test/documentation lines;
-control fixture/anchor members may require explicit plan refinement before
-approval. Generic core code belongs to #1889-A, not this branch. No command
-workflow generation, rules, MCP, capability receipts, shared pi updater
-enrollment, provider work or pi-in-Kyle runtime is included.
+1. `scripts/pi-skill-sync.py` - thin check/write/build-fidelity CLI; install/adoption/transactional verification deferred to A2 with explicit unsupported results.
+2. `lib/pi_skills.py` - pi-only deterministic package bytes, Markdown0644 policy, source inventory and path/history preflight; neutral data seam for later real-core adapter, no duplicate generic installer.
+3. `scripts/skills-check.py` - bundled-topic expected-root comparison, nonzero canonical membership floor and strict no-follow pi member checks; existing canonical/Claude behavior unchanged.
+4. `scripts/install-drift.sh` - pi fresh-build fidelity reader with explicit snapshot/unexamined effectiveness; no shared updater enrollment or install writes.
+5. `Makefile` - pi build/check/fidelity and focused A1 test/control entry points, host-local versus hermetic scopes explicit.
+6. `.gitignore` - ignore generated pi/skills packages, keeping maintained README.
+7. `pi/skills/README.md` - generated output/source/regeneration and A1 limits.
+8. `tests/test_pi_skill_sync.py` - real-builder inventory/bytes/modes/references, expected-root checker, root/cwd/checkout layouts and seam data.
+9. `tests/test_pi_skill_policy.py` - preflight/history candidate/path aliases and bad source inputs; B controls needing no installation.
+10. `tests/test_skills_check.py` - actual fresh builder output into checker; missing member/marker and one-byte drift fail; legacy unbundled behavior preserved.
+11. `tests/test_install_drift.py` - actual pi builder/fidelity report into drift consumer; absent/unreadable/nonzero expected population and explicit limits.
+12. `controls/pi-skill-build/control.json` - register load-bearing A1 builder/fidelity verdicts and committed opposite/unknown fixtures.
+13. `controls/pi-skill-build/run-case.py` - invoke actual A1 subject on fixture-owned inputs and assert preconditions/verdicts.
+14. `controls/pi-skill-build/anchors/constructed-always-clean.py` - declared blind subject for control rejection evidence.
+15. `controls/pi-skill-build/cases.json` - actual committed cases for empty/missing marker/member, byte drift, unsafe source, forbidden output/history and unreadable evidence with healthy comparisons.
+16. `controls/pi-skill-build/README.md` - construction/safety/provenance and known opposite verdicts.
+17. `controls/census.md` - enumerate A1 instruments and scope of controls.
+18. `.claude/verify-coverage.json` - new script coverage by actual test/Make consumers.
+19. `docs/scripts.md` - thin CLI inventory entry.
+20. `docs/scripts/pi-skill-sync.md` - A1 CLI/seam/fidelity/exit/refusal contract, explicit A2 limits.
+21. `docs/HOST_MANAGED_ARTIFACTS.md` - planned skills/lock host disclosure; A1 writes generated output only, no installs.
+22. `docs/measurements/pi/2026-11-25-discovery-reload.md` - durable sanitized probe summary from immutable1726e96e.
+23. `docs/flow-runs/issue-1896.md` - approved plan/amendment and attributable disposition.
+24. `docs/flow-runs/issue-1896.as-read.md` - helper-produced issue snapshot.
+25. `docs/flow-runs/issue-1896.lanes-demonstrated.md` - actual results and explicit unknown host lanes.
+26. `docs/measurements/counter-model/*-issue-1896.json` - independent runtime-derived receipt for A1 checkpoint.
 
-Risks: path normalization must reject forbidden descendants before touching
-them; all CLI/env/global/project/default history candidates stay excluded even
-when overridden. Settings are read-only/no-lock and malformed/unreadable inputs
-fail. Core callbacks must run pi preflight before generic inventory/locking.
-The proposed hidden ledger remains a measured candidate until interface review.
-No OS credential isolation is promised. Native writers ignoring flock remain
-outside cooperative concurrency guarantees. Strace and pi are absent in this
-container; their real observations need a bounded fixture host lane, not a mock
-or silent skip. Requiring stderr literally empty would reject the measured
-no-model warning: distinguish expected fixture startup diagnostics from skill
-validation/collision warnings, with that acceptance interpretation reviewed.
+Scope: A1 approximately 26 narrow product/test/control/docs/record paths, roughly
+900-1400 lines; the large installation and runtime portions have moved to A2.
+Generic core code belongs to #1889-A. Adapt control registration to repository
+schema without expanding product scope; declare added fixture seed paths before
+shipping. No shared updater enrollment, rules, MCP, capabilities, command
+workflow generation, provider work or pi-in-Kyle implementation.
 
-Implementation sequence: agree seam; build deterministic packages and path
-policy without touching host state; integrate agreed generic core for ownership,
-locks, safe refresh/adoption/record reconciliation; wire actual-output readers;
-materialize named controls and run bad/good comparisons; checkpoint, independent
-review/receipt, paired finish gate and PR CI after clearance. Every changed
-load-bearing gate gets committed negative inputs; regression assertions must
-run red against pre-fix behavior. Missing source/CLI/audit evidence is unknown,
-never a clean result. No full local suites; authorized heavy work uses kyle-lock.
+Risks: fail before forbidden-descendant touches, including symlink aliases and
+all overridden history candidates. Settings may be read only at exact bounded
+paths; malformed/unreadable configuration fails. Root traversal must not inspect
+credential neighbors. A1 staged-tree fidelity is a read-only file snapshot,
+not a cooperating writer transaction or runtime effectiveness claim. Source
+inventories must not silently drop unsupported content.
+
+A2 reserved follow-up: agreed `lib/host_update/pi_adapter.py` imports real core;
+CLI install/adopt/verify-installed ownership/record/lock integration; actual
+installed-output pi RPC; B1-B6 syscall observer and install concurrency/adoption
+controls. No guessed signatures, placeholder installer or false A1 completion.
+The real-pi RPC and strace observer execute in a disposable HOST FIXTURE lane
+routed through the task orchestrator; both binaries are absent here. Until that
+lane runs, status is UNKNOWN/unexecuted, never green from a binary-guard skip.
+Pair each actual RPC with no-CPP-skills baseline in the same fixture; no added
+diagnostic is permitted. Preserve baseline verbatim; malformed/colliding fixture
+must add a diagnostic. A1 does not execute or claim either A2 observation.
+
+A1 sequence: deterministic bytes/path preflight; bundle-aware checker/fidelity
+readers fed actual builder output; materialized bad/good/unknown controls;
+focused Make checks; checkpoint review and receipt; paired finish gate; PR only
+on clearance. Full suites remain PR CI only; authorized heavy exceptions use
+kyle-lock. Codex parity stays pinned to40d25173; unrelated output drift requires
+an explicit re-pin reason (Nit Store7168403197), never silent baseline refresh.
+
+### Lanes for this change
 
 | Lane | Answer | Evidence planned or limit |
 |---|---|---|
@@ -139,10 +152,10 @@ never a clean result. No full local suites; authorized heavy work uses kyle-lock
 | Run location | will test | invoked from the CPP root / from another directory - actual CLI tests with explicit source root |
 | Gate target | will test | CPP itself / a consumer with its own interpreter and PATH - fixture adapter callers and helper invocation do not inherit a wrong cwd/interpreter assumption |
 | Wave role state | not applicable | No wave registration/release code or record changes |
-| Reader: generic core installation | tested against real output | test_pi_skill_sync.py feeds actual expected packages from pi builder to agreed core adapter |
+| Reader: generic core installation | not covered | A2 integrates actual A1 package bytes with delivered core; no generic installer ships in A1 |
 | Reader: skills-check/install-drift | tested against real output | test_skills_check.py and test_install_drift.py consume fresh real builder/adapter output and actual fixture installed bytes |
 | Reader: pi skill loader | not covered | Preparatory probes used synthetic skills; delivered builder output requires real offline fixture RPC host evidence before claiming this reader covered |
-| Reader: boundary observer | tested against real output | test_pi_skill_boundaries.py traces actual child operations; seeded stat/outside-root create-unlink must be detected despite clean final snapshot |
+| Reader: boundary observer | not covered | A2 host fixture strace lane; UNKNOWN until actual child traces and seeded transient-write control execute |
 | Reader: contextual selection report | tested against real output | Record known bounded project shadowing separately from installed fidelity; unmeasured effectiveness remains unknown |
 
 Pinned compatibility: independently compare untouched Codex generator and real
@@ -153,5 +166,5 @@ cooperative same-package serialization (one complete revision and matching
 record); pi adapter integration must preserve its no-create LOCK_SH verification,
 hand-edited-before-stale rule and explicit record-only reconciliation exception.
 
-Approval requested from the task orchestrator before product coding. This plan
-does not declare its own approval or authorize PR creation.
+Approval recorded from mailbox 39937; the plan amendment precedes product code.
+PR creation remains separately gated on explicit clearance.
