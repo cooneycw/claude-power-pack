@@ -39,7 +39,7 @@ is retained and digest-checked, so this comparison is re-derivable without Git
 or network. Full focused suite: 162 passed. No real-pi or syscall acceptance
 is added by these corrections.
 
-## Run 2 - A2 local evidence and pending host observations
+## Run 2 - A2 local evidence and observed host fixture
 
 Run id `94e96cda99ab4be19bb7068942115d12`; plan approval is mailbox 40218
 at `e0c018ea`, binding merged core `adf70c29`. This section does not replace
@@ -54,9 +54,9 @@ Run 1's historical marker or claim a helper-generated new approval stamp.
 | Lock/concurrency reader | local pass | Each of three real lock files held by a separate pipe-synchronized process; EAGAIN independently established, verify unknown and tree unchanged; absent locks stay absent |
 | A1 checker/drift readers | local pass | Existing 162 cases, same-input pinned Codex parity and fresh-build consumers pass after lazy installation imports preserve standalone snapshot deployment |
 | RPC pair reader | local pass | Committed populated/bad/unknown raw pairs; shape-only blind anchor misses semantic negatives; source and diagnostic equality checked |
-| Actual pi loader | UNKNOWN / unexecuted | Host fixture batch committed, no pi binary locally; tool inventory unsupported by documented pi 1.6.0 RPC remains unknown separately |
+| Actual pi loader | OBSERVED / partial | Rerun 2 at `38041ce1`: all 18 actual installed skills discovered; removal produces finding, restoration returns population; hidden management layout adds no non-topic commands. Tool inventory and skill-loader diagnostic observation remain UNKNOWN |
 | Syscall reader | local pass | Auth stat, transient write, history descendants, fd-relative escape, no-create verify and record-only package-write opposites; malformed/truncated/omitted child traces unknown |
-| Actual syscall observer | UNKNOWN / unexecuted | Host batch traces actual copier/verify separately from pi, then actual synthetic auth-stat/transient-write children; raw records not returned yet |
+| Actual syscall observer | OBSERVED / matches | Rerun 2 at `38041ce1`: 29 normal cases match, auth-stat and transient-write controls find their actual forbidden operations; all 31 expected child exits match, no forced stops, zero aggregate findings/UNKNOWNs and cleanup true |
 | Contextual selection / provider / container | UNKNOWN / not covered | Neither disk fidelity nor offline reader controls establish runtime selection or bearer isolation |
 | CI provider | pending | No A2 PR or CI yet; separate PR clearance required |
 
@@ -71,7 +71,7 @@ The credential-alias regression failed when a literal auth-file probe was
 normalized into an ordinary source path; it now remains a finding, and the
 committed auth-stat descriptor retains that opposite alias input.
 
-Current focused total is 219 passing cases (25 install/concurrency, 32 observer,
+Initial focused total was 219 passing cases (25 install/concurrency, 32 observer,
 162 A1). Two writer processes also both establish real EAGAIN before release,
 then publish one complete revision/record for same-package and changed-package-
 population inputs. Handshakes and process completion waits are bounded.
@@ -79,8 +79,8 @@ population inputs. Handshakes and process completion waits are bounded.
 Three new registered control families cover actual production installation,
 RPC pair reader and syscall reader with GOOD/BAD/UNKNOWN inputs and constructed
 anchors. Their provenance is honestly constructed, not a historical fix claim.
-Strict control runs pass. Host control self-tests do not upgrade the UNKNOWN
-execution rows. Full finish gate, independent review/receipt and PR CI remain
+Strict control runs pass. Host control self-tests alone do not upgrade execution
+rows; the actual paired rerun evidence below does. Full finish gate, independent receipt and PR CI remain
 pending; no closing acceptance claim for #1896 is made.
 
 Supplemental documentation contradiction recorded without widening A2:
@@ -94,3 +94,36 @@ accepts the GOOD trace and reports the forbidden-fd twin; unresolvable fds stay
 UNKNOWN. Current observer total is 40 passed. The hidden management-directory
 expectation and frozen-design primary-lock rename are explicit in Run 2 and
 the host protocol. No host execution evidence has been added by this correction.
+
+### Accepted host rerun 2 and remaining scope
+
+[Rerun 2](../measurements/pi/2026-11-25-a2-host-rerun-2.md) at reviewed code
+`38041ce14b8fb0d5f5f231a10236e199c057771b` ran on the host during
+2026-11-25T23:49:08Z through 23:49:50Z, Python 3.12.3 / pi 1.6.0 / strace 6.8.
+The author verified the forwarded sanitized summary digest
+`7549d721678b229a50a25a090b881f3885e6e2bbe9848c04f403cfed89283f6a`, script
+hashes and all returned per-case verdict/exit/blocker fields. The actual RPC
+pair/removal/restoration responses were independently fed to the reader.
+Full raw syscall traces remain host-only; this author did not replay them.
+
+The actual syscall lane is OBSERVED: GOOD=matches and seeded BAD=finding.
+The preceding 28 unresolved notes cleared, supporting the runtime-allowance
+cascade diagnosis. This covers the explicit copier/verifier fixture operations,
+not pi startup credential isolation or all possible runtime contexts. The
+[initial](../measurements/pi/2026-11-25-a2-host-initial.md) and
+[first rerun](../measurements/pi/2026-11-25-a2-host-rerun.md) remain nonpassing.
+
+The actual pi loader discovery/removal/restoration/project-shadow observations
+are OBSERVED. RPC has zero findings and two standing UNKNOWNs: no supported
+built-in-tool inventory RPC and no skill-loader warning channel in RPC stderr.
+Equal stderr covers runtime/extension/provider/flag diagnostics only. Those
+two rows remain #1896 work; contextual effectiveness, owner validation and
+provider/container behavior remain unclaimed. Any A2 PR uses Refs #1896.
+
+Latest local observer suite: 95 passed, including three residual regressions
+run RED before fixes. All six targeted control families pass; A2 has 79
+descriptors (21 install, 9 RPC, 49 syscall). Code review pass 4 approved
+`38041ce1`, with the owner-raised cap 7 at
+[the #1896 ruling](https://github.com/cooneycw/claude-power-pack/issues/1896#issuecomment-7178021233).
+The docs-only evidence delta and A2 receipt are subsequent review steps; the
+direct paired finish gate and PR CI remain pending. No issue closure claimed.

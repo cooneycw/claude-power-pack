@@ -783,3 +783,30 @@ inventories/census, relative links, Unicode dashes, security and import checks
 passed. The 25 install and 162 A1 tests passed on the preceding correction;
 production lib/ and CLI are unchanged by these observer-only additions.
 No corrected live acceptance or full finish-gate claim follows from these checks.
+
+### Accepted host rerun 2: docs-only evidence handoff
+
+Mailbox 40478 authorizes one docs-only evidence commit after the accepted host
+run at frozen reviewed code `38041ce14b8fb0d5f5f231a10236e199c057771b`.
+Main was fetched and already an ancestor (`adf70c29`); no merge/rebase was needed.
+New record: `docs/measurements/pi/2026-11-25-a2-host-rerun-2.md`; update the
+existing demonstrated-lanes record without replacing Run 1's historical marker.
+Keep both prior nonpassing host records. No code change is authorized here.
+
+The sanitized summary SHA256
+`7549d721678b229a50a25a090b881f3885e6e2bbe9848c04f403cfed89283f6a` was
+independently verified, along with script hashes and all 31 audit/exit/blocker
+fields. Actual supplied RPC pair/removal/restoration responses were replayed
+through the delivered reader. Syscall state is OBSERVED/matches: zero aggregate
+findings/UNKNOWNs, 29 normal matches and two actual seeded findings; all child
+exits matched, no forced stops, cleanup true. The previous 28 unresolved notes
+cleared. This author did not replay omitted raw syscall traces.
+
+RPC has zero findings and two standing UNKNOWNs: tool inventory and skill-loader
+diagnostics. Both remain #1896 work. Equal stderr proves no skill-warning absence.
+No effectiveness/provider/container/owner-session claim follows. Code pass 4
+approved `38041ce1` under owner cap 7, reference
+https://github.com/cooneycw/claude-power-pack/issues/1896#issuecomment-7178021233.
+The reviewer must check this docs-only delta and write the A2 receipt bound to
+that code by ancestry. Direct paired finish gate and PR clearance/CI remain
+subsequent steps; any PR uses Refs #1896 and names the remaining rows.
