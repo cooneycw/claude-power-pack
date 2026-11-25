@@ -74,6 +74,18 @@ def matches_response(label, payload, guide, expected_hash, tail, native_exit):
                  payload.get("sha256") == "" and payload.get("tail") == "" and not guide.exists())))
 
 
+def checked_help(result):
+    if result.returncode:
+        raise RuntimeError("AGY help command failed")
+    help_text = result.stdout + result.stderr
+    for flag in ("--print", "--dangerously-skip-permissions", "--output-format", "--print-timeout"):
+        if flag not in help_text:
+            raise RuntimeError("AGY help differs from the confirmed contract")
+    if "json" not in help_text or not re.search(r"(?m)^\s*-p(?:[,\s]|$)", help_text):
+        raise RuntimeError("AGY prompt/print alias or JSON form changed")
+    return help_text
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkout", type=Path, required=True)
@@ -148,12 +160,7 @@ def main():
         emit("version", observed=version, expected="1.5.17")
         if version != "1.5.17":
             raise RuntimeError("AGY version changed; re-confirm invocation contract")
-        help_text = require(command([agy, "--help"], label="help"))
-        for flag in ("--print", "--dangerously-skip-permissions", "--output-format", "--print-timeout"):
-            if flag not in help_text:
-                raise RuntimeError("AGY help differs from the confirmed contract")
-        if "json" not in help_text or not re.search(r"(?m)^\s*-p(?:[,\s]|$)", help_text):
-            raise RuntimeError("AGY prompt/print alias or JSON form changed")
+        help_text = checked_help(command([agy, "--help"], label="help"))
         # All option/value pairs precede -p; the prompt is its final argument.
         emit("argv-order", form="agy --dangerously-skip-permissions --output-format json --print-timeout 180 -p PROMPT",
              help_sha256=digest(help_text.encode()), reconstruction="validated against this run's version/help")

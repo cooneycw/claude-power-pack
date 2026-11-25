@@ -168,6 +168,22 @@ def test_live_probe_profile_guard_rejects_alias_before_descendant_metadata(tmp_p
         probe.profile_paths_safe(profile, (profile / ".gemini/config/skills",))
 
 
+def test_probe_help_accepts_stderr_without_weakening_contract_checks():
+    probe = probe_module()
+    help_text = ("  -p, --print Run one prompt\n--dangerously-skip-permissions\n"
+                 "--output-format (text, json, stream-json)\n--print-timeout seconds\n")
+    stderr_help = subprocess.CompletedProcess(["agy", "--help"], 0, stdout="", stderr=help_text)
+    assert stderr_help.stdout == "" and all(flag in stderr_help.stderr for flag in (
+        "--print", "--dangerously-skip-permissions", "--output-format", "--print-timeout"))
+    assert probe.checked_help(stderr_help) == help_text
+    stdout_help = subprocess.CompletedProcess(["agy", "--help"], 0, stdout=help_text, stderr="")
+    assert probe.checked_help(stdout_help) == help_text
+    for invalid in (subprocess.CompletedProcess(["agy", "--help"], 1, stdout="", stderr=help_text),
+                    subprocess.CompletedProcess(["agy", "--help"], 0, stdout="", stderr="unrelated output")):
+        with pytest.raises(RuntimeError):
+            probe.checked_help(invalid)
+
+
 @pytest.mark.parametrize("kind", ["missing", "escape", "symlink", "zero"])
 def test_required_inputs_never_skip_to_green(tmp_path, kind):
     revision = source(tmp_path)
