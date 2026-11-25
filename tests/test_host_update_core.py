@@ -327,6 +327,19 @@ def test_source_binding_ignores_foreign_git_environment(tmp_path, monkeypatch):
     assert result.revision == case.revision
 
 
+def test_ignored_worktree_file_cannot_be_attributed_to_source_commit(tmp_path):
+    case = Case(tmp_path / "fixture")
+    (case.source / ".gitignore").write_text("ignored.md\n")
+    (case.source / "ignored.md").write_bytes(b"not part of the source commit\n")
+    case.commit()
+    assert case.git("status", "--porcelain") == ""
+    assert case.git("ls-files", "ignored.md") == ""
+    case.rows[0]["members"]["references/ignored.md"] = {"source": "ignored.md"}
+    result = refresh(case.adapter(), case.request())
+    assert result.exit_code == 4, "untracked source bytes cannot inherit a commit's provenance"
+    assert not (case.root / "a/skills/topic").exists()
+
+
 def test_selected_absent_vs_unselected_not_applicable_without_mutation(tmp_path):
     case = Case(tmp_path / "fixture")
     before = tree_snapshot(case.root / "a")

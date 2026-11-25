@@ -20,7 +20,7 @@
 | Reader: pi adapter | not run | Interface and additive manifest helper coordinated; pi A2 awaits completed core review/gate evidence |
 | Reader: real adapter/status/drift | not run | Claude/Codex/AGY integrations belong to B and later reader deliveries |
 
-Local focused result: 38 tests passed. The real transaction suite's 9 tests
+Local focused result: 39 tests passed. The real transaction suite's 9 tests
 passed 20 consecutive runs (180 executions) under the full-suite lease
 supervisor. Pipe handshakes establish real flock EAGAIN before the other process
 is released, and both same-package acquisition orders are tested.
@@ -31,6 +31,9 @@ Both are committed mutation cases. The inherited GIT_DIR/GIT_WORK_TREE regressio
 test was run before environment isolation and failed (expected exit 0, observed
 unknown 4), then passed with the fix. This is a regression of the initial WIP
 implementation, not a claim that the new core existed on the old main branch.
+The ignored-source-member regression also failed before the fix (expected
+unknown 4, observed success 0). The fixture builder now reads only regular
+blobs present in the pinned commit; the complete focused suite then passed.
 
 The registered negative-control inputs report exit 1 for stale bytes, missing
 members, hand edits, unmanaged collisions and modified orphans; current/no-lock/

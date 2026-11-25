@@ -22,7 +22,7 @@ from .models import (
     RunReport,
     State,
 )
-from .scope import Scope, absolute
+from .scope import Scope, absolute, parts
 from .store import inspect_locked, locked, publish, snapshot, validate_build
 
 
@@ -76,17 +76,38 @@ def _validate_revision(scope: Scope, revision: Revision) -> None:
     # No symlink aliases before Git is allowed to read this approved source.
     with scope.directory(revision.snapshot_root):
         pass
-    # An invoking repository's GIT_DIR/WORK_TREE/config injection must not
-    # redirect this explicit source, nor trigger optional Git writes/hooks.
+    head = _source_git(revision, ["rev-parse", "HEAD"])
+    clean = _source_git(revision, ["status", "--porcelain", "--untracked-files=normal"])
+    if head.returncode or clean.returncode or head.stdout.strip() != revision.commit.encode() or clean.stdout:
+        raise AdapterError("source snapshot is dirty, unavailable or bound to another revision", exit_code=4)
+
+
+def _source_git(revision: Revision, arguments: Sequence[str]) -> subprocess.CompletedProcess[bytes]:
+    # An invoking repository's Git overrides and replace refs must not redirect
+    # the pinned source. No global config, hooks, fsmonitor or optional writes.
     env = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
-    env.update(GIT_OPTIONAL_LOCKS="0", GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+    env.update(GIT_OPTIONAL_LOCKS="0", GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
+               GIT_NO_REPLACE_OBJECTS="1")
     prefix = ["git", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
               "-C", str(revision.snapshot_root)]
-    head = subprocess.run([*prefix, "rev-parse", "HEAD"], capture_output=True, text=True, env=env, timeout=10)
-    clean = subprocess.run([*prefix, "status", "--porcelain", "--untracked-files=normal"],
-                           capture_output=True, text=True, env=env, timeout=10)
-    if head.returncode or clean.returncode or head.stdout.strip() != revision.commit or clean.stdout:
-        raise AdapterError("source snapshot is dirty, unavailable or bound to another revision", exit_code=4)
+    return subprocess.run([*prefix, *arguments], capture_output=True, env=env, timeout=10)
+
+
+def _source_blob(revision: Revision, relative_path: str) -> bytes:
+    parts(relative_path)
+    tree = _source_git(revision, ["ls-tree", "-z", revision.commit, "--", f":(literal){relative_path}"])
+    rows = tree.stdout.split(b"\0")
+    if tree.returncode or len(rows) != 2 or rows[-1]:
+        raise AdapterError("required source member is not in the pinned commit", exit_code=4)
+    header, separator, name = rows[0].partition(b"\t")
+    fields = header.split()
+    if (not separator or name != relative_path.encode() or len(fields) != 3 or fields[1] != b"blob"
+            or fields[0] not in (b"100644", b"100755")):
+        raise AdapterError("required source member is not a tracked regular file", exit_code=4)
+    blob = _source_git(revision, ["cat-file", "blob", fields[2].decode("ascii")])
+    if blob.returncode:
+        raise AdapterError("pinned source blob is unavailable", exit_code=4)
+    return blob.stdout
 
 
 def _error_result(name: str, request: Request, error: AdapterError) -> AdapterResult:

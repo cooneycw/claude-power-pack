@@ -93,7 +93,10 @@ and optional mode (0644 by default). Every path is bounded by that fixture tree.
 The source checkout must be clean and at the requested full commit before and
 after build. Foreign inherited `GIT_*` settings cannot redirect it; global Git
 config, hooks/fsmonitor and optional Git writes are disabled for these checks.
-The fixture adapter reads actual source bytes rather than a hand-built report.
+The fixture adapter reads tracked regular-file blobs from the pinned commit,
+not ignored/untracked working-tree bytes or a hand-built report. Replace refs
+cannot redirect those blob reads. Other trusted adapters own their build
+transforms and must preserve that source-revision contract.
 
 CLI operations are `verify` and `refresh`, with `--fixture-root`, optional
 `--lock-timeout` (0-3600 finite seconds), `--selected auto|yes|no`, explicitly

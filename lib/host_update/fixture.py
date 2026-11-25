@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .driver import _source_blob
 from .models import (
     AdapterError,
     Discovery,
@@ -53,15 +54,13 @@ class FixtureAdapter:
                                            else "validated-CPP-ledger",))
 
     def build(self, revision: Revision, policy: Policy) -> ExpectedBuild:
-        source = Scope(Policy(revision.snapshot_root, revision.snapshot_root / ".unused-ledger",
-                              revision.snapshot_root / ".unused-lock", revision.snapshot_root / ".unused-work"))
         packages: list[ExpectedPackage] = []
         for row in self.spec["packages"]:
             members: dict[str, ExpectedMember] = {}
             for name, entry in row["members"].items():
                 parts(name)
                 relative = parts(entry["source"])
-                content = source.read(revision.snapshot_root.joinpath(*relative))
+                content = _source_blob(revision, "/".join(relative))
                 members[name] = ExpectedMember(content, entry.get("mode", 0o644))
             packages.append(ExpectedPackage(row["name"], row["canonical_source"], members))
         return ExpectedBuild(revision.commit, tuple(packages), build_manifest_sha256(revision.commit, packages))
