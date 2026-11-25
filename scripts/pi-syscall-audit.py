@@ -14,6 +14,9 @@ import posixpath
 import re
 from pathlib import Path
 
+FD_ANNOTATION = r"(?:/[^<>]*(?:<(?:char|block) [0-9]+:[0-9]+>)?|(?:pipe:|socket:|anon_inode:)[^<>]*)"
+FD_TOKEN = r"-?[0-9]+(?:<" + FD_ANNOTATION + r">)?"
+
 
 def inside(path, root):
     return path == root or path.startswith(root.rstrip("/") + "/")
@@ -49,15 +52,19 @@ def audit(record):
     skills, lock, source = (allowance[k] for k in ("skills", "lock", "source"))
     histories = allowance["histories"]
     settings = allowance["settings"]
+    git_roots = allowance.get("git_metadata_roots", [])
+    runtime_files = allowance.get("runtime_files", [])
+    native_dirs = allowance.get("native_library_dirs", [])
     mode = allowance["mode"]
     if mode not in ("install", "verify", "build", "record-only"):
         raise ValueError("unsupported operation mode")
     roots = [skills, lock, source, allowance["cwd"], *histories, *settings, *allowance.get("metadata", []),
              *allowance.get("runtime_reads", []), *allowance.get("aliases", {}).keys(),
-             *allowance.get("aliases", {}).values()]
+             *allowance.get("aliases", {}).values(), *git_roots, *runtime_files, *native_dirs]
     if not roots or any(not isinstance(p, str) or not p.startswith("/") or posixpath.normpath(p) != p for p in roots):
         raise ValueError("allowance paths must be explicit normalized absolute paths")
-    if "/" in (skills, lock, source, *histories, *settings, *allowance.get("runtime_reads", [])):
+    if "/" in (skills, lock, source, *histories, *settings, *allowance.get("runtime_reads", []),
+               *runtime_files, *git_roots, *native_dirs):
         raise ValueError("filesystem root is not a bounded read/write scope")
     findings, unknown, examined = [], [], 0
     events = []
@@ -78,6 +85,7 @@ def audit(record):
     if record.get("root_pid") not in record["traces"]:
         unknown.append("root child identity missing/ambiguous")
     cwd = {str(record.get("root_pid", "")): allowance["cwd"]}
+    fd_tables = {}
 
     def path_of(value, pid, directory=None):
         if value.endswith("..."):
@@ -94,20 +102,44 @@ def audit(record):
             path = posixpath.join(base, path)
         return posixpath.normpath(path)
 
-    def descriptor(value, pid):
+    def descriptor_info(value, pid):
         if value is None:
             raise ValueError("missing descriptor")
-        annotated = re.fullmatch(r"(?:[0-9]+|AT_FDCWD)<(/[^<>]*)>", value)
+        annotated = re.fullmatch(r"(?:[0-9]+|AT_FDCWD)<(/[^<>]*)(?:<(char|block) ([0-9]+):([0-9]+)>)?>", value)
         if annotated:
             target = annotated[1]
             if target.endswith(" (deleted)"):
                 target = target[:-10]
-            return posixpath.normpath(target)
+            device = (annotated[2], int(annotated[3]), int(annotated[4])) if annotated[2] else None
+            return posixpath.normpath(target), device
         if value == "AT_FDCWD":
-            return cwd.get(pid)
+            return cwd.get(pid), None
         if re.fullmatch(r"[0-9]+<(?:pipe:|socket:|anon_inode:)[^>]*>", value):
-            return "stdio-or-ipc"
+            return "stdio-or-ipc", None
         raise ValueError("unresolved file descriptor")
+
+    def descriptor(value, pid):
+        return descriptor_info(value, pid)[0]
+
+    def fd_number(value):
+        match = re.match(r"[0-9]+", value)
+        return match[0] if match else None
+
+    def native_read(path, operation):
+        for directory in native_dirs:
+            if not inside(path, directory):
+                continue
+            relative = path[len(directory):].lstrip("/")
+            library = re.fullmatch(
+                r"(?:glibc-hwcaps/[A-Za-z0-9_.-]+/)?(?:lib[A-Za-z0-9_.+-]+|ld-linux[A-Za-z0-9_.+-]*)\.so(?:\.[0-9]+)*",
+                relative)
+            gconv = re.fullmatch(r"gconv/[A-Za-z0-9_.+-]+\.so", relative)
+            if library or gconv or relative == "gconv/gconv-modules.cache":
+                return True
+            if operation == "metadata" and (not relative or relative == "gconv" or
+                                             re.fullmatch(r"glibc-hwcaps(?:/[A-Za-z0-9_.-]+)?", relative)):
+                return True
+        return False
 
     def fd_set(value):
         if value == "NULL":
@@ -116,7 +148,7 @@ def audit(record):
             raise ValueError("unsupported multiplexing fd set")
         body = value[1:-1]
         tokens, previous = [], 0
-        for match in re.finditer(r"[0-9]+(?:<[^>]*>)?", body):
+        for match in re.finditer(FD_TOKEN, body):
             if body[previous:match.start()].strip(" ,"):
                 raise ValueError("unresolved multiplexing fd set")
             tokens.append(match[0])
@@ -135,7 +167,7 @@ def audit(record):
             raise ValueError("incomplete poll descriptor population")
         tokens = []
         for row in rows:
-            match = re.fullmatch(r"\{fd=(-?[0-9]+(?:<[^>]*>)?)(?:, events=[^{}]*)?\}", row)
+            match = re.fullmatch(r"\{fd=(" + FD_TOKEN + r")(?:, events=[^{}]*)?\}", row)
             if not match:
                 raise ValueError("unresolved poll descriptor")
             # Negative poll fds are explicitly ignored by the kernel.
@@ -143,7 +175,7 @@ def audit(record):
                 tokens.append(match[1])
         return tokens
 
-    def examine(path, operation, call, args):
+    def examine(path, operation, call, args, discard_proven=False):
         nonlocal examined
         if path == "stdio-or-ipc":
             return
@@ -169,13 +201,20 @@ def audit(record):
                 findings.append(f"{operation}: forbidden history access: {path}")
                 return
         if operation == "write":
+            if path == "/dev/null" and call in ("open", "openat", "openat2", "write", "writev",
+                                                "pwrite64", "pwritev", "pwritev2"):
+                if discard_proven is None:
+                    raise ValueError("discard device identity unresolved")
+                if discard_proven:
+                    return
             writable = inside(path, skills) if mode != "record-only" else inside(path, skills + "/.cpp-managed")
             if mode == "verify" or not (writable or path == lock):
                 findings.append(f"write outside operation allowance: {path}")
             return
         # Source/interpreter reads and exact bounded configuration are distinct
         # from metadata-only ancestor resolution. No general HOME/agent read.
-        if inside(path, skills) or path == lock or inside(path, source) or path in settings:
+        if (inside(path, skills) or path == lock or inside(path, source) or path in settings or
+                path in runtime_files or any(inside(path, root) for root in git_roots) or native_read(path, operation)):
             return
         if any(inside(path, p) for p in allowance.get("runtime_reads", [])):
             return
@@ -209,6 +248,8 @@ def audit(record):
                         unknown.append(f"{pid}: child {result} omitted from trace population")
                     if pid in cwd:
                         cwd[result] = cwd[pid]
+                    table = fd_tables.setdefault(pid, {})
+                    fd_tables[result] = table if "CLONE_FILES" in raw else dict(table)
             elif call == "chdir":
                 target = path_of(args[0], pid)
                 examine(target, "metadata", call, raw)
@@ -225,20 +266,38 @@ def audit(record):
             elif call in ("open", "creat", "openat", "openat2"):
                 at = call.startswith("openat")
                 path = path_of(args[1 if at else 0], pid, args[0] if at else None)
-                writing = call == "creat" or re.search(r"O_(?:WRONLY|RDWR|CREAT|TRUNC|APPEND)", raw)
+                flags = "O_WRONLY|O_CREAT|O_TRUNC" if call == "creat" else args[2 if at else 1]
+                writing = re.search(r"O_(?:WRONLY|RDWR|CREAT|TRUNC|APPEND)", flags)
                 operation = "write" if writing else "read"
-                examine(path, operation, call, raw)
-                opened = re.match(r"[0-9]+</[^<>]*>", result)
-                if opened:
-                    examine(descriptor(opened[0], pid), operation, call, raw)
-                elif re.match(r"[0-9]+", result):
+                anchor = path == posixpath.dirname(lock) or any(
+                    inside(root, path) for root in [skills, source, *git_roots])
+                if not writing and "O_DIRECTORY" in flags and anchor:
+                    operation = "metadata"
+                opened = re.match(FD_TOKEN, result) if re.match(r"[0-9]", result) else None
+                info = descriptor_info(opened[0], pid) if opened and "<" in opened[0] else None
+                discard = info[1] == ("char", 1, 3) if info and info[0] == "/dev/null" else False
+                if re.search(r"O_(?:CREAT|TRUNC|TMPFILE|EXCL)", flags):
+                    discard = False
+                examine(path, operation, call, raw, discard if info else None)
+                if info:
+                    examine(info[0], operation, call, raw, discard)
+                    fd_tables.setdefault(pid, {})[fd_number(opened[0])] = {
+                        "path": info[0], "readonly": "O_RDONLY" in flags and not writing,
+                        "cloexec": "O_CLOEXEC" in flags}
+                elif opened:
                     raise ValueError("successful open lacks resolved descriptor target")
             elif call in file_calls | writes | {"execve"}:
                 operation = "write" if call in writes else "metadata" if call in file_calls else "read"
                 examine(path_of(args[0], pid), operation, call, raw)
+                if call == "execve" and result == "0":
+                    table = fd_tables.setdefault(pid, {})
+                    fd_tables[pid] = {n: v for n, v in table.items() if not v["cloexec"]}
             elif call in at_calls | at_writes | {"execveat"}:
                 operation = "write" if call in at_writes else "metadata" if call in at_calls else "read"
                 examine(path_of(args[1], pid, args[0]), operation, call, raw)
+                if call == "execveat" and result == "0":
+                    table = fd_tables.setdefault(pid, {})
+                    fd_tables[pid] = {n: v for n, v in table.items() if not v["cloexec"]}
             elif call in ("rename", "link"):
                 for value in args[:2]:
                     examine(path_of(value, pid), "write", call, raw)
@@ -249,7 +308,18 @@ def audit(record):
                 examine(path_of(args[-1], pid, args[1] if call == "symlinkat" else None), "write", call, raw)
             elif call in fd_reads | fd_writes | fd_meta:
                 operation = "write" if call in fd_writes else "read" if call in fd_reads else "metadata"
-                examine(descriptor(args[0], pid), operation, call, raw)
+                target, device = descriptor_info(args[0], pid)
+                examine(target, operation, call, raw, device == ("char", 1, 3))
+                if call == "fcntl" and args[1] == "F_SETFD" and result == "0":
+                    table = fd_tables.setdefault(pid, {})
+                    previous = table.get(fd_number(args[0]))
+                    if previous:
+                        table[fd_number(args[0])] = dict(previous, cloexec="FD_CLOEXEC" in args[2])
+                if call == "fcntl" and "F_DUPFD" in args[1] and re.match(r"[0-9]+", result):
+                    previous = fd_tables.get(pid, {}).get(fd_number(args[0]))
+                    if previous:
+                        fd_tables.setdefault(pid, {})[fd_number(result)] = dict(
+                            previous, cloexec="F_DUPFD_CLOEXEC" in args[1])
             elif call in ("poll", "ppoll", "ppoll_time64"):
                 if len(args) < (3 if call == "poll" else 5):
                     raise ValueError("incomplete polling syscall")
@@ -275,12 +345,35 @@ def audit(record):
                 examine(descriptor(args[0], pid), "metadata", call, raw)
             elif call in ("mmap", "mmap2"):
                 if args[4] != "-1":
+                    target = descriptor(args[4], pid)
                     if "MAP_SHARED" in args[3] and "PROT_WRITE" not in args[2]:
-                        raise ValueError("shared mapping needs unobserved protection-transition evidence")
+                        opened = fd_tables.get(pid, {}).get(fd_number(args[4]))
+                        if not opened or opened["path"] != target or not opened["readonly"]:
+                            raise ValueError("shared mapping lacks observed O_RDONLY provenance")
                     operation = "write" if "PROT_WRITE" in args[2] and "MAP_SHARED" in args[3] else "read"
-                    examine(descriptor(args[4], pid), operation, call, raw)
+                    examine(target, operation, call, raw)
             elif call in ("sendfile", "copy_file_range"):
                 raise ValueError("unsupported file transfer syscall")
+            elif call in ("dup", "dup2", "dup3") and re.match(r"[0-9]+", result):
+                table = fd_tables.setdefault(pid, {})
+                original = table.get(fd_number(args[0]))
+                number = fd_number(result)
+                table.pop(number, None)
+                if original:
+                    table[number] = dict(original, cloexec=call == "dup3" and "O_CLOEXEC" in raw)
+            elif call == "close" and result == "0":
+                fd_tables.setdefault(pid, {}).pop(fd_number(args[0]), None)
+            elif call == "close_range" and result == "0":
+                table = fd_tables.setdefault(pid, {})
+                if "CLOSE_RANGE_UNSHARE" in raw:
+                    table = fd_tables[pid] = dict(table)
+                low, high = int(args[0], 0), int(args[1], 0)
+                for number in list(table):
+                    if low <= int(number) <= high:
+                        if "CLOSE_RANGE_CLOEXEC" in raw:
+                            table[number] = dict(table[number], cloexec=True)
+                        else:
+                            del table[number]
             elif call not in harmless:
                 raise ValueError("unsupported relevant syscall " + call)
         except (ValueError, SyntaxError, IndexError, TypeError) as error:

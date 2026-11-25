@@ -14,6 +14,18 @@ diagnostics. `--self-test` runs committed opposite reader cases and claims no
 host execution. Tool inventory is a separate field: published pi 1.6.0 RPC has
 no documented built-in-tool inventory command, so actual host observations
 leave that row unknown instead of borrowing skill discovery as evidence.
+RPC stderr observes runtime/extension/provider/flag diagnostics only: pi 1.6.0
+does not expose its skill-loader warning array there. Equal stderr cannot
+establish absence of skill warnings. That row remains UNKNOWN pending a
+separate supported observation channel and a firing malformed-skill control.
+
+Children use a sanitized PATH containing the selected Git/interpreter parents
+and system executable directories, fixture HOME/XDG/history, and no user-site.
+Fixture Python commands additionally use `-I`. Before tracing, the dispatcher
+records source Git/common directories with the copier's isolated Git flags
+and derives interpreter paths from that same isolated interpreter. Only those
+storage trees, exact runtime files and constrained native libraries are added
+to the independent allowance; no main checkout or general HOME access follows.
 
 Registered controls reject missing skills/changed diagnostics/tool changes and
 retain malformed/ambiguous/unavailable inputs as unknown. The shape-only

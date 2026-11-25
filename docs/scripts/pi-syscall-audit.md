@@ -27,3 +27,17 @@ fds at epoll_ctl and the epoll instance at each wait; event data is opaque calle
 payload. Unannotated/unresolved descriptors and incomplete fd populations remain
 UNKNOWN. Committed Python/Git-shaped GOOD/BAD twins exercise pipe2, multiplexing,
 pipe reads/writes, wait4 and complete child framing, including an auth-fd probe.
+
+Additional allowance fields are exact `runtime_files`, readonly
+`git_metadata_roots`, and `native_library_dirs` restricted to shared-library
+names and the gconv cache. `runtime_reads` contains explicitly derived
+interpreter paths. Directory-only readonly opens of the exact lock parent or
+source/skills/Git ancestors are metadata capabilities; read/getdents there
+still requires a read allowance. Typed fd annotations such as
+`3</dev/null<char 1:3>>` are parsed structurally. Discard writes require resolved
+`/dev/null` character-device 1:3 identity; creation/truncation or other mutations
+never gain that exception. A readonly MAP_SHARED requires matching live
+O_RDONLY opener provenance. Clone/dup/close/exec and close-on-exec state update
+the fd table; missing provenance stays UNKNOWN, and writable shared maps use
+the ordinary write boundary. The committed host-derived composite and sibling
+BAD/UNKNOWN cases exercise each extension without asserting full-host coverage.

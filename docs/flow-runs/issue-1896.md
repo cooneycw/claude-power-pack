@@ -639,3 +639,91 @@ The frozen rev-6.1 design names `<agent>/.cpp-skill-install.lock`; Run 2 chooses
 an assertion that the frozen design already used the new name. The two mandatory
 derived sibling locks remain additional core coordination. Frozen plan bytes
 are unchanged; host evidence is still UNKNOWN and execution waits for review.
+
+### Host-observer correction for pass 3 (mailboxes 40338, 40339)
+
+The first host run at `d4bdc26f` did not pass boundary acceptance: its normal
+traces were findings due to missing runtime/worktree allowances, and typed
+device annotations/shared read-only maps were unresolved. Both forwarded
+summary and raw-slice digests were independently verified. Fix only the observer,
+not pi package/core behavior. Approval binds these exact limits:
+
+- Derive the source Git directory and common directory using the copier's
+  isolated Git environment before tracing; record both. Read only those Git
+  metadata trees, not the main checkout or HOME. Ancestors get metadata only.
+- Exact runtime files for locale, SSL, FIPS, CPU topology and fixture XDG Git
+  inputs; interpreter paths are derived explicitly. No /etc, /proc, /sys or
+  real-HOME blanket allowance. Sanitize PATH and disable Python user-site.
+- Exact lock-parent/root-ancestor readonly directory opens are metadata
+  capabilities; read/getdents there stays forbidden.
+- `/dev/null` discard writes need resolved character-device 1:3 proof, never a
+  general mutation permission. Parse nested typed fd annotations structurally.
+- Read-only MAP_SHARED is a read only with observed O_RDONLY fd provenance;
+  unproved cases remain UNKNOWN. Preserve all existing auth/history/write and
+  no-create negatives, and add sibling BAD twins per new allowance.
+
+Concrete descriptor paths added within the existing syscall control family:
+
+- `controls/pi-syscall-observer/cases/host-runtime-slice/case.json`
+- `controls/pi-syscall-observer/cases/runtime-locale-near-miss/case.json`
+- `controls/pi-syscall-observer/cases/runtime-ssl-near-miss/case.json`
+- `controls/pi-syscall-observer/cases/runtime-proc-near-miss/case.json`
+- `controls/pi-syscall-observer/cases/runtime-sys-near-miss/case.json`
+- `controls/pi-syscall-observer/cases/fixture-xdg-near-miss/case.json`
+- `controls/pi-syscall-observer/cases/worktree-main-file-near-miss/case.json`
+- `controls/pi-syscall-observer/cases/ancestor-directory-listing/case.json`
+- `controls/pi-syscall-observer/cases/null-device-not-proven/case.json`
+- `controls/pi-syscall-observer/cases/null-device-wrong-id/case.json`
+- `controls/pi-syscall-observer/cases/shared-cache-unproven/case.json`
+- `controls/pi-syscall-observer/cases/shared-cache-write/case.json`
+- `controls/pi-syscall-observer/cases/interpreter-path-near-miss/case.json`
+- `controls/pi-syscall-observer/cases/native-library-near-miss/case.json`
+- `controls/pi-syscall-observer/cases/real-home-pi-near-miss/case.json`
+- `controls/pi-syscall-observer/cases/real-home-ssh-near-miss/case.json`
+- `controls/pi-syscall-observer/cases/real-home-gitconfig-near-miss/case.json`
+
+Fixture Python children and the interpreter-path probe use `-I` in addition to
+PYTHONNOUSERSITE, preventing implicit cwd/user-site module lookup rather than
+authorizing cwd directory listing. Runtime paths are derived from that same
+isolated interpreter, not the parent helper's sys.path. Native library reads
+match shared-library names within explicit architecture directories; no whole
+/usr or /lib read prefix. Existing production CLI/adapter code is unchanged.
+
+Record the initial nonpassing evidence at
+`docs/measurements/pi/2026-11-25-a2-host-initial.md`. Raw trace slices remain
+attributed observations, not proof of a corrected full run. Run regressions
+red before the observer fix, then freeze for pass 3 with extra-pass reason
+"live host observer could not discriminate normal traces". One reviewed host
+re-run must establish GOOD=matches and BAD=finding on real child operations.
+
+Mailbox 40354 records the owner-side amendment: pi 1.6.0's RPC stderr does not
+carry skill-loader diagnostics. Equal stderr establishes no new skill-warning
+claim. Keep the differential for runtime/extension/provider/flag diagnostics;
+loader-diagnostic observation with a firing control remains UNKNOWN and #1896
+follow-up, alongside tool inventory. Any future PR uses Refs #1896 with those
+remaining items; no closing keyword. No A2 receipt exists before pass 3.
+
+The same retained trace supplied a 30-row deduplicated bootstrap path extract
+through mailbox 40395, digest verified independently. Exact observed CPython
+bootstrap files derive from interpreter parent/version; observed SSL aliases
+and locale catalogs are full paths. No /usr/bin or /usr/lib read prefix follows.
+The producer regression failed before this addition. The constructed bootstrap
+control discloses synthetic flags/fds/buffers/framing. Additional paths:
+
+- `controls/pi-syscall-observer/cases/bootstrap-runtime-paths/case.json`
+- `controls/pi-syscall-observer/cases/bootstrap-near-miss/case.json`
+- `controls/pi-syscall-observer/cases/bootstrap-write/case.json`
+- `controls/pi-syscall-observer/cases/locale-catalog-near-miss/case.json`
+- `controls/pi-syscall-observer/cases/ssl-alias-near-miss/case.json`
+
+Correction validation before freeze: 78 observer tests, 25 install/concurrency
+tests and 162 A1 tests passed (265 total). All six targeted control families
+passed strict provenance-enabled checks, including the five bootstrap descriptors.
+A2 now has 71 descriptors
+(21 install, 9 RPC, 41 syscall). Lint, mypy (542 source files), binary guards, negative-fixture
+preconditions, script inventory and instrument census passed. The newly
+committed host composite was run RED before changing the reader; this record
+does not replace the pending reviewed live rerun or direct paired finish gate.
+The initial-host summary is explicitly nonpassing and preserves both RPC
+UNKNOWN rows. Supplemental duplicate-count and raw-volume findings are recorded
+in Nit Store comments 7176892259 and 7176892710, linked from the measurement.

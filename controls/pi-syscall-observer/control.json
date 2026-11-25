@@ -106,6 +106,116 @@
       "name": "python-git-forbidden-fd",
       "input": "cases/python-git-forbidden-fd",
       "expect": "BAD"
+    },
+    {
+      "name": "ancestor-directory-listing",
+      "input": "cases/ancestor-directory-listing",
+      "expect": "BAD"
+    },
+    {
+      "name": "fixture-xdg-near-miss",
+      "input": "cases/fixture-xdg-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "host-runtime-slice",
+      "input": "cases/host-runtime-slice",
+      "expect": "GOOD"
+    },
+    {
+      "name": "interpreter-path-near-miss",
+      "input": "cases/interpreter-path-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "native-library-near-miss",
+      "input": "cases/native-library-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "null-device-not-proven",
+      "input": "cases/null-device-not-proven",
+      "expect": "BAD"
+    },
+    {
+      "name": "null-device-wrong-id",
+      "input": "cases/null-device-wrong-id",
+      "expect": "BAD"
+    },
+    {
+      "name": "real-home-gitconfig-near-miss",
+      "input": "cases/real-home-gitconfig-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "real-home-pi-near-miss",
+      "input": "cases/real-home-pi-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "real-home-ssh-near-miss",
+      "input": "cases/real-home-ssh-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "runtime-locale-near-miss",
+      "input": "cases/runtime-locale-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "runtime-proc-near-miss",
+      "input": "cases/runtime-proc-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "runtime-ssl-near-miss",
+      "input": "cases/runtime-ssl-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "runtime-sys-near-miss",
+      "input": "cases/runtime-sys-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "shared-cache-unproven",
+      "input": "cases/shared-cache-unproven",
+      "expect": "UNKNOWN"
+    },
+    {
+      "name": "shared-cache-write",
+      "input": "cases/shared-cache-write",
+      "expect": "BAD"
+    },
+    {
+      "name": "worktree-main-file-near-miss",
+      "input": "cases/worktree-main-file-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "bootstrap-runtime-paths",
+      "input": "cases/bootstrap-runtime-paths",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bootstrap-near-miss",
+      "input": "cases/bootstrap-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "locale-catalog-near-miss",
+      "input": "cases/locale-catalog-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "ssl-alias-near-miss",
+      "input": "cases/ssl-alias-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "bootstrap-write",
+      "input": "cases/bootstrap-write",
+      "expect": "BAD"
     }
   ],
   "anchors": [
@@ -114,7 +224,7 @@
       "sha": "n/a",
       "origin": "scripts/pi-syscall-audit.py",
       "path": "anchors/constructed-blind.py",
-      "sha256": "4f7e704ed9cac417d30c80f18ff93d312dc614df0075752349e2f6f9a7c18522",
+      "sha256": "318d563f95e3479be94358c323bfb66b610471ba0b21ec1ed6be00783181b1ac",
       "why": "Constructed subject retains fixture unexaminable shapes and ignores semantic BAD inputs; agrees on GOOD and UNKNOWN, misses known-bad cases. No historical-regression claim."
     }
   ],

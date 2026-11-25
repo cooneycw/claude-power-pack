@@ -9,7 +9,7 @@ No owner session or owner installation is involved.
 
 ## Execution envelope
 
-The future dispatcher creates a fresh mode-0700 temporary fixture, records its
+The dispatcher creates a fresh mode-0700 temporary fixture, records its
 path, and uses fixture HOME, agent, cwd, XDG config/data/cache and every history
 candidate. Children get an environment allowlist, no provider credentials and
 offline/no-session RPC. This separates configuration; it is not an OS network
@@ -77,17 +77,18 @@ requesting host execution. Self-tests exercise readers, not live host behavior.
    Compare built-in tool inventory to baseline, including a fixture skill named
    `bash`; it must remain a skill and must not replace the tool.
    Explicitly observe the actual SKILL.md-less `.cpp-managed` directory, its
-   ownership ledger, work root and derived locks: it must add neither loader
-   diagnostics nor non-topic commands. The returned
+   ownership ledger, work root and derived locks: compare non-topic commands
+   separately from diagnostic channels. The returned
    `management_layout_observation` names the actual installed layout separately
    from the earlier synthetic hidden-directory discovery probe.
-4. Preserve baseline stderr verbatim and require no added diagnostics. Any
-   version-specific volatile-field normalization must be explicit, bounded and
-   justified before execution. Do not silently filter warnings or treat exit 0
-   as diagnostic equality. A malformed skill must add a detected diagnostic;
-   if the pinned loader does not warn for the chosen seed, select a documented
-   diagnostic-producing malformed seed before acceptance. Same-name collision
-   was silent in the earlier probe and is not a valid warning control.
+4. Preserve baseline stderr verbatim and compare runtime/extension/provider/flag
+   diagnostics. Report known baseline warnings, including the no-model warning.
+   The initial host run and published pi 1.6.0 source establish that RPC stderr
+   omits the skill-loader diagnostic array. Equal stderr therefore establishes
+   no skill-warning claim. Per the #1896 owner amendment, skill-loader diagnostics
+   remain UNKNOWN and follow-up work must identify a supported channel plus a
+   firing malformed-skill control. The current malformed seed adds no stderr
+   diagnostic; do not change the SDK or invent a public command to close that row.
 5. Remove an expected installed package in the disposable fixture and require
    the reader to reject the missing command; restore through the real installer
    and observe presence again. Missing response, duplicate id, empty-success,
@@ -112,7 +113,7 @@ never infer permission from the accesses observed. A draft raw trace envelope is
 ```bash
 "$PI_A2_STRACE_BIN" -ff -ttt -yy -s 65535 -o "$PI_A2_TRACE_PREFIX" \
   -e trace=%file,%desc,%process \
-  "$PI_A2_PYTHON" "$PI_A2_SOURCE/scripts/pi-skill-sync.py" \
+  "$PI_A2_PYTHON" -I "$PI_A2_SOURCE/scripts/pi-skill-sync.py" \
   --install --root "$PI_A2_SOURCE" \
   --home "$PI_A2_FIXTURE_HOME" --agent-dir "$PI_A2_FIXTURE_AGENT" --json
 ```
@@ -176,7 +177,8 @@ behavior, owner-session validation or container boundary.
 ## Real-core allowance amendment
 
 The plan now binds to merged core #1908 at main
-`adf70c291cf3aa457e56a21cec17983dc761da13`; coding approval is still pending.
+`adf70c291cf3aa457e56a21cec17983dc761da13`; Run 2 coding approval was recorded
+before implementation.
 The proposed pi layout supplies these exact coordination files:
 
 - Primary: `<agent>/.cpp-skills.lock`.
@@ -209,3 +211,27 @@ unmarked package or a package claimed by another identity is never adopted by
 this exception; explicit adoption also cannot override another identity's claim.
 These live fixture cases supplement the committed reader controls and remain
 UNKNOWN/unexecuted until returned records demonstrate them.
+
+
+## Initial host result and reviewed correction envelope
+
+The [initial measurement](2026-11-25-a2-host-initial.md) at d4bdc26f did not
+establish syscall acceptance: normal operations were findings too. The approved
+correction is observer-only. Before tracing, derive Git/common storage roots
+with the same isolated Git environment as the copier, and record both. Allow
+readonly access there and ancestor metadata, never main-checkout content or a
+HOME prefix. Derive interpreter paths using the same interpreter with `-I`,
+set PYTHONNOUSERSITE, and sanitize PATH instead of allowing real-HOME lookup
+misses. Exact locale/SSL/FIPS/CPU/XDG runtime paths and constrained shared-library
+names replace blanket system read roots.
+
+Readonly O_DIRECTORY opens at the exact lock parent or source/skills/Git
+ancestors are metadata capabilities, not directory-listing permission.
+`/dev/null` discard writes require the resolved character-device 1:3 identity,
+without create/truncate/mutation permission. Readonly shared maps require live
+observed O_RDONLY fd provenance. Unproved maps remain UNKNOWN. Each class has a
+committed BAD or UNKNOWN sibling; existing auth/history/no-create controls stay
+binding. The sanitized host composite failed against the prior reader before
+this fix. Freeze the corrected scripts for review pass 3, then one host rerun
+must show normal cases matching and actual seeded forbidden operations finding.
+Fewer findings alone cannot establish that distinction.

@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from lib.host_update.models import AdapterError  # noqa: E402
 from lib.host_update.pi_adapter import PiAdapter, make_request  # noqa: E402
+from lib.pi_skills import nofollow  # noqa: E402
 
 
 def response(stdout, request_id, command):
@@ -79,7 +80,8 @@ def rpc_audit(record):
           "bash" not in tools["baseline"]):
         findings.append("built-in tools changed or empty")
     return {"state": "finding" if findings else "unknown" if unknown else "matches", "expected": len(expected),
-            "examined": len(rows), "findings": findings, "unknown": unknown, "scope": "supplied-RPC-pair"}
+            "examined": len(rows), "findings": findings, "unknown": unknown, "scope": "supplied-RPC-pair",
+            "diagnostics_scope": "runtime/extension/provider/flag stderr; skill-loader diagnostics unobserved"}
 
 
 def run_child(argv, cwd, env, payload=None, timeout=30):
@@ -114,6 +116,87 @@ def load_auditor():
     return module
 
 
+def fixture_environment(fixture):
+    git = shutil.which("git")
+    if not git:
+        raise ValueError("Git executable unavailable")
+    # Do not carry real-HOME PATH entries into either lane. Executable choices
+    # are recorded; Git inside the copier resolves through this same PATH.
+    directories = [str(Path(git).parent), str(Path(sys.executable).parent), "/usr/bin", "/bin"]
+    env = {"PATH": os.pathsep.join(dict.fromkeys(directories)), "LANG": "C.UTF-8",
+           "PYTHONDONTWRITEBYTECODE": "1", "PYTHONNOUSERSITE": "1",
+           "HOME": str(fixture / "home"), "PI_CODING_AGENT_DIR": str(fixture / "agent"),
+           "PI_CODING_AGENT_SESSION_DIR": str(fixture / "history"), "PI_OFFLINE": "1",
+           **{"XDG_" + k.upper() + "_HOME": str(fixture / k) for k in ("config", "data", "cache")}}
+    return env, git
+
+
+def source_git_directories(source, env, git, cwd):
+    isolated = {k: v for k, v in env.items() if not k.startswith("GIT_")}
+    isolated.update(GIT_OPTIONAL_LOCKS="0", GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
+                    GIT_NO_REPLACE_OBJECTS="1")
+    answer = run_child([git, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
+                        "-C", str(source), "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"],
+                       cwd, isolated)
+    if answer["exit"] or answer["forced_stop"]:
+        raise ValueError("source Git storage unavailable")
+    paths = answer["stdout"].splitlines()
+    if len(paths) != 2:
+        raise ValueError("ambiguous Git storage population")
+    result = []
+    for value in paths:
+        path = Path(value)
+        if not path.is_absolute() or path == Path("/"):
+            raise ValueError("unbounded Git storage root")
+        nofollow(path)
+        result.append(str(path))
+    return {"git_dir": result[0], "git_common_dir": result[1], "command": answer}
+
+
+def runtime_allowance(env, cwd, git):
+    # Derive interpreter paths under the fixture environment, with cwd and user
+    # site excluded. Never borrow the parent helper's real-HOME sys.path.
+    code = ("import json,sys,sysconfig; print(json.dumps({'paths':sys.path,"
+            "'multiarch':sysconfig.get_config_var('MULTIARCH'),'version':list(sys.version_info[:2])}))")
+    result = run_child([sys.executable, "-I", "-c", code], cwd, env)
+    if result["exit"] or result["forced_stop"]:
+        raise ValueError("interpreter runtime paths unavailable")
+    runtime = json.loads(result["stdout"])
+    roots, files = [], []
+    for value in runtime["paths"]:
+        if not value or not Path(value).is_absolute() or value == "/":
+            raise ValueError("unbounded interpreter path")
+        (files if value.endswith(".zip") else roots).append(value)
+    files += [sys.executable, str(Path(sys.executable).resolve()), git, str(Path(git).resolve()),
+              "/etc/locale.alias", "/etc/ssl/openssl.cnf", "/proc/sys/crypto/fips_enabled",
+              "/sys/devices/system/cpu/online", "/etc/gitattributes", "/dev/null", "/etc/ld.so.cache",
+              "/etc/ld.so.preload", "/etc/localtime", "/proc/self/exe",
+              str(Path(env["XDG_CONFIG_HOME"]) / "git/attributes"),
+              str(Path(env["XDG_CONFIG_HOME"]) / "git/ignore"), "/usr/lib/locale/locale-archive"]
+    major, minor = runtime["version"]
+    for executable in {Path(sys.executable), Path(sys.executable).resolve()}:
+        binary = executable.parent
+        files += [str(binary / "pyvenv.cfg"), str(binary.parent / "pyvenv.cfg"),
+                  str(binary / "pybuilddir.txt"), str(binary / "Modules/Setup.local"),
+                  str(binary / f"lib/python{major}{minor}.zip"), str(binary / f"python{major}._pth"),
+                  str(binary / f"python{major}.{minor}._pth")]
+    files += ["/usr/lib/ssl/openssl.cnf", "/usr/share/locale/locale.alias",
+              "/usr/share/locale/C.UTF-8/LC_MESSAGES/messages.mo",
+              "/usr/share/locale-langpack/C.UTF-8/LC_MESSAGES/messages.mo"]
+    for language in ("C", "C.utf8", "C.UTF-8"):
+        for category in ("CTYPE", "NUMERIC", "TIME", "COLLATE", "MONETARY", "MESSAGES", "PAPER", "NAME",
+                         "ADDRESS", "TELEPHONE", "MEASUREMENT", "IDENTIFICATION"):
+            files.append(f"/usr/lib/locale/{language}/LC_{category}")
+        files += [f"/usr/lib/locale/{language}/LC_MESSAGES/SYS_LC_MESSAGES",
+                  f"/usr/share/locale/{language}/LC_MESSAGES/git.mo"]
+    arch = runtime["multiarch"]
+    if not isinstance(arch, str) or not arch or not all(c.isalnum() or c in "_-" for c in arch):
+        raise ValueError("native library architecture unavailable")
+    return {"runtime_reads": sorted(set(roots)), "runtime_files": sorted(set(files)),
+            "native_library_dirs": [f"/usr/lib/{arch}", f"/lib/{arch}", "/usr/lib64", "/lib64"],
+            "probe": result}
+
+
 def host_lane(args):
     fixture = Path(tempfile.mkdtemp(prefix="cpp-pi-a2-"))
     fixture.chmod(0o700)
@@ -124,17 +207,17 @@ def host_lane(args):
             raise ValueError("absolute reviewed source checkout required")
         for name in ("home", "agent", "work", "config", "data", "cache", "history", "evidence"):
             (fixture / name).mkdir(mode=0o700)
-        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1",
-               "HOME": str(fixture / "home"), "PI_CODING_AGENT_DIR": str(fixture / "agent"),
-               "PI_CODING_AGENT_SESSION_DIR": str(fixture / "history"), "PI_OFFLINE": "1",
-               **{"XDG_" + k.upper() + "_HOME": str(fixture / k) for k in ("config", "data", "cache")}}
+        env, git = fixture_environment(fixture)
         record["environment_names"] = sorted(env)
+        record["selected_git"] = git
+        record["fixture_path"] = env["PATH"]
+        record["python_isolated"] = True
         adapter = PiAdapter(cwd=fixture / "work", home=fixture / "home", agent=fixture / "agent", environ=env)
         request = make_request(adapter, args.source, revision=args.revision)
         # Force both binding and actual expected build before reporting any lane.
         policy = adapter.preflight(request)
         expected = adapter.build(request.revision, policy)
-        base = [sys.executable, str(ROOT / "scripts/pi-skill-sync.py"), "--root", str(args.source),
+        base = [sys.executable, "-I", str(ROOT / "scripts/pi-skill-sync.py"), "--root", str(args.source),
                 "--revision", args.revision, "--home", env["HOME"], "--agent-dir", env["PI_CODING_AGENT_DIR"], "--json"]
         record["expected"] = [p.name for p in expected.packages]
         record["script_sha256"] = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
@@ -173,6 +256,8 @@ def host_lane(args):
                 "diagnostics_equal": observed["stderr"] == baseline["stderr"],
                 "no_added_non_topic_commands": "unexpected non-topic command population changed"
                 not in record["audit"]["findings"],
+                "diagnostics_scope": "runtime/extension/provider/flag stderr only",
+                "skill_warning_observation": "unknown: pi 1.6.0 RPC does not expose skill-loader diagnostics",
             }
             first = record["expected"][0]
             package = fixture / "agent/skills" / first
@@ -214,22 +299,29 @@ def host_lane(args):
             malformed.write_text("---\nname: invalid name\n---\nMalformed fixture only.\n")
             bad = rpc()
             record["malformed_diagnostic_control"] = {"observation": bad,
-                                                       "detected": bad["stderr"] != observed["stderr"]}
-            if not record["malformed_diagnostic_control"]["detected"]:
-                record["audit"]["unknown"].append("malformed fixture did not add a diagnostic")
-                if record["audit"]["state"] == "matches":
-                    record["audit"]["state"] = "unknown"
+                                                       "detected": bad["stderr"] != observed["stderr"],
+                                                       "scope": "skill-loader diagnostics unavailable in RPC stderr"}
+            # Even an unrelated stderr difference cannot establish observation
+            # of the skill-loader warning array omitted by this RPC channel.
+            record["audit"]["unknown"].append("skill-loader warnings unobserved: RPC stderr omits that channel")
+            if record["audit"]["state"] == "matches":
+                record["audit"]["state"] = "unknown"
         else:
             if not args.strace_bin or not args.strace_bin.is_absolute():
                 raise ValueError("explicit absolute strace executable required")
             record["version"] = run_child([str(args.strace_bin), "--version"], fixture / "work", env)
+            storage = source_git_directories(args.source, env, git, fixture / "work")
+            runtime = runtime_allowance(env, fixture / "work", git)
+            record["source_git_storage"] = storage
+            record["runtime_allowance"] = runtime
             allowance = {"skills": str(policy.install_root), "lock": str(policy.lock_path), "source": str(args.source),
                          "histories": [str(fixture / "history"), str(fixture / "agent/sessions")],
                          "settings": [str(fixture / "agent/settings.json"), str(fixture / "work/.pi/settings.json")],
                          "cwd": str(fixture / "work"), "metadata": [str(fixture / "work"), str(fixture / "home")],
-                         "mode": "install", "runtime_reads": ["/usr", "/bin", "/lib", "/lib64", sys.base_prefix,
-                                                               "/dev/null", "/etc/ld.so.cache", "/etc/localtime",
-                                                               "/etc/ld.so.preload", "/proc/self/exe", "/proc/self/fd"]}
+                         "mode": "install", "runtime_reads": runtime["runtime_reads"],
+                         "runtime_files": runtime["runtime_files"],
+                         "native_library_dirs": runtime["native_library_dirs"],
+                         "git_metadata_roots": list(dict.fromkeys([storage["git_dir"], storage["git_common_dir"]]))}
 
             def trace(label, argv, operation, expected_exit=0, overrides=None, environment=None,
                       expected_audit="matches"):
@@ -269,8 +361,8 @@ def host_lane(args):
             trusted = fixture / "agent/extensions"
             trusted.mkdir()
             seeds = {
-                "seeded-auth-stat": [sys.executable, "-c", "import os,sys; os.stat(sys.argv[1])", str(auth)],
-                "transient-trusted-write": [sys.executable, "-c",
+                "seeded-auth-stat": [sys.executable, "-I", "-c", "import os,sys; os.stat(sys.argv[1])", str(auth)],
+                "transient-trusted-write": [sys.executable, "-I", "-c",
                                             "import pathlib,sys; p=pathlib.Path(sys.argv[1]); "
                                             "p.write_text('synthetic'); p.unlink()", str(trusted / "transient")],
             }
@@ -412,9 +504,13 @@ def host_lane(args):
                 "histories": [str(fixture / "history"), str(payload_agent / "sessions")],
                 "runtime_reads": [*allowance["runtime_reads"], str(ROOT)],
             }
+            payload_storage = source_git_directories(payload_source, env, git, fixture / "work")
+            payload_allowance["git_metadata_roots"] = list(dict.fromkeys(
+                [payload_storage["git_dir"], payload_storage["git_common_dir"]]))
+            record["payload_git_storage"] = payload_storage
 
             def payload_command(revision):
-                return [sys.executable, str(ROOT / "scripts/pi-skill-sync.py"), "--root", str(payload_source),
+                return [sys.executable, "-I", str(ROOT / "scripts/pi-skill-sync.py"), "--root", str(payload_source),
                         "--revision", revision, "--home", str(fixture / "home"),
                         "--agent-dir", str(payload_agent), "--json"]
 
