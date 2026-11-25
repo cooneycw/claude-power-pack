@@ -239,3 +239,153 @@ intentional input change and rejects the changed real transform. Focused total:
 
 Supplemental control-strengthening suggestion recorded without widening this
 fix: [axis-specific blind anchors](https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7172647280).
+
+<!-- flow-run n=2 id=94e96cda99ab4be19bb7068942115d12 -->
+## Run 2
+
+- Run-id: 94e96cda99ab4be19bb7068942115d12
+- Run-start: 2f5c96be2d8c7a88c47ecf48951673fc7ac6e4ca
+- Issue: #1896 (Tier 2), parent #1876
+- Status: PROPOSED P1-A2 amendment; preparation authorized, implementation waits
+  for complete #1889-A core evidence; no PR authorization.
+
+### Section A - remaining intent
+
+P1-A1 merged in #1907. It builds and compares portable pi packages but does not
+install them. A2 will connect those same package bytes to the real managed-copy
+core, preserve foreign and hand-edited content, and measure discovery and
+filesystem boundaries against an actual fixture installation. An installed-byte
+verdict remains separate from contextual runtime selection. Owner installation
+and undo validation remain #1897; shared updater enrollment remains #1900.
+
+### Section B - inputs and dependency
+
+Main `2f5c96be2d8c7a88c47ecf48951673fc7ac6e4ca` includes A1, its independent
+review receipt, 162 focused cases and committed builder/reader controls. The
+direct finish gate at A1 head `3e27f87320b70568e094810636ce97c868bed509`
+reported paired ok/exit 0 after fetching full history. Both full suites reported
+13,687 passed / 4 skipped. This is A1 evidence, not A2 runtime acceptance.
+
+The public core seam was frozen at `91635a1d`; WIP implementation inspected at
+`405fd23c9e0a6494ff857ebd736636b9b534cfbb` adds the pure public
+`build_manifest_sha256` helper without changing callback/type signatures.
+That checkpoint has partial core tests, not complete control/concurrency
+evidence or merge clearance. Do not copy its internals into the pi adapter or
+start A2 implementation from it. Reconfirm the final merged core revision and
+seam before recording implementation approval. Current main was merged into
+the working branch without rebasing after #1907.
+
+### Section C - proposed core integration
+
+`PiAdapter.harness` is `pi`. `preflight(Request) -> Policy` reuses the A1 bounded
+path/history checks before generic root IO, then selects only canonical
+`<agent>/skills`. Proposed management layout is hidden
+`<agent>/skills/.cpp-managed/ownership.json` and
+`<agent>/skills/.cpp-managed/work`, with the exact advisory lock
+`<agent>/.cpp-skills.lock`. The lock is the only writable location outside
+skills. The host disclosure and real loader must validate this final layout;
+the earlier hidden-ledger probe tested one candidate, not every core artifact.
+The pure member predicate accepts only valid relative Markdown paths at exactly
+0644; the builder validates UTF-8 bytes. Settings/tools/extensions/auth/history
+are never write scopes.
+
+`discover(Policy, Request) -> Discovery` uses only approved skills/ledger scopes
+and explicit install selection. Authentication files, generic agent-directory
+enumeration and arbitrary project searches cannot establish selection. An
+unmarked collision remains unmanaged until explicit per-package adoption.
+Any legacy source-marker adoption needs an explicit contract decision rather
+than treating a marker alone as ownership. No new automatic updater enrollment.
+
+`build(Revision, Policy) -> ExpectedBuild` calls the actual A1 builder against
+the immutable revision snapshot, maps every package/member to
+`ExpectedPackage`/`ExpectedMember`, and calls `build_manifest_sha256` on that
+same population. The core validates revision, state, records and publication;
+the adapter does not duplicate staging, ledger reconciliation or locking.
+`inspect(adapter, request)` supplies verify-installed; `refresh(adapter,
+request)` supplies explicit install/adoption. No placeholder implementation or
+fixture-only core is acceptable production evidence.
+
+CLI proposal: add mutually exclusive `--install` / `--verify-installed` and
+explicit `--adopt SLUG` (repeatable, install only); preserve A1 build/check and
+snapshot interfaces. Installation rejects `--output-root`; only canonical
+agent skills is eligible. The immutable source revision binding and any clean
+source requirement must be visible in errors. Backup is core-managed, inside
+the approved management scope, and reported by exact retained location. Map
+core known refusal/failure, unknown and not-applicable outcomes faithfully;
+never convert unexamined/zero population into success. A1 host snapshots keep
+their caller-independent context and global history guards.
+
+Proposed files, to refine explicitly after the core lands:
+
+1. `lib/host_update/pi_adapter.py` - thin production callbacks only.
+2. `scripts/pi-skill-sync.py` - real core install/adopt/verify CLI and JSON.
+3. `lib/pi_skills.py` - minimal shared policy seam only if required; no change
+   to deterministic package bytes without separate attribution/parity evidence.
+4. `tests/test_pi_skill_install.py` - real-core installs, ownership, adoption,
+   no-create shared verification, record-only reconciliation, dirty/mismatched
+   revisions, hand-edited-before-stale precedence and fault outcomes.
+5. `tests/test_pi_skill_concurrency.py` - actual subprocess lock/content races,
+   pipe handshakes and bounded waits; no sleep-based race assertions.
+6. `tests/test_pi_skill_sync.py`, `tests/test_pi_skill_policy.py`,
+   `tests/test_install_drift.py` - preserve existing interfaces and guards.
+7. `controls/pi-skill-install/control.json`, `run-case.py`, `README.md`,
+   `anchors/constructed-blind.py` - actual adapter/core subject, narrowly
+   declared anchor deficiencies, known-good/bad/unknown cases.
+8. `controls/pi-skill-install/cases/` - explicit descriptors for fresh/current,
+   edited, foreign, adopted-with-backup, missing-member, stripped-marker,
+   changed-reference, unsupported-payload, root-refusal and unreadable cases;
+   list individual added paths before implementation approval.
+9. `scripts/pi-host-fixture.py` - explicit fixture-only host dispatcher and
+   bounded child cleanup, never owner installation/discovery.
+10. `scripts/pi-syscall-audit.py` - independent actual-child trace classifier.
+11. `tests/test_pi_host_fixture.py`, `tests/test_pi_syscall_audit.py` - parser,
+    lifecycle, path-resolution/descriptor/child and result-reader cases.
+12. `controls/pi-rpc-observer/` and `controls/pi-syscall-observer/` - committed
+    discriminating inputs and anchors, with every concrete file declared before
+    implementation; expected/missing response, added diagnostic, transient
+    write, auth-stat and forbidden-history-descendant evidence included.
+13. `Makefile`, `controls/census.md`, `docs/scripts.md`, relevant script docs -
+    register host prerequisites and hermetic controls separately.
+14. `docs/HOST_MANAGED_ARTIFACTS.md`, `pi/skills/README.md`,
+    `docs/scripts/pi-skill-sync.md` - installed scope, lock/backup/undo and limits.
+15. This run record, its as-read/lane records, independent review receipt and
+    a sanitized host measurement record; no raw credential or private paths.
+
+No generic core internals, Codex generator, canonical topics, providers,
+runtime/container isolation, rules/MCP/commands or updater driver changes.
+
+### Lanes and acceptance before any completion claim
+
+Hermetic local tests cover ordinary/linked checkout, root/other cwd,
+full/shallow source fixtures, explicit selected/unselected and adopted/unmarked
+state. Source binding must work for the supported clone shapes without guessing
+missing revisions. Core process/concurrency controls are consumed directly and
+pi integration asserts a complete revision plus matching record. Preserve
+independent A1 same-input pinned Codex parity and disclose its deferred parser
+coverage. A2 regressions must fail on unchanged predecessor code where applicable.
+
+The real pi loader and actual child-syscall observer are HOST FIXTURE lanes,
+routed for execution after review of immutable scripts and commands. Draft
+commands and required opposite cases are in
+[the host-fixture protocol](../measurements/pi/issue-1896-a2-host-fixture-plan.md).
+They are UNKNOWN/unexecuted until returned records establish each claim.
+The RPC lane pairs no-CPP-skills diagnostics with actual installed output and
+an added-diagnostic negative; it does not claim authentication isolation.
+The syscall lane excludes pi startup, follows descendants, and rejects transient
+writes and forbidden metadata probes even when final snapshots match.
+
+History allows only no-follow lstat/readlink of explicitly selected roots and
+ancestors, never listing/opening/descent. Credential-file metadata has no such
+allowance. Seeded credential-stat and history-descendant-stat cases must fail;
+the observer must also show allowed root resolution and legal isolated output.
+Unknown syscall syntax/path/fd resolution or incomplete trace is UNKNOWN.
+
+Harness/provider/container/version-matrix coverage is unclaimed. Host fixture
+pi version and trace-tool versions are recorded exactly; missing binaries are
+UNKNOWN, not green skips. CI is pending future PR clearance. Wave/coordination/
+delegated-driver behavior is not changed. Owner validation remains separate.
+
+Sequence: proposed amendment review; final core evidence/seam confirmation;
+explicit implementation approval; real adapter and local opposite controls;
+immutable host scripts reviewed and executed by the authorized fixture lane;
+independent review/receipt; direct paired finish gate; PR only on clearance.
