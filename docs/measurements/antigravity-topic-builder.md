@@ -25,11 +25,60 @@ Committed controls observe GOOD for complete output, BAD for changed output,
 removed package and broken bundled guide, and UNKNOWN for missing source.
 The constructed always-current inspector misses all three BAD inputs.
 
+## Review corrections
+
+Pass 1 at 3066cb85 requested changes. All three findings were accepted:
+unbounded reference closure, help output stream handling and rejection of
+system symlink ancestors. The untallied parser-provenance note is also fixed:
+the parser comes from the pinned source snapshot.
+
+Against the exact reviewed implementation, the closure, system-ancestor and
+parser-binding regressions all failed. The new bounded-closure GOOD control
+also failed there because the old builder expected unrelated corpus files.
+All pass after correction. The stderr-help regression failed against the
+unchanged stdout-only check before combining the streams; nonzero help and
+missing flags still refuse. The full corrected focused suite passed 29 tests.
+
+Local content is now limited to the canonical package and referenced
+`docs/skills/` guides/resources, plus the explicit C4 script allowlist. Other
+repository references route upstream at the pinned revision; directory links
+do not enumerate or copy subtrees. The C4 renderer loads from a temporary
+directory without the checkout. The changed-parser negative case now fails
+the full generated-tree parity check as well as its link-transform comparison.
+
+| Topic | Files |
+|---|---|
+| best-practices | 1 |
+| boot | 1 |
+| browser-tiered | 1 |
+| cicd-verification | 3 |
+| claude-md-config | 2 |
+| code-quality | 2 |
+| context-efficiency | 2 |
+| documentation | 2 |
+| evaluate | 1 |
+| hooks-automation | 2 |
+| idd-workflow | 2 |
+| infrastructure-hardening | 3 |
+| mcp-optimization | 2 |
+| project-deploy | 1 |
+| python-packaging | 2 |
+| secrets | 1 |
+| session-management | 2 |
+| spec-driven-dev | 2 |
+
 ## Live consumer evidence
 
-**UNKNOWN - not yet run.** No real AGY acceptance is claimed by local tests.
+**UNKNOWN - no consumer model turn observed.** No real AGY acceptance is
+claimed by local tests.
 The host helper's supplied contract reports AGY 1.5.17; the older B0-B4 reports
 were from 1.5.14 and are not substituted for this experiment.
+
+The first host run of the 3066cb85 probe aborted at its help check. The
+orchestrator reported version 1.5.17, passing positive/absent marker controls,
+stdout help length 0 and stderr length 3443 with the required flags, and
+completed undo with the real configuration listing unchanged. No model turn
+ran. The corrected probe reads both streams; a rerun is still pending.
 
 The committed [probe](antigravity-topic-builder.probe.py) prints undo first,
 checks isolated-profile positive/absent markers, records actual argv/version/

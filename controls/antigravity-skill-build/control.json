@@ -21,6 +21,11 @@
       "expect": "GOOD"
     },
     {
+      "name": "good-bounded-closure",
+      "input": "cases/good-bounded-closure",
+      "expect": "GOOD"
+    },
+    {
       "name": "bad-changed-output",
       "input": "cases/bad-changed-output",
       "expect": "BAD"

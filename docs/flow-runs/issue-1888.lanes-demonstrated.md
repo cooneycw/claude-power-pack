@@ -5,7 +5,7 @@
 | Lane | Result | Evidence |
 |---|---|---|
 | Checkout | passed | Actual CLI from full main-style checkout and real linked worktree in test_actual_cli_build_then_verify_complete_output |
-| Harness | pending | Independent Codex generator/parser parity passes; real AGY isolated-profile probe remains UNKNOWN until observed |
+| Harness | not run | Independent Codex generator/parser parity passes; first AGY probe aborted before model turns, rerun remains UNKNOWN |
 | Driver | not applicable | No flow or delegated-driver instruction change |
 | Coordination | not applicable | Core local-lock implementation unchanged; final full gate will use its direct renewing supervisor |
 | CI provider | not run | PR not opened; no provider behavior change |
@@ -17,14 +17,13 @@
 | Wave role state | not applicable | No role/mailbox registry change |
 | Reader: core adapter | passed | Real ExpectedBuild package/member bytes feed actual core refresh/inspect and are rehashed |
 | Reader: CLI | passed | Actual subprocess CLI emits real core reports across six shape/cwd combinations |
-| Reader: AGY skill invocation | pending | Exact committed scratch probe prepared; native list/exit alone will not establish guide usage |
+| Reader: AGY skill invocation | not run | First host probe aborted at stdout-only help check before model turns; corrected probe rerun pending |
 | Reader: Codex consumers | passed | Independently loaded historical/current generators with separate parsers compare exact paths/bytes/modes; current generator unchanged |
 | Reader: status/shared updater | not covered | #1889-B/#1892/#1893 |
 
 At fcad40b6 the complete focused suite passed 19 tests, and the actual default
-Make build/check both reported current for all 18 topics. Later builder/probe
-tests pass 11 cases after additional corrections; the final aggregate is rerun
-at the next committed checkpoint. Registered controls pass 1 GOOD, 3 BAD and
+Make build/check both reported current for all 18 topics. The full corrected
+focused suite now passes 29 tests. Registered controls pass 2 GOOD, 3 BAD and
 1 UNKNOWN; a blind inspector misses all three BAD inputs.
 
 Regression evidence against the preceding WIP: reference-style/image/HTML
@@ -47,3 +46,14 @@ Profile guard tests reject a symlink before touching its descendants.
 Live acceptance is still UNKNOWN. The separate probe path and per-case control
 seed files instantiate the approved mailbox 40220 probe/control conditions;
 they do not widen product scope. No host production adapter is enrolled.
+
+Pass 1 corrections, all accepted: scope is now the canonical package plus
+`docs/skills/` and the explicit C4 helper allowlist. Other repository references
+route upstream without reading their contents or bundling directories.
+spec-driven-dev drops from the reviewed 317 files to 2; all 18 topics have
+1-3 members. The bounded-closure GOOD control and three unit regressions ran
+red against exact 3066cb85 (closure, system ancestor, snapshot parser binding)
+then green after correction. The stderr-help regression ran red on the
+extracted unchanged stdout-only check, then green with both streams. The
+probe fix is cherry-picked without a separate push from 078e7426. See the
+maintained measurement for per-topic counts and the initial host abort.

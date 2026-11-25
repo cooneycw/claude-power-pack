@@ -38,12 +38,24 @@ def main():
         git("config", "user.email", "fixture@example.invalid")
         git("config", "commit.gpgsign", "false")
         git("config", "core.hooksPath", "/dev/null")
+        parser_source = source / "scripts/check-md-relative-links.py"
+        parser_source.parent.mkdir()
+        parser_source.write_bytes((folder.parents[1] / "scripts/check-md-relative-links.py").read_bytes())
+        if scenario == "bounded-closure":
+            index = source / "docs/scripts.md"
+            corpus = source / "docs/research/unrelated.md"
+            corpus.parent.mkdir(parents=True)
+            index.write_text("[unrelated](research/unrelated.md)\n")
+            corpus.write_text("# Unrelated historical corpus\n")
         for topic in config["topics"]:
             skill = source / f".claude/skills/{topic}/SKILL.md"
             guide = source / f"docs/skills/{topic}.md"
             skill.parent.mkdir(parents=True)
             guide.parent.mkdir(parents=True, exist_ok=True)
             skill.write_text(f"---\nname: {topic}\ndescription: Fixture topic\n---\nRead `docs/skills/{topic}.md`.\n")
+            if scenario == "bounded-closure" and topic == "python-packaging":
+                with skill.open("a") as stream:
+                    stream.write("[index](../../../docs/scripts.md) [corpus](../../../docs/research/)\n")
             guide.write_bytes(config["guide"].encode())
         git("add", ".")
         git("commit", "-qm", "control source")
@@ -59,6 +71,9 @@ def main():
                      "\nResolve package-relative guide and script paths from the directory containing this "
                      "SKILL.md, including when the current project is elsewhere.\n\n"
                      f"Read `./references/docs/skills/{topic}.md`.\n").encode()
+            if scenario == "bounded-closure" and topic == "python-packaging":
+                skill += (f"[index](https://github.com/cooneycw/claude-power-pack/blob/{revision}/docs/scripts.md) "
+                          f"[corpus](https://github.com/cooneycw/claude-power-pack/tree/{revision}/docs/research/)\n").encode()
             members = {"SKILL.md": skill, f"references/docs/skills/{topic}.md": config["guide"].encode()}
             for name, content in members.items():
                 path = output / topic / name

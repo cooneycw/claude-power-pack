@@ -18,20 +18,32 @@ Known drift/refusal exits 1; current exits 0. Reports separate physical fidelity
 from unexamined runtime effectiveness and label coverage topic-build-only.
 
 The builder reads regular tracked blobs only, preserving 0644/0755 modes.
-Packages retain their canonical files, bundle local guides/resources below
-`references/<repository path>`, and rewrite references relative to each output
-file. Code examples are not Markdown links. Plain guide and existing script
-instructions are bundled; nonexistent project example paths remain examples.
+Packages retain their canonical files and bundle referenced `docs/skills/`
+guides/resources below `references/<repository path>`. Only the explicit
+external-script allowlist (currently `scripts/c4-mermaid.py`) travels with them.
+Other known repository references become immutable upstream URLs at the bound
+revision; directory links never bundle subtrees. This scope follows the #1888
+review correction authorized in mailbox 40264 and avoids importing unrelated
+history, commands and scripts with missing dependencies. Code examples are not
+Markdown links. Nonexistent script example paths remain examples.
 Unresolved actual links and escapes refuse a build. Package metadata includes
 the canonical CPP source, schema, full revision and AGY harness. Bytes contain
-no volatile timestamp or absolute build path.
+no volatile timestamp or absolute build path. The AGY Markdown parser itself
+is read from a regular tracked blob in that same source snapshot, not from a
+different invoking checkout.
 
 An adapter supplies these expected bytes to `lib.host_update`, which owns
 bounded locking, ownership publication, byte verification and preservation.
 The ledger/work live under `.cpp-managed/`; primary lock `.cpp-install.lock`
 and mandatory derived sibling locks remain in the output scope. Verify creates
-nothing; refresh refuses foreign collisions and hand edits. This CLI never
+no installed files, locks or records; refresh refuses foreign collisions and
+hand edits. The pinned parser is imported privately and its temporary copy is
+removed immediately. This CLI never
 discovers or enrolls a host-global AGY installation. Integration is #1889-B.
+Default output validates descendants beneath the source anchor without
+following aliases. An explicit output approves its existing parent, including
+system aliases above the install root; the root and descendants remain
+no-follow. No user-controlled prefix is implicitly adopted by host discovery.
 
 Codex parity vendors the historical 40d25173 generator AND its sibling parser,
 each with a digest. Both historical and current transforms build the same
@@ -40,7 +52,8 @@ paths/bytes/modes compare under 022 and 002 umasks. Historical manifest
 membership/bytes/modes compare under its measured 022 umask; bytes also compare
 under 002. Any source delta needs a reason and source commit; no automatic
 re-pin is permitted. Missing baseline is an error, never a skipped comparison.
-Committed changed-transform and changed-parser cases prove detection.
+Committed changed-transform and changed-parser cases each make the full output
+tree comparison fail; the parser case also proves an eligible link changes.
 
 Run `make test-antigravity-skills` and `make antigravity-skills-controls` for
 focused checks. Controls materialize known expected bytes independently and
