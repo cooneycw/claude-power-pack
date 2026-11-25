@@ -92,7 +92,7 @@ committed bad skill that adds a diagnostic. No PR is authorized by this approval
 12. `controls/pi-skill-build/control.json` - register load-bearing A1 builder/fidelity verdicts and committed opposite/unknown fixtures.
 13. `controls/pi-skill-build/run-case.py` - invoke actual A1 subject on fixture-owned inputs and assert preconditions/verdicts.
 14. `controls/pi-skill-build/anchors/constructed-always-clean.py` - declared blind subject for control rejection evidence.
-15. `controls/pi-skill-build/cases.json` - actual committed cases for empty/missing marker/member, byte drift, unsafe source, forbidden output/history and unreadable evidence with healthy comparisons.
+15. `controls/pi-skill-build/cases/*/case.json` - committed good, missing-member, stripped-marker, byte-drift, unsupported-manifest, history-refusal and unknown-source descriptors; each has defining precondition assertions.
 16. `controls/pi-skill-build/README.md` - construction/safety/provenance and known opposite verdicts.
 17. `controls/census.md` - enumerate A1 instruments and scope of controls.
 18. `.claude/verify-coverage.json` - new script coverage by actual test/Make consumers.
@@ -105,7 +105,14 @@ committed bad skill that adds a diagnostic. No PR is authorized by this approval
 25. `docs/flow-runs/issue-1896.lanes-demonstrated.md` - actual results and explicit unknown host lanes.
 26. `docs/measurements/counter-model/*-issue-1896.json` - independent runtime-derived receipt for A1 checkpoint.
 
-Scope: A1 approximately 26 narrow product/test/control/docs/record paths, roughly
+27. `controls/pi-bundled-parity/control.json` - register the actual bundled-topic reader separately from the producer.
+28. `controls/pi-bundled-parity/cases/*/case.json` - committed good/missing/marker/byte/manifest/unknown descriptors for the real checker.
+29. `controls/pi-drift-reader/control.json` - register the advisory drift reader's actual pi JSON verdict separately, not its unconditional process exit.
+30. `controls/pi-drift-reader/cases/*/case.json` - committed good/missing/marker/byte/manifest/unknown descriptors for the actual drift reader.
+
+31. `controls/pi-skill-build/codex-baseline.json` - immutable membership/byte-hash/mode inventory independently built at pinned40d25173; real generator plus deliberately changed transform exercise positive/opposite comparison.
+
+Scope: A1 approximately 30 path entries plus materialized case seeds, roughly
 900-1400 lines; the large installation and runtime portions have moved to A2.
 Generic core code belongs to #1889-A. Adapt control registration to repository
 schema without expanding product scope; declare added fixture seed paths before
@@ -168,3 +175,17 @@ hand-edited-before-stale rule and explicit record-only reconciliation exception.
 
 Approval recorded from mailbox 39937; the plan amendment precedes product code.
 PR creation remains separately gated on explicit clearance.
+
+### Approved boundary clarification (mailbox 39944)
+
+The orchestrator permits only no-follow lstat/readlink of an explicitly selected
+history root and its ancestors, solely to resolve exclusions. No listing,
+opening or descent beneath that history root is allowed. Credential-file
+metadata remains forbidden. Dangling/looping links or inaccessible ancestors
+are refuse/unknown, never a clean exclusion. The A2 syscall observer must encode
+this closed allowance and catch seeded descendant-stat and credential-stat
+violations; A1 path-policy tests exercise the same input distinctions without
+claiming syscall evidence. This is an attributable approved amendment, not a
+relaxation inferred by the implementer.
+
+Control registration refinement: separate producer/bundled/drift subjects and finite per-case descriptors materialize the already approved opposite-input scope; no new product behavior.
