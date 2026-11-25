@@ -1,4 +1,5 @@
 """Real immutable build bytes feed the shared core; no host installation."""
+import importlib.util
 import json
 import posixpath
 import shutil
@@ -96,6 +97,77 @@ def test_reference_style_image_and_html_resources_are_bundled(tmp_path):
     assert b"[example](missing.md)" in text
 
 
+def test_output_alias_is_refused_before_descendant_metadata(tmp_path, monkeypatch):
+    revision = source(tmp_path)
+    protected = tmp_path / "protected"
+    protected.mkdir()
+    alias = tmp_path / "alias"
+    alias.symlink_to(protected, target_is_directory=True)
+    assert alias.is_symlink()
+    original = Path.is_symlink
+
+    def guarded(path):
+        if path != alias and path.is_relative_to(alias):
+            raise AssertionError("metadata descended through an unchecked alias")
+        return original(path)
+
+    monkeypatch.setattr(Path, "is_symlink", guarded)
+    result = refresh(BuildAdapter(alias / "output", expected_topics=frozenset({"topic"})), Request(revision))
+    assert result.exit_code == 1 and "alias refused" in result.reason
+    assert not list(protected.iterdir())
+
+
+def probe_module():
+    path = ROOT / "docs/measurements/antigravity-topic-builder.probe.py"
+    spec = importlib.util.spec_from_file_location("agy_topic_probe", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_live_probe_acceptance_oracle_detects_wrong_hash_decoy_and_missing_guide(tmp_path):
+    probe = probe_module()
+    guide = tmp_path / "installed/references/guide.md"
+    guide.parent.mkdir(parents=True)
+    guide.write_bytes(b"fixture guide tail")
+    digest = probe.digest(guide.read_bytes())
+    good = {"status": "read", "path": str(guide), "sha256": digest, "tail": "fixture guide tail"}
+    assert probe.matches_response("positive", good, guide, digest, good["tail"], 0)
+    for bad in (dict(good, sha256="wrong"), dict(good, path=str(tmp_path / "project/guide.md")),
+                dict(good, tail="DECOY"), {"status": "missing", "path": str(guide), "sha256": "", "tail": ""}):
+        assert bad != good
+        assert not probe.matches_response("positive", bad, guide, digest, good["tail"], 0)
+    assert not probe.matches_response("positive", good, guide, digest, good["tail"], 1)
+    missing = {"status": "missing", "path": str(guide), "sha256": "", "tail": ""}
+    assert guide.exists()
+    assert not probe.matches_response("missing-guide", missing, guide, digest, good["tail"], 0)
+    guide.unlink()
+    assert not guide.exists()
+    assert probe.matches_response("missing-guide", missing, guide, digest, good["tail"], 0)
+    assert not probe.matches_response("missing-guide", good, guide, digest, good["tail"], 0)
+
+
+def test_live_probe_profile_guard_rejects_alias_before_descendant_metadata(tmp_path, monkeypatch):
+    probe = probe_module()
+    profile = tmp_path / ".agy-probe-home"
+    profile.mkdir()
+    protected = tmp_path / "protected"
+    protected.mkdir()
+    alias = profile / ".gemini"
+    alias.symlink_to(protected, target_is_directory=True)
+    assert alias.is_symlink()
+    original = Path.is_symlink
+
+    def guarded(path):
+        if path != alias and path.is_relative_to(alias):
+            raise AssertionError("profile guard followed an unchecked alias")
+        return original(path)
+
+    monkeypatch.setattr(Path, "is_symlink", guarded)
+    with pytest.raises(RuntimeError, match="profile alias refused"):
+        probe.profile_paths_safe(profile, (profile / ".gemini/config/skills",))
+
+
 @pytest.mark.parametrize("kind", ["missing", "escape", "symlink", "zero"])
 def test_required_inputs_never_skip_to_green(tmp_path, kind):
     revision = source(tmp_path)
@@ -120,3 +192,12 @@ def test_required_inputs_never_skip_to_green(tmp_path, kind):
     revision = Revision(git(root, "rev-parse", "HEAD").decode().strip(), root)
     with pytest.raises(AdapterError):
         build(revision, expected_topics=frozenset({"topic"}))
+
+
+def test_missing_plain_guide_instruction_is_unknown(tmp_path):
+    revision = source(tmp_path, {".claude/skills/topic/SKILL.md": (
+        b"---\nname: topic\ndescription: Fixture\n---\nRead `docs/skills/missing.md`.\n")})
+    assert not (revision.snapshot_root / "docs/skills/missing.md").exists()
+    with pytest.raises(AdapterError, match="required guide") as error:
+        build(revision, expected_topics=frozenset({"topic"}))
+    assert error.value.exit_code == 4

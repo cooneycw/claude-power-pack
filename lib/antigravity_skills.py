@@ -202,6 +202,8 @@ def build(revision: Revision, *, expected_topics: frozenset[str] = TOPICS) -> Ex
                 def bare(match: re.Match[str]) -> str:
                     value = match.group()
                     if value not in snapshot.files:
+                        if value.startswith("docs/"):
+                            raise unknown(f"required guide missing: {value}")
                         return value  # a project example, not a CPP source file
                     return rewrite(value)
 
@@ -266,11 +268,11 @@ class BuildAdapter:
             raise AdapterError("output overlaps canonical source", state=State.UNMANAGED)
         # Validate user-controlled ancestors beneath the caller's existing
         # output parent; symlinked root/descendants remain core refusals.
-        current = root
-        while current != current.parent:
+        current = Path(root.anchor)
+        for part in root.parts[1:]:
+            current /= part
             if current.is_symlink():
                 raise AdapterError("build-output alias refused", state=State.UNMANAGED)
-            current = current.parent
         policy = Policy(root, root / ".cpp-managed/ownership.json", root / ".cpp-install.lock",
                         root / ".cpp-managed/work")
         Scope(policy)
