@@ -26,6 +26,11 @@ records source Git/common directories with the copier's isolated Git flags
 and derives interpreter paths from that same isolated interpreter. Only those
 storage trees, exact runtime files and constrained native libraries are added
 to the independent allowance; no main checkout or general HOME access follows.
+Pretrace localtime binding records one exact regular target; bounded symlink
+hops stay within the system zoneinfo root, with no tree allowance. Executable
+prefix landmarks are metadata-only. Every trace observation reports
+`audit_blockers` with distinct finding/UNKNOWN counts if its expected verdict
+was missed, so zero-touch unresolved notes retain their actual causes.
 
 Registered controls reject missing skills/changed diagnostics/tool changes and
 retain malformed/ambiguous/unavailable inputs as unknown. The shape-only

@@ -216,6 +216,46 @@
       "name": "bootstrap-write",
       "input": "cases/bootstrap-write",
       "expect": "BAD"
+    },
+    {
+      "name": "runtime-landmark-metadata",
+      "input": "cases/runtime-landmark-metadata",
+      "expect": "GOOD"
+    },
+    {
+      "name": "runtime-landmark-read",
+      "input": "cases/runtime-landmark-read",
+      "expect": "BAD"
+    },
+    {
+      "name": "runtime-landmark-list",
+      "input": "cases/runtime-landmark-list",
+      "expect": "BAD"
+    },
+    {
+      "name": "runtime-landmark-write",
+      "input": "cases/runtime-landmark-write",
+      "expect": "BAD"
+    },
+    {
+      "name": "runtime-timezone-target",
+      "input": "cases/runtime-timezone-target",
+      "expect": "GOOD"
+    },
+    {
+      "name": "runtime-timezone-sibling",
+      "input": "cases/runtime-timezone-sibling",
+      "expect": "BAD"
+    },
+    {
+      "name": "runtime-timezone-write",
+      "input": "cases/runtime-timezone-write",
+      "expect": "BAD"
+    },
+    {
+      "name": "runtime-landmark-nonmember",
+      "input": "cases/runtime-landmark-nonmember",
+      "expect": "BAD"
     }
   ],
   "anchors": [

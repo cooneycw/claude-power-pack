@@ -54,17 +54,18 @@ def audit(record):
     settings = allowance["settings"]
     git_roots = allowance.get("git_metadata_roots", [])
     runtime_files = allowance.get("runtime_files", [])
+    runtime_metadata = allowance.get("runtime_metadata", [])
     native_dirs = allowance.get("native_library_dirs", [])
     mode = allowance["mode"]
     if mode not in ("install", "verify", "build", "record-only"):
         raise ValueError("unsupported operation mode")
     roots = [skills, lock, source, allowance["cwd"], *histories, *settings, *allowance.get("metadata", []),
              *allowance.get("runtime_reads", []), *allowance.get("aliases", {}).keys(),
-             *allowance.get("aliases", {}).values(), *git_roots, *runtime_files, *native_dirs]
+             *allowance.get("aliases", {}).values(), *git_roots, *runtime_files, *runtime_metadata, *native_dirs]
     if not roots or any(not isinstance(p, str) or not p.startswith("/") or posixpath.normpath(p) != p for p in roots):
         raise ValueError("allowance paths must be explicit normalized absolute paths")
     if "/" in (skills, lock, source, *histories, *settings, *allowance.get("runtime_reads", []),
-               *runtime_files, *git_roots, *native_dirs):
+               *runtime_files, *runtime_metadata, *git_roots, *native_dirs):
         raise ValueError("filesystem root is not a bounded read/write scope")
     findings, unknown, examined = [], [], 0
     events = []
@@ -219,6 +220,7 @@ def audit(record):
         if any(inside(path, p) for p in allowance.get("runtime_reads", [])):
             return
         if operation == "metadata" and (path in allowance.get("metadata", []) or
+                                        path in runtime_metadata or
                                         any(inside(root, path) for root in roots)):
             return
         findings.append(f"{operation} outside read allowance: {path}")

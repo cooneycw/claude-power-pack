@@ -29,3 +29,9 @@ path-allowance control, not raw syntax replay. A producer test first failed
 because these exact interpreter-parent/version-derived files and observed
 SSL/locale aliases were missing. Modules/locale/SSL near misses and a write
 to an allowed readonly bootstrap path remain BAD.
+
+Residual `runtime-landmark-*` and `runtime-timezone-*` cases are constructed
+controls for metadata-only prefix landmarks and one exact resolved timezone
+file. Zone names are synthetic; these are not a replay of the omitted rerun
+traces. The metadata GOOD failed against the previous reader. Landmark
+read/list/write/nonmember and timezone sibling/write twins stay BAD.

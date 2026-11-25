@@ -727,3 +727,59 @@ does not replace the pending reviewed live rerun or direct paired finish gate.
 The initial-host summary is explicitly nonpassing and preserves both RPC
 UNKNOWN rows. Supplemental duplicate-count and raw-volume findings are recorded
 in Nit Store comments 7176892259 and 7176892710, linked from the measurement.
+
+### Residual observer correction after the reviewed rerun
+
+Mailboxes 40410/40411 supply the one reviewed rerun at ea9ba934 and request
+correction before any further execution. Its independently verified sanitized
+summary SHA256 is
+`65a1c4ed1a2ae1ffdc698901c887e4b43542c06e2227d8de25719a1f63d68b93`.
+This run is NOT accepted: five distinct runtime allowance gaps remain. RPC
+has the two expected UNKNOWN rows and zero findings. The 28 syscall unresolved
+notes follow nonmatching row audits, including verify/build/record-only rows;
+they are not exclusively refusals and provide no new parser-syntax diagnosis.
+
+Keep production adapter/core unchanged. Derive and record the exact system
+localtime target before tracing, restricted to a regular file within the system
+zoneinfo root (or regular /etc/localtime); reject target escape or ambiguous
+symlink chains. Grant only that exact readonly target. Derive the executable
+parent's `lib/pythonM.N/{os.py,os.pyc,lib-dynload}` as exact metadata-only
+landmarks, never read roots. Add GOOD/BAD cases and run regressions RED first.
+The bounded implementation and its positive/negative examples need pass 4
+before any further host execution. This is an observer correction, not relaxed
+host acceptance. Retain the initial and rerun failures as separate records.
+
+Declared additional files:
+
+- `docs/measurements/pi/2026-11-25-a2-host-rerun.md`
+- `controls/pi-syscall-observer/cases/runtime-landmark-metadata/case.json`
+- `controls/pi-syscall-observer/cases/runtime-landmark-read/case.json`
+- `controls/pi-syscall-observer/cases/runtime-landmark-list/case.json`
+- `controls/pi-syscall-observer/cases/runtime-landmark-write/case.json`
+- `controls/pi-syscall-observer/cases/runtime-landmark-nonmember/case.json`
+- `controls/pi-syscall-observer/cases/runtime-timezone-target/case.json`
+- `controls/pi-syscall-observer/cases/runtime-timezone-sibling/case.json`
+- `controls/pi-syscall-observer/cases/runtime-timezone-write/case.json`
+
+Timezone alias-escape and ambiguous-target refusal are producer tests using
+disposable fixture files only; no actual user timezone value is published.
+Bounded in-root timezone aliases are supported (including a UTC alias); every
+hop is checked before metadata outside the root, and cycles/depth/missing
+targets refuse. No general realpath expansion of unrelated runtime files.
+Per-observation `audit_blockers` retains distinct finding/UNKNOWN counts when
+an expected verdict is missed, without changing the zero-touch predicate.
+Comparison of the returned 29 normal audits shows identical nine findings in
+five classes and zero per-row observer UNKNOWNs; all 31 child exits match.
+This supports the cascade diagnosis, not corrected-host acceptance.
+Mailboxes 40417/40420 require one residual correction push/freeze and an owner
+cap ruling BEFORE requesting review pass 4; #1887's escalation does not apply.
+
+Residual correction validation: 95 observer tests passed, including the exact
+timezone binding, metadata-only landmark producer and classifier regressions
+that ran RED before their fixes. All six targeted control families passed
+strict/provenance-enabled checks; A2 now has 79 descriptors (21 install, 9 RPC,
+49 syscall). Lint, mypy (542 files), binary guards, negative-fixture checks,
+inventories/census, relative links, Unicode dashes, security and import checks
+passed. The 25 install and 162 A1 tests passed on the preceding correction;
+production lib/ and CLI are unchanged by these observer-only additions.
+No corrected live acceptance or full finish-gate claim follows from these checks.

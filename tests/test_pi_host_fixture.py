@@ -91,3 +91,106 @@ def test_observed_bootstrap_paths_are_exact_read_files(tmp_path):
     assert required <= set(observed["runtime_files"])
     assert str(executable.parent / "Modules/Setup.foreign") not in observed["runtime_files"]
     assert str(executable.parent) not in observed["runtime_reads"]
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="requires Git for fixture executable resolution")
+def test_prefix_landmarks_are_metadata_only(tmp_path):
+    env, git = SUBJECT["fixture_environment"](tmp_path)
+    observed = SUBJECT["runtime_allowance"](env, tmp_path, git)
+    version = f"python{sys.version_info.major}.{sys.version_info.minor}"
+    root = Path(sys.executable).parent / "lib" / version
+    required = {str(root / name) for name in ("os.py", "os.pyc", "lib-dynload")}
+    assert required <= set(observed.get("runtime_metadata", []))
+    assert not required & set(observed["runtime_files"])
+    assert all(not any(Path(p).is_relative_to(Path(r)) for r in observed["runtime_reads"]) for p in required)
+
+
+def test_localtime_target_is_exact_bounded_and_recorded(tmp_path):
+    zoneinfo = tmp_path / "zoneinfo"
+    zoneinfo.mkdir()
+    target = zoneinfo / "fixture-city"
+    target.write_text("synthetic timezone bytes")
+    localtime = tmp_path / "localtime"
+    localtime.symlink_to(target)
+    observed = SUBJECT["localtime_target"](localtime, zoneinfo)
+    assert observed == {"path": str(localtime), "target": str(target)}
+
+
+@pytest.mark.parametrize("escape", [True, False], ids=["outside-root", "ambiguous-chain"])
+def test_localtime_target_cannot_authorize_escape_or_alias_chain(tmp_path, escape):
+    zoneinfo = tmp_path / "zoneinfo"
+    zoneinfo.mkdir()
+    foreign = tmp_path / "foreign"
+    foreign.write_text("synthetic sentinel")
+    target = zoneinfo / "fixture-city"
+    target.symlink_to(foreign if escape else zoneinfo / "other")
+    localtime = tmp_path / "localtime"
+    localtime.symlink_to(foreign if escape else target)
+    assert localtime.is_symlink() and (escape or target.is_symlink())
+    with pytest.raises(ValueError):
+        SUBJECT["localtime_target"](localtime, zoneinfo)
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="requires Git for fixture executable resolution")
+def test_runtime_derivation_retains_exact_localtime_binding(tmp_path, monkeypatch):
+    binding = {"path": "/fixture/localtime", "target": "/fixture/system-zoneinfo/fixture-city"}
+    monkeypatch.setitem(SUBJECT["runtime_allowance"].__globals__, "localtime_target", lambda: binding)
+    env, git = SUBJECT["fixture_environment"](tmp_path)
+    observed = SUBJECT["runtime_allowance"](env, tmp_path, git)
+    assert binding["target"] in observed["runtime_files"]
+    assert observed["localtime"] == binding
+    assert str(Path(binding["target"]).parent) not in observed["runtime_reads"]
+
+
+def test_localtime_bounded_alias_chain_and_regular_file(tmp_path):
+    zoneinfo = tmp_path / "zoneinfo"
+    zoneinfo.mkdir()
+    target = zoneinfo / "fixture-city"
+    target.write_text("synthetic timezone")
+    alias = zoneinfo / "fixture-alias"
+    alias.symlink_to(target.name)
+    localtime = tmp_path / "localtime"
+    localtime.symlink_to(alias)
+    assert SUBJECT["localtime_target"](localtime, zoneinfo)["target"] == str(target)
+    localtime.unlink()
+    localtime.write_text("synthetic regular localtime")
+    assert SUBJECT["localtime_target"](localtime, zoneinfo)["target"] == str(localtime)
+
+
+@pytest.mark.parametrize("cycle", [False, True], ids=["alias-escape", "alias-cycle"])
+def test_localtime_alias_cannot_touch_outside_target_or_loop(tmp_path, monkeypatch, cycle):
+    zoneinfo = tmp_path / "zoneinfo"
+    zoneinfo.mkdir()
+    outside = tmp_path / "outside"
+    outside.write_text("synthetic sentinel")
+    alias = zoneinfo / "alias"
+    alias.symlink_to(alias if cycle else outside)
+    localtime = tmp_path / "localtime"
+    localtime.symlink_to(alias)
+    assert alias.is_symlink() and localtime.is_symlink()
+    lstat = Path.lstat
+
+    def bounded_lstat(path, *args, **kwargs):
+        assert path != outside, "escape must be rejected before outside metadata"
+        return lstat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "lstat", bounded_lstat)
+    with pytest.raises(ValueError):
+        SUBJECT["localtime_target"](localtime, zoneinfo)
+
+
+def test_row_blockers_identify_residual_allowance_without_changing_verdict():
+    case = ROOT / "controls/pi-syscall-observer/cases/runtime-landmark-metadata/case.json"
+    record = json.loads(case.read_text())["record"]
+    audit = SUBJECT["load_auditor"]().audit
+    answer = audit(record)
+    assert answer["state"] == "matches"
+    assert SUBJECT["audit_blockers"](answer, "matches") == {}
+    record["allowance"]["runtime_metadata"] = []
+    blocked = audit(record)
+    assert blocked["state"] == "finding" and not blocked["unknown"]
+    summary = SUBJECT["audit_blockers"](blocked, "matches")
+    assert summary["observed"] == "finding" and summary["expected"] == "matches"
+    assert len(summary["findings"]) == 3 and all(count == 1 for count in summary["findings"].values())
+    assert all("metadata outside read allowance" in reason for reason in summary["findings"])
+    assert summary["unknown"] == {} and audit(record) == blocked

@@ -41,3 +41,7 @@ O_RDONLY opener provenance. Clone/dup/close/exec and close-on-exec state update
 the fd table; missing provenance stays UNKNOWN, and writable shared maps use
 the ordinary write boundary. The committed host-derived composite and sibling
 BAD/UNKNOWN cases exercise each extension without asserting full-host coverage.
+Exact `runtime_metadata` entries cover interpreter prefix landmarks and their
+metadata ancestors only. They authorize no open/read/directory listing or
+mutation. An exact prebound timezone target is a `runtime_files` entry; no
+general zoneinfo prefix is authorized.

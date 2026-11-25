@@ -14,9 +14,11 @@ import json
 import os
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
+from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -153,6 +155,39 @@ def source_git_directories(source, env, git, cwd):
     return {"git_dir": result[0], "git_common_dir": result[1], "command": answer}
 
 
+def localtime_target(path=Path("/etc/localtime"), zoneinfo=Path("/usr/share/zoneinfo")):
+    """Bind one system clock file without authorizing a zoneinfo tree/escape."""
+    nofollow(path.parent)
+    mode = path.lstat().st_mode
+    if stat.S_ISREG(mode):
+        return {"path": str(path), "target": str(path)}
+    if not stat.S_ISLNK(mode):
+        raise ValueError("localtime is not a regular file or bounded symlink")
+    target = Path(os.path.abspath(path.parent / os.readlink(path)))
+    nofollow(zoneinfo)
+    seen = set()
+    for _ in range(32):
+        if not target.is_relative_to(zoneinfo) or target in seen:
+            raise ValueError("localtime target escapes or cycles within system zoneinfo root")
+        seen.add(target)
+        current = zoneinfo
+        parts = target.relative_to(zoneinfo).parts
+        for index, part in enumerate(parts):
+            current /= part
+            try:
+                mode = current.lstat().st_mode
+            except FileNotFoundError as error:
+                raise ValueError("localtime target missing") from error
+            if stat.S_ISLNK(mode):
+                target = Path(os.path.abspath(current.parent / os.readlink(current) / Path(*parts[index + 1:])))
+                break
+        else:
+            if not parts or not stat.S_ISREG(mode):
+                raise ValueError("localtime target is not a regular file")
+            return {"path": str(path), "target": str(target)}
+    raise ValueError("localtime target symlink depth exceeded")
+
+
 def runtime_allowance(env, cwd, git):
     # Derive interpreter paths under the fixture environment, with cwd and user
     # site excluded. Never borrow the parent helper's real-HOME sys.path.
@@ -174,12 +209,15 @@ def runtime_allowance(env, cwd, git):
               str(Path(env["XDG_CONFIG_HOME"]) / "git/attributes"),
               str(Path(env["XDG_CONFIG_HOME"]) / "git/ignore"), "/usr/lib/locale/locale-archive"]
     major, minor = runtime["version"]
+    metadata = []
     for executable in {Path(sys.executable), Path(sys.executable).resolve()}:
         binary = executable.parent
         files += [str(binary / "pyvenv.cfg"), str(binary.parent / "pyvenv.cfg"),
                   str(binary / "pybuilddir.txt"), str(binary / "Modules/Setup.local"),
                   str(binary / f"lib/python{major}{minor}.zip"), str(binary / f"python{major}._pth"),
                   str(binary / f"python{major}.{minor}._pth")]
+        metadata += [str(binary / f"lib/python{major}.{minor}" / name)
+                     for name in ("os.py", "os.pyc", "lib-dynload")]
     files += ["/usr/lib/ssl/openssl.cnf", "/usr/share/locale/locale.alias",
               "/usr/share/locale/C.UTF-8/LC_MESSAGES/messages.mo",
               "/usr/share/locale-langpack/C.UTF-8/LC_MESSAGES/messages.mo"]
@@ -192,9 +230,20 @@ def runtime_allowance(env, cwd, git):
     arch = runtime["multiarch"]
     if not isinstance(arch, str) or not arch or not all(c.isalnum() or c in "_-" for c in arch):
         raise ValueError("native library architecture unavailable")
+    localtime = localtime_target()
+    files.append(localtime["target"])
     return {"runtime_reads": sorted(set(roots)), "runtime_files": sorted(set(files)),
+            "runtime_metadata": sorted(set(metadata)), "localtime": localtime,
             "native_library_dirs": [f"/usr/lib/{arch}", f"/lib/{arch}", "/usr/lib64", "/lib64"],
             "probe": result}
+
+
+def audit_blockers(answer, expected):
+    """Expose exact per-row causes of unresolved checks without changing verdicts."""
+    if answer["state"] == expected:
+        return {}
+    return {"expected": expected, "observed": answer["state"],
+            "findings": dict(Counter(answer["findings"])), "unknown": dict(Counter(answer["unknown"]))}
 
 
 def host_lane(args):
@@ -320,6 +369,7 @@ def host_lane(args):
                          "cwd": str(fixture / "work"), "metadata": [str(fixture / "work"), str(fixture / "home")],
                          "mode": "install", "runtime_reads": runtime["runtime_reads"],
                          "runtime_files": runtime["runtime_files"],
+                         "runtime_metadata": runtime["runtime_metadata"],
                          "native_library_dirs": runtime["native_library_dirs"],
                          "git_metadata_roots": list(dict.fromkeys([storage["git_dir"], storage["git_common_dir"]]))}
 
@@ -341,6 +391,7 @@ def host_lane(args):
                 answer = load_auditor().audit(supplied)
                 record["observations"].append({"case": label, "child": child,
                                                 "trace_record": supplied, "audit": answer,
+                                                "audit_blockers": audit_blockers(answer, expected_audit),
                                                 "expected_audit": expected_audit, "expected_exit": expected_exit})
                 return child, answer
 
