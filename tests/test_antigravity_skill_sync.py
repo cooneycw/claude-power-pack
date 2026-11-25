@@ -1,8 +1,11 @@
 """Real immutable build bytes feed the shared core; no host installation."""
+import argparse
+import hashlib
 import importlib.util
 import json
 import os
 import posixpath
+import re
 import shutil
 import subprocess
 import sys
@@ -173,8 +176,7 @@ def test_live_probe_profile_guard_rejects_alias_before_descendant_metadata(tmp_p
 
 def test_probe_help_accepts_stderr_without_weakening_contract_checks():
     probe = probe_module()
-    help_text = ("  -p, --print Run one prompt\n--dangerously-skip-permissions\n"
-                 "--output-format (text, json, stream-json)\n--print-timeout seconds\n")
+    help_text = pinned_agy_help()
     stderr_help = subprocess.CompletedProcess(["agy", "--help"], 0, stdout="", stderr=help_text)
     assert stderr_help.stdout == "" and all(flag in stderr_help.stderr for flag in (
         "--print", "--dangerously-skip-permissions", "--output-format", "--print-timeout"))
@@ -185,6 +187,53 @@ def test_probe_help_accepts_stderr_without_weakening_contract_checks():
                     subprocess.CompletedProcess(["agy", "--help"], 0, stdout="", stderr="unrelated output")):
         with pytest.raises(RuntimeError):
             probe.checked_help(invalid)
+
+
+def pinned_agy_help():
+    raw = (ROOT / "controls/antigravity-skill-build/reference/agy-1.5.17-help.txt").read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == "ce786669ed163e82508a7b2d36196e416093149f9a8e0436c2068c9e99740e89"
+    return raw.decode()
+
+
+def test_probe_consumer_argv_matches_documented_agy_1517_flag_forms():
+    probe = probe_module()
+    help_text = pinned_agy_help()
+    descriptions = dict(re.findall(r"(?m)^  (-{1,2}[^\s]+) +(.+)$", help_text))
+    assert descriptions["-p"] == "Short alias for --print"
+    assert "single prompt non-interactively" in descriptions["--print"]
+    assert "Auto-approve all tool permission requests" in descriptions["--dangerously-skip-permissions"]
+    assert "(default 0s)" in descriptions["--print-timeout"]
+    formats = re.search(r"\((text, [^)]+)\)", descriptions["--output-format"]).group(1).split(", ")
+
+    def duration(value):
+        # Help records default 0s; the native 1.5.17 failure in mailbox 40290
+        # confirms '180' is invalid and the value takes a Go duration.
+        if not re.fullmatch(r"(?:[0-9]+(?:\.[0-9]+)?(?:ns|us|ms|s|m|h))+", value):
+            raise argparse.ArgumentTypeError("duration requires its unit")
+        return value
+
+    contract = argparse.ArgumentParser(allow_abbrev=False)
+    contract.add_argument("--dangerously-skip-permissions", action="store_true", required=True)
+    contract.add_argument("--output-format", choices=formats, required=True)
+    contract.add_argument("--print-timeout", type=duration, required=True)
+    contract.add_argument("-p", "--print", dest="print_mode", action="store_true", required=True)
+    contract.add_argument("prompt")
+    prompt = "Use python-packaging and read its bundled guide."
+    argv = probe.consumer_argv(Path("/fixture/.local/bin/agy"), prompt)
+    assert Path(argv[0]).is_absolute() and Path(argv[0]).name == "agy"
+    parsed = contract.parse_args(argv[1:])
+    assert parsed.output_format == "json" and parsed.print_timeout == "180s"
+    assert parsed.dangerously_skip_permissions and parsed.print_mode and parsed.prompt == prompt
+    assert argv[-2:] == ["-p", prompt]
+    bad_duration = list(argv)
+    bad_duration[bad_duration.index("--print-timeout") + 1] = "180"
+    bad_enum = list(argv)
+    bad_enum[bad_enum.index("--output-format") + 1] = "yaml"
+    bad_boolean = [*argv[:2], "false", *argv[2:]]
+    for invalid in (bad_duration, bad_enum, bad_boolean, argv[:-1]):
+        assert invalid != argv
+        with pytest.raises(SystemExit):
+            contract.parse_args(invalid[1:])
 
 
 @pytest.mark.parametrize("kind", ["missing", "escape", "symlink", "zero"])

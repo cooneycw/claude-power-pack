@@ -86,6 +86,15 @@ def checked_help(result):
     return help_text
 
 
+def consumer_argv(agy, prompt):
+    # AGY 1.5.17 help (pinned in the argv test): booleans take no value,
+    # output-format enum is text/json/stream-json, and -p aliases --print.
+    # Native parsing rejected integer '180'; Go duration '180s' is required.
+    # Keep the prompt one final argv element; never join/shell-evaluate it.
+    return [str(agy), "--dangerously-skip-permissions", "--output-format", "json",
+            "--print-timeout", "180s", "-p", prompt]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkout", type=Path, required=True)
@@ -162,7 +171,7 @@ def main():
             raise RuntimeError("AGY version changed; re-confirm invocation contract")
         help_text = checked_help(command([agy, "--help"], label="help"))
         # All option/value pairs precede -p; the prompt is its final argument.
-        emit("argv-order", form="agy --dangerously-skip-permissions --output-format json --print-timeout 180 -p PROMPT",
+        emit("argv-order", form=" ".join(consumer_argv("agy", "PROMPT")),
              help_sha256=digest(help_text.encode()), reconstruction="validated against this run's version/help")
         source = scratch / "cpp-source"
         output = scratch / "built-skills"
@@ -218,8 +227,7 @@ def main():
             now = require(command([agy, "--version"], label=f"{label}-version")).strip()
             if now != version:
                 raise RuntimeError("AGY changed version during experiment")
-            result = command([agy, "--dangerously-skip-permissions", "--output-format", "json",
-                              "--print-timeout", "180", "-p", prompt], cwd=repo, label=label)
+            result = command(consumer_argv(agy, prompt), cwd=repo, label=label)
             try:
                 payload = response_payload(result.stdout)
                 matches = matches_response(label, payload, guide, expected_hash, tail, result.returncode)
