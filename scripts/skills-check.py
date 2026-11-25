@@ -42,6 +42,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+#: NEGATIVE-CONTROL: controls/pi-bundled-parity
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PROVENANCE_CLASSES = frozenset({"vendored", "adapted", "inspired", "cpp-authored"})
 UPSTREAM_FIELDS = (
@@ -779,13 +781,43 @@ def _validate_managed(report: Report, root: Path, managed_root: Path) -> None:
         )
 
 
-def check_repository(root: Path, managed_skills_root: Path | None = None) -> Report:
+def check_repository(root: Path, managed_skills_root: Path | None = None,
+                     bundled_topic_root: Path | None = None) -> Report:
     """Validate one tree. The optional managed root makes tests hermetic."""
     root = root.resolve()
     report = Report()
     _validate_canonical(report, root)
     managed_root = managed_skills_root or root / ".agents" / "skills"
-    _validate_managed(report, root, managed_root)
+    if bundled_topic_root is None:
+        _validate_managed(report, root, managed_root)
+    else:
+        # The caller supplies the real fresh build. Independently reconstruct
+        # its population so a partial/stale expectation cannot bless an install.
+        sys.path.insert(0, str(REPO_ROOT))
+        from lib.pi_skills import PolicyError, build, fidelity
+        try:
+            expected = build(root)
+            fresh = fidelity(expected, bundled_topic_root)
+            if fresh["fidelity"] != "matches":
+                code = "BUNDLED_UNKNOWN" if fresh["fidelity"] == "unknown" else "BUNDLED_EXPECTATION"
+                _add(report, code, bundled_topic_root, str(fresh["findings"]))
+            else:
+                installed = fidelity(expected, managed_root)
+                count = installed["checked"]
+                if not isinstance(count, int):
+                    raise ValueError("invalid bundled snapshot count")
+                report.managed_checked = count
+                for detail in installed["findings"]:
+                    code = "MANAGED_UNKNOWN" if installed["fidelity"] == "unknown" else "MANAGED_DRIFT"
+                    _add(report, code, managed_root, str(detail))
+                report.notes.append(
+                    f"bundled installs: validated {installed['checked']} of {installed['expected']} "
+                    "expected package(s); scope=file-snapshot, effectiveness=unknown"
+                )
+        except (OSError, UnicodeError) as error:
+            _add(report, "BUNDLED_UNKNOWN", bundled_topic_root, str(error))
+        except (ValueError, PolicyError) as error:
+            _add(report, "BUNDLED_REFUSED", bundled_topic_root, str(error))
     report.findings.sort(key=lambda finding: (str(finding.path), finding.code, finding.detail))
     return report
 
@@ -799,6 +831,10 @@ def main(argv: list[str] | None = None) -> int:
         help="repository root (default: the checkout containing this script)",
     )
     parser.add_argument(
+        "--bundled-topic-root", type=Path,
+        help="fresh pi build expectation; requires every canonical topic rather than marker-only discovery",
+    )
+    parser.add_argument(
         "--managed-root",
         type=Path,
         default=None,
@@ -809,8 +845,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     root = args.root.resolve()
-    managed_root = args.managed_root.expanduser().resolve() if args.managed_root else None
-    report = check_repository(root, managed_root)
+    managed_root = args.managed_root.expanduser().absolute() if args.managed_root else None
+    report = check_repository(root, managed_root, args.bundled_topic_root)
 
     for note in report.notes:
         print(f"skills-check: {note}")

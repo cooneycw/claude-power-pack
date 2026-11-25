@@ -210,6 +210,25 @@ emit_skip() {
 
 [ -n "$CHECKOUT" ] || emit_skip "no CPP checkout found - nothing to inspect"
 
+# Pi A1 reports a file snapshot only. It never enrolls or refreshes pi and
+# cannot infer runtime effectiveness or ownership from matching names/hashes.
+# NEGATIVE-CONTROL: controls/pi-drift-reader
+PI_SKILLS_APPLICABLE=0
+PI_SKILLS_JSON='{"fidelity":"not-examined","effectiveness":"unknown","scope":"file-snapshot","reason":"pi A1 reader unavailable"}'
+if [ -f "$CHECKOUT/scripts/pi-skill-sync.py" ] && command -v python3 >/dev/null 2>&1; then
+    pi_output="$(python3 "$CHECKOUT/scripts/pi-skill-sync.py" --root "$CHECKOUT" \
+        --home "$HOME_DIR" --agent-dir "${PI_CODING_AGENT_DIR:-$HOME_DIR/.pi/agent}" \
+        --fidelity-root "${PI_CODING_AGENT_DIR:-$HOME_DIR/.pi/agent}/skills" --host-fidelity --json 2>/dev/null)"
+    if pi_parsed="$(python3 -c 'import json,sys; x=json.loads(sys.argv[1]); assert isinstance(x,dict) and x.get("fidelity") in {"matches","differs","absent","unknown","refused"}; assert x.get("effectiveness")=="unknown"; assert x["fidelity"]!="matches" or (type(x.get("expected")) is int and x["expected"]>0 and x.get("checked")==x["expected"]); print(json.dumps(x))' "$pi_output" 2>/dev/null)"; then
+        PI_SKILLS_JSON="$pi_parsed"
+        case "$pi_parsed" in
+            *'"fidelity": "absent"'*) : ;;
+            *) PI_SKILLS_APPLICABLE=1 ;;
+        esac
+    fi
+fi
+
+
 PLUGINS_DIR="${HOME_DIR:+$HOME_DIR/.claude/plugins}"
 MKT="${PLUGINS_DIR:+$PLUGINS_DIR/marketplaces/cpp}"
 CACHE="${PLUGINS_DIR:+$PLUGINS_DIR/cache/cpp}"
@@ -780,7 +799,7 @@ fi
 # but holds no current/stale/missing/orphaned entries at all would otherwise
 # score zero on every other term and skip-exit, silently dropping the one
 # thing this axis exists to say about that host.
-if [ "$RETIRED" -eq 0 ] && [ "$HELPERS_TOTAL" -eq 0 ] && [ "$HELPERS_MISSING" -eq 0 ] \
+if [ "$PI_SKILLS_APPLICABLE" -eq 0 ] && [ "$RETIRED" -eq 0 ] && [ "$HELPERS_TOTAL" -eq 0 ] && [ "$HELPERS_MISSING" -eq 0 ] \
    && [ "$HELPERS_ORPHANED" -eq 0 ] && [ "$HELPERS_UNLINKED" -eq 0 ] \
    && [ "$CODEX_SKILLS_CHECKED" -eq 0 ] && [ "$CODEX_SKILLS_UNEXAMINED" -eq 0 ] \
    && [ "$CLAUDE_SKILLS_MANAGED" -eq 0 ] \
@@ -803,6 +822,11 @@ elif [ "$RETIRED" -eq 1 ] || [ "$CODEX_SKILLS_ORPHANED" -gt 0 ] \
     # helpers and Codex skills match the checkout", and nothing was compared.
     VERDICT="skipped"
 fi
+
+case "$PI_SKILLS_JSON" in
+    *'"fidelity": "differs"'*|*'"fidelity": "refused"'*) VERDICT="drift" ;;
+    *'"fidelity": "unknown"'*) [ "$VERDICT" = "drift" ] || VERDICT="skipped" ;;
+esac
 
 # --- Output ----------------------------------------------------------------
 retired_quiet_clause() {
@@ -883,6 +907,10 @@ if [ "$MODE" = "quiet" ]; then
     if [ "$CLAUDE_SKILLS_UNANSWERED" -eq 1 ]; then
         clauses+=("Claude skills at ${CLAUDE_SKILLS_DIR} NOT checked (${CLAUDE_SKILLS_UNAVAILABLE_REASON}) - unchecked, not clean")
     fi
+    case "$PI_SKILLS_JSON" in
+        *'"fidelity": "differs"'*|*'"fidelity": "unknown"'*|*'"fidelity": "refused"'*)
+            clauses+=("pi file snapshot differs or is unexamined; runtime effectiveness unknown (P1-A1)") ;;
+    esac
     if [ "$RETIRED" -eq 1 ]; then
         clauses+=("$(retired_quiet_clause)")
     fi
@@ -911,6 +939,7 @@ json_escape() {
 
 if [ "$MODE" = "json" ]; then
     printf '{"verdict":"%s",' "$VERDICT"
+    printf '"pi_skills":%s,"coverage":"legacy installs plus pi file snapshot; runtime effectiveness unknown",' "$PI_SKILLS_JSON"
     if [ "$VERDICT" = "skipped" ]; then
         printf '"reason":"%s",' "$(skipped_reason)"
     fi
@@ -994,6 +1023,7 @@ if [ "$MODE" = "json" ]; then
 fi
 
 echo "install-drift: checkout $CHECKOUT"
+echo "  pi file snapshot   $PI_SKILLS_JSON"
 echo "  host helpers       ${SCRIPTS_DIR:-<none>}"
 echo "    ${HELPERS_CURRENT} current, ${HELPERS_STALE} stale, ${HELPERS_MISSING} missing, ${HELPERS_ORPHANED} orphaned, ${HELPERS_UNLINKED} unlinked"
 if [ "${#STALE_HELPERS[@]}" -gt 0 ]; then

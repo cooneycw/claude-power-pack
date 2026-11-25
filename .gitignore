@@ -93,6 +93,9 @@ desktop.ini
 # keep bundled *.json files TRACKED and are gone with the tracked tree.
 /codex/skills/*
 !/codex/skills/README.md
+/pi/skills/*
+!/pi/skills/README.md
+!controls/pi-skill-build/codex-baseline.json
 # CPP's ownership pin for the project-next engine (#1069) - checked in by
 # design, and the blanket *.json rule is exactly what it must survive. It IS the
 # offline gate's source of truth AND the runtime contract-version pin that

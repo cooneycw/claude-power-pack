@@ -147,7 +147,7 @@ def _make_codex_skill_installed(
     return pkg
 
 
-def _run(checkout: Path, home: Path, *args: str, script: Path | None = None):
+def _run(checkout: Path, home: Path, *args: str, script: Path | None = None, cwd: Path | None = None):
     return subprocess.run(
         ["bash", str(script or SCRIPT), *args],
         env={
@@ -158,7 +158,60 @@ def _run(checkout: Path, home: Path, *args: str, script: Path | None = None):
         stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
+        cwd=cwd,
     )
+
+
+def test_pi_reader_consumes_real_builder_output_and_drift(tmp_path):
+    from lib.pi_skills import build, write
+    checkout = _make_checkout(tmp_path / "checkout")
+    (checkout / "lib").mkdir()
+    shutil.copy2(ROOT / "lib/pi_skills.py", checkout / "lib/pi_skills.py")
+    shutil.copy2(ROOT / "scripts/pi-skill-sync.py", checkout / "scripts/pi-skill-sync.py")
+    shutil.copytree(ROOT / ".claude/skills", checkout / ".claude/skills")
+    shutil.copytree(ROOT / "docs", checkout / "docs")
+    for file in ROOT.glob("*.md"):
+        shutil.copy2(file, checkout / file.name)
+    home = tmp_path / "home"
+    agent = home / ".pi/agent"
+    agent.mkdir(parents=True)
+    installed = agent / "skills"
+    write(build(checkout), installed)
+    good = json.loads(_run(checkout, home, "--json").stdout)
+    assert good["pi_skills"]["fidelity"] == "matches", good
+    assert good["pi_skills"]["checked"] == good["pi_skills"]["expected"] > 0
+    assert good["pi_skills"]["effectiveness"] == "unknown"
+    file = installed / "code-quality/references/code-quality.md"
+    original = file.read_bytes()
+    file.write_bytes(original + b"x")
+    assert file.read_bytes() != original
+    bad = json.loads(_run(checkout, home, "--json").stdout)
+    assert bad["pi_skills"]["fidelity"] == "differs"
+    assert bad["verdict"] == "drift"
+    assert file.read_bytes() == original + b"x"  # read-only report
+
+
+def test_pi_host_snapshot_ignores_unrelated_project_settings(tmp_path):
+    from lib.pi_skills import build, write
+    checkout = _make_checkout(tmp_path / "checkout")
+    (checkout / "lib").mkdir()
+    shutil.copy2(ROOT / "lib/pi_skills.py", checkout / "lib/pi_skills.py")
+    shutil.copy2(ROOT / "scripts/pi-skill-sync.py", checkout / "scripts/pi-skill-sync.py")
+    shutil.copytree(ROOT / ".claude/skills", checkout / ".claude/skills")
+    shutil.copytree(ROOT / "docs", checkout / "docs")
+    for file in ROOT.glob("*.md"):
+        shutil.copy2(file, checkout / file.name)
+    home = tmp_path / "home"
+    agent = home / ".pi/agent"
+    agent.mkdir(parents=True)
+    write(build(checkout), agent / "skills")
+    caller = tmp_path / "unrelated"
+    (caller / ".pi").mkdir(parents=True)
+    (caller / ".pi/settings.json").write_text("{malformed fixture")
+    assert (caller / ".pi/settings.json").read_text() == "{malformed fixture"
+    normal = json.loads(_run(checkout, home, "--json").stdout)
+    unrelated = json.loads(_run(checkout, home, "--json", cwd=caller).stdout)
+    assert unrelated["pi_skills"]["fidelity"] == normal["pi_skills"]["fidelity"] == "matches"
 
 
 def test_stale_helper_is_real_drift_in_every_output_mode(tmp_path: Path):

@@ -192,3 +192,12 @@ The script only reports and suggests remediation. Cleanup remains opt-in.
 The `drift_check` task remains available in the CI task manifest's deploy plan for
 operator-driven deploy workflows, but the Woodpecker CI pipeline does not run it as
 a pre-deploy gate.
+
+## Pi topic skills (P1-A1 boundary)
+
+A1 only writes generated build output outside agent/history configuration.
+`<agent>/skills/<slug>` and `<agent>/.cpp-skill-install.lock` are planned A2
+managed-copy installation surfaces, not writes implemented here. Staging,
+ownership ledger and adoption backups must remain within the approved skills
+root. Shared updater enrollment is deferred to #1900. The A1 drift reader is
+read-only file-snapshot inspection; runtime effectiveness remains unknown.
