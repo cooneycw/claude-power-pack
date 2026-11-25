@@ -164,6 +164,11 @@ test:
 	@set -e; workers="$$(sh scripts/pytest-workers.sh)"; \
 		uv run --extra dev pytest -n "$$workers"
 
+## verify-coverage: utility test-host-update-core - focused tests of the fixture-only host update core; full suite owns the gate
+HOST_UPDATE_TESTS ?= tests/test_host_update_core.py
+test-host-update-core:
+	uv run --extra dev pytest -q $(HOST_UPDATE_TESTS)
+
 ## verify-coverage: gate typecheck - mypy over the tree; ci: runs validate
 typecheck:
 	uv run --extra dev mypy .

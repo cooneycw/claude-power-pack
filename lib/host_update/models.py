@@ -8,7 +8,8 @@ symlinks. Ownership metadata is separate from discoverable package contents.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable, Mapping
+import json
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -112,6 +113,26 @@ class ExpectedBuild:
     revision: str
     packages: tuple[ExpectedPackage, ...]
     manifest_sha256: str
+
+
+def build_manifest_sha256(revision: str, packages: Sequence[ExpectedPackage]) -> str:
+    """Hash the portable, sorted expected membership/bytes/modes contract."""
+    payload = {
+        "schema": 1,
+        "revision": revision,
+        "packages": [
+            {
+                "name": package.name,
+                "canonical_source": package.canonical_source,
+                "members": {
+                    name: {"sha256": member.sha256, "mode": member.mode}
+                    for name, member in sorted(package.members.items())
+                },
+            }
+            for package in sorted(packages, key=lambda item: item.name)
+        ],
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 @dataclass(frozen=True)
