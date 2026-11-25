@@ -1,0 +1,112 @@
+{
+  "gate": "scripts/pi-syscall-audit.py",
+  "invocation": [
+    "python3",
+    "controls/pi-syscall-observer/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "PI_SYSCALL: (finding|refused)",
+  "unknown_signal": "PI_SYSCALL: unknown",
+  "unavailable_signal": "PI_INSTALL_CONTROL: unavailable - ",
+  "limits": "Fixture-only real subject/reader. No live pi, syscall, provider or credential-isolation evidence.",
+  "cases": [
+    {
+      "name": "allowed-install",
+      "input": "cases/allowed-install",
+      "expect": "GOOD"
+    },
+    {
+      "name": "allowed-readonly-verify",
+      "input": "cases/allowed-readonly-verify",
+      "expect": "GOOD"
+    },
+    {
+      "name": "auth-file-stat",
+      "input": "cases/auth-file-stat",
+      "expect": "BAD"
+    },
+    {
+      "name": "child-descriptor-relative-write",
+      "input": "cases/child-descriptor-relative-write",
+      "expect": "BAD"
+    },
+    {
+      "name": "derived-locks-existing-only-verify",
+      "input": "cases/derived-locks-existing-only-verify",
+      "expect": "GOOD"
+    },
+    {
+      "name": "derived-locks-refresh",
+      "input": "cases/derived-locks-refresh",
+      "expect": "GOOD"
+    },
+    {
+      "name": "history-descendant-probe",
+      "input": "cases/history-descendant-probe",
+      "expect": "BAD"
+    },
+    {
+      "name": "history-root-resolution",
+      "input": "cases/history-root-resolution",
+      "expect": "GOOD"
+    },
+    {
+      "name": "incomplete-child-trace",
+      "input": "cases/incomplete-child-trace",
+      "expect": "UNKNOWN"
+    },
+    {
+      "name": "readonly-verify-created-lock",
+      "input": "cases/readonly-verify-created-lock",
+      "expect": "BAD"
+    },
+    {
+      "name": "record-only-management-writes",
+      "input": "cases/record-only-management-writes",
+      "expect": "GOOD"
+    },
+    {
+      "name": "transient-trusted-write",
+      "input": "cases/transient-trusted-write",
+      "expect": "BAD"
+    },
+    {
+      "name": "truncated-path",
+      "input": "cases/truncated-path",
+      "expect": "UNKNOWN"
+    },
+    {
+      "name": "unresolved-directory-fd",
+      "input": "cases/unresolved-directory-fd",
+      "expect": "UNKNOWN"
+    },
+    {
+      "name": "user-prefix-alias-probe",
+      "input": "cases/user-prefix-alias-probe",
+      "expect": "BAD"
+    },
+    {
+      "name": "record-only-package-write",
+      "input": "cases/record-only-package-write",
+      "expect": "BAD"
+    },
+    {
+      "name": "omitted-child-trace",
+      "input": "cases/omitted-child-trace",
+      "expect": "UNKNOWN"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/pi-syscall-audit.py",
+      "path": "anchors/constructed-blind.py",
+      "sha256": "4f7e704ed9cac417d30c80f18ff93d312dc614df0075752349e2f6f9a7c18522",
+      "why": "Constructed subject retains fixture unexaminable shapes and ignores semantic BAD inputs; agrees on GOOD and UNKNOWN, misses known-bad cases. No historical-regression claim."
+    }
+  ],
+  "good_signal": "PI_SYSCALL: (current|matches)"
+}

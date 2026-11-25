@@ -1,10 +1,10 @@
-# Proposed A2 host fixture protocol
+# A2 host fixture protocol
 
-Preparation for #1896 after A1 merged in #1907. These are DRAFT commands and
-observer contracts, not executed results or existing CLI promises. The two
-proposed scripts do not exist yet. A2 implementation waits for #1889-A complete
-core evidence and plan approval. Host execution is routed through the task
-orchestrator after the immutable scripts and exact command batch are reviewed.
+Preparation for #1896 after A1 merged in #1907. The original command draft is
+now implemented using the real core merged in #1908 and approved in Run 2.
+These are observer contracts, not executed host results. The exact relay is
+in `issue-1896-a2-host-probe.sh` beside this document. Host execution is routed
+through the task orchestrator after the frozen scripts and batch are reviewed.
 No owner session or owner installation is involved.
 
 ## Execution envelope
@@ -21,7 +21,7 @@ names, cwd, exit codes, timeouts and child cleanup. A forced stop invalidates
 the affected acceptance result. Output records live outside the source and
 outside the target agent tree, under the fixture.
 
-Each command below names a proposed interface. The host operator supplies a
+Each command below names the fixture interface. The host operator supplies a
 reviewed immutable candidate checkout as `PI_A2_SOURCE`; `PI_A2_REVISION` is its
 full reviewed commit and `PI_A2_PYTHON` its compatible interpreter. The actual
 pi/strace binaries are explicit reviewed absolute paths. Require all variables
@@ -55,8 +55,8 @@ children first, and records final fixture absence. Failure to clean up is an
 explicit failed cleanup result with the exact fixture path retained for manual
 undo. No broad cleanup glob, detached process or guessed process-group kill.
 Commands return UNKNOWN when a required binary or evidence is unavailable.
-These command drafts must be replaced with the implemented/help-verified argv
-before requesting host execution.
+Use the exact committed relay batch and check the frozen scripts' help before
+requesting host execution. Self-tests exercise readers, not live host behavior.
 
 ## RPC lane: actual installed output and baseline diagnostics
 
@@ -105,7 +105,7 @@ the trace. Build an explicit operation allowance from the reviewed contract,
 never infer permission from the accesses observed. A draft raw trace envelope is:
 
 ```bash
-"$PI_A2_STRACE_BIN" -ff -yy -s 65535 -o "$PI_A2_TRACE_PREFIX" \
+"$PI_A2_STRACE_BIN" -ff -ttt -yy -s 65535 -o "$PI_A2_TRACE_PREFIX" \
   -e trace=%file,%desc,%process \
   "$PI_A2_PYTHON" "$PI_A2_SOURCE/scripts/pi-skill-sync.py" \
   --install --root "$PI_A2_SOURCE" \

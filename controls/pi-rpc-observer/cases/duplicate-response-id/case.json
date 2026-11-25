@@ -1,0 +1,36 @@
+{
+  "scenario": "duplicate-response-id",
+  "expect": "UNKNOWN",
+  "record": {
+    "agent": "/fixture/agent",
+    "expected": [
+      "topic"
+    ],
+    "baseline": {
+      "stdout": "{\"id\": \"commands\", \"command\": \"get_commands\", \"success\": true, \"data\": {\"commands\": []}}\n",
+      "stderr": "baseline no-model warning\n",
+      "exit": 0,
+      "forced_stop": false
+    },
+    "installed": {
+      "stdout": "{\"id\": \"commands\", \"command\": \"get_commands\", \"success\": true, \"data\": {\"commands\": [{\"name\": \"skill:topic\", \"source\": \"skill\", \"sourceInfo\": {\"scope\": \"user\", \"path\": \"/fixture/agent/skills/topic/SKILL.md\", \"baseDir\": \"/fixture/agent\"}}]}}\n{\"id\": \"commands\", \"command\": \"get_commands\", \"success\": true, \"data\": {\"commands\": [{\"name\": \"skill:topic\", \"source\": \"skill\", \"sourceInfo\": {\"scope\": \"user\", \"path\": \"/fixture/agent/skills/topic/SKILL.md\", \"baseDir\": \"/fixture/agent\"}}]}}\n",
+      "stderr": "baseline no-model warning\n",
+      "exit": 0,
+      "forced_stop": false
+    },
+    "tools": {
+      "baseline": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ],
+      "installed": [
+        "read",
+        "bash",
+        "edit",
+        "write"
+      ]
+    }
+  }
+}

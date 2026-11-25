@@ -608,3 +608,13 @@ negative controls, red-first regressions, direct paired finish gate with full
 history, independent runtime receipt and PR CI remain required. Freeze code
 when requesting review. Branch pushes are authorized; PR opening requires
 separate clearance. This approval precedes A2 product changes.
+
+Run 2 concrete execution-path refinement: the already planned record-only
+package-write opposite is materialized at
+`controls/pi-syscall-observer/cases/record-only-package-write/case.json`.
+The host command relay is committed at
+`docs/measurements/pi/issue-1896-a2-host-probe.sh`, implementing the authorized
+immutable probe-file handoff, not another product entry point.
+Trace-completeness refinement: add
+`controls/pi-syscall-observer/cases/omitted-child-trace/case.json`; its cloned
+child is absent entirely, unlike the existing truncated-child fixture.

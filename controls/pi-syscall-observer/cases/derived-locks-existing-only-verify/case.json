@@ -1,0 +1,34 @@
+{
+  "scenario": "derived-locks-existing-only-verify",
+  "expect": "GOOD",
+  "record": {
+    "allowance": {
+      "skills": "/fixture/agent/skills",
+      "lock": "/fixture/agent/.cpp-skills.lock",
+      "source": "/fixture/source",
+      "histories": [
+        "/fixture/history"
+      ],
+      "settings": [
+        "/fixture/agent/settings.json"
+      ],
+      "mode": "verify",
+      "cwd": "/fixture/work",
+      "metadata": [
+        "/fixture/work"
+      ],
+      "runtime_reads": [
+        "/usr",
+        "/lib",
+        "/dev/null"
+      ]
+    },
+    "root_pid": "10",
+    "traces": {
+      "10": "1.0 openat(AT_FDCWD, \"/fixture/agent/skills/.cpp-managed/.work.cpp-lock\", O_RDONLY|O_NOFOLLOW) = 3</fixture/agent/skills/.cpp-managed/.work.cpp-lock>\n2.0 +++ exited with 0 +++\n"
+    }
+  },
+  "precondition_contains": [
+    "+++ exited with 0 +++"
+  ]
+}

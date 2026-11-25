@@ -1,0 +1,35 @@
+{
+  "scenario": "incomplete-child-trace",
+  "expect": "UNKNOWN",
+  "record": {
+    "allowance": {
+      "skills": "/fixture/agent/skills",
+      "lock": "/fixture/agent/.cpp-skills.lock",
+      "source": "/fixture/source",
+      "histories": [
+        "/fixture/history"
+      ],
+      "settings": [
+        "/fixture/agent/settings.json"
+      ],
+      "mode": "install",
+      "cwd": "/fixture/work",
+      "metadata": [
+        "/fixture/work"
+      ],
+      "runtime_reads": [
+        "/usr",
+        "/lib",
+        "/dev/null"
+      ]
+    },
+    "root_pid": "10",
+    "traces": {
+      "10": "1.0 newfstatat(AT_FDCWD, \"/fixture/agent/skills/topic/SKILL.md\", {}, AT_SYMLINK_NOFOLLOW) = 0\n2.0 +++ exited with 0 +++\n",
+      "11": "1.2 openat(AT_FDCWD, \"child\", O_RDONLY) = 3\n"
+    }
+  },
+  "precondition_contains": [
+    "1.2 openat("
+  ]
+}
