@@ -19,6 +19,8 @@ legitimately about something other than one script is declared on the marker bel
 
 ## Scripts
 
+- `pi-skill-sync` - deterministic portable pi topic builds and complete file-snapshot comparison; P1-A1 only (#1896). [reference](scripts/pi-skill-sync.md)
+
 - `review-yield-report` - informational merged-fix provenance and committed review disposition report (#1865). [reference](scripts/review-yield-report.md)
 
 - `bandit-audit` - runs Python static security analysis over `lib/` and `scripts/` (#962). [reference](scripts/bandit-audit.md)

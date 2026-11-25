@@ -969,6 +969,31 @@ codex-skills:
 skills-check:
 	@python3 scripts/skills-check.py
 
+.PHONY: test-pi-skills
+## verify-coverage: utility test-pi-skills - focused hermetic pi build/policy tests; no host pi installation
+test-pi-skills:
+	uv run --extra dev pytest -q tests/test_pi_skill_sync.py tests/test_pi_skill_policy.py tests/test_skills_check.py tests/test_install_drift.py $(PYTEST_ARGS)
+
+.PHONY: pi-skills pi-skills-check pi-skills-fidelity
+## verify-coverage: excluded pi-skills - builds ignored pi output; deliberately outside full verify, covered by focused hermetic tests
+pi-skills:
+	@python3 scripts/pi-skill-sync.py --write
+
+## verify-coverage: excluded pi-skills-check - compares local generated pi output; build explicitly with pi-skills first
+pi-skills-check:
+	@python3 scripts/pi-skill-sync.py --check
+
+## verify-coverage: excluded pi-skills-fidelity - explicit host file snapshot; no ownership or runtime-effectiveness claim in A1
+pi-skills-fidelity:
+	@python3 scripts/pi-skill-sync.py --fidelity-root "$(PI_SKILLS_ROOT)" --json
+
+.PHONY: pi-skills-controls
+## verify-coverage: excluded pi-skills-controls - targeted subset of the registered controls already exercised by negative-controls in verify
+pi-skills-controls:
+	@python3 scripts/check-negative-controls.py --control controls/pi-skill-build --strict --verify-provenance
+	@python3 scripts/check-negative-controls.py --control controls/pi-bundled-parity --strict --verify-provenance
+	@python3 scripts/check-negative-controls.py --control controls/pi-drift-reader --strict --verify-provenance
+
 ## verify-coverage: utility codex-init - builds codex/skills/ in the checkout, checks it, and installs it
 codex-init:
 	@python3 scripts/codex-skill-sync.py --write --install

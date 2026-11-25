@@ -1,0 +1,62 @@
+{
+  "gate": "scripts/skills-check.py",
+  "invocation": [
+    "python3",
+    "controls/pi-skill-build/run-case.py",
+    "{gate}",
+    "{case}",
+    "bundled"
+  ],
+  "good_exit": 0,
+  "detect_signal": "PI_SKILL_BUILD: (differs|refused)|MANAGED_DRIFT|BUNDLED_(EXPECTATION|REFUSED)|PI_READER: (differs|refused)",
+  "unknown_signal": "PI_SKILL_BUILD: unknown|BUNDLED_UNKNOWN|PI_READER: unknown",
+  "unavailable_signal": "PI_CONTROL: unavailable - ",
+  "limits": "A1 real builder/file-snapshot reader only; no ownership transaction, installation, runtime effectiveness or syscall acceptance.",
+  "cases": [
+    {
+      "name": "good",
+      "input": "cases/good",
+      "expect": "GOOD"
+    },
+    {
+      "name": "missing",
+      "input": "cases/missing",
+      "expect": "BAD"
+    },
+    {
+      "name": "marker",
+      "input": "cases/marker",
+      "expect": "BAD"
+    },
+    {
+      "name": "byte",
+      "input": "cases/byte",
+      "expect": "BAD"
+    },
+    {
+      "name": "manifest",
+      "input": "cases/manifest",
+      "expect": "BAD"
+    },
+    {
+      "name": "unknown",
+      "input": "cases/unknown",
+      "expect": "UNKNOWN"
+    },
+    {
+      "name": "installed-0664",
+      "input": "cases/installed-0664",
+      "expect": "BAD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/pi-skill-sync.py",
+      "path": "../pi-skill-build/anchors/constructed-always-clean.py",
+      "sha256": "7570b60629ff9d6cc92b9339e4ad790a620c717c0dfa90620abb58961daa312b",
+      "why": "Constructed subject retains absent-source UNKNOWN but ignores comparison bytes/membership/marker/payload. It agrees on healthy/unknown inputs and misses known-bad cases."
+    }
+  ]
+}

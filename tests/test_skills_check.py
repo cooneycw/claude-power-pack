@@ -8,6 +8,7 @@ is allowed to derive its verdict from that machine-specific state.
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
@@ -19,6 +20,35 @@ _spec = spec_from_file_location("skills_check", _script_path)
 skills_check = module_from_spec(_spec)  # type: ignore[arg-type]
 sys.modules["skills_check"] = skills_check
 _spec.loader.exec_module(skills_check)  # type: ignore[union-attr]
+
+
+def test_real_pi_bundled_output_and_missing_marker_floor(tmp_path):
+    from lib.pi_skills import build, write
+    expected = tmp_path / "fresh/skills"
+    installed = tmp_path / "installed/skills"
+    write(build(ROOT), expected)
+    shutil.copytree(expected, installed)
+    good = skills_check.check_repository(ROOT, installed, expected)
+    assert good.ok, good.findings
+    assert good.managed_checked == len(build(ROOT)) > 0
+    file = installed / "code-quality/SKILL.md"
+    file.write_text(file.read_text().replace("  source:", "  removed:"))
+    assert "  source:" not in file.read_text()
+    bad = skills_check.check_repository(ROOT, installed, expected)
+    assert not bad.ok
+    assert any(f.code == "MANAGED_DRIFT" for f in bad.findings)
+
+
+def test_pi_partial_fresh_expectation_cannot_hide_missing_packages(tmp_path):
+    from lib.pi_skills import build, write
+    expected = tmp_path / "fresh/skills"
+    write(build(ROOT), expected)
+    missing = expected / "code-quality/SKILL.md"
+    missing.unlink()
+    assert not missing.exists()
+    report = skills_check.check_repository(ROOT, expected, expected)
+    assert not report.ok
+    assert any(f.code == "BUNDLED_EXPECTATION" for f in report.findings)
 
 
 EXPECTED_LOADING_METADATA = {
