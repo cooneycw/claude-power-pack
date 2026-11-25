@@ -19,6 +19,14 @@ candidate only. Discovery does not establish model invocation or session-history
 persistence precedence. The reader's committed good/empty/missing response cases
 test the reader, not pi itself.
 
+V2 runs global discovery and metadata layout before creating any project skill.
+Project discovery then compares fresh-default `ask`, fixture-only global setting
+`always`, and `never`, without a Git repository. Independent sections continue
+after a failed section; the final result fails if any section is unresolved.
+See [the versioned source notes](pi-1.6.0-source-notes.md) for the documented
+project-trust prerequisite. These settings writes affect only the disposable
+agent root. The production copier target remains the documented user skills root.
+
 Batch 2 uses a helper-owned fresh fixture TUI, never the owner's existing session.
 Run `pi-reload.py create` and retain its printed ROOT and undo before continuing.
 Launch `pi-reload.py launch ROOT --help-reviewed` in a separate fixture terminal.

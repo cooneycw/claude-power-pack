@@ -86,7 +86,8 @@ def run():
             raise ValueError("version not confirmed as 1.6.0; inspect output")
         roots = {"global": fixture / "agent/skills", "project": fixture / "work/.pi/skills",
                  "explicit": fixture / "explicit"}
-        for label, root in roots.items():
+        for label in ["global", "explicit"]:
+            root = roots[label]
             skill(root, "cpp-probe-" + label, label)
 
         def probe(label, extra=()):
@@ -110,36 +111,102 @@ def run():
             # Process status and lifecycle cleanup are never product success.
             return rows, err
 
-        expected = ["skill:cpp-probe-global", "skill:cpp-probe-project"]
-        baseline, baseline_err = probe("metadata-baseline")
-        require_names(baseline, expected)
-        metadata = roots["global"] / ".cpp-managed"
-        metadata.mkdir()
-        (metadata / "ownership.json").write_text('{"fixture_only":true,"schema":1}\n')
-        hidden, hidden_err = probe("hidden-record-no-skill")
-        require_names(hidden, expected)
-        if hidden != baseline or hidden_err != baseline_err:
-            raise ValueError("management directory changed commands or diagnostics; layout unresolved")
-        (metadata / "ownership.json").unlink()
-        metadata.rmdir()
-        restored, restored_err = probe("metadata-restored")
-        if restored != baseline or restored_err != baseline_err:
-            raise ValueError("restored baseline differs")
-        for label, root in roots.items():
-            skill(root, "cpp-probe-priority", label + "-priority")
-        # Record collision descriptions/sourceInfo/warnings without inventing precedence.
-        probe("global-project-collision")
-        plus, _ = probe("automatic-plus-explicit", ["--skill", str(roots["explicit"])])
-        require_names(plus, ["skill:cpp-probe-explicit"])
-        only, _ = probe("explicit-only", ["--no-skills", "--skill", str(roots["explicit"])])
-        require_names(only, ["skill:cpp-probe-explicit"])
-        gone = roots["global"] / "cpp-probe-global"
-        (gone / "SKILL.md").unlink()
-        gone.rmdir()
-        removed, _ = probe("removed-global-negative")
-        if any(r.get("name") == "skill:cpp-probe-global" for r in removed):
-            raise ValueError("removed fixture still discovered")
-        print("OBSERVED unique discovery, hidden layout comparison, and removal; inspect collision rows for precedence")
+        errors = []
+
+        def section(name, action):
+            try:
+                action()
+            except (ValueError, OSError, subprocess.SubprocessError) as error:
+                errors.append((name, str(error)))
+                print("SECTION UNRESOLVED", name, str(error), flush=True)
+            else:
+                print("SECTION OBSERVED", name, flush=True)
+
+        def global_discovery():
+            rows, _ = probe("global-only-positive")
+            require_names(rows, ["skill:cpp-probe-global"])
+            gone = roots["global"] / "cpp-probe-global"
+            (gone / "SKILL.md").unlink()
+            gone.rmdir()
+            try:
+                removed, _ = probe("removed-global-negative")
+                if any(r.get("name") == "skill:cpp-probe-global" for r in removed):
+                    raise ValueError("removed fixture still discovered")
+            finally:
+                skill(roots["global"], "cpp-probe-global", "global")
+
+        def ownership_layout():
+            baseline, baseline_err = probe("metadata-baseline-global-only")
+            require_names(baseline, ["skill:cpp-probe-global"])
+            metadata = roots["global"] / ".cpp-managed"
+            metadata.mkdir()
+            try:
+                (metadata / "ownership.json").write_text('{"fixture_only":true,"schema":1}\n')
+                hidden, hidden_err = probe("hidden-record-no-skill")
+                require_names(hidden, ["skill:cpp-probe-global"])
+                if hidden != baseline or hidden_err != baseline_err:
+                    raise ValueError("management directory changed commands or diagnostics; layout unresolved")
+            finally:
+                (metadata / "ownership.json").unlink()
+                metadata.rmdir()
+            restored, restored_err = probe("metadata-restored")
+            if restored != baseline or restored_err != baseline_err:
+                raise ValueError("restored baseline differs")
+
+        def explicit_discovery():
+            plus, _ = probe("automatic-plus-explicit", ["--skill", str(roots["explicit"])])
+            require_names(plus, ["skill:cpp-probe-global", "skill:cpp-probe-explicit"])
+            only, _ = probe("explicit-only", ["--no-skills", "--skill", str(roots["explicit"])])
+            require_names(only, ["skill:cpp-probe-explicit"])
+            if any(r.get("name") == "skill:cpp-probe-global" for r in only):
+                raise ValueError("--no-skills still exposed automatic global fixture")
+
+        section("global-discovery", global_discovery)
+        section("ownership-layout", ownership_layout)
+        section("explicit-discovery", explicit_discovery)
+
+        # Project discovery is independent. Only synthetic fixture settings change.
+        skill(roots["project"], "cpp-probe-project", "project")
+        settings = fixture / "agent/settings.json"
+
+        def project_trust():
+            if settings.exists():
+                raise ValueError("unexpected fixture settings before trust test")
+            default, _ = probe("project-default-ask-no-git")
+            require_names(default, ["skill:cpp-probe-global"])
+            if any(r.get("name") == "skill:cpp-probe-project" for r in default):
+                raise ValueError("project resource loaded under fresh default ask")
+            settings.write_text('{"defaultProjectTrust":"always"}\n')
+            try:
+                trusted, _ = probe("project-trust-always-no-git")
+                require_names(trusted, ["skill:cpp-probe-global", "skill:cpp-probe-project"])
+                settings.write_text('{"defaultProjectTrust":"never"}\n')
+                denied, _ = probe("project-trust-never-no-git")
+                require_names(denied, ["skill:cpp-probe-global"])
+                if any(r.get("name") == "skill:cpp-probe-project" for r in denied):
+                    raise ValueError("project resource loaded despite trust never")
+            finally:
+                settings.unlink()
+
+        section("project-trust", project_trust)
+
+        def precedence():
+            for label, root in roots.items():
+                skill(root, "cpp-probe-priority", label + "-priority")
+            settings.write_text('{"defaultProjectTrust":"always"}\n')
+            try:
+                # Record winner descriptions/sourceInfo/diagnostics, do not guess order.
+                rows, _ = probe("trusted-project-global-collision")
+                require_names(rows, ["skill:cpp-probe-priority"])
+                rows, _ = probe("trusted-project-global-explicit-collision", ["--skill", str(roots["explicit"])])
+                require_names(rows, ["skill:cpp-probe-priority", "skill:cpp-probe-explicit"])
+            finally:
+                settings.unlink()
+
+        section("precedence-observations", precedence)
+        if errors:
+            raise ValueError("unresolved probe sections: " + repr(errors))
+        print("OBSERVED independent sections; inspect collision rows for actual precedence; no runtime isolation claim")
     finally:
         shutil.rmtree(fixture)
         print("UNDO_EXECUTED", fixture, "ABSENT", not fixture.exists())
