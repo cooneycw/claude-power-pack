@@ -179,7 +179,6 @@ def main():
         guide = installed / "references/docs/skills/python-packaging.md"
         content = guide.read_bytes()
         expected_hash, tail = digest(content), content[-120:].decode()
-        (scratch / "expected-guide.json").write_text(json.dumps({"sha256": expected_hash, "tail": tail}))
         emit("published-copy", revision=args.revision, members=expected, guide_sha256=expected_hash)
         repo = scratch / "unrelated-project"
         repo.mkdir()
@@ -222,6 +221,9 @@ def main():
             observed.append({"case": label, "matches_expected": matches, "response": payload})
             emit("consumer-observation", **observed[-1])
         (scratch / "observations.json").write_text(json.dumps(observed, indent=2))
+        # Keep the oracle out of files accessible to either fresh model turn.
+        # Persist it only after both responses are complete.
+        (scratch / "expected-guide.json").write_text(json.dumps({"sha256": expected_hash, "tail": tail}))
         emit("acceptance", state="observed" if all(row["matches_expected"] for row in observed) else "unknown",
              note="helper must inspect retained tool/output evidence before publishing any acceptance claim")
         return 0 if all(row["matches_expected"] for row in observed) else 4
