@@ -27,6 +27,15 @@ shared driver/installer (#1889), rules (#1890), MCP (#1891), drift integration
 landing of ADR 0014 precede code merges. Follow the ADR's scheduling and pin
 constraints; this document changes neither the owner host nor its CPP pin.
 
+The owner directed generic framework first on 2026-11-25: implement the
+harness-neutral driver core before harness-specific AGY work. The core carries
+discover/refresh/verify/report, fault isolation, ownership, hash drift and
+locking contracts so additional harnesses can reuse them. The proposed issue
+split is #1889 core, then #1888 bundler, then #1889 adapter/integration; issue
+scope/dependency revisions await the owner's scheduling decision and do not
+change any acceptance promise here. pi P1-A may start after #1887 merges; that
+work is not delivery of the initial adapter subset.
+
 ## Outcome
 
 One host update discovers existing CPP-managed installations, refreshes each
@@ -346,9 +355,10 @@ consumer boundaries; later plans answer the repository's full lane table and
 state untested live paths. Native Codex authoring is not AGY product evidence.
 
 [Research and provenance](research.md) records the attributed B0-B4 evidence,
-paired controls and unresolved premises. No unpublished archive has been
+paired controls and unresolved premises, including the 2026-11-25 sanitized
+manifest's server-side MCP call records. No unpublished archive has been
 independently inspected by this author. Exact rules target/loading design,
-aggregate rule-token behavior, complete hook history and nonce-backed MCP
-acceptance remain with their named later deliveries. Missing source artifacts
-remain a visible #1887 evidence gap; a specification does not turn them into
-measurements.
+aggregate rule-token behavior, complete hook history and shipped live-health
+checks remain with their named later deliveries. Missing historical argv,
+prompts and artifact byte correspondence remain visible #1887 evidence gaps;
+a specification does not turn them into measurements.
