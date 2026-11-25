@@ -164,6 +164,32 @@ test:
 	@set -e; workers="$$(sh scripts/pytest-workers.sh)"; \
 		uv run --extra dev pytest -n "$$workers"
 
+## verify-coverage: utility test-host-update-core - focused tests of the fixture-only host update core; full suite owns the gate
+.PHONY: test-host-update-core test-host-update-lock-repeat host-update-controls host-update-verify host-update-refresh
+HOST_UPDATE_TESTS ?= tests/test_host_update_core.py tests/test_host_update_transactions.py tests/test_host_update_cli.py
+test-host-update-core:
+	uv run --extra dev pytest -q $(HOST_UPDATE_TESTS)
+
+## verify-coverage: utility test-host-update-lock-repeat - deterministic subprocess lock/concurrency stress; full suite owns the gate
+HOST_UPDATE_REPEAT ?= 20
+test-host-update-lock-repeat:
+	@set -e; case "$(HOST_UPDATE_REPEAT)" in ''|*[!0-9]*) exit 2;; esac; \
+		iteration=0; while [ "$$iteration" -lt "$(HOST_UPDATE_REPEAT)" ]; do \
+		iteration=$$((iteration + 1)); \
+		uv run --extra dev pytest -q tests/test_host_update_transactions.py; done
+
+## verify-coverage: excluded host-update-controls - focused subset already run by negative-controls in verify; ci: excluded duplicate-subset
+host-update-controls:
+	python3 scripts/check-negative-controls.py --control controls/host-update-core --strict --verify-provenance
+
+## verify-coverage: excluded host-update-verify - needs an explicit disposable fixture root, not the host; ci: excluded needs-fixture
+host-update-verify:
+	python3 scripts/cpp-host-update.py verify --fixture-root "$(FIXTURE_ROOT)" --json
+
+## verify-coverage: excluded host-update-refresh - mutates an explicitly marked disposable fixture only; ci: excluded needs-fixture
+host-update-refresh:
+	python3 scripts/cpp-host-update.py refresh --fixture-root "$(FIXTURE_ROOT)" --json
+
 ## verify-coverage: gate typecheck - mypy over the tree; ci: runs validate
 typecheck:
 	uv run --extra dev mypy .
