@@ -165,6 +165,15 @@ def host_lane(args):
                     "baseline": baseline, "installed": observed, "tools": None}
             record["pair"] = pair
             record["audit"] = rpc_audit(pair)
+            record["management_layout_observation"] = {
+                "scope": "actual installed hidden .cpp-managed directory",
+                "ledger_present": policy.ledger_path.is_file(),
+                "work_root_present": policy.work_root.is_dir(),
+                "management_skill_absent": not (policy.ledger_path.parent / "SKILL.md").exists(),
+                "diagnostics_equal": observed["stderr"] == baseline["stderr"],
+                "no_added_non_topic_commands": "unexpected non-topic command population changed"
+                not in record["audit"]["findings"],
+            }
             first = record["expected"][0]
             package = fixture / "agent/skills" / first
             removed = fixture / "evidence/removed-package"

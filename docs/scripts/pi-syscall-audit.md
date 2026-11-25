@@ -20,3 +20,10 @@ are UNKNOWN. A framing-only blind anchor proves the known-bad cases discriminate
 This is a bounded observer, not a kernel policy or runtime credential-isolation
 guarantee. Host records must name unsupported syntax and per-case limitations;
 one legal install trace does not establish all B1-B6 acceptance rows.
+
+Polling/select/epoll calls inspect their resolved fd targets as metadata; pipe,
+socket and anonymous-inode descriptors remain IPC. The reader checks watched
+fds at epoll_ctl and the epoll instance at each wait; event data is opaque caller
+payload. Unannotated/unresolved descriptors and incomplete fd populations remain
+UNKNOWN. Committed Python/Git-shaped GOOD/BAD twins exercise pipe2, multiplexing,
+pipe reads/writes, wait4 and complete child framing, including an auth-fd probe.

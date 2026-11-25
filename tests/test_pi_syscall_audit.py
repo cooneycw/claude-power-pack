@@ -47,3 +47,24 @@ def test_credential_spelling_remains_forbidden_when_alias_target_is_ordinary_sou
     record["allowance"]["aliases"] = {"/fixture/agent/auth.json": "/fixture/source/ordinary.md"}
     assert "auth.json" in record["traces"]["10"]
     assert AUDIT(record)["state"] == "finding"
+
+
+@pytest.mark.parametrize("operation", [
+    'ppoll([{fd=7</fixture/agent/auth.json>, events=POLLIN}], 1, NULL, NULL, 8)',
+    'select(8, [7</fixture/agent/auth.json>], NULL, NULL, NULL)',
+    'pselect6(8, NULL, [7</fixture/agent/auth.json>], NULL, NULL, {sigmask=NULL, sigsetsize=8})',
+    'epoll_ctl(6<anon_inode:[eventpoll]>, EPOLL_CTL_ADD, 7</fixture/agent/auth.json>, NULL)',
+    'epoll_wait(7</fixture/agent/auth.json>, [], 1, 0)',
+])
+def test_multiplexing_checks_each_resolved_descriptor(operation):
+    record = json.loads((ROOT / "controls/pi-syscall-observer/cases/allowed-install/case.json").read_text())["record"]
+    record["traces"]["10"] = record["traces"]["10"].replace("2.0 +++", "1.8 " + operation + " = 0\n2.0 +++")
+    assert "auth.json" in operation
+    assert AUDIT(record)["state"] == "finding"
+
+
+def test_unresolved_multiplexing_descriptor_remains_unknown():
+    record = json.loads((ROOT / "controls/pi-syscall-observer/cases/allowed-install/case.json").read_text())["record"]
+    record["traces"]["10"] = record["traces"]["10"].replace(
+        "2.0 +++", "1.8 poll([{fd=7, events=POLLIN}], 1, -1) = 0\n2.0 +++")
+    assert AUDIT(record)["state"] == "unknown"

@@ -76,6 +76,11 @@ requesting host execution. Self-tests exercise readers, not live host behavior.
    sourceInfo.baseDir was the agent root in the earlier probe, not package root.
    Compare built-in tool inventory to baseline, including a fixture skill named
    `bash`; it must remain a skill and must not replace the tool.
+   Explicitly observe the actual SKILL.md-less `.cpp-managed` directory, its
+   ownership ledger, work root and derived locks: it must add neither loader
+   diagnostics nor non-topic commands. The returned
+   `management_layout_observation` names the actual installed layout separately
+   from the earlier synthetic hidden-directory discovery probe.
 4. Preserve baseline stderr verbatim and require no added diagnostics. Any
    version-specific volatile-field normalization must be explicit, bounded and
    justified before execution. Do not silently filter warnings or treat exit 0

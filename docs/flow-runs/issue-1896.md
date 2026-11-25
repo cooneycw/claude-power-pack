@@ -618,3 +618,24 @@ immutable probe-file handoff, not another product entry point.
 Trace-completeness refinement: add
 `controls/pi-syscall-observer/cases/omitted-child-trace/case.json`; its cloned
 child is absent entirely, unlike the existing truncated-child fixture.
+
+### A2 pass 1 correction scope (mailbox 40278)
+
+Accepted F1 MEDIUM at reviewed head `a48687ae`: descriptor multiplexing such as
+Python's `poll` was unsupported, so valid real Python/Git traces could never
+match. Add descriptor-aware poll/ppoll/select/pselect6/epoll handling with a
+realistic committed GOOD trace and BAD descriptor twin at:
+
+- `controls/pi-syscall-observer/cases/python-git-multiplexing/case.json`
+- `controls/pi-syscall-observer/cases/python-git-forbidden-fd/case.json`
+
+Run the positive regression red before changing the reader; retain forbidden
+descriptor findings and unresolved-fd UNKNOWNs. This is one accepted review
+finding. Notes A/B are record clarifications, not additional counted findings.
+The actual RPC pair must explicitly establish that hidden `.cpp-managed`
+ownership/work/derived-lock contents add no discovery diagnostics or commands.
+The frozen rev-6.1 design names `<agent>/.cpp-skill-install.lock`; Run 2 chooses
+`<agent>/.cpp-skills.lock` as its primary lock. This is an explicit rename, not
+an assertion that the frozen design already used the new name. The two mandatory
+derived sibling locks remain additional core coordination. Frozen plan bytes
+are unchanged; host evidence is still UNKNOWN and execution waits for review.

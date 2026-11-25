@@ -96,6 +96,16 @@
       "name": "omitted-child-trace",
       "input": "cases/omitted-child-trace",
       "expect": "UNKNOWN"
+    },
+    {
+      "name": "python-git-multiplexing",
+      "input": "cases/python-git-multiplexing",
+      "expect": "GOOD"
+    },
+    {
+      "name": "python-git-forbidden-fd",
+      "input": "cases/python-git-forbidden-fd",
+      "expect": "BAD"
     }
   ],
   "anchors": [

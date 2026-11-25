@@ -109,6 +109,40 @@ def audit(record):
             return "stdio-or-ipc"
         raise ValueError("unresolved file descriptor")
 
+    def fd_set(value):
+        if value == "NULL":
+            return []
+        if not (value.startswith("[") and value.endswith("]")):
+            raise ValueError("unsupported multiplexing fd set")
+        body = value[1:-1]
+        tokens, previous = [], 0
+        for match in re.finditer(r"[0-9]+(?:<[^>]*>)?", body):
+            if body[previous:match.start()].strip(" ,"):
+                raise ValueError("unresolved multiplexing fd set")
+            tokens.append(match[0])
+            previous = match.end()
+        if body[previous:].strip(" ,"):
+            raise ValueError("truncated/unresolved multiplexing fd set")
+        return tokens
+
+    def poll_fds(value, count):
+        if value == "NULL" and count == "0":
+            return []
+        if not (value.startswith("[") and value.endswith("]") and count.isdecimal()):
+            raise ValueError("unsupported poll descriptor array")
+        rows = arguments(value[1:-1]) if value[1:-1].strip() else []
+        if len(rows) != int(count):
+            raise ValueError("incomplete poll descriptor population")
+        tokens = []
+        for row in rows:
+            match = re.fullmatch(r"\{fd=(-?[0-9]+(?:<[^>]*>)?)(?:, events=[^{}]*)?\}", row)
+            if not match:
+                raise ValueError("unresolved poll descriptor")
+            # Negative poll fds are explicitly ignored by the kernel.
+            if not match[1].startswith("-"):
+                tokens.append(match[1])
+        return tokens
+
     def examine(path, operation, call, args):
         nonlocal examined
         if path == "stdio-or-ipc":
@@ -216,6 +250,29 @@ def audit(record):
             elif call in fd_reads | fd_writes | fd_meta:
                 operation = "write" if call in fd_writes else "read" if call in fd_reads else "metadata"
                 examine(descriptor(args[0], pid), operation, call, raw)
+            elif call in ("poll", "ppoll", "ppoll_time64"):
+                if len(args) < (3 if call == "poll" else 5):
+                    raise ValueError("incomplete polling syscall")
+                for value in poll_fds(args[0], args[1]):
+                    examine(descriptor(value, pid), "metadata", call, raw)
+            elif call in ("select", "_newselect", "pselect6", "pselect6_time64"):
+                if len(args) < (5 if call in ("select", "_newselect") else 6) or not args[0].isdecimal():
+                    raise ValueError("incomplete select syscall")
+                for fd_group in args[1:4]:
+                    for value in fd_set(fd_group):
+                        examine(descriptor(value, pid), "metadata", call, raw)
+            elif call in ("epoll_create", "epoll_create1"):
+                if re.match(r"[0-9]+", result):
+                    created = re.match(r"[0-9]+(?:<[^>]*>)?", result)
+                    assert created
+                    examine(descriptor(created[0], pid), "metadata", call, raw)
+            elif call == "epoll_ctl":
+                for value in (args[0], args[2]):
+                    examine(descriptor(value, pid), "metadata", call, raw)
+            elif call in ("epoll_wait", "epoll_pwait", "epoll_pwait2"):
+                # Event data is caller payload, not an fd. Watched descriptors
+                # are checked at epoll_ctl, the instance itself at every wait.
+                examine(descriptor(args[0], pid), "metadata", call, raw)
             elif call in ("mmap", "mmap2"):
                 if args[4] != "-1":
                     if "MAP_SHARED" in args[3] and "PROT_WRITE" not in args[2]:

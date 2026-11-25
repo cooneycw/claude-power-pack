@@ -85,3 +85,12 @@ pending; no closing acceptance claim for #1896 is made.
 
 Supplemental documentation contradiction recorded without widening A2:
 [shared-ledger primary-lock wording](https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7175807297).
+
+Pass 1 review at `a48687ae` requested one MEDIUM correction: real Python/Git
+traces contain poll and other descriptor multiplexing operations which the
+reader treated as unsupported. Both new Python/Git-shaped GOOD/BAD regressions
+failed on that reviewed reader before the fix. Descriptor-aware handling now
+accepts the GOOD trace and reports the forbidden-fd twin; unresolvable fds stay
+UNKNOWN. Current observer total is 40 passed. The hidden management-directory
+expectation and frozen-design primary-lock rename are explicit in Run 2 and
+the host protocol. No host execution evidence has been added by this correction.
