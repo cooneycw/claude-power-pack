@@ -213,7 +213,7 @@ def test_probe_consumer_argv_matches_documented_agy_1517_flag_forms():
         return value
 
     contract = argparse.ArgumentParser(allow_abbrev=False)
-    contract.add_argument("--dangerously-skip-permissions", action="store_true", required=True)
+    contract.add_argument("--dangerously-skip-permissions", action="store_true")
     contract.add_argument("--output-format", choices=formats, required=True)
     contract.add_argument("--print-timeout", type=duration, required=True)
     contract.add_argument("-p", "--print", dest="print_mode", action="store_true", required=True)
@@ -223,13 +223,15 @@ def test_probe_consumer_argv_matches_documented_agy_1517_flag_forms():
     assert Path(argv[0]).is_absolute() and Path(argv[0]).name == "agy"
     parsed = contract.parse_args(argv[1:])
     assert parsed.output_format == "json" and parsed.print_timeout == "180s"
-    assert parsed.dangerously_skip_permissions and parsed.print_mode and parsed.prompt == prompt
+    assert not parsed.dangerously_skip_permissions
+    assert parsed.print_mode and parsed.prompt == prompt
     assert argv[-2:] == ["-p", prompt]
     bad_duration = list(argv)
     bad_duration[bad_duration.index("--print-timeout") + 1] = "180"
     bad_enum = list(argv)
     bad_enum[bad_enum.index("--output-format") + 1] = "yaml"
-    bad_boolean = [*argv[:2], "false", *argv[2:]]
+    print_index = argv.index("-p")
+    bad_boolean = [*argv[:print_index + 1], "false", *argv[print_index + 1:]]
     for invalid in (bad_duration, bad_enum, bad_boolean, argv[:-1]):
         assert invalid != argv
         with pytest.raises(SystemExit):

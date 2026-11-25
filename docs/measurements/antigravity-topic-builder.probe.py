@@ -6,6 +6,7 @@ python3 <fetched-file> --checkout <CPP-checkout> --revision <frozen-sha>
 The probe never inspects, copies or logs credentials. HOME is set only on
 fresh child processes. Consumer authentication uses the inherited user-session
 keyring; this lane isolates configuration, with no credential-isolation claim.
+Consumer turns use normal native permissions without an automatic-approval flag.
 JSON/stdout artifacts remain private for the helper to sanitize.
 """
 from __future__ import annotations
@@ -80,7 +81,7 @@ def checked_help(result):
     if result.returncode:
         raise RuntimeError("AGY help command failed")
     help_text = result.stdout + result.stderr
-    for flag in ("--print", "--dangerously-skip-permissions", "--output-format", "--print-timeout"):
+    for flag in ("--print", "--output-format", "--print-timeout"):
         if flag not in help_text:
             raise RuntimeError("AGY help differs from the confirmed contract")
     if "json" not in help_text or not re.search(r"(?m)^\s*-p(?:[,\s]|$)", help_text):
@@ -93,7 +94,8 @@ def consumer_argv(agy, prompt):
     # output-format enum is text/json/stream-json, and -p aliases --print.
     # Native parsing rejected integer '180'; Go duration '180s' is required.
     # Keep the prompt one final argv element; never join/shell-evaluate it.
-    return [str(agy), "--dangerously-skip-permissions", "--output-format", "json",
+    # Session-keyring access must not accompany blanket tool auto-approval.
+    return [str(agy), "--output-format", "json",
             "--print-timeout", "180s", "-p", prompt]
 
 
@@ -237,7 +239,8 @@ def main():
         observed = []
         consumer_env = consumer_environment(os.environ, profile, scratch)
         emit("consumer-env", **environment_names(consumer_env, ("HOME",)),
-             isolation_limit="configuration-isolated; authentication uses inherited user-session keyring")
+             isolation_limit="configuration-isolated; authentication uses inherited user-session keyring",
+             permissions="normal native permissions; no automatic-approval flag")
         for label in ("positive", "missing-guide"):
             if label == "missing-guide":
                 guide.unlink()
