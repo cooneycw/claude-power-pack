@@ -13,8 +13,8 @@ section; nothing earlier is edited, and every check reads only its own run.
 - Run-start:         790174a3f3994c5433429ddf8df6fe3296762ce9
 - Issue:             #1889, delivery A only
 - Necessity verdict: Needs reframing
-- Approval:          pending
-- Approver:          pending orchestrator review of this concrete Section C
+- Approval:          granted
+- Approver:          ch-orch mailbox 39939, approving Section C at b88e35a7
 
 ### Section A - intent
 
@@ -49,7 +49,7 @@ machines' unpublished work is unexamined. Existing codex-skill-sync.py install
 and lock code and tests were read as precedent, not as an extraction target.
 The generator must remain byte-identical.
 
-### Section C - proposed plan, pending approval
+### Section C - the approved plan
 
 1. `lib/host_update/__init__.py` - export the small neutral adapter/core API.
 2. `lib/host_update/models.py` - immutable revision, expected package/member, ownership record, per-member conflict, inspection/action/result and report types; closed states and deterministic aggregation.
@@ -82,7 +82,15 @@ The generator must remain byte-identical.
 
 Scope: Tier 3, approximately 28 product/test/control/docs paths plus this plan,
 as-read snapshot and later lane-results/receipt records; roughly 1800-2600 lines.
-No code is written before approval. Paths may be revised through the existing
+Approval conditions (ch-orch 39939): freeze and push the models/driver/adapter
+callback interface in its own early commit before store/driver internals, notify
+ch-w2 and ch-orch of its full SHA, and notify ch-w2 before later API changes.
+Subprocess lock/concurrency tests use bounded waits and explicit synchronization,
+never sleeps, assert negative preconditions first, and run repeatedly locally
+before review. Leave codex-skill-sync.py byte-identical; its historical parity
+test belongs to #1888, not A.
+
+Paths may be revised through the existing
 plan-change procedure if a control requires an additional committed seed.
 
 Risks: path checks must precede forbidden-root touches; symlinks/races and
