@@ -76,7 +76,10 @@ def _validate_revision(scope: Scope, revision: Revision) -> None:
     # No symlink aliases before Git is allowed to read this approved source.
     with scope.directory(revision.snapshot_root):
         pass
-    env = dict(os.environ, GIT_OPTIONAL_LOCKS="0", GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+    # An invoking repository's GIT_DIR/WORK_TREE/config injection must not
+    # redirect this explicit source, nor trigger optional Git writes/hooks.
+    env = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
+    env.update(GIT_OPTIONAL_LOCKS="0", GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
     prefix = ["git", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
               "-C", str(revision.snapshot_root)]
     head = subprocess.run([*prefix, "rev-parse", "HEAD"], capture_output=True, text=True, env=env, timeout=10)

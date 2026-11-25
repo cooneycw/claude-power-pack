@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -30,6 +31,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--adopt", action="append", default=[])
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
+    if not math.isfinite(args.lock_timeout) or not 0 <= args.lock_timeout <= 3600:
+        parser.error("--lock-timeout must be finite and between 0 and 3600")
     try:
         adapters, revision = load_fixture(args.fixture_root.absolute())
     except Exception as exc:

@@ -1,0 +1,75 @@
+{
+  "gate": "scripts/cpp-host-update.py",
+  "invocation": [
+    "python3",
+    "-c",
+    "from pathlib import Path; import runpy,sys; runpy.run_path(str(Path(sys.argv[2]).parents[1]/'run-case.py'),run_name='__main__')",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "good_signal": "^HOST_UPDATE: current",
+  "detect_signal": "^HOST_UPDATE: failure",
+  "unknown_signal": "^HOST_UPDATE: unknown",
+  "unavailable_signal": "^HOST_UPDATE: UNAVAILABLE - git missing$",
+  "limits": "Fixture-only core CLI, not production harness discovery or runtime effectiveness. Independent setup constructs actual source Git and an installed ownership ledger. Cases inspect actual bytes/modes/membership, preserve foreign content, reject modified-orphan refresh and verify an unchanged owned orphan is pruned. No-lock and held-lock oracles compare complete installed trees and suppress subject verdicts when preservation fails, so an oracle crash is not counted as detection. Real-process concurrency, interruption and mutation-red cases are additionally in tests/test_host_update_transactions.py. Locks coordinate cooperating writers only.",
+  "cases": [
+    {
+      "name": "good-current",
+      "input": "cases/good-current",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-stale",
+      "input": "cases/bad-stale",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-missing-member",
+      "input": "cases/bad-missing-member",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-hand-edited",
+      "input": "cases/bad-hand-edited",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-unmanaged-collision",
+      "input": "cases/bad-unmanaged-collision",
+      "expect": "BAD"
+    },
+    {
+      "name": "unknown-lock",
+      "input": "cases/unknown-lock",
+      "expect": "UNKNOWN",
+      "anchor_expect": "clean",
+      "anchor_expect_reason": "The constructed writer never attempts a flock, so it cannot observe the exclusive-holder refusal; its declared blind result is current."
+    },
+    {
+      "name": "good-no-lock",
+      "input": "cases/good-no-lock",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-modified-orphan",
+      "input": "cases/bad-modified-orphan",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-prune",
+      "input": "cases/good-prune",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/cpp-host-update.py",
+      "path": "anchors/constructed-always-current.py",
+      "sha256": "8b07a5d00706934c89bdd396371562ba6936f8ffaff23ff119f818b3130ee4a2",
+      "why": "CONSTRUCTED naive copy/prune writer. Verify always claims current without reading installed output or locking. Refresh can copy/prune unchanged owned bytes, but reports success even when it preserves a modified orphan. It agrees on good cases and misses each bad case; unknown-lock explicitly declares its blind clean result."
+    }
+  ]
+}

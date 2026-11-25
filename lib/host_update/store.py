@@ -54,7 +54,7 @@ def _document(scope: Scope) -> dict[str, Any]:
         return {"schema": 1, "producer": "claude-power-pack", "adapters": {}}
     try:
         value = json.loads(scope.read(location), object_pairs_hook=_unique)
-        if value.get("schema") != 1 or value.get("producer") != "claude-power-pack":
+        if type(value.get("schema")) is not int or value["schema"] != 1 or value.get("producer") != "claude-power-pack":
             raise ValueError("unsupported ownership producer/schema")
         if not isinstance(value["adapters"], dict):
             raise ValueError("adapters is not an object")
@@ -298,7 +298,7 @@ def publish(scope: Scope, build: ExpectedBuild, before: Snapshot, request: Reque
         raise _unknown("published record does not describe verified current output")
     scope.unlink(pending)
     recovery = ""
-    if adopted:
+    if adopted and not before.record_only:
         recovery = f"reviewed adoption backup retained at {transaction.relative_to(scope.root)}"
     else:
         scope.remove_work_tree(transaction)

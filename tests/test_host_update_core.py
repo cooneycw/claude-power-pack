@@ -51,8 +51,10 @@ class Case:
             (root / name).mkdir()
 
     def git(self, *args: str) -> str:
+        env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
         return subprocess.run(["git", "-C", str(self.source), *args], capture_output=True,
-                              text=True, check=True, timeout=10).stdout.strip()
+                              text=True, check=True, timeout=10, env=env).stdout.strip()
 
     def commit(self) -> str:
         self.git("add", ".")
@@ -164,6 +166,17 @@ def test_unmanaged_same_name_target_preserved(tmp_path):
     assert tree_snapshot(target) == original
 
 
+def test_owned_mode_drift_is_hand_edited_and_preserved(tmp_path):
+    case = Case(tmp_path / "fixture")
+    assert refresh(case.adapter(), case.request()).exit_code == 0
+    skill = case.root / "a/skills/topic/SKILL.md"
+    skill.chmod(0o755)
+    assert stat.S_IMODE(skill.stat().st_mode) == 0o755
+    result = refresh(case.adapter(), case.request())
+    assert result.exit_code == 1 and result.before.state == State.HAND_EDITED
+    assert stat.S_IMODE(skill.stat().st_mode) == 0o755
+
+
 def test_record_only_reconciliation_does_not_republish_package(tmp_path, monkeypatch):
     case = Case(tmp_path / "fixture")
     assert refresh(case.adapter(), case.request()).exit_code == 0
@@ -248,6 +261,23 @@ def test_preflight_refusal_before_any_generic_filesystem_access(tmp_path, monkey
     assert answer.exit_code == 1 and answer.reason == "pi fixture path refused"
 
 
+def test_adapter_markdown_mode_policy_rejects_executable_before_writes(tmp_path):
+    case = Case(tmp_path / "fixture")
+    (case.source / "helper.sh").write_bytes(b"fixture executable content\n")
+    case.rows[0]["members"]["helper.sh"] = {"source": "helper.sh", "mode": 0o755}
+    case.commit()
+
+    class MarkdownOnly(FixtureAdapter):
+        def preflight(self, request):
+            return replace(super().preflight(request),
+                           member_allowed=lambda path, mode: path.endswith(".md") and mode == 0o644)
+
+    assert case.rows[0]["members"]["helper.sh"]["mode"] == 0o755
+    result = refresh(MarkdownOnly(case.root, case.spec()), case.request())
+    assert result.exit_code == 1 and "adapter policy" in result.reason
+    assert not (case.root / "a/.install.lock").exists()
+
+
 def test_symlink_root_is_refused_without_touching_target(tmp_path):
     case = Case(tmp_path / "fixture")
     protected = case.root / "protected-fixture"
@@ -282,6 +312,19 @@ def test_zero_validated_expected_population_never_current(tmp_path):
     assert not case.rows
     result = inspect(case.adapter(), case.request())
     assert result.exit_code == 4 and "population is zero" in result.reason
+
+
+def test_source_binding_ignores_foreign_git_environment(tmp_path, monkeypatch):
+    case = Case(tmp_path / "fixture")
+    foreign = Case(tmp_path / "foreign")
+    (foreign.source / "topic/SKILL.md").write_bytes(b"different source repository\n")
+    foreign.commit()
+    assert foreign.revision != case.revision
+    monkeypatch.setenv("GIT_DIR", str(foreign.source / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(foreign.source))
+    result = refresh(case.adapter(), case.request())
+    assert result.exit_code == 0, result.reason
+    assert result.revision == case.revision
 
 
 def test_selected_absent_vs_unselected_not_applicable_without_mutation(tmp_path):
