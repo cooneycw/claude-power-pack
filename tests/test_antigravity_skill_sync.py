@@ -1,14 +1,16 @@
 """Real immutable build bytes feed the shared core; no host installation."""
 import importlib.util
 import json
+import os
 import posixpath
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
-from lib.antigravity_skills import TOPICS, BuildAdapter, build, link_parser, manifest
+from lib.antigravity_skills import TOPICS, BuildAdapter, Snapshot, build, link_parser, manifest
 from lib.host_update.driver import inspect, refresh
 from lib.host_update.models import AdapterError, Request, Revision
 
@@ -26,8 +28,9 @@ def source(tmp_path, extra=None):
     files = {".claude/skills/topic/SKILL.md": (
         b"---\nname: topic\ndescription: Fixture topic\nmetadata:\n  provenance:\n    class: cpp-authored\n---\n"
         b"Read `docs/skills/topic.md` and [guide](../../../docs/skills/topic.md#heading).\n"),
-        "docs/skills/topic.md": b"# Intended guide\n[more](../reference/more.md)\n",
-        "docs/reference/more.md": b"# More\n"}
+        "docs/skills/topic.md": b"# Intended guide\n[more](reference/more.md)\n",
+        "docs/skills/reference/more.md": b"# More\n",
+        "scripts/check-md-relative-links.py": (ROOT / "scripts/check-md-relative-links.py").read_bytes()}
     files.update(extra or {})
     for name, content in files.items():
         path = root / name
@@ -69,7 +72,7 @@ def test_real_core_consumes_bundled_guides_and_preserves_modes(tmp_path):
     expected = build(revision, expected_topics=frozenset({"topic"}))
     package = expected.packages[0]
     assert b"./references/docs/skills/topic.md" in package.members["SKILL.md"].content
-    assert b"../reference/more.md" in package.members["references/docs/skills/topic.md"].content
+    assert b"./reference/more.md" in package.members["references/docs/skills/topic.md"].content
     assert package.members["scripts/run.sh"].mode == 0o755
     adapter = BuildAdapter(tmp_path / "output", expected_topics=frozenset({"topic"}))
     request = Request(revision)
@@ -85,15 +88,15 @@ def test_real_core_consumes_bundled_guides_and_preserves_modes(tmp_path):
 
 def test_reference_style_image_and_html_resources_are_bundled(tmp_path):
     revision = source(tmp_path, {"docs/skills/topic.md": (
-        b"[Extra][guide]\n\n[guide]: ../reference/more.md#section\n"
-        b"![diagram](../reference/chart.png)\n<a href=\"../reference/more.md\">more</a>\n"
+        b"[Extra][guide]\n\n[guide]: reference/more.md#section\n"
+        b"![diagram](images/chart.png)\n<a href=\"reference/more.md\">more</a>\n"
         b"```md\n[example](missing.md)\n```\n"),
-        "docs/reference/chart.png": b"fixture image bytes"})
+        "docs/skills/images/chart.png": b"fixture image bytes"})
     package = build(revision, expected_topics=frozenset({"topic"})).packages[0]
-    assert "references/docs/reference/chart.png" in package.members
-    assert "references/docs/reference/more.md" in package.members
+    assert "references/docs/skills/images/chart.png" in package.members
+    assert "references/docs/skills/reference/more.md" in package.members
     text = package.members["references/docs/skills/topic.md"].content
-    assert b"[guide]: ../reference/more.md#section" in text
+    assert b"[guide]: ./reference/more.md#section" in text
     assert b"[example](missing.md)" in text
 
 
@@ -101,7 +104,7 @@ def test_output_alias_is_refused_before_descendant_metadata(tmp_path, monkeypatc
     revision = source(tmp_path)
     protected = tmp_path / "protected"
     protected.mkdir()
-    alias = tmp_path / "alias"
+    alias = revision.snapshot_root / "antigravity"
     alias.symlink_to(protected, target_is_directory=True)
     assert alias.is_symlink()
     original = Path.is_symlink
@@ -112,7 +115,7 @@ def test_output_alias_is_refused_before_descendant_metadata(tmp_path, monkeypatc
         return original(path)
 
     monkeypatch.setattr(Path, "is_symlink", guarded)
-    result = refresh(BuildAdapter(alias / "output", expected_topics=frozenset({"topic"})), Request(revision))
+    result = refresh(BuildAdapter(alias / "skills", expected_topics=frozenset({"topic"})), Request(revision))
     assert result.exit_code == 1 and "alias refused" in result.reason
     assert not list(protected.iterdir())
 
@@ -168,6 +171,22 @@ def test_live_probe_profile_guard_rejects_alias_before_descendant_metadata(tmp_p
         probe.profile_paths_safe(profile, (profile / ".gemini/config/skills",))
 
 
+def test_probe_help_accepts_stderr_without_weakening_contract_checks():
+    probe = probe_module()
+    help_text = ("  -p, --print Run one prompt\n--dangerously-skip-permissions\n"
+                 "--output-format (text, json, stream-json)\n--print-timeout seconds\n")
+    stderr_help = subprocess.CompletedProcess(["agy", "--help"], 0, stdout="", stderr=help_text)
+    assert stderr_help.stdout == "" and all(flag in stderr_help.stderr for flag in (
+        "--print", "--dangerously-skip-permissions", "--output-format", "--print-timeout"))
+    assert probe.checked_help(stderr_help) == help_text
+    stdout_help = subprocess.CompletedProcess(["agy", "--help"], 0, stdout=help_text, stderr="")
+    assert probe.checked_help(stdout_help) == help_text
+    for invalid in (subprocess.CompletedProcess(["agy", "--help"], 1, stdout="", stderr=help_text),
+                    subprocess.CompletedProcess(["agy", "--help"], 0, stdout="", stderr="unrelated output")):
+        with pytest.raises(RuntimeError):
+            probe.checked_help(invalid)
+
+
 @pytest.mark.parametrize("kind", ["missing", "escape", "symlink", "zero"])
 def test_required_inputs_never_skip_to_green(tmp_path, kind):
     revision = source(tmp_path)
@@ -201,3 +220,82 @@ def test_missing_plain_guide_instruction_is_unknown(tmp_path):
     with pytest.raises(AdapterError, match="required guide") as error:
         build(revision, expected_topics=frozenset({"topic"}))
     assert error.value.exit_code == 4
+
+
+def test_topic_closure_routes_unrelated_corpus_and_directories_upstream(tmp_path, monkeypatch):
+    revision = source(tmp_path, {"docs/skills/topic.md": (
+        b"# Topic guide\n[index](../scripts.md) [directory](../research/) "
+        b"[helper](../../scripts/unallowed.py)\n"),
+        "docs/scripts.md": b"[history](research/large.md)\n",
+        "docs/research/large.md": b"Unrelated historical corpus\n",
+        "scripts/unallowed.py": b"import lib.unbundled\n"})
+    original = Snapshot.read
+
+    def bounded_read(snapshot, path):
+        assert path not in {"docs/scripts.md", "docs/research/large.md", "scripts/unallowed.py"}
+        return original(snapshot, path)
+
+    monkeypatch.setattr(Snapshot, "read", bounded_read)
+    package = build(revision, expected_topics=frozenset({"topic"})).packages[0]
+    assert set(package.members) == {"SKILL.md", "references/docs/skills/topic.md"}
+    text = package.members["references/docs/skills/topic.md"].content.decode()
+    upstream = "https://github.com/cooneycw/claude-power-pack/"
+    assert upstream + f"blob/{revision.commit}/docs/scripts.md" in text
+    assert upstream + f"tree/{revision.commit}/docs/research/" in text
+    assert upstream + f"blob/{revision.commit}/scripts/unallowed.py" in text
+
+
+def test_system_alias_above_approved_output_prefix_is_supported(tmp_path):
+    actual = tmp_path / "actual-home"
+    actual.mkdir()
+    alias = tmp_path / "system-home"
+    alias.symlink_to(actual, target_is_directory=True)
+    assert alias.is_symlink()
+    fixture = alias / "fixture"
+    fixture.mkdir()
+    revision = source(fixture)
+    adapter = BuildAdapter(fixture / "output", expected_topics=frozenset({"topic"}))
+    result = refresh(adapter, Request(revision))
+    assert result.exit_code == 0, result.reason
+    assert inspect(adapter, Request(revision)).exit_code == 0
+
+
+def test_explicit_system_alias_parent_is_a_trusted_prefix_but_root_alias_is_refused(tmp_path):
+    revision = source(tmp_path)
+    actual = tmp_path / "actual-home"
+    actual.mkdir()
+    alias = tmp_path / "system-home"
+    alias.symlink_to(actual, target_is_directory=True)
+    assert alias.is_symlink()
+    adapter = BuildAdapter(alias / "skills", expected_topics=frozenset({"topic"}))
+    assert refresh(adapter, Request(revision)).exit_code == 0
+    root_alias = actual / "skills-alias"
+    root_alias.symlink_to(actual / "skills", target_is_directory=True)
+    assert root_alias.is_symlink()
+    assert refresh(BuildAdapter(root_alias, expected_topics=frozenset({"topic"})), Request(revision)).exit_code == 1
+
+
+def test_parser_transform_is_read_from_pinned_source_snapshot(tmp_path):
+    parser = (ROOT / "scripts/check-md-relative-links.py").read_bytes()
+    revision = source(tmp_path, {"scripts/check-md-relative-links.py": (
+        parser + b"\nFENCE_RE = re.compile(r'(?!)')\n"),
+        "docs/skills/topic.md": b"```md\n[example](missing.md)\n```\n"})
+    assert b"FENCE_RE = re.compile(r'(?!)')" in (
+        revision.snapshot_root / "scripts/check-md-relative-links.py").read_bytes()
+    with pytest.raises(AdapterError, match="unresolved local reference"):
+        build(revision, expected_topics=frozenset({"topic"}))
+
+
+def test_only_allowlisted_external_script_travels_and_loads_without_checkout(tmp_path):
+    revision = Revision(git(ROOT, "rev-parse", "HEAD").decode().strip(), ROOT)
+    expected = build(revision)
+    scripts = {(p.name, name) for p in expected.packages for name in p.members
+               if name.startswith("references/scripts/")}
+    assert scripts == {("documentation", "references/scripts/c4-mermaid.py")}
+    script = tmp_path / "c4-mermaid.py"
+    package = next(p for p in expected.packages if p.name == "documentation")
+    script.write_bytes(package.members["references/scripts/c4-mermaid.py"].content)
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    result = subprocess.run([sys.executable, str(script), "--help"], cwd=tmp_path,
+                            capture_output=True, text=True, env=env)
+    assert result.returncode == 0 and "--model" in result.stdout

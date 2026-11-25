@@ -5,14 +5,16 @@ explicit build-output directory; production host discovery belongs to delivery B
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import posixpath
 import re
 import sys
+import tempfile
 from functools import cache
 from pathlib import Path, PurePosixPath
-from urllib.parse import unquote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 import yaml
 
@@ -37,6 +39,7 @@ TOPICS = frozenset({
     "idd-workflow", "infrastructure-hardening", "mcp-optimization", "project-deploy",
     "python-packaging", "secrets", "session-management", "spec-driven-dev",
 })
+BUNDLED_SCRIPTS = frozenset({"scripts/c4-mermaid.py"})
 # Markdown destinations plus the repository paths used as plain-text read/run
 # instructions by canonical topic documents. Project example paths are not
 # dependencies merely because they resemble a checkout path.
@@ -47,19 +50,33 @@ BARE = re.compile(r"(?<![\w/])(?:docs/(?:skills|reference|agents)|scripts)/[A-Za
 
 
 @cache
-def link_parser():
-    path = Path(__file__).resolve().parent.parent / "scripts/check-md-relative-links.py"
-    spec = importlib.util.spec_from_file_location("agy_topic_markdown_parser", path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
+def _load_link_parser(content: bytes):
+    identity = hashlib.sha256(content).hexdigest()
+    name = f"agy_topic_markdown_{identity}"
+    # Import the trusted pinned CPP module with the standard loader. Its
+    # private materialization is removed immediately and never enters output.
+    with tempfile.TemporaryDirectory(prefix="cpp-agy-parser-") as temporary:
+        path = Path(temporary) / "check-md-relative-links.py"
+        path.write_bytes(content)
+        spec = importlib.util.spec_from_file_location(name, path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
     return module
 
 
-def visible_markdown(text: str) -> str:
+def link_parser(snapshot: Snapshot | None = None):
+    if snapshot is None:
+        content = (Path(__file__).resolve().parent.parent / "scripts/check-md-relative-links.py").read_bytes()
+    else:
+        content = snapshot.read("scripts/check-md-relative-links.py").content
+    return _load_link_parser(content)
+
+
+def visible_markdown(text: str, parser=None) -> str:
     """Mask comments/code without changing offsets, including image contexts."""
-    parser = link_parser()
+    parser = parser if parser is not None else link_parser()
 
     def mask(match):
         return re.sub(r"[^\n]", " ", match.group())
@@ -157,6 +174,7 @@ def build(revision: Revision, *, expected_topics: frozenset[str] = TOPICS) -> Ex
               and p.endswith("/SKILL.md")}
     if not expected_topics or actual != expected_topics:
         raise unknown("canonical topic population differs from the explicit nonzero inventory")
+    parser = link_parser(snapshot)
     packages: list[ExpectedPackage] = []
     for topic in sorted(expected_topics):
         prefix = f".claude/skills/{topic}/"
@@ -166,10 +184,7 @@ def build(revision: Revision, *, expected_topics: frozenset[str] = TOPICS) -> Ex
 
         def include(path: str) -> str:
             if path.endswith("/"):
-                for child in snapshot.files:
-                    if child.startswith(path):
-                        include(child)
-                return f"references/{path}"
+                raise AdapterError("directory bundling is outside topic scope", state=State.UNMANAGED)
             if path not in destinations:
                 # Preserve the complete repository-relative path to avoid two
                 # distinct guides/resources with the same basename colliding.
@@ -188,9 +203,20 @@ def build(revision: Revision, *, expected_topics: frozenset[str] = TOPICS) -> Ex
                     path = _resolve(raw, source, snapshot.files)
                     if path is None:
                         return raw
+                    fragment = urlsplit(raw.strip("<>")).fragment
+                    allowed = not path.endswith("/") and (
+                        path.startswith(prefix) or path.startswith("docs/skills/") or path in BUNDLED_SCRIPTS)
+                    if not allowed:
+                        # Reference material outside the topic contract remains
+                        # an immutable upstream link, never a recursive corpus.
+                        kind = "tree" if path.endswith("/") else "blob"
+                        result = (f"https://github.com/cooneycw/claude-power-pack/{kind}/"
+                                  f"{revision.commit}/{quote(path, safe='/')}")
+                        if fragment:
+                            result += "#" + fragment
+                        return f"<{result}>" if raw.startswith("<") else result
                     destination = include(path)
                     relative = posixpath.relpath(destination, posixpath.dirname(output) or ".")
-                    fragment = urlsplit(raw.strip("<>")).fragment
                     result = "./" + relative if not relative.startswith(".") else relative
                     if fragment:
                         result += "#" + fragment
@@ -209,7 +235,7 @@ def build(revision: Revision, *, expected_topics: frozenset[str] = TOPICS) -> Ex
 
                 # Keep link destinations out of the plain-path pass.
                 links: list[str] = []
-                visible = visible_markdown(text)
+                visible = visible_markdown(text, parser)
 
                 def stash(match: re.Match[str]) -> str:
                     if visible[match.start("path"):match.end("path")] != match.group("path"):
@@ -218,7 +244,7 @@ def build(revision: Revision, *, expected_topics: frozenset[str] = TOPICS) -> Ex
                     return f"\x00AGYLINK{len(links) - 1}\x00"
 
                 for pattern in (DESTINATION, DEFINITION, HTML):
-                    visible = visible_markdown(text)
+                    visible = visible_markdown(text, parser)
                     text = pattern.sub(stash, text)
                 text = BARE.sub(bare, text)
                 for index, link in enumerate(links):
@@ -266,16 +292,25 @@ class BuildAdapter:
         if ((root.is_relative_to(source) and root != source / "antigravity/skills")
                 or source.is_relative_to(root)):
             raise AdapterError("output overlaps canonical source", state=State.UNMANAGED)
-        # Validate user-controlled ancestors beneath the caller's existing
-        # output parent; symlinked root/descendants remain core refusals.
-        current = Path(root.anchor)
-        for part in root.parts[1:]:
-            current /= part
-            if current.is_symlink():
-                raise AdapterError("build-output alias refused", state=State.UNMANAGED)
         policy = Policy(root, root / ".cpp-managed/ownership.json", root / ".cpp-install.lock",
                         root / ".cpp-managed/work")
-        Scope(policy)
+        scope = Scope(policy)
+        # Default output descends no-follow from the source anchor. An explicit
+        # destination approves its existing parent (including system aliases),
+        # then the core opens the output root and descendants no-follow.
+        try:
+            if root.is_relative_to(source):
+                anchor = Scope(Policy(source, source / ".unused-ledger", source / ".unused-lock",
+                                      source / ".unused-work"))
+                with anchor.directory(root.parent):
+                    pass
+            try:
+                with scope.directory(root):
+                    pass
+            except FileNotFoundError:
+                pass
+        except AdapterError as exc:
+            raise AdapterError("build-output alias refused", state=State.UNMANAGED) from exc
         return policy
 
     def discover(self, policy: Policy, request: Request) -> Discovery:

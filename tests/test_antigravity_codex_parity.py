@@ -108,6 +108,8 @@ def test_changed_parser_is_detected(tmp_path):
     assert left != text and right == text  # prove the link was eligible before corruption
     with pytest.raises(AssertionError):
         assert left == right, "Codex parser parity differs"
+    with pytest.raises(AssertionError, match="transform parity"):
+        assert_parity(pinned, candidate, tmp_path / "parser-trees")
 
 
 def test_missing_baseline_is_an_error_not_a_skip(tmp_path, monkeypatch):
