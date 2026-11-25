@@ -1,6 +1,6 @@
 # ADR 0014: First-class Antigravity capability via a unified host-global update procedure
 
-- Status: Proposed
+- Status: Accepted (owner, 2026-11-25; see PR #1895 comment 7167908207)
 - Date: 2026-11-21
 - Issue: #1876
 - Related: ADR 0001 section 5 (single-source command layout; its
@@ -26,16 +26,16 @@ independently inspected that text on 2026-11-22 against CPP main
 fresh receipt-bound review. This provenance does not establish a supported
 runtime receipt for the original Gemini work. Historical observations below
 remain attributed reports; adoption does not turn them into fresh probes or
-receipt-backed implementation evidence. Status remains Proposed until the
-owner accepts the ADR.
+receipt-backed implementation evidence. The owner accepted the ADR on
+2026-11-25.
 
 ## The decision, in plain language
 
 Owner direction on 2026-11-22 selects **Option B: a separate copy-generator
 and managed loose copies**, with **topic skills first** and **no symlinks**.
 Option A (native plugins) is rejected for the initial delivery. These selected
-choices do not change the ADR's Proposed status; owner acceptance remains
-separate from a review approval.
+choices did not by themselves accept the ADR; owner acceptance was separate
+from a review approval.
 
 CPP owns one shared `/cpp:update` procedure: discover existing CPP-managed
 installations, refresh from one CPP revision, verify actual installed output,
@@ -228,15 +228,15 @@ and key-scoped MCP merges; native list/validate cannot stand in for that work.
 One AGY PR is in flight at a time, with full suites in PR CI only and Kyle
 series-27 taking CI, host-resource and merge priority. No pushes or CI reruns
 without the orchestrator's explicit window clearance. Kyle's CPP pin remains
-**v13.0.0**; this document does not authorize a pin change. The owner must accept
-this Proposed ADR and it must merge before code merges. The ADR/plan lands
+**v13.0.0**; this document does not authorize a pin change. The owner accepted
+this ADR on 2026-11-25, and it must merge before code merges. The ADR/plan lands
 before activating child-issue scaffolding. The nine existing children remain
 **open and parked pending that merge**; this docs-only revision closes none and
 starts no implementation. Codex authors CPP work; AGY is the test bed.
 
 Packaging B, topic-first and the partial first harness set are settled owner
-choices. Remaining owner acceptance of the ADR is not implied by those choices,
-probe completion or review approval. Exact global-rule target/loading choices
+choices. Owner acceptance of the ADR was separate from those choices, probe
+completion and review approval. Exact global-rule target/loading choices
 and follow-up delivery scheduling must be explicit in their implementation
 plans. The five LOW findings from the first review remain recorded in Nit
 Store comments linked from PR #1895; this revision is driven by the new owner
