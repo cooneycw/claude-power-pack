@@ -78,8 +78,12 @@ and confined resolution, then compares the expected source membership, bytes
 and executable modes against the pinned revision. Check the persistent target
 checkout's revision and cleanliness; links into a disposable build snapshot
 that will be removed do not satisfy this contract. Resolving a link is a
-topology check, not proof of current source contents. Unreadable or unprovable
-state remains unknown; verify creates or repairs nothing.
+topology check, not proof of current source contents. Refresh never moves,
+cleans or modifies the target checkout, switches its branch, discards edits or
+pulls inside the adapter. A revision mismatch or dirty target checkout reports
+the links non-current or refused with the reason, never current. Only the link
+entries themselves may be created or repointed. Unreadable or unprovable state
+remains unknown; verify creates or repairs nothing.
 
 Before the backend ships, commit controls for a link pointing outside the
 checkout, a dangling link, and an expected link replaced by a regular file.
@@ -91,8 +95,14 @@ in this amendment.
 The updater report identifies this backend as **`links`**, never `copies`.
 Report Claude topic copies separately when summarizing mixed components. The
 existing shared revision, ownership, bounded lock, preservation and independent
-per-harness failure contracts still apply. The backend does not grant a new
-write scope or weaken the managed-copy core's symlink refusal.
+per-harness failure contracts still apply. The write scope is exactly the
+CPP-owned link entries under `~/.claude/commands/` and `~/.claude/scripts/`,
+identified by both expected name and expected CPP source, using the existing
+[per-entry ownership discipline](../../scripts/cpp-host-write.sh). Other entries,
+including hand-added real files and foreign links, are never removed or
+replaced. The mixed-farm hazard, where one hand-added real file changes layout
+classification, is not authority to convert or replace the farm. The exception
+does not weaken the managed-copy core's symlink refusal.
 
 Delivery order is this docs-only amendment first, #1889-B1 copy adapters, then
 #1889-B2 maintained update wiring and Claude links. The amendment lands before
