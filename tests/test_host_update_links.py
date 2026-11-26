@@ -449,3 +449,23 @@ def test_command_family_gitlink_is_unknown_not_retired(source, tmp_path):
         row = adapter.operate(request(source), verify_only=verify_only)
         assert row.exit_code == 4 and row.after.state == "unknown", row
         assert tree(home) == before
+
+
+def test_pinned_snapshot_under_symlinked_tmpdir(source, tmp_path, monkeypatch):
+    real = tmp_path / "physical-tmp"
+    real.mkdir()
+    alias = tmp_path / "tmp-alias"
+    alias.symlink_to(real, target_is_directory=True)
+    assert alias.is_symlink() and alias.resolve() == real
+    for temp in (real, alias):
+        home = tmp_path / ("home-" + temp.name)
+        seed(home, source)
+        monkeypatch.setenv("TMPDIR", str(temp))
+        result, report = cli(source, home, "refresh", "--select", "claude-links")
+        assert result.returncode == 0, (temp.name, [(r["harness"], r["reason"]) for r in report["results"]])
+        row = next(r for r in report["results"] if r["harness"] == "claude-links")
+        assert row["after"]["state"] == "current" and row["after"]["examined_members"] > 0
+        assert all(link.readlink().is_relative_to(source)
+                   for kind in ("commands", "scripts")
+                   for link in (home / ".claude" / kind).iterdir())
+        assert list(real.iterdir()) == []

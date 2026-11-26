@@ -133,7 +133,9 @@ def production(args) -> int:
             return result.returncode
         if not args.persistent_source:
             raise AdapterError("pinned execution requires a persistent source authority", exit_code=4)
-        if source != Path(__file__).resolve().parent.parent:
+        # Compare the same lexical snapshot path on both sides. TMPDIR may
+        # have an alias prefix; physical resolution belongs to sys.path setup.
+        if source != Path(__file__).absolute().parent.parent:
             raise AdapterError("pinned execution must use the entry from its source snapshot", exit_code=4)
         request = Request(Revision(args.pinned, source), lock_timeout_seconds=args.lock_timeout,
                           adopt_paths=tuple(args.adopt))

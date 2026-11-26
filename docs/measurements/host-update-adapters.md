@@ -240,3 +240,20 @@ remains non-current. Log: `/workspace/.cpp-validation/1889-b2a/resumed-controls.
 The exact owned control temporary root was removed after the run. The scope
 check reports agreement:27 planned product paths,30 touched including own
 records. Formal B2a pass1 and a fresh direct paired finish gate remain pending.
+
+
+### B2a formal pass1 correction
+
+Reviewer ch-rev41357 requested changes at7e03f089: the pinned self-check resolved
+only its entry path, while its snapshot authority stayed absolute. A symlinked
+TMPDIR prefix therefore yielded an inconsistent report. The committed real CLI
+regression passed with a physical TMPDIR, then failed on7e03f089 with the alias
+(`tmp-alias`, ExecutionFailure/incomplete or inconsistent report). The fix keeps
+both snapshot comparison paths absolute; physical import bootstrap resolution
+is retained. The new test and existing stable helper symlink bootstrap passed
+2 tests (16.54s). Snapshot temporary directories were removed and persistent
+installed link targets remained the approved checkout. The exact owned pytest
+root was removed. Lint,561-file typecheck,binary guards and fixture checks pass.
+No macOS execution is claimed; Linux reproduced the alias-prefix condition.
+The148-control battery and89-test merged adapter run above predate this narrow
+fix. Formal pass2 and a fresh exact-head paired finish gate remain pending.
