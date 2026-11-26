@@ -1,0 +1,72 @@
+{
+  "gate": "scripts/pi-host-fixture.py",
+  "invocation": [
+    "python3",
+    "controls/pi-rpc-observer/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "PI_RPC: (finding|refused)",
+  "unknown_signal": "PI_RPC: unknown",
+  "unavailable_signal": "PI_INSTALL_CONTROL: unavailable - ",
+  "limits": "Fixture-only real subject/reader. No live pi, syscall, provider or credential-isolation evidence.",
+  "cases": [
+    {
+      "name": "added-diagnostic",
+      "input": "cases/added-diagnostic",
+      "expect": "BAD"
+    },
+    {
+      "name": "duplicate-response-id",
+      "input": "cases/duplicate-response-id",
+      "expect": "UNKNOWN"
+    },
+    {
+      "name": "empty-success",
+      "input": "cases/empty-success",
+      "expect": "BAD"
+    },
+    {
+      "name": "malformed-response",
+      "input": "cases/malformed-response",
+      "expect": "UNKNOWN"
+    },
+    {
+      "name": "missing-expected-skill",
+      "input": "cases/missing-expected-skill",
+      "expect": "BAD"
+    },
+    {
+      "name": "missing-response",
+      "input": "cases/missing-response",
+      "expect": "UNKNOWN"
+    },
+    {
+      "name": "populated-baseline-pair",
+      "input": "cases/populated-baseline-pair",
+      "expect": "GOOD"
+    },
+    {
+      "name": "replaced-builtin-tool",
+      "input": "cases/replaced-builtin-tool",
+      "expect": "BAD"
+    },
+    {
+      "name": "unavailable-tool-inventory",
+      "input": "cases/unavailable-tool-inventory",
+      "expect": "UNKNOWN"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/pi-host-fixture.py",
+      "path": "anchors/constructed-blind.py",
+      "sha256": "afab7f69ac1aadfefed0eba976dcbbb511051d2449d30511d8dfbc6a49e6cdcd",
+      "why": "Constructed subject retains fixture unexaminable shapes and ignores semantic BAD inputs; agrees on GOOD and UNKNOWN, misses known-bad cases. No historical-regression claim."
+    }
+  ],
+  "good_signal": "PI_RPC: (current|matches)"
+}

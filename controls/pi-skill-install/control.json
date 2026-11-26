@@ -1,0 +1,132 @@
+{
+  "gate": "scripts/pi-skill-sync.py",
+  "invocation": [
+    "python3",
+    "controls/pi-skill-install/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "PI_SKILL_INSTALL: (finding|refused)",
+  "unknown_signal": "PI_SKILL_INSTALL: unknown",
+  "unavailable_signal": "PI_INSTALL_CONTROL: unavailable - ",
+  "limits": "Fixture-only real subject/reader. No live pi, syscall, provider or credential-isolation evidence.",
+  "cases": [
+    {
+      "name": "adopt-with-backup",
+      "input": "cases/adopt-with-backup",
+      "expect": "GOOD"
+    },
+    {
+      "name": "auth-helper-rejected",
+      "input": "cases/auth-helper-rejected",
+      "expect": "BAD"
+    },
+    {
+      "name": "current-install",
+      "input": "cases/current-install",
+      "expect": "GOOD"
+    },
+    {
+      "name": "dual-identity-refused",
+      "input": "cases/dual-identity-refused",
+      "expect": "BAD"
+    },
+    {
+      "name": "executable-rejected",
+      "input": "cases/executable-rejected",
+      "expect": "BAD"
+    },
+    {
+      "name": "foreign-collision",
+      "input": "cases/foreign-collision",
+      "expect": "BAD"
+    },
+    {
+      "name": "fresh-install",
+      "input": "cases/fresh-install",
+      "expect": "GOOD"
+    },
+    {
+      "name": "hand-edited-before-stale",
+      "input": "cases/hand-edited-before-stale",
+      "expect": "BAD"
+    },
+    {
+      "name": "ignored-source-member-refused",
+      "input": "cases/ignored-source-member-refused",
+      "expect": "UNKNOWN"
+    },
+    {
+      "name": "manifest-rejected",
+      "input": "cases/manifest-rejected",
+      "expect": "BAD"
+    },
+    {
+      "name": "missing-expected-skill",
+      "input": "cases/missing-expected-skill",
+      "expect": "BAD"
+    },
+    {
+      "name": "modified-reference",
+      "input": "cases/modified-reference",
+      "expect": "BAD"
+    },
+    {
+      "name": "output-under-sessions",
+      "input": "cases/output-under-sessions",
+      "expect": "BAD"
+    },
+    {
+      "name": "output-under-trusted-config",
+      "input": "cases/output-under-trusted-config",
+      "expect": "BAD"
+    },
+    {
+      "name": "path-escape-rejected",
+      "input": "cases/path-escape-rejected",
+      "expect": "BAD"
+    },
+    {
+      "name": "record-only-reconciliation",
+      "input": "cases/record-only-reconciliation",
+      "expect": "GOOD"
+    },
+    {
+      "name": "record-only-unmanaged-refused",
+      "input": "cases/record-only-unmanaged-refused",
+      "expect": "BAD"
+    },
+    {
+      "name": "stripped-source-marker",
+      "input": "cases/stripped-source-marker",
+      "expect": "BAD"
+    },
+    {
+      "name": "unreadable-install",
+      "input": "cases/unreadable-install",
+      "expect": "UNKNOWN"
+    },
+    {
+      "name": "user-prefix-alias-refused",
+      "input": "cases/user-prefix-alias-refused",
+      "expect": "BAD"
+    },
+    {
+      "name": "zero-expected-population",
+      "input": "cases/zero-expected-population",
+      "expect": "BAD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/pi-skill-sync.py",
+      "path": "anchors/constructed-blind.py",
+      "sha256": "e8011114e57bbdb20f9503c1d80691c5e14246c05211a4cb238f39aca59e91dc",
+      "why": "Constructed subject retains fixture unexaminable shapes and ignores semantic BAD inputs; agrees on GOOD and UNKNOWN, misses known-bad cases. No historical-regression claim."
+    }
+  ],
+  "good_signal": "PI_SKILL_INSTALL: (current|matches)"
+}

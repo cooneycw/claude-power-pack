@@ -1,0 +1,69 @@
+{
+  "branch": "issue-1896-pi-a2-plan",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "escalation": {
+    "raised_cap": 7,
+    "reference": "https://github.com/cooneycw/claude-power-pack/issues/1896#issuecomment-7178021233",
+    "ruled_by": "owner"
+  },
+  "extra_passes_reason": "ADR 0007 correction passes: pass 2 poll/multiplexing fix, pass 3 host-observer allowance after host run 1, pass 4 residual timezone/landmark fix after rerun 1 (rerun 2 accepted), pass 5 the CI harness correction (root-unreadable control and PATH test) after PR CI 4030 at 3d3f69cd; CI 4031 green at e1abf140",
+  "head": "e1abf140e130bff6d6490768198d8f2e3bc36ac4",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/25/rollout-2026-11-25T16-21-45-01a21383-5caa-7a60-b0dd-8fa74bd4c6bd.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 17576004,
+        "path": "2026/11/25/rollout-2026-11-25T16-21-45-01a21383-5caa-7a60-b0dd-8fa74bd4c6bd.jsonl",
+        "sha256": "710dff376b4734f06acca0eb6e59540a800f9351637627363bf3d07132e8a43e"
+      }
+    ],
+    "thread_id": "01a21383-5caa-7a60-b0dd-8fa74bd4c6bd"
+  },
+  "issue": "1896",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 5,
+  "recorded_at": "2026-11-26T00:36:39Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 4
+  },
+  "reviewed_artifact": {
+    "base_sha": "12b39ceb146dc89860be036e577ae248e362a19d",
+    "merge_base": "12b39ceb146dc89860be036e577ae248e362a19d",
+    "method": "runtime-head",
+    "patch_sha256": "78fd1d2e2e43c84e5f9509b03f1d8dc77f56f59c2b9f4f9985eb335144794e2d",
+    "report_record": 3779,
+    "target_head": "e1abf140e130bff6d6490768198d8f2e3bc36ac4"
+  },
+  "reviewer": "claude/claude-opus-5-5",
+  "reviewer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2",
+    "sources": [
+      {
+        "bytes": 7707778,
+        "path": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl",
+        "sha256": "b424abf88108e2ff907d54abe259b6ba96944d1b74a977d7276d7133f100eee1"
+      }
+    ],
+    "transcript": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}

@@ -1,0 +1,81 @@
+{
+  "scenario": "bootstrap-runtime-paths",
+  "expect": "GOOD",
+  "origin": "Constructed syntax from 30-row deduplicated host bootstrap operation/path/result table, not raw strace replay: flags, fd, buffers, times and exit are synthetic.",
+  "source_extract_sha256": "4a476244aa63b98f7f886223ddab4b82578a2dd3ad7dd8a54f37aaca9c6d7897",
+  "record": {
+    "allowance": {
+      "skills": "/fixture/agent/skills",
+      "lock": "/fixture/agent/.cpp-skills.lock",
+      "source": "/fixture/source",
+      "histories": [
+        "/fixture/history"
+      ],
+      "settings": [
+        "/fixture/agent/settings.json"
+      ],
+      "mode": "install",
+      "cwd": "/fixture/work",
+      "metadata": [
+        "/fixture/work"
+      ],
+      "runtime_reads": [
+        "/usr/lib/python3.12"
+      ],
+      "runtime_files": [
+        "/dev/null",
+        "/etc/gitattributes",
+        "/etc/ld.so.cache",
+        "/etc/ld.so.preload",
+        "/etc/locale.alias",
+        "/etc/ssl/openssl.cnf",
+        "/fixture/config/git/attributes",
+        "/fixture/config/git/ignore",
+        "/proc/sys/crypto/fips_enabled",
+        "/sys/devices/system/cpu/online",
+        "/usr/bin/Modules/Setup.local",
+        "/usr/bin/git",
+        "/usr/bin/lib/python312.zip",
+        "/usr/bin/pybuilddir.txt",
+        "/usr/bin/python3",
+        "/usr/bin/python3.12",
+        "/usr/bin/python3.12._pth",
+        "/usr/bin/python3._pth",
+        "/usr/bin/pyvenv.cfg",
+        "/usr/lib/locale/C.UTF-8/LC_CTYPE",
+        "/usr/lib/locale/C.UTF-8/LC_MESSAGES",
+        "/usr/lib/locale/C.UTF-8/LC_MESSAGES/SYS_LC_MESSAGES",
+        "/usr/lib/locale/C.UTF-8/LC_TIME",
+        "/usr/lib/locale/C.utf8/LC_CTYPE",
+        "/usr/lib/locale/C.utf8/LC_MESSAGES",
+        "/usr/lib/locale/C.utf8/LC_MESSAGES/SYS_LC_MESSAGES",
+        "/usr/lib/locale/C.utf8/LC_TIME",
+        "/usr/lib/locale/locale-archive",
+        "/usr/lib/python312.zip",
+        "/usr/lib/ssl/openssl.cnf",
+        "/usr/pyvenv.cfg",
+        "/usr/share/locale-langpack/C.UTF-8/LC_MESSAGES/messages.mo",
+        "/usr/share/locale/C.UTF-8/LC_MESSAGES/messages.mo",
+        "/usr/share/locale/locale.alias"
+      ],
+      "git_metadata_roots": [
+        "/fixture/main/.git",
+        "/fixture/main/.git/worktrees/WT"
+      ],
+      "native_library_dirs": [
+        "/usr/lib/x86_64-linux-gnu",
+        "/lib/x86_64-linux-gnu"
+      ]
+    },
+    "root_pid": "10",
+    "traces": {
+      "10": "1.0 openat(AT_FDCWD, \"/etc/ld.so.cache\", O_RDONLY) = 4</etc/ld.so.cache>\n2.0 access(\"/etc/ld.so.preload\", R_OK) = -1 ENOENT (fixture)\n3.0 newfstatat(AT_FDCWD, \"/usr/bin/Modules/Setup.local\", 0x123, 0) = -1 ENOENT (fixture)\n4.0 newfstatat(AT_FDCWD, \"/usr/bin/lib/python312.zip\", 0x123, 0) = -1 ENOENT (fixture)\n5.0 openat(AT_FDCWD, \"/usr/bin/pybuilddir.txt\", O_RDONLY) = -1 ENOENT (fixture)\n6.0 readlink(\"/usr/bin/python3\", \"python3.12\", 4096) = 10\n7.0 readlink(\"/usr/bin/python3.12\", \"python3.12\", 4096) = -1 EINVAL (fixture)\n8.0 openat(AT_FDCWD, \"/usr/bin/python3.12._pth\", O_RDONLY) = -1 ENOENT (fixture)\n9.0 openat(AT_FDCWD, \"/usr/bin/python3._pth\", O_RDONLY) = -1 ENOENT (fixture)\n10.0 newfstatat(AT_FDCWD, \"/usr/bin/pyvenv.cfg\", 0x123, 0) = -1 ENOENT (fixture)\n11.0 openat(AT_FDCWD, \"/usr/bin/pyvenv.cfg\", O_RDONLY) = -1 ENOENT (fixture)\n12.0 newfstatat(AT_FDCWD, \"/usr/lib\", 0x123, 0) = 0\n13.0 openat(AT_FDCWD, \"/usr/lib/locale/C.UTF-8/LC_CTYPE\", O_RDONLY) = -1 ENOENT (fixture)\n14.0 openat(AT_FDCWD, \"/usr/lib/locale/C.UTF-8/LC_MESSAGES\", O_RDONLY) = -1 ENOENT (fixture)\n15.0 openat(AT_FDCWD, \"/usr/lib/locale/C.UTF-8/LC_TIME\", O_RDONLY) = -1 ENOENT (fixture)\n16.0 openat(AT_FDCWD, \"/usr/lib/locale/C.utf8/LC_CTYPE\", O_RDONLY) = 4</usr/lib/locale/C.utf8/LC_CTYPE>\n17.0 openat(AT_FDCWD, \"/usr/lib/locale/C.utf8/LC_MESSAGES\", O_RDONLY) = 4</usr/lib/locale/C.utf8/LC_MESSAGES>\n18.0 openat(AT_FDCWD, \"/usr/lib/locale/C.utf8/LC_MESSAGES/SYS_LC_MESSAGES\", O_RDONLY) = 4</usr/lib/locale/C.utf8/LC_MESSAGES/SYS_LC_MESSAGES>\n19.0 openat(AT_FDCWD, \"/usr/lib/locale/C.utf8/LC_TIME\", O_RDONLY) = 4</usr/lib/locale/C.utf8/LC_TIME>\n20.0 openat(AT_FDCWD, \"/usr/lib/locale/locale-archive\", O_RDONLY) = 4</usr/lib/locale/locale-archive>\n21.0 newfstatat(AT_FDCWD, \"/usr/lib/python3.12\", 0x123, 0) = 0\n22.0 openat(AT_FDCWD, \"/usr/lib/python3.12\", O_RDONLY) = 4</usr/lib/python3.12>\n23.0 newfstatat(AT_FDCWD, \"/usr/lib/python312.zip\", 0x123, 0) = -1 ENOENT (fixture)\n24.0 openat(AT_FDCWD, \"/usr/lib/ssl/openssl.cnf\", O_RDONLY) = 4</usr/lib/ssl/openssl.cnf>\n25.0 newfstatat(AT_FDCWD, \"/usr/pyvenv.cfg\", 0x123, 0) = -1 ENOENT (fixture)\n26.0 openat(AT_FDCWD, \"/usr/pyvenv.cfg\", O_RDONLY) = -1 ENOENT (fixture)\n27.0 newfstatat(AT_FDCWD, \"/usr/share/locale\", 0x123, 0) = 0\n28.0 newfstatat(AT_FDCWD, \"/usr/share/locale-langpack/C.UTF-8/LC_MESSAGES/messages.mo\", 0x123, 0) = -1 ENOENT (fixture)\n29.0 newfstatat(AT_FDCWD, \"/usr/share/locale/C.UTF-8/LC_MESSAGES/messages.mo\", 0x123, 0) = -1 ENOENT (fixture)\n30.0 openat(AT_FDCWD, \"/usr/share/locale/locale.alias\", O_RDONLY) = 4</usr/share/locale/locale.alias>\n99.0 +++ exited with 0 +++\n"
+    }
+  },
+  "precondition_contains": [
+    "/usr/bin/pyvenv.cfg",
+    "/usr/bin/Modules/Setup.local",
+    "/usr/lib/ssl/openssl.cnf",
+    "/usr/share/locale-langpack/C.UTF-8/LC_MESSAGES/messages.mo"
+  ]
+}
