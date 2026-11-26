@@ -868,6 +868,10 @@ Base8e6efc03 is confirmed green by41646. PR1919 delivered B2a; no generated cpp-
 29. `tests/test_host_update_ci_shape.py` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
 30. `lib/host_update/links.py` - ruling41749: narrow retirement removal to dangling targets only; preserve live targets as an existing UNMANAGED conflict/exit1. No schema/state/code additions.
 31. `controls/cpp-update-host-refresh/cases/unknown-stale-legacy/case.json` - owner1889A / mailbox41841: attributed real historical stale legacy package, shallow-CI reproducible named migration UNKNOWN.
+32. `tests/test_install_drift.py` - amendment41925: replace removed update-loop coupling with real shared manifest population; retain init and negative distinctions.
+33. `tests/test_permissions_template_link_parity.py` - amendment41925: actual shared manifest population and executable/non-executable/non-shell controls; retain init assertions.
+34. `scripts/host-surface-observe.py` - amendment41925: explicitly classify cpp-host-update.py without observation/certification claims; no catch-all.
+35. `tests/test_host_surface_observe.py` - amendment41925: classification proof and newly derived unclassified-member refusal control.
 Scope:31 possible product paths plus own plan/as-read/lanes/receipt records. No probe paths, no neutral core/Pi API changes. Amend before extra product paths. Codex baseline untouched unless actual output deltas measured. Never repin historical members/generator/parser. Runtime regressions must run red before lazy-import fixes. Deletion comparison must establish shared deletion subset of actual legacy deletion, count all personal/foreign/retired/mixed population and enumerate legacy-only deletions. update.md before2291 lines; require lower after count.
 
 ### Implementation and validation
@@ -920,3 +924,11 @@ neutral/Pi or generator changes. Command remains shorter than2291lines.
 Formal pass2 accepted F2. Third pass authorized41899 with exact extra-pass-reason:
 F2 is a real correctness defect that the earlier passes and the test harness both missed (a blind instrument), and the fix is narrow.
 No fourth pass without owner escalation.
+
+F2 expanded-reader amendment41924 approved41925 before these four path edits.
+The expanded26-module run found732pass/4fail. Restore identical locator bytes;
+replace two retired shell-loop assertions with actual manifest readers, retaining
+init/negative distinctions and adding missing-executable/wrong-inclusion cases.
+Explicitly classify the newly derived shared entry without observed claims and
+prove an unknown derived newcomer still refuses. Report assertion counts. Third
+review only; a material third-pass finding escalates to owner via ch-orch.
