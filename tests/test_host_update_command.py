@@ -620,11 +620,11 @@ def test_displayed_legacy_command_is_usable_after_review(source, tmp_path):
 
 
 @pytest.mark.skipif(not shutil.which("bash"), reason="actual historical migration fences require bash")
-@pytest.mark.parametrize("revision,identical", [
+@pytest.mark.parametrize("revision,v13_baseline", [
     ("5204ea06fa15efa7fec3e1d86fd489c61b85c708", False),
     ("40d25173c8c09987fac851cffa565efdc0f11c72", True),
 ], ids=["real-pre-e32-install", "real-v13-install"])
-def test_real_historical_installer_population(source, tmp_path, revision, identical):
+def test_real_historical_installer_population(source, tmp_path, revision, v13_baseline):
     root = CLI.parents[1]
     available = subprocess.run(["git", "-C", str(root), "cat-file", "-e", revision + "^{commit}"],
                                capture_output=True, text=True)
@@ -661,20 +661,37 @@ def test_real_historical_installer_population(source, tmp_path, revision, identi
     current = request(source)
     build = adapter.build(current.revision, adapter.preflight(current))
     wanted = {p.name: {name: (m.sha256, m.mode) for name, m in p.members.items()} for p in build.packages}
-    if identical:
-        assert before == wanted, "the v13 control must really be byte/mode-identical"
+    if v13_baseline:
+        data = json.loads((root / "controls/antigravity-skill-build/codex-baseline.json").read_text())
+        old_members = {f"{package}/{name}": list(value)
+                       for package, members in before.items() for name, value in members.items()}
+        new_members = {f"{package}/{name}": list(value)
+                       for package, members in wanted.items() for name, value in members.items()}
+        assert old_members == data["members"], "the real v13 install must match the immutable historical inventory"
+        changed = {name: new_members.get(name) for name in old_members.keys() | new_members.keys()
+                   if old_members.get(name) != new_members.get(name)}
+        assert changed == {name: row["candidate"] for name, row in data["attributed_input_delta"].items()}, (
+            "only owner-attributed input changes may make the historical v13 install stale")
+        assert all(row["baseline"] == old_members[name] for name, row in data["attributed_input_delta"].items())
+    if before == wanted:
         result = run_maintained(source, home)
         assert "CPP_REFRESH_EXIT=0" in result.stdout and "Codex migration packages:" not in result.stdout
         assert inventory(skills) == before
         assert not list((skills / ".cpp-managed/work").glob("transaction-*/backup"))
     else:
         stale = {name for name in before.keys() & wanted.keys() if before[name] != wanted[name]}
-        assert stale and "cicd-verify" in stale
+        assert stale
+        if v13_baseline:
+            assert stale == {name.split("/")[0] for name in data["attributed_input_delta"]}
+        else:
+            assert "cicd-verify" in stale
         declined = run_maintained(source, home)
         assert "CPP_REFRESH_EXIT=4" in declined.stdout and "Codex refresh frozen: migration declined" in declined.stdout
         names = next(line.removeprefix("Codex migration packages: ").split()
                      for line in declined.stdout.splitlines() if line.startswith("Codex migration packages: "))
         assert set(names) >= stale and inventory(skills) == before
+        if v13_baseline:
+            assert set(names) == stale, "the two attributed packages alone need reviewed adoption"
         assert not (skills / ".cpp-managed/ownership.json").exists()
         accepted = run_maintained(source, home, migration="yes", finish=True)
         assert "CPP_REFRESH_EXIT=0" in accepted.stdout, accepted.stdout

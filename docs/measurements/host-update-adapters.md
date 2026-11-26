@@ -677,3 +677,27 @@ transforms still agree on that wrong input, but its actual bundled-member bytes
 must fail the new assertion. The source commit precedes its attribution commit
 so provenance names real committed content. Full parity, full verify and149
 controls precede the still-unused fourth review; no PR/native acceptance yet.
+
+
+The committed B source is bfc98e51e7e91639f566125a9ee2d7a69fccd537. The four
+attributed_input_delta records cite that real source commit, preserve the old
+member values, and state the self-bundled source/checksum reasons. Every other
+baseline field is unchanged. The committed held-old-input cases each reach a
+RED actual bundled-member assertion after same-input transform equality passes;
+normal variation passes at022/002 (4passed/19.25s). An incorrect old hash or mode
+in attribution is also a committed negative input, separate from candidate-side
+hash/mode changes. Full verification and review4 are still pending.
+
+
+The full parity matrix is now36passed. Checking the historical installer against
+committed B source exposed one further stale test assumption: actual v13 output
+is no longer byte-identical to the new inputs because exactly the two bundled
+generator copies/checksums changed. That case was RED (1fail/37pass,65.63s).
+It now first requires the actual old installation to equal the immutable v13
+inventory and its desired-state difference to equal ONLY the four approved
+attributions. It then checks the exact two-package named migration, decline
+preservation, retained80-package backup, and next ordinary current refresh.
+The independent current-source byte-identical legacy control still asks no
+migration question. Both real historical installs and that current identical
+control pass (3passed/58.92s), preserving the underlying distinction rather
+than treating the historical v13 label as an eternal currency claim.

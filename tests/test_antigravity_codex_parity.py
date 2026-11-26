@@ -199,6 +199,7 @@ def assert_attribution(data, actual, mask):
     attributed = data["attributed_input_delta"]
     assert delta == {p: row["candidate"] for p, row in attributed.items()}, json.dumps(delta, sort_keys=True)
     for path, row in attributed.items():
+        assert row.get("baseline") == data["members"].get(path), "attribution must retain the historical before value"
         assert row["reason"].strip() and len(row["source_commit"]) in (40, 64)
         assert all(c in "0123456789abcdef" for c in row["source_commit"])
         candidate = row["candidate"]
@@ -366,7 +367,8 @@ def test_changed_output_mode_is_detected(tmp_path, monkeypatch, mode):
 def test_nonempty_attribution_is_consumed_under_both_masks(mask):
     data = {"members": {"flow-auto/SKILL.md": ["a" * 64, 0o644]},
             "attributed_input_delta": {"flow-auto/SKILL.md": {
-                "candidate": ["b" * 64, 0o644], "reason": "controlled source input change",
+                "baseline": ["a" * 64, 0o644], "candidate": ["b" * 64, 0o644],
+                "reason": "controlled source input change",
                 "source_commit": "c" * 40}}}
     actual = {"flow-auto/SKILL.md": ["b" * 64, 0o644 if mask == 0o022 else 0o664]}
     assert data["attributed_input_delta"] and actual["flow-auto/SKILL.md"][0] != "a" * 64
@@ -375,9 +377,10 @@ def test_nonempty_attribution_is_consumed_under_both_masks(mask):
 
 @pytest.mark.parametrize("mask", [0o022, 0o002])
 @pytest.mark.parametrize("fault", ["hash", "mode", "unexpected-world-write", "missing-delta",
-                                   "reason", "source-commit"])
+                                   "reason", "source-commit", "baseline-hash", "baseline-mode"])
 def test_wrong_attribution_is_detected_under_both_masks(mask, fault):
-    row = {"candidate": ["b" * 64, 0o644], "reason": "controlled source input change",
+    row = {"baseline": ["a" * 64, 0o644], "candidate": ["b" * 64, 0o644],
+           "reason": "controlled source input change",
            "source_commit": "c" * 40}
     data = {"members": {"flow-auto/SKILL.md": ["a" * 64, 0o644]},
             "attributed_input_delta": {"flow-auto/SKILL.md": row}}
@@ -395,6 +398,12 @@ def test_wrong_attribution_is_detected_under_both_masks(mask, fault):
     elif fault == "missing-delta":
         data["attributed_input_delta"].clear()
         assert not data["attributed_input_delta"]
+    elif fault == "baseline-hash":
+        row["baseline"][0] = "d" * 64
+        assert row["baseline"][0] != data["members"]["flow-auto/SKILL.md"][0]
+    elif fault == "baseline-mode":
+        row["baseline"][1] = 0o755
+        assert row["baseline"][1] != data["members"]["flow-auto/SKILL.md"][1]
     elif fault == "reason":
         row["reason"] = ""
         assert not row["reason"]
