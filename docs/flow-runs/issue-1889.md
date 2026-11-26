@@ -385,7 +385,7 @@ on predecessor code. Normal formal review cap is2, not #1888's scoped cap7.
 PR creation/CI needs ch-orch clearance, one AGY PR in flight and Kyle series
 priority. No native consumer or production host mutation is authorized by this plan.
 
-### Lanes for B1
+### Lanes for this change
 
 | Lane | Answer | Note |
 |---|---|---|
