@@ -1,5 +1,12 @@
 # #1897 exact owner probe - review before execution
 
+The original owner execution stopped after successful install/verify because
+its directory-mode comparison used the build tree's umask. The fixed probe
+compares expected directories with installer policy 0755 (files 0644), retaining
+strict checks on actual installed modes. Recover the still-installed first run
+using the separately reviewed [recovery protocol](issue-1897-owner-recovery.md).
+Do not rerun this fresh-install probe against the existing installation.
+
 Mailbox 40671 assigns preparation only. Master must show this file and the
 adjacent [Python probe](issue-1897-owner-probe.py), at the submitted commit and
 digest, to the owner before the host helper executes anything. This is one

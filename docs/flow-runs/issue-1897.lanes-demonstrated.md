@@ -48,3 +48,19 @@ post-state, held locks, aliases and unsafe path bindings. All eleven new cases
 passed; combined focused production/probe tests report 37 passed and one
 existing root-only skip. No simulated prompt response counts as pi discovery.
 The host-helper command protocol still requires presentation before owner use.
+
+## Owner run stopped; subsequent presence observed - 2026-11-26
+
+Master's relay via orchestrator mailbox 40896 reports actual owner install and
+verifier current at 18 packages / 36 examined members. The probe then stopped
+before sealing or undo: build umask 0002 made 0775 directories, whereas the
+installer creates 0755 directories. The file bytes/modes matched. This is a
+probe defect; no cleanup success is claimed and owner CPP state remains present.
+
+A later master's relay, mailbox 40900, reports actual existing-session `/reload`
+and `/skill:` completion at 03:25:27Z: exactly 18 user-scope entries, with sorted
+names identical to the original journal slugs. The pre-install list had zero.
+This establishes the presence observation; it does not imply undo or restored
+discovery. Recovery and the second reload are still pending independent review
+and owner clearance. The host is retaining the journal durably. Both #1896
+UNKNOWN measurements and separate owner sign-off remain outstanding.

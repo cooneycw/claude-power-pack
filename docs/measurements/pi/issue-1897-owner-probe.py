@@ -66,6 +66,19 @@ def state(targets):
     return {str(path): manifest(path) for path in targets}
 
 
+def projected(tree):
+    return {name: {key: value for key, value in row.items()
+                   if key in ("mode", "kind", "sha256")} for name, row in tree.items()}
+
+
+def installer_expected(tree):
+    """Build-directory umask is irrelevant; actual installed modes still matter."""
+    rows = projected(tree)
+    for row in rows.values():
+        row["mode"] = 0o755 if row["kind"] == "dir" else 0o644
+    return rows
+
+
 def save(path, value):
     """Private scratch journal: exclusive creation, flush before proceeding."""
     with path.open("x", encoding="utf-8") as stream:
@@ -196,11 +209,7 @@ def run(args):
     for slug in slugs:
         actual = manifest(skills / slug)
 
-        def projected(tree):
-            return {k: {n: v for n, v in row.items()
-                        if n in ("mode", "kind", "sha256")} for k, row in tree.items()}
-
-        require(projected(actual) == projected(expected[slug]), "installed bytes/modes differ")
+        require(projected(actual) == installer_expected(expected[slug]), "installed bytes/modes differ")
     sealed = state(targets)
     save(journal / "sealed-post.json", sealed)
     print("In the EXISTING pi session: /reload now and capture the skill list. Confirm all 18 topics.", flush=True)

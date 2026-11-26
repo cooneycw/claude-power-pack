@@ -2,6 +2,8 @@
 
 import fcntl
 import importlib.util
+import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -140,3 +142,24 @@ def test_alias_refused_without_following_it(tmp_path):
 def test_make_metacharacters_in_path_refused(tmp_path):
     with pytest.raises(ValueError, match="unsupported path characters"):
         PROBE.physical(tmp_path / "$(shell touch unwanted)")
+
+
+def test_umask_0002_build_uses_installer_directory_policy(tmp_path, source, monkeypatch):
+    """Regression: original a3dc5d6e stops after actual positive installation."""
+    # Existing output from a prior test must not mask directory creation under
+    # 0002. A new clone excludes the source's ignored generated output.
+    isolated = tmp_path / "umask-source"
+    subprocess.run(["git", "clone", "--quiet", "--no-hardlinks", str(source), str(isolated)], check=True)
+    args = arguments(tmp_path, isolated)
+    answers = iter(["RELOAD-PRESENCE-CAPTURED", "RELOAD-BASELINE-CAPTURED"])
+    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+    old_umask = os.umask(0o002)
+    try:
+        PROBE.run(args)
+    finally:
+        os.umask(old_umask)
+    assert (Path(args.journal) / "scoped-restored.json").exists()
+    assert not (Path(args.agent) / "skills").exists()
+    record = json.loads((Path(args.journal) / "before-and-undo.json").read_text())
+    directories = [row for tree in record["expected"].values() for row in tree.values() if row["kind"] == "dir"]
+    assert len(directories) == 28 and all(row["mode"] == 0o775 for row in directories)

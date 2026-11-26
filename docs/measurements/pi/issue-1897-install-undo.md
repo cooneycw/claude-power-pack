@@ -147,3 +147,56 @@ requires real root and was skipped; no pass is claimed for it. The new probe
 controls all ran. Lint, typecheck, Markdown checks and staged whitespace checks
 also passed. No owner install, pi process, reload observation or sign-off is
 claimed; those rows remain pending the exact committed commands being shown.
+
+## Owner stop, presence relay and review-only recovery preparation
+
+Mailbox 40896 reports the first actual owner install and delivered verifier
+succeeded: 18 packages / 36 examined members, current. The probe then stopped
+with `installed bytes/modes differ`, before a sealed post-state or undo. The
+reported difference was 28 directories: fresh build 0775 under umask 0002 versus
+installer policy 0755. All 36 file bytes/modes matched. This is a probe defect.
+The original fixture runs used another umask and did not cover this input.
+
+Master's later relay (mailbox 40900) reports the existing-session `/reload`
+presence observation at 03:25:27Z: 18 user-scope entries, exactly the journal's
+sorted 18 slugs, versus zero in the baseline. This is attributed host evidence,
+not local pi execution. Owner cleanup and post-cleanup discovery remain pending.
+
+Mailbox 40903 supplied a sanitized journal archive. Its decoded SHA256 matched
+`c181e7f224ec0ad586d5bf4dcf163d282d508cf8b994e9b24629be485cba19ed`.
+The record has 20 targets, 18 expected packages, all 28 expected directories at
+0775, and `skills_existed=false`. Both captured actual commands report current
+with 36/36 members. The original unsanitized host-file digests supplied by master
+are embedded in recovery; they cannot be independently checked in this container.
+The recovery has no hash override/skip flag and requires explicit home equality.
+The sanitized bytes are a design input, never authority to act on owner paths.
+
+The committed umask regression FAILED on the exact original `a3dc5d6e` probe
+with the same post-install error. The fixed comparison normalizes expected
+build directory modes to 0755 and file modes to 0644, while checking actual
+installed modes strictly. The regression now completes through undo and asserts
+that its fresh build really produced all 28 directories at 0775. Original probe
+bytes are frozen as a fixture with their original submitted digest, so squash
+merge cannot erase the failure input's implementation.
+
+The combined production/probe/recovery fixture run passed 47 cases, with the
+existing real-root privilege case skipped. After adding the original-journal
+hash and explicit-home guards, all 11 recovery cases passed; a follow-up actual
+install/dry-run/execute case also passed using the byte-identical frozen anchor.
+Together these cover 49 distinct passing cases and one existing skip. Recovery
+controls include exact successful removal, personal-neighbor preservation,
+changed file/directory/management refusal, a CPP-marked canonical path missing
+from the record, tampered plans, intervening edits, held/missing locks, bad
+journal hashes and a mismatched explicit home. Every refused case preserves
+agent state; matching recovery verifies expected missing-installed afterwards.
+All test basetemps were removed after results; needed logs remain in persistent
+workspace evidence. No owner recovery dry-run or execution occurred locally.
+
+Recovery is deliberately limited to the 20 exact recorded target roots. Its
+review protocol currently retains the skills root because that root is absent
+from the target list, despite `skills_existed=false`. This limitation was sent
+to the orchestrator in mailbox 40916 before freeze; a matching target comparison
+must not be reported as whole-filesystem restoration if the empty root remains.
+The helper must obtain review/owner clearance before any recovery action, then
+capture the second reload separately. This is not owner sign-off or Section-5
+clearance; both #1896 UNKNOWN measurements remain visible.

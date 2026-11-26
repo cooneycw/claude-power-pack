@@ -174,3 +174,35 @@ only a sealed still-matching created manifest. It never starts pi. Any changed
 state refuses deletion; fixture controls cover that refusal and a collision
 before install as well as a complete positive. No owner activation occurs here;
 commit SHA, path and digest go to the orchestrator for owner presentation first.
+
+### Stopped owner run and recovery amendment - mailbox 40896
+
+The orchestrator reports the owner install and real verifier succeeded at
+18 packages / 36 examined members, current. The probe then stopped before
+sealing, reload or undo because it compared fresh build directory modes with
+installed modes. A helper umask of 0002 produced 0775 build directories; the
+installer's directory policy is 0755. All 36 file bytes/modes reportedly match.
+This is a probe defect. Owner topics and management state remain installed;
+there is no sealed post-state and no claim of discovery or cleanup success.
+
+Before implementation, scope is extended to a one-use recovery artifact
+`docs/measurements/pi/issue-1897-owner-recovery.py`, its adjacent `.md` review
+protocol, and `tests/test_pi_owner_recovery.py`. Fix the probe comparison to
+normalize expected directory modes to installer policy, retaining actual-mode
+checks. Add a committed umask-0002 regression that fails on the original probe.
+Recovery validates the original absent baseline and exact recorded canonical
+population, checks normalized bytes/modes and CPP ownership markers, takes all
+three existing locks without creation, and removes only enumerated recorded
+CPP-created files/directories by unlink/rmdir. Dry-run lists exact operations;
+unknown/changed state refuses before any deletion. Personal neighbors survive.
+Require actual delivered verification before recovery and expected
+missing-installed verification afterwards. No owner execution is authorized by
+this amendment; freeze commits and digests for independent review and owner
+presentation before helper use. Fixture execution scope was queried separately.
+
+The recovery fixture also freezes the exact original probe bytes in
+`tests/fixtures/pi-owner-probe-a3dc5d6e.py.txt` (SHA256 matching the submitted
+original). This lets the stopped-install control remain reproducible after
+squash merge without relying on a WIP commit remaining reachable. These source
+fixtures require full local history through the explicitly pinned c434101e;
+shallow-checkout execution is outside this validation's declared clone lane.
