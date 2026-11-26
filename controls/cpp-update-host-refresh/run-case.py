@@ -1,4 +1,6 @@
 """Run the real maintained refresh/finish fences against owned Git and HOME."""
+import base64
+import hashlib
 import json
 import os
 import re
@@ -29,11 +31,13 @@ def main():
             print(f"HOST_COMMAND: UNAVAILABLE - {binary} missing")
             return 3
     scenario = json.loads((case / "case.json").read_text())["scenario"]
+    legacy_case = scenario == "unknown-stale-legacy"
     document = (ROOT / ".claude/commands/cpp/update.md").read_text()
     blocks = re.findall(r"```bash\n(.*?)```", document, re.S)
     refresh = [b for b in blocks if "# CPP_SHARED_REFRESH" in b]
     finish = [b for b in blocks if "# CPP_SHARED_FINISH_GUARD" in b]
-    assert len(refresh) == len(finish) == 1, "maintained reader missing or duplicated"
+    migration = [b for b in blocks if "# CPP_CODEX_MIGRATION" in b]
+    assert len(refresh) == len(finish) == len(migration) == 1, "maintained reader missing or duplicated"
     # Root must test a genuinely unwritable executing identity too. Its owned
     # temporary root is directly under /tmp, so no private ancestor blocks it.
     with tempfile.TemporaryDirectory(prefix="cmd.", dir="/tmp" if os.geteuid() == 0 else None) as temporary:
@@ -41,6 +45,11 @@ def main():
         source, home = base / "source", base / "home"
         source.mkdir()
         home.mkdir()
+        if legacy_case:
+            clone = subprocess.run(["git", "clone", "-q", "--shared", str(ROOT), str(source)],
+                                   env=dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1"),
+                                   capture_output=True, text=True)
+            assert clone.returncode == 0, clone.stderr
         inputs = [p.relative_to(ROOT).as_posix() for p in (ROOT / "lib/host_update").glob("*.py")]
         inputs += [".gitignore", "lib/antigravity_skills.py", "scripts/cpp-host-update.py",
                    "scripts/cpp-host-write.sh", "scripts/cpp-commands-link.sh",
@@ -63,16 +72,37 @@ def main():
         git("config", "user.name", "Fixture")
         git("config", "user.email", "fixture@example.invalid")
         git("add", ".")
-        git("commit", "-qm", "actual maintained command inputs")
+        git("commit", "--allow-empty", "-qm", "actual maintained command inputs")
         scripts = home / ".claude/scripts"
-        scripts.mkdir(parents=True)
-        (scripts / "cpp-host-write.sh").symlink_to(source / "scripts/cpp-host-write.sh")
-        (home / ".claude/.cpp-skill-install.lock").touch()
+        if not legacy_case:
+            scripts.mkdir(parents=True)
+            (scripts / "cpp-host-write.sh").symlink_to(source / "scripts/cpp-host-write.sh")
+            (home / ".claude/.cpp-skill-install.lock").touch()
         missing = scripts / "cpp-commands-link.sh"
         assert not missing.exists() and not missing.is_symlink(), "GOOD must start stale at current source"
         personal = home / "personal"
         personal.write_bytes(b"personal exact bytes")
-        if scenario == "bad-summary":
+        if legacy_case:
+            data = json.loads((case / "case.json").read_text())
+            assert data["historical_commit"] == "5204ea06fa15efa7fec3e1d86fd489c61b85c708"
+            assert data["package"] == "cicd-verify" and set(data["members"]) == {"SKILL.md", "reference.md"}
+            package = home / ".codex/skills" / data["package"]
+            package.mkdir(parents=True)
+            for name, member in data["members"].items():
+                assert name in ("SKILL.md", "reference.md")
+                content = base64.b64decode(member["base64"], validate=True)
+                assert hashlib.sha256(content).hexdigest() == member["sha256"]
+                (package / name).write_bytes(content)
+                (package / name).chmod(member["mode"])
+            generated = subprocess.run([sys.executable, "-B", str(source / "scripts/codex-skill-sync.py"),
+                                        "--write", "--output-root", str(base / "current-build")],
+                                       capture_output=True, text=True)
+            assert generated.returncode == 0, generated.stderr
+            assert (base / "current-build" / data["package"] / "reference.md").read_bytes() != (
+                package / "reference.md").read_bytes(), "historical fixture must actually be stale"
+            legacy_before = inventory(package)
+            assert not (home / ".codex/skills/.cpp-managed/ownership.json").exists()
+        elif scenario == "bad-summary":
             entry = source / "scripts/cpp-host-update.py"
             entry.write_text("#: PRODUCTION-HOST-ENTRY: 3\nprint('malformed producer report')\n")
             git("commit", "-am", "fixture malformed producer")
@@ -108,18 +138,26 @@ def main():
             assert probe.returncode == 0, "fixture is not genuinely unwritable: " + probe.stderr
             print("Unwritable executing UID: " + probe.stdout.strip())
         before = inventory(home)
-        script = refresh[0] + "\n" + finish[0] + '\nprintf "\\nCPP_COMMAND_EXIT=%s\\n" "$HOST_REFRESH_EXIT"\n'
+        script = "\n".join((refresh[0], migration[0], finish[0]))
+        script += '\nprintf "\\nCPP_COMMAND_EXIT=%s\\n" "$HOST_REFRESH_EXIT"\n'
         try:
             result = subprocess.run(["bash", "-c", script], env=env, cwd=base, preexec_fn=demote,
                                     capture_output=True, text=True, timeout=180)
         finally:
-            scripts.chmod(0o755)
+            if not legacy_case:
+                scripts.chmod(0o755)
         assert result.returncode == 0, result.stderr
         matches = re.findall(r"^CPP_COMMAND_EXIT=(0|1|4|5)$", result.stdout, re.M)
         assert len(matches) == 1, "shared reader did not return its actual verdict"
         code = int(matches[0])
         assert personal.read_bytes() == b"personal exact bytes"
-        if scenario == "good-stale-refresh":
+        if legacy_case:
+            assert inventory(package) == legacy_before
+            assert not (home / ".codex/skills/.cpp-managed/ownership.json").exists()
+            assert "Codex refresh frozen: migration declined" in result.stdout
+            assert "Codex migration packages: " + data["package"] in result.stdout
+            assert "--adopt codex:" + data["package"] in result.stdout
+        elif scenario == "good-stale-refresh":
             assert missing.is_symlink() and missing.readlink() == source / "scripts/cpp-commands-link.sh", (
                 "refresh was skipped despite current source and stale installation")
             assert git("rev-parse", "HEAD") == revision, "fixture unexpectedly pulled or moved source"

@@ -381,3 +381,28 @@ probe, fresh authorization for both authentication lanes and native effectivenes
 remain B2b-2 or later. No generated Codex cpp-update reader exists; the generator
 excludes that command. Historical native attempt4 probe bytes remain immutable.
 #1889 and #1876 remain open/PARTIAL.
+
+### Owner 1889 A: reviewed legacy Codex migration
+
+Stale legacy output has no trusted prior ledger, so it still returns unknown4.
+Bootstrap now names every differing expected package in existing UNKNOWN
+conflicts and separately names retired/unexpected packages as UNMANAGED.
+No ownership is inferred from a generated marker and no package is adopted
+automatically. Byte-identical legacy output initializes its record without a
+migration question, including the actual v13.0.0 control.
+
+For stale expected Codex packages with no unexpected legacy entries, update
+shows the named list and one executable command with repeated, scoped
+`--adopt codex:PACKAGE` flags. The command uses the persistent checkout path and
+captured full revision. Ask once for that list; silence and inherited environment
+values do not approve it. The core moves each original package into its retained
+transaction backup before replacing that package, then verifies the published
+bytes and record. The report names the recovery location. On decline, bytes and
+the absent ledger remain unchanged and the final summary says Codex refresh is
+frozen, with the command. Revision movement before migration refuses the retry.
+
+Retired/unexpected legacy entries are preserved, never adopted and require
+separate review before this migration is offered. This keeps the existing
+Decision2 refusal rather than inventing deletion or ownership authority.
+There is no fallback to the legacy installer. An approved migration retries
+through the same shared writer; subsequent ordinary updates need no adoption.

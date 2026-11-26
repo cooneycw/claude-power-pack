@@ -641,7 +641,7 @@ echo "$RUNTIME_STATUS"
 
 ## Step 5a: Shared Managed Host Refresh (PARTIAL, issue #1889)
 
-Run one shared refresh even when Step3 pulled no commits: source currency does
+Run the shared refresh even when Step3 pulled no commits: source currency does
 not establish installed currency. This replaces the script/command link loops
 and the separate Codex install. The driver discovers existing CPP installs;
 CLI presence alone does not enroll a host, and each Claude link kind enrolls
@@ -657,10 +657,13 @@ never a personal file preserved at an installed helper path.
 ```bash
 # CPP_SHARED_REFRESH
 HOST_REFRESH_REVISION=$(git -C "$CPP_DIR" rev-parse --verify HEAD 2>/dev/null)
-HOST_REFRESH_STATUS=$(python3 -I -B - "$CPP_DIR" "$HOST_REFRESH_REVISION" <<'CPP_REFRESH_READER'
+CODEX_MIGRATION_CONFIRMED=no
+cpp_shared_refresh() {
+HOST_REFRESH_STATUS=$(python3 -I -B - "$CPP_DIR" "$HOST_REFRESH_REVISION" "$@" <<'CPP_REFRESH_READER'
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -676,7 +679,7 @@ try:
     result = subprocess.run(
         [sys.executable, "-I", "-B", str(root / "scripts/cpp-host-update.py"), "refresh",
          "--source-root", str(root), "--home", os.path.expanduser("~"),
-         "--revision", revision, "--json"],
+         "--revision", revision, "--json", *sys.argv[3:]],
         capture_output=True, text=True, timeout=360)
     print(result.stderr, end="", file=sys.stderr)
     report = json.loads(result.stdout)
@@ -706,6 +709,21 @@ try:
                 print("  " + detail.replace("\n", " "))
         for conflict in after.get("conflicts", []):
             print(f"  {conflict['package']}: {conflict['state']}; " + conflict['reason'].replace("\n", " "))
+        if row["harness"] == "codex" and row["reason"] == "legacy packages require explicit reviewed migration":
+            from lib.host_update.scope import slug
+            stale = sorted(slug(c["package"]) for c in after["conflicts"] if c["state"] == "unknown")
+            unexpected = sorted(c["package"] for c in after["conflicts"] if c["state"] == "unmanaged")
+            print("Codex refresh frozen: unverified legacy packages require review; no adoption has run.")
+            if unexpected:
+                print("Unexpected legacy packages preserved; separate review required before migration: "
+                      + ", ".join(unexpected))
+            elif stale:
+                flags = [v for name in stale for v in ("--adopt", "codex:" + name)]
+                print("Codex migration packages: " + " ".join(stale))
+                print("Codex migration command: " + shlex.join(
+                    ["python3", "-I", "-B", str(root / "scripts/cpp-host-update.py"), "refresh",
+                     "--source-root", str(root), "--home", os.path.expanduser("~"),
+                     "--revision", revision, "--json", *flags]))
     print("Deferred coverage: " + "; ".join(report["unimplemented"]))
 except Exception as error:
     state = "failure" if failure_code == 1 else "UNAVAILABLE"
@@ -721,6 +739,48 @@ case "$HOST_REFRESH_EXIT" in
   *) HOST_REFRESH_EXIT=4
      HOST_REFRESH_STATUS="Managed refresh: UNAVAILABLE - shared reader did not complete; inspect installed state" ;;
 esac
+HOST_MIGRATION_PACKAGES=()
+HOST_MIGRATION_COMMAND=""
+while IFS= read -r line; do
+  case "$line" in
+    "Codex migration packages: "*) read -ra HOST_MIGRATION_PACKAGES <<< "${line#Codex migration packages: }" ;;
+    "Codex migration command: "*) HOST_MIGRATION_COMMAND="${line#Codex migration command: }" ;;
+  esac
+done <<< "$HOST_REFRESH_STATUS"
+printf '%s\n' "$HOST_REFRESH_STATUS"
+}
+cpp_shared_refresh
+```
+
+If `HOST_MIGRATION_PACKAGES` is nonempty, show the exact named list and
+`HOST_MIGRATION_COMMAND`. Ask ONCE with AskUserQuestion whether to adopt that
+list. These bytes may contain edits: there is no verified prior manifest.
+The shared core retains each original package in its transaction backup before
+replacing it; the result names the recovery location. Explain this before asking.
+Only an explicit yes sets `CODEX_MIGRATION_CONFIRMED=yes`; otherwise keep no.
+Never infer consent from CLI presence, a CPP marker, silence or an earlier run.
+Retired/unexpected packages are listed separately, preserved and never adopted;
+when present they require separate review before any migration is offered.
+A byte-identical legacy install bootstraps its record without this question.
+
+```bash
+# CPP_CODEX_MIGRATION
+if [ "${#HOST_MIGRATION_PACKAGES[@]}" -gt 0 ]; then
+  if [ "${CODEX_MIGRATION_CONFIRMED:-no}" = yes ]; then
+    if [ "$(git -C "$CPP_DIR" rev-parse --verify HEAD 2>/dev/null)" = "$HOST_REFRESH_REVISION" ]; then
+      HOST_MIGRATION_ARGS=()
+      for package in "${HOST_MIGRATION_PACKAGES[@]}"; do
+        HOST_MIGRATION_ARGS+=(--adopt "codex:$package")
+      done
+      cpp_shared_refresh "${HOST_MIGRATION_ARGS[@]}"
+    else
+      HOST_REFRESH_EXIT=4
+      HOST_REFRESH_STATUS="Managed refresh: UNAVAILABLE - revision changed before migration; no adoption run"
+    fi
+  else
+    HOST_REFRESH_STATUS+=$'\n'"Codex refresh frozen: migration declined; run after review: $HOST_MIGRATION_COMMAND"
+  fi
+fi
 printf '%s\n' "$HOST_REFRESH_STATUS"
 ```
 
@@ -730,7 +790,8 @@ bound revision; exit1 means failure or preserved conflicts; exit4 means
 unexamined/unavailable; exit5 means no applicable existing installation.
 Failures continue the unrelated update steps, but never become a success claim.
 Preserve personal, foreign, hand-edited and deferred entries; offer their named
-remedy separately. No automatic adoption or tier upgrade is authorized here.
+remedy separately. Only the named migration above permits reviewed adoption;
+no automatic adoption or tier upgrade is authorized here.
 
 For links, only proven retired dangling entries may be removed. A retired
 executable kind whose target still exists stays as an unmanaged conflict with

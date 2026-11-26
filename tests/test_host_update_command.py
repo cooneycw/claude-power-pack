@@ -1,4 +1,5 @@
 """Real maintained readers and plain-runtime production installations."""
+import base64
 import hashlib
 import json
 import os
@@ -6,6 +7,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import venv
 from pathlib import Path
 
@@ -13,6 +15,7 @@ import pytest
 
 from lib.host_update.codex import CodexAdapter
 from lib.host_update.links import ClaudeLinks
+from lib.host_update.scope import Scope
 from tests.test_host_update_adapters import CLI, cli, git, request
 from tests.test_host_update_adapters import source as source_fixture
 from tests.test_host_update_adapters import source_template as template_fixture
@@ -286,8 +289,13 @@ def maintained_block(marker):
     return blocks[0]
 
 
-def run_maintained(source, home, *, finish=False, between="", deferred="", path=None):
+def run_maintained(source, home, *, finish=False, between="", deferred="", path=None,
+                   migration=None, before_migration=""):
     script = maintained_block("# CPP_SHARED_REFRESH")
+    script += "\n" + before_migration
+    if migration is not None:
+        script += "\nCODEX_MIGRATION_CONFIRMED=" + shlex.quote(migration)
+    script += "\n" + maintained_block("# CPP_CODEX_MIGRATION")
     if finish:
         script += "\n" + between + "\n" + maintained_block("# CPP_SHARED_FINISH_GUARD")
     script += '\nprintf "\\nCPP_REFRESH_EXIT=%s\\n" "$HOST_REFRESH_EXIT"\n'
@@ -405,6 +413,8 @@ def test_skipped_refresh_is_detected_by_actual_installation_oracle(source, tmp_p
             return original(marker)
         return '''HOST_REFRESH_REVISION=$(git -C "$CPP_DIR" rev-parse HEAD)
 HOST_REFRESH_EXIT=0
+HOST_MIGRATION_PACKAGES=()
+HOST_MIGRATION_COMMAND=""
 HOST_REFRESH_STATUS="Managed refresh: current (coverage=partial)
 Revision: $HOST_REFRESH_REVISION
 claude-links: current"
@@ -463,3 +473,188 @@ def test_maintained_codex_refresh_without_codex_cli_or_yaml(source, tmp_path, pl
         assert "CPP_REFRESH_EXIT=0" in result.stdout, result.stdout + result.stderr
     assert installed.read_bytes() == expected
     assert git(source, "rev-parse", "HEAD") == revision
+
+
+def historical_legacy(home):
+    fixture = CLI.parents[1] / "controls/cpp-update-host-refresh/cases/unknown-stale-legacy/case.json"
+    data = json.loads(fixture.read_text())
+    assert data["historical_commit"] == "5204ea06fa15efa7fec3e1d86fd489c61b85c708"
+    assert data["package"] == "cicd-verify" and data["historical_package_count"] == 80
+    hashes = {"SKILL.md": "2b1971591ff29a83459286605a8835c9ee3da071b8116c1da67e4f3b1b3d4f21",
+              "reference.md": "c771ef571bc5df750918e86a2006400de3d3564a8448255ac91611ead072ee3c"}
+    assert set(data["members"]) == set(hashes)
+    root = home / ".codex/skills" / data["package"]
+    root.mkdir(parents=True)
+    for name, member in data["members"].items():
+        content = base64.b64decode(member["base64"], validate=True)
+        assert hashlib.sha256(content).hexdigest() == hashes[name] == member["sha256"]
+        (root / name).write_bytes(content)
+        (root / name).chmod(member["mode"])
+    assert not (home / ".codex/skills/.cpp-managed/ownership.json").exists()
+    return data["package"], root
+
+
+@pytest.mark.skipif(not shutil.which("bash"), reason="actual maintained migration fences require bash")
+@pytest.mark.parametrize("decision", [None, "no", "yes"])
+def test_reviewed_historical_legacy_migration(source, tmp_path, monkeypatch, decision):
+    home = tmp_path / "home"
+    name, package = historical_legacy(home)
+    before = {p.name: p.read_bytes() for p in package.iterdir()}
+    ledger = home / ".codex/skills/.cpp-managed/ownership.json"
+    adapter = CodexAdapter(home)
+    current = request(source)
+    expected = next(p for p in adapter.build(current.revision, adapter.preflight(current)).packages if p.name == name)
+    assert expected.members["reference.md"].content != before["reference.md"]
+    # An inherited yes is not this run's user decision.
+    monkeypatch.setenv("CODEX_MIGRATION_CONFIRMED", "yes")
+    result = run_maintained(source, home, finish=True, migration=decision)
+    assert result.returncode == 0, result.stderr
+    assert f"--adopt codex:{name}" in result.stdout and "Codex migration packages: " + name in result.stdout
+    backups = list((home / ".codex/skills/.cpp-managed/work").glob(f"transaction-*/backup/{name}"))
+    if decision != "yes":
+        assert "CPP_REFRESH_EXIT=4" in result.stdout and "Codex refresh frozen: migration declined" in result.stdout
+        assert {p.name: p.read_bytes() for p in package.iterdir()} == before
+        assert not ledger.exists() and not backups
+    else:
+        assert "CPP_REFRESH_EXIT=0" in result.stdout and "reviewed adoption backup retained" in result.stdout
+        assert ledger.exists() and len(backups) == 1
+        assert {p.name: p.read_bytes() for p in backups[0].iterdir()} == before
+        assert (package / "reference.md").read_bytes() == expected.members["reference.md"].content
+        again = run_maintained(source, home)
+        assert "CPP_REFRESH_EXIT=0" in again.stdout and "Codex migration packages:" not in again.stdout
+
+
+@pytest.mark.skipif(not shutil.which("bash"), reason="actual maintained migration fences require bash")
+def test_migration_preserves_unexpected_legacy_without_adopting_it(source, tmp_path):
+    home = tmp_path / "home"
+    name, package = historical_legacy(home)
+    unexpected = package.with_name("retired-legacy-fixture")
+    shutil.copytree(package, unexpected)
+    before = tree(home / ".codex/skills")
+    adapter = CodexAdapter(home)
+    current = request(source)
+    assert "retired-legacy-fixture" in adapter.legacy(Scope(adapter.preflight(current), owner="codex"))
+    assert "retired-legacy-fixture" not in {p.name for p in adapter.build(current.revision,
+                                                                 adapter.preflight(current)).packages}
+    result = run_maintained(source, home, migration="yes")
+    assert "CPP_REFRESH_EXIT=4" in result.stdout and "Unexpected legacy packages preserved" in result.stdout
+    assert "retired-legacy-fixture: unmanaged" in result.stdout
+    assert "--adopt codex:retired-legacy-fixture" not in result.stdout
+    assert f"{name}: unknown" in result.stdout
+    after = tree(home / ".codex/skills")
+    assert {p: row for p, row in after.items() if not p.startswith(".cpp-managed")} == before
+    assert not (home / ".codex/skills/.cpp-managed/ownership.json").exists()
+
+
+@pytest.mark.skipif(not shutil.which("bash"), reason="actual maintained migration fences require bash")
+def test_moved_revision_refuses_reviewed_legacy_migration(source, tmp_path):
+    home = tmp_path / "home"
+    _, package = historical_legacy(home)
+    before = tree(package)
+    result = run_maintained(source, home, migration="yes",
+                            before_migration='git -C "$CPP_DIR" commit --allow-empty -qm "fixture source moved"')
+    assert "CPP_REFRESH_EXIT=4" in result.stdout and "revision changed before migration" in result.stdout
+    assert tree(package) == before and not (home / ".codex/skills/.cpp-managed/ownership.json").exists()
+
+
+@pytest.mark.skipif(not shutil.which("bash"), reason="actual maintained migration fences require bash")
+def test_identical_legacy_install_does_not_offer_migration(source, tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    legacy = subprocess.run([shutil.which("python3"), str(source / "scripts/codex-skill-sync.py"), "--install"],
+                            env=dict(os.environ, HOME=str(home), CPP_DEFER_SURFACES=""),
+                            capture_output=True, text=True, timeout=120)
+    assert legacy.returncode == 0, legacy.stdout + legacy.stderr
+    assert not (home / ".codex/skills/.cpp-managed/ownership.json").exists()
+    result = run_maintained(source, home)
+    assert "CPP_REFRESH_EXIT=0" in result.stdout and "Codex migration packages:" not in result.stdout
+    assert "Codex refresh frozen" not in result.stdout
+
+
+@pytest.mark.skipif(not shutil.which("bash"), reason="actual displayed migration command requires bash")
+def test_displayed_legacy_command_is_usable_after_review(source, tmp_path):
+    home = tmp_path / "home"
+    name, package = historical_legacy(home)
+    before = tree(package)
+    declined = run_maintained(source, home)
+    command = next(line.removeprefix("Codex migration command: ") for line in declined.stdout.splitlines()
+                   if line.startswith("Codex migration command: "))
+    argv = shlex.split(command)
+    assert str(source / "scripts/cpp-host-update.py") in argv
+    assert argv[argv.index("--home") + 1] == str(home)
+    assert argv[argv.index("--revision") + 1] == git(source, "rev-parse", "HEAD")
+    assert argv[argv.index("--adopt") + 1] == "codex:" + name
+    assert tree(package) == before and not (home / ".codex/skills/.cpp-managed/ownership.json").exists()
+    result = subprocess.run(argv, cwd=tmp_path, env=dict(os.environ, HOME=str(home), CPP_DEFER_SURFACES=""),
+                            capture_output=True, text=True, timeout=180)
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(result.stdout)
+    assert next(row for row in report["results"] if row["harness"] == "codex")["after"]["state"] == "current"
+    backups = list((home / ".codex/skills/.cpp-managed/work").glob(f"transaction-*/backup/{name}"))
+    assert len(backups) == 1 and tree(backups[0]) == before
+
+
+@pytest.mark.skipif(not shutil.which("bash"), reason="actual historical migration fences require bash")
+@pytest.mark.parametrize("revision,identical", [
+    ("5204ea06fa15efa7fec3e1d86fd489c61b85c708", False),
+    ("40d25173c8c09987fac851cffa565efdc0f11c72", True),
+], ids=["real-pre-e32-install", "real-v13-install"])
+def test_real_historical_installer_population(source, tmp_path, revision, identical):
+    root = CLI.parents[1]
+    available = subprocess.run(["git", "-C", str(root), "cat-file", "-e", revision + "^{commit}"],
+                               capture_output=True, text=True)
+    if available.returncode:
+        pytest.skip(f"historical installer {revision[:8]} unavailable; vendored stale case still runs: "
+                    + available.stderr.strip())
+    old = tmp_path / "historical-source"
+    git(tmp_path, "clone", "-q", "--shared", "--no-checkout", str(root), str(old))
+    git(old, "config", "core.hooksPath", "/dev/null")
+    git(old, "checkout", "-q", "--detach", revision)
+    assert git(old, "rev-parse", "HEAD") == revision
+    entry = old / "scripts/codex-skill-sync.py"
+    assert entry.read_bytes() == subprocess.check_output(["git", "-C", str(root), "show",
+                                                         revision + ":scripts/codex-skill-sync.py"])
+    home = tmp_path / "home"
+    home.mkdir()
+    legacy = subprocess.run([sys.executable, str(entry), "--install"], cwd=old,
+                            env=dict(os.environ, HOME=str(home), CPP_DEFER_SURFACES="",
+                                     GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1"),
+                            capture_output=True, text=True, timeout=120)
+    assert legacy.returncode == 0, legacy.stdout + legacy.stderr
+    skills = home / ".codex/skills"
+    assert not (skills / ".cpp-managed/ownership.json").exists()
+
+    def inventory(root):
+        return {p.name: {f.relative_to(p).as_posix(): (hashlib.sha256(f.read_bytes()).hexdigest(),
+                                                    f.stat().st_mode & 0o777)
+                         for f in p.rglob("*") if f.is_file()}
+                for p in root.iterdir() if p.is_dir() and not p.name.startswith(".")}
+
+    before = inventory(skills)
+    assert len(before) == 80
+    adapter = CodexAdapter(home)
+    current = request(source)
+    build = adapter.build(current.revision, adapter.preflight(current))
+    wanted = {p.name: {name: (m.sha256, m.mode) for name, m in p.members.items()} for p in build.packages}
+    if identical:
+        assert before == wanted, "the v13 control must really be byte/mode-identical"
+        result = run_maintained(source, home)
+        assert "CPP_REFRESH_EXIT=0" in result.stdout and "Codex migration packages:" not in result.stdout
+        assert inventory(skills) == before
+        assert not list((skills / ".cpp-managed/work").glob("transaction-*/backup"))
+    else:
+        stale = {name for name in before.keys() & wanted.keys() if before[name] != wanted[name]}
+        assert stale and "cicd-verify" in stale
+        declined = run_maintained(source, home)
+        assert "CPP_REFRESH_EXIT=4" in declined.stdout and "Codex refresh frozen: migration declined" in declined.stdout
+        names = next(line.removeprefix("Codex migration packages: ").split()
+                     for line in declined.stdout.splitlines() if line.startswith("Codex migration packages: "))
+        assert set(names) >= stale and inventory(skills) == before
+        assert not (skills / ".cpp-managed/ownership.json").exists()
+        accepted = run_maintained(source, home, migration="yes", finish=True)
+        assert "CPP_REFRESH_EXIT=0" in accepted.stdout and "codex: current" in accepted.stdout, accepted.stdout
+        backups = list((skills / ".cpp-managed/work").glob("transaction-*/backup"))
+        assert len(backups) == 1 and inventory(backups[0]) == before
+        assert inventory(skills) == wanted
+        following = run_maintained(source, home)
+        assert "CPP_REFRESH_EXIT=0" in following.stdout and "Codex migration packages:" not in following.stdout

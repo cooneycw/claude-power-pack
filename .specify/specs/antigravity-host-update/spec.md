@@ -423,3 +423,14 @@ lane rulings and native effectiveness follow only in B2b-2 or later. Historical
 attempt4 bytes are immutable and no old authorization is reusable. The Codex
 generator excludes cpp-update, so no generated cpp-update reader is claimed.
 The parent #1889/#1876 issues remain open/PARTIAL.
+
+Owner ruling1889 A adds one reviewed migration for stale ledger-free Codex
+output. The report names differing expected packages and separates preserved
+retired/unexpected packages. For the named expected list, ask once and show the
+exact persistent-root, revision-bound command with scoped per-package adoption.
+The existing core retains each package backup before replacement. Decline keeps
+Codex frozen and says so with the command; byte-identical legacy output requires
+no migration. Retired/unexpected packages are never adopted and require separate
+review first. The real e32c06ed~1 legacy install is the red case; the actual
+byte-identical v13.0.0 install remains the positive control. No fallback writer,
+neutral/Pi API change or native probe is part of this amendment.

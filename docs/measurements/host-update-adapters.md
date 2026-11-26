@@ -453,3 +453,70 @@ toolchain-version matrix and delegated workflow changes remain unexamined.
 
 Formal B2b-1 review starts at count0, independently of the prior B2a passes.
 Fresh review/receipt and the directly supervised finish gate remain pending.
+
+### B2b-1 F1: owner-reviewed legacy migration
+
+Formal pass1 at498e2ed8 requested changes for F1: the legacy Codex installer
+kept no shared ledger, so stale installs stopped at an unnamed unknown4 after
+the old writer was removed. Owner ruling1889 A, relayed41841, authorizes one
+reviewed migration through the existing shared per-package adoption/backups.
+Scope41790 was activated, the exact11-file amendment was mailed41847 before
+edits, and Run6 was restamped with path31 before product changes.
+
+Before changing the product, the actual historical installer at
+e32c06ed~1 (5204ea06fa15efa7fec3e1d86fd489c61b85c708) installed80 packages in
+an owned home. Nineteen expected packages differed from the current build;
+there were no unexpected packages. The named-diagnostic regression failed at
+498e2ed8 because its unknown4 row had no conflicts or usable command. The
+paired actual v13.0.0 installer at40d25173 produced byte/mode-identical output
+and passed the no-migration control. Combined result:1fail/1pass,21.62s.
+historical-legacy-red.log records the pre-fix result, and its exact owned
+/tmp/b.o3w04eer root was deleted.
+
+After the diagnostic change, both actual historical cases pass (21.32s): every
+differing expected package is named using existing UNKNOWN conflicts; separate
+UNMANAGED conflicts preserve retired/unexpected legacy packages. The actual
+v13.0.0 install still initializes records without a question. The smallest
+stale historical package, cicd-verify, is vendored as exact attributed bytes
+and modes in the new case.json:2 files,13,130 bytes of JSON, with independent
+test pins for both file hashes and its historical source commit. CI therefore
+does not need the old commit object. historical-legacy-green.log records the
+full80-package proof; exact /tmp/b.67v76pyx was deleted.
+
+The maintained procedure shows one persistent-root, full-revision command with
+repeated scoped flags and asks once for that named list. An inherited yes is
+reset and cannot authorize adoption. Decline keeps the unknown4/frozen status,
+old bytes and absent ledger, with the command in the final summary. Explicit
+acceptance uses the same shared writer and retains each original package in
+its transaction backup before replacement. Retired/unexpected packages block
+this automatic offer pending separate review and are never adopted. A changed
+revision before consent execution refuses the retry. The document remains
+smaller than its2291-line base:2240 lines, a strict net decrease of51.
+
+The first six focused consent/default/decline/backup, unexpected-preservation,
+revision-change and identical-legacy cases pass (51.96s); exact /tmp/b.bzwgtri0
+was deleted. A separate current-command execution case checks that the displayed
+command itself is usable and retains the original backup. Lint,567-file
+typecheck, binary guards, negative-fixture, census, coverage and guarded-write
+checks pass. Full amended reader/control/CI qualification is still pending;
+the next formal review is pass2 of the default cap2. No receipt, finish gate,
+PR or native/auth execution is claimed for this amendment yet.
+
+The amended eleven-module reader/adapter/parity matrix passes213 cases
+(314.78s), including execution of the exact displayed command and recovery of
+its original backup. The two additional committed historical-population cases
+pass separately (42.28s): the actual old installer population accepts the named
+migration, all80 originals remain byte/mode-identical in the retained backup,
+all80 published packages match the independent current build, and the next
+ordinary update is current without adoption. The real v13.0.0 population remains
+identical and creates no adoption backup or question. If either immutable
+historical commit is absent, its test explicitly skips with the missing-history
+reason; the attributed small fixture still exercises shallow CI.
+
+The full amended bare batch passes all149 registrations, including the new
+historical-legacy UNKNOWN input and its named frozen-on-decline command. All55
+historical anchors are byte-verified; the masked-summary anchor remains blind.
+Logs are f1-readers.log, f1-historical-population.log and f1-bare-controls.log.
+Exact owned roots /tmp/b.9h63c1_z, /tmp/b.yofkutuc and /tmp/b.gzxzp2ab were
+deleted. Disposable CI-shape qualification, formal pass2, fresh receipt and the
+direct supervised finish gate remain pending for this candidate.
