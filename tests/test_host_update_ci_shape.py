@@ -87,6 +87,44 @@ def test_private_snapshot_never_registers_in_source(source_template, tmp_path):
     assert files(source / ".git") == metadata
 
 
+def test_control_declared_runtime_works_without_global_yaml(tmp_path):
+    import shlex
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    uv = shutil.which("uv")
+    if uv is None:
+        pytest.skip("uv required for the declared control runtime")
+    root = Path(__file__).resolve().parents[1]
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    python = tools / "python3"
+    python.write_text("#!/bin/sh\nexec " + shlex.quote(sys._base_executable) + ' -S "$@"\n')
+    python.chmod(0o755)
+    (tools / "uv").symlink_to(Path(uv).resolve())
+    excluded = {Path(sys.prefix, "bin").resolve(), (root / ".venv/bin").resolve()}
+    if os.environ.get("VIRTUAL_ENV"):
+        excluded.add(Path(os.environ["VIRTUAL_ENV"], "bin").resolve())
+    paths = [p for p in os.environ["PATH"].split(os.pathsep) if p and Path(p).resolve() not in excluded]
+    env = dict(os.environ, PATH=os.pathsep.join([str(tools), *paths]))
+    for name in ("VIRTUAL_ENV", "PYTHONPATH", "UV_PROJECT_ENVIRONMENT"):
+        env.pop(name, None)
+    assert shutil.which("python3", path=env["PATH"]) == str(python)
+    assert shutil.which("uv", path=env["PATH"]) == str(tools / "uv")
+    probe = subprocess.run(["python3", "-c", "import yaml"], env=env, capture_output=True, text=True)
+    assert probe.returncode != 0 and "No module named 'yaml'" in probe.stderr
+    control = root / "controls/antigravity-skill-install-fidelity"
+    specification = json.loads((control / "control.json").read_text())
+    argv = [part.format(gate=root / "scripts/cpp-host-update.py", case=control / "cases/good-current")
+            for part in specification["invocation"]]
+    result = subprocess.run(argv, cwd=root, env=env, capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr + result.stdout
+    report = json.loads(result.stdout)
+    row = next(r for r in report["results"] if r["harness"] == "antigravity")
+    assert row["after"]["state"] == "current" and row["after"]["expected_packages"] == 18
+
+
 @pytest.mark.parametrize("fault", ["empty", "zero-count", "wrong-revision", "bad-summary"])
 def test_pinned_reader_rejects_bad_current_writer(source_template, tmp_path, fault):
     from lib.host_update.host import DEFERRED, INCLUDED

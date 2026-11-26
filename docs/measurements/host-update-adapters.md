@@ -127,3 +127,37 @@ validation logs are retained outside the Git worktree under
 `/workspace/.cpp-validation/1889-b1-review-fix`. Final review pass 2, receipt,
 paired full gate and fresh depth-1/umask-000 check remain required. No full-gate,
 PR, root-lane or native-run claim is added here.
+
+## Declared control runtime
+
+The first paired finish gate at `1a1a70ef` failed at `negative-controls` after
+13,932 unit tests passed and 558 files passed type checking. The new fidelity
+control declared `python3`, and the full control driver uses system Python,
+which has no PyYAML here. The focused control target used the project runtime
+and had hidden this caller difference. The failed gate is not a passing receipt.
+
+Only this control's declared interpreter prefix changes to `uv run python`;
+the global driver, other controls, application code and dependencies stay the
+same. A committed regression executes the actual declared GOOD invocation with
+a proven `python3 -S` shim that cannot import YAML and with the caller's active
+project environment removed. It failed on the old declaration with the actual
+`ModuleNotFoundError`, then passed with the project runtime declaration.
+The updated adapter suite passed all 47 tests in 316.14 seconds.
+
+The complete `make negative-controls` batch then passed from the original
+system-Python caller: 146 registrations, including 145 gate controls and one
+reporter; all 54 historical anchors byte-compared. This is the same full batch
+that failed before the fix. Lint, type checking and the focused static checks
+also passed. All owned suite temporary roots were deleted after completion.
+Orchestrator mailbox40914 approves a third review with an explicit reason:
+the declared control runtime defect discovered by the paired finish gate.
+The previous receipt remains historical; a fresh review receipt and successful
+paired gate are required before PR creation.
+
+Nine tests skipped in the first full unit run. Four socket-binding cases were
+affected by the validation wrapper's long temporary path; all four passed when
+rerun with a short owned basetemp (3.49 seconds). The fixture gap is recorded in
+[Nit Store](https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7181759576).
+The other five skips concern host Bash 3.2, signalling PID 1, real root, Node
+and the staged CI toolchain. A future paired run uses a short temporary root;
+none of these skips is counted as a pass.

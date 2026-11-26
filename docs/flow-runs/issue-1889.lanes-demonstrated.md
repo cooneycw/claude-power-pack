@@ -126,3 +126,13 @@ package progress; source worktree registration changes source metadata. The
 default Pi half passed before and after. The amendment's final focused results
 and limits are in [the acceptance record](../measurements/host-update-adapters.md).
 Pi's later opt-in is [tracked separately](https://github.com/cooneycw/claude-power-pack/issues/1896#issuecomment-7180740166).
+
+The paired gate later caught a declared-runtime mismatch in the new control:
+the full system-Python driver could not import PyYAML, although the focused
+project-runtime target passed. The declaration now uses `uv run python`.
+`test_control_declared_runtime_works_without_global_yaml` ran red before that
+change and passed after it with a proven no-site/no-YAML launcher. The amended
+focused suite passed 47 tests; the complete 146-registration control batch
+passed with all 54 historical anchors compared. No application/core/Pi change
+was made for this correction. Third review is recorded with this gate-found
+reason under orchestrator40914; the earlier receipt is not reused.

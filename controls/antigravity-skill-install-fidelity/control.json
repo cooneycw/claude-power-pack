@@ -1,7 +1,9 @@
 {
   "gate": "scripts/cpp-host-update.py",
   "invocation": [
-    "python3",
+    "uv",
+    "run",
+    "python",
     "-c",
     "from pathlib import Path; import runpy,sys; runpy.run_path(str(Path(sys.argv[2]).parents[1]/'run-case.py'),run_name='__main__')",
     "{gate}",
