@@ -1,0 +1,69 @@
+{
+  "branch": "issue-1897-pi-validation",
+  "counts": {
+    "accepted": 4,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "escalation": {
+    "raised_cap": 7,
+    "reference": "https://github.com/cooneycw/claude-power-pack/issues/1897#issuecomment-7183862480",
+    "ruled_by": "owner"
+  },
+  "extra_passes_reason": "passes 4-6 reviewed a test-only binary-guard fix, the owner Part 1 sign-off docs and a test-only CI fixture correction after the owner-execution review",
+  "head": "bd0f39afaae92722b23c8a0defa091144ce8079c",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/25/rollout-2026-11-25T16-21-45-01a21383-5caa-7a60-b0dd-8fa74bd4c6bd.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 29979677,
+        "path": "2026/11/25/rollout-2026-11-25T16-21-45-01a21383-5caa-7a60-b0dd-8fa74bd4c6bd.jsonl",
+        "sha256": "e2f42121099056792fc16046e42056b5407c3b39f3f20cfccdd271caccf0569f"
+      }
+    ],
+    "thread_id": "01a21383-5caa-7a60-b0dd-8fa74bd4c6bd"
+  },
+  "issue": "1897",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 6,
+  "recorded_at": "2026-11-26T07:36:17Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewed_artifact": {
+    "base_sha": "c47b5b2b60b7b3b060c25174ff9f3dc6ffa6fa83",
+    "merge_base": "c47b5b2b60b7b3b060c25174ff9f3dc6ffa6fa83",
+    "method": "runtime-head",
+    "patch_sha256": "938c19f83d395a3939b12618930d3d09868ccf2ecbea4044c4e58fb47367985d",
+    "report_record": 6357,
+    "target_head": "bd0f39afaae92722b23c8a0defa091144ce8079c"
+  },
+  "reviewer": "claude/claude-opus-5-5",
+  "reviewer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2",
+    "sources": [
+      {
+        "bytes": 12759776,
+        "path": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl",
+        "sha256": "425a4062f0189f29a2685ae90ad72a256ddef5a3b83e2798010d1f5c26e5d1f8"
+      }
+    ],
+    "transcript": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}

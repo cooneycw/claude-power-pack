@@ -1,0 +1,64 @@
+{
+  "branch": "issue-1897-pi-validation",
+  "counts": {
+    "accepted": 4,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "extra_passes_reason": "post-owner-execution review of optional delta, owner evidence docs and main merge",
+  "head": "5aeee31ab7be95ee56ea887ede61ac6bc9e3a235",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/25/rollout-2026-11-25T16-21-45-01a21383-5caa-7a60-b0dd-8fa74bd4c6bd.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 25073129,
+        "path": "2026/11/25/rollout-2026-11-25T16-21-45-01a21383-5caa-7a60-b0dd-8fa74bd4c6bd.jsonl",
+        "sha256": "6419e4ffb7e20085a0624d9576bfe10de1c97ab3391f711169a885350bc41e28"
+      }
+    ],
+    "thread_id": "01a21383-5caa-7a60-b0dd-8fa74bd4c6bd"
+  },
+  "issue": "1897",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 3,
+  "recorded_at": "2026-11-26T05:10:35Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewed_artifact": {
+    "base_sha": "b1cd1f1635a920ba4839097ebfff8977a0bf7dda",
+    "merge_base": "b1cd1f1635a920ba4839097ebfff8977a0bf7dda",
+    "method": "runtime-head",
+    "patch_sha256": "5e4a7db3564e35a2c819f4de450aa3e4501788c4fbe2e78dc0d8daba3cedc5ac",
+    "report_record": 5199,
+    "target_head": "5aeee31ab7be95ee56ea887ede61ac6bc9e3a235"
+  },
+  "reviewer": "claude/claude-opus-5-5",
+  "reviewer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2",
+    "sources": [
+      {
+        "bytes": 10896411,
+        "path": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl",
+        "sha256": "ae0f8915b9ba962a9f9ca1e26f5fbd737b8a41cdb1180f0a59162b2fc3268c40"
+      }
+    ],
+    "transcript": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}
