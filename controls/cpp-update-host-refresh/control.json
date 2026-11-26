@@ -17,7 +17,7 @@
   "detect_signal": "^HOST_COMMAND: failure$",
   "unknown_signal": "^HOST_COMMAND: unknown$",
   "unavailable_signal": "^HOST_COMMAND: UNAVAILABLE - .* missing$",
-  "limits": "Actual maintained Bash refresh and final revision guard, real production CLI and owned Git/HOME. GOOD proves missing links are repaired with no source pull. BAD uses an asserted unwritable executing UID and malformed producer report. UNKNOWN lacks the entry; no fallback writer runs. The anchor executes the same real refresh but masks its final summary/exit. Native effectiveness and B2b-2 probe authorization are unexamined. A real historical package from the ledger-free installer at5204ea06 remains unchanged on declined migration and must be named with a usable scoped command.",
+  "limits": "Actual maintained Bash refresh and final revision guard in separate Bash processes with explicit literal inputs, real production CLI and owned Git/HOME. GOOD proves missing links are repaired with no source pull. BAD uses an asserted unwritable executing UID and malformed producer report. UNKNOWN lacks the entry; no fallback writer runs. The anchor executes the same real refresh but masks its final summary/exit. Native effectiveness and B2b-2 probe authorization are unexamined. A real historical package from the ledger-free installer at5204ea06 remains unchanged on declined migration and must be named with a usable scoped command.",
   "cases": [
     {
       "name": "good-stale-refresh",

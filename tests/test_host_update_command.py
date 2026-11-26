@@ -291,21 +291,44 @@ def maintained_block(marker):
 
 def run_maintained(source, home, *, finish=False, between="", deferred="", path=None,
                    migration=None, before_migration=""):
-    script = maintained_block("# CPP_SHARED_REFRESH")
-    script += "\n" + before_migration
-    if migration is not None:
-        script += "\nCODEX_MIGRATION_CONFIRMED=" + shlex.quote(migration)
-    script += "\n" + maintained_block("# CPP_CODEX_MIGRATION")
-    if finish:
-        script += "\n" + between + "\n" + maintained_block("# CPP_SHARED_FINISH_GUARD")
-    script += '\nprintf "\\nCPP_REFRESH_EXIT=%s\\n" "$HOST_REFRESH_EXIT"\n'
     env = dict(os.environ, HOME=str(home), CPP_DIR=str(source), CPP_DEFER_SURFACES=deferred)
     if path is not None:
         assert shutil.which("git", path=path) and shutil.which("python3", path=path)
         assert shutil.which("codex", path=path) is None, "custom PATH must exclude the native CLI"
         env["PATH"] = path
-    return subprocess.run(["bash", "-c", script], cwd=home.parent, env=env,
-                          capture_output=True, text=True, timeout=180)
+
+    def invoke(script):
+        return subprocess.run(["bash", "-c", script], cwd=home.parent, env=env.copy(),
+                              capture_output=True, text=True, timeout=180)
+
+    # Every tool call has a fresh process. Only printed literals are bound next.
+    result = invoke(bind_managed_literals(maintained_block("# CPP_SHARED_REFRESH"), source))
+    outputs, errors, code = [result.stdout], [result.stderr], result.returncode
+    revision = next((line.removeprefix("Revision: ") for line in result.stdout.splitlines()
+                     if re.fullmatch(r"Revision: [0-9a-f]{40,64}", line)), "")
+    names = next((line.removeprefix("Codex migration packages: ").split()
+                  for line in result.stdout.splitlines() if line.startswith("Codex migration packages: ")), [])
+    if before_migration:
+        changed = invoke(before_migration)
+        assert changed.returncode == 0, changed.stderr
+    if names:
+        result = invoke(bind_managed_literals(maintained_block("# CPP_CODEX_MIGRATION"),
+                        source, revision, names, "no" if migration is None else migration, code))
+        outputs.append(result.stdout)
+        errors.append(result.stderr)
+        code = result.returncode
+    if finish:
+        if between:
+            changed = invoke(between)
+            assert changed.returncode == 0, changed.stderr
+        result = invoke(bind_managed_literals(maintained_block("# CPP_SHARED_FINISH_GUARD"), source, revision))
+        outputs.append(result.stdout)
+        errors.append(result.stderr)
+        if result.returncode:
+            code = result.returncode
+    outputs.append(f"\nCPP_REFRESH_EXIT={code}\n")
+    return subprocess.CompletedProcess(["bash", "separate maintained tool calls"], code,
+                                       "".join(outputs), "".join(errors))
 
 
 @pytest.mark.skipif(not shutil.which("bash"), reason="real maintained fences require bash")
@@ -402,6 +425,7 @@ def test_maintained_finish_guard_invalidates_a_moved_source(source, tmp_path):
     assert git(source, "rev-parse", "HEAD") != old
     assert "CPP_REFRESH_EXIT=4" in result.stdout and "revision changed after refresh" in result.stdout, result.stdout
     assert f"Revision: {old}" in result.stdout
+    assert result.returncode == 4 and "CPP_REVISION_GUARD: stable" not in result.stdout
 
 
 @pytest.mark.skipif(not shutil.which("bash"), reason="real maintained fences require bash")
@@ -418,6 +442,7 @@ HOST_MIGRATION_COMMAND=""
 HOST_REFRESH_STATUS="Managed refresh: current (coverage=partial)
 Revision: $HOST_REFRESH_REVISION
 claude-links: current"
+printf '%s\\n' "$HOST_REFRESH_STATUS"
 '''
 
     monkeypatch.setitem(run_maintained.__globals__, "maintained_block", skip_refresh)
@@ -508,7 +533,7 @@ def test_reviewed_historical_legacy_migration(source, tmp_path, monkeypatch, dec
     # An inherited yes is not this run's user decision.
     monkeypatch.setenv("CODEX_MIGRATION_CONFIRMED", "yes")
     result = run_maintained(source, home, finish=True, migration=decision)
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == (0 if decision == "yes" else 4), result.stderr
     assert f"--adopt codex:{name}" in result.stdout and "Codex migration packages: " + name in result.stdout
     backups = list((home / ".codex/skills/.cpp-managed/work").glob(f"transaction-*/backup/{name}"))
     if decision != "yes":
@@ -652,9 +677,222 @@ def test_real_historical_installer_population(source, tmp_path, revision, identi
         assert set(names) >= stale and inventory(skills) == before
         assert not (skills / ".cpp-managed/ownership.json").exists()
         accepted = run_maintained(source, home, migration="yes", finish=True)
-        assert "CPP_REFRESH_EXIT=0" in accepted.stdout and "codex: current" in accepted.stdout, accepted.stdout
+        assert "CPP_REFRESH_EXIT=0" in accepted.stdout, accepted.stdout
+        assert "codex: unknown -> current" in accepted.stdout, accepted.stdout
         backups = list((skills / ".cpp-managed/work").glob("transaction-*/backup"))
         assert len(backups) == 1 and inventory(backups[0]) == before
         assert inventory(skills) == wanted
         following = run_maintained(source, home)
         assert "CPP_REFRESH_EXIT=0" in following.stdout and "Codex migration packages:" not in following.stdout
+
+
+def bind_managed_literals(script, source, revision="", names=(), decision="no", initial_exit=0):
+    """Only documented literal inputs cross tool calls; no shell state is copied."""
+    replacements = {"REPLACE_WITH_CPP_DIR": shlex.quote(str(source)),
+                    "REPLACE_WITH_REFRESH_REVISION": shlex.quote(revision),
+                    "REPLACE_WITH_REVIEWED_PACKAGES": shlex.join(names),
+                    "REPLACE_WITH_DECISION": shlex.quote(decision),
+                    "REPLACE_WITH_INITIAL_EXIT": str(initial_exit)}
+    for marker, value in replacements.items():
+        script = script.replace(marker, value)
+    return script
+
+
+@pytest.mark.skipif(not shutil.which("bash"), reason="actual separate Bash tool calls require bash")
+@pytest.mark.parametrize("scenario", ["current", "accepted-migration"])
+def test_actual_fences_survive_separate_bash_tool_calls(source, tmp_path, scenario):
+    home = tmp_path / "home"
+    if scenario == "current":
+        seed(home, source)
+    else:
+        name, package = historical_legacy(home)
+        old = (package / "reference.md").read_bytes()
+        adapter = CodexAdapter(home)
+        current = request(source)
+        expected = next(p for p in adapter.build(current.revision, adapter.preflight(current)).packages
+                        if p.name == name)
+        assert expected.members["reference.md"].content != old, "negative fixture must actually be stale"
+    env = dict(os.environ, HOME=str(home), CPP_DIR=str(source), CPP_DEFER_SURFACES="")
+
+    def invoke(marker, revision="", names=(), decision="no", initial_exit=0):
+        script = bind_managed_literals(maintained_block(marker), source, revision, names, decision, initial_exit)
+        # A new process and fresh environment for every real tool call.
+        return subprocess.run(["bash", "-c", script], cwd=tmp_path,
+                              env=dict(env, CODEX_MIGRATION_CONFIRMED=decision),
+                              capture_output=True, text=True, timeout=180)
+
+    initial = invoke("# CPP_SHARED_REFRESH")
+    revision = next(line.removeprefix("Revision: ") for line in initial.stdout.splitlines()
+                    if re.fullmatch(r"Revision: [0-9a-f]{40,64}", line))
+    assert revision == git(source, "rev-parse", "HEAD")
+    assert initial.returncode == (4 if scenario == "accepted-migration" else 0), initial.stdout + initial.stderr
+    if scenario == "accepted-migration":
+        names = next(line.removeprefix("Codex migration packages: ").split()
+                     for line in initial.stdout.splitlines() if line.startswith("Codex migration packages: "))
+        migrated = invoke("# CPP_CODEX_MIGRATION", revision, names, "yes", 4)
+        assert (package / "reference.md").read_bytes() != old, migrated.stdout + migrated.stderr
+        assert (home / ".codex/skills/.cpp-managed/ownership.json").is_file()
+    finished = invoke("# CPP_SHARED_FINISH_GUARD", revision)
+    assert finished.returncode == 0, finished.stdout + finished.stderr
+    assert "CPP_REVISION_GUARD: stable" in finished.stdout, finished.stdout + finished.stderr
+
+
+def cross_fence_dependencies(document):
+    """Audit each Bash scope separately, including guarded/defaulted old state."""
+    shellcheck = shutil.which("shellcheck")
+    assert shellcheck, "UNAVAILABLE: shellcheck is required for the complete fence audit"
+    previous, functions, findings = set(), set(), set()
+    blocks = re.findall(r"```bash\n(.*?)```", document, re.S)
+    assert blocks, "UNAVAILABLE: no Bash population extracted"
+    for index, body in enumerate(blocks, 1):
+        checked = subprocess.run([shellcheck, "--enable=check-unassigned-uppercase", "-s", "bash", "-f", "json", "-"],
+                                 input=body, capture_output=True, text=True)
+        comments = json.loads(checked.stdout)
+        for row in comments:
+            if 1000 <= row["code"] < 1100 and row["level"] == "error":
+                findings.add((index, "parse-error", str(row["code"])))
+        # Quoted heredoc bodies are data, not shell references or definitions.
+        lines, delimiter = [], None
+        for line in body.splitlines():
+            if delimiter is not None:
+                if line.strip() == delimiter:
+                    delimiter = None
+                continue
+            if line.lstrip().startswith("#"):
+                continue
+            lines.append(line)
+            opener = re.search(r"<<-?\s*['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]", line)
+            if opener:
+                delimiter = opener.group(1)
+        shell = "\n".join(lines)
+        required = set(re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*):\?", shell))
+        required.update(re.findall(r"\[\[.*declare -p ([A-Za-z_][A-Za-z0-9_]*).*\]\] \|\| exit 4", shell))
+        # Collect definitions in this fence; separately check reads outside
+        # conditional assignments below.
+        local = set(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)=", shell)) | required
+        local.update(re.findall(r"\bfor\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\b", shell))
+        for match in re.finditer(r"\bread\s+-r\s+([^;\n]+)", shell):
+            local.update(re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", match.group(1)))
+        references = set(re.findall(r"(?<!\\)\$(?:\{[#!]?)?([A-Za-z_][A-Za-z0-9_]*)", shell))
+        references.update(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\+=", shell))
+        # A conditional assignment cannot supply a later top-level read on
+        # the branch that skipped it (the old finish-status bug).
+        top_lines = "\n".join(line for line in shell.splitlines() if line and not line[0].isspace())
+        top_references = set(re.findall(r"(?<!\\)\$(?:\{[#!]?)?([A-Za-z_][A-Za-z0-9_]*)", top_lines))
+        top_local = set(re.findall(r"(?m)^([A-Za-z_][A-Za-z0-9_]*)=", shell)) | required
+        for name in (top_references & previous) - top_local:
+            findings.add((index, "variable", name))
+        for name in (references & previous) - local:
+            findings.add((index, "variable", name))
+        for row in comments:
+            if row["code"] == 2154:
+                name = row["message"].split()[0]
+                if name not in required:
+                    findings.add((index, "variable", name))
+        current_functions = set(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(\)\s*\{", shell))
+        for name in functions - current_functions:
+            if re.search(r"(?:^|\s|;)" + re.escape(name) + r"(?:\s|$)", shell):
+                findings.add((index, "function", name))
+        previous.update(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)=", shell))
+        functions.update(current_functions)
+    return len(blocks), sorted(findings)
+
+
+@pytest.mark.skipif(not shutil.which("shellcheck"), reason="shellcheck required for actual fence binding audit")
+def test_all_update_fences_have_explicit_per_call_inputs():
+    document = (CLI.parents[1] / ".claude/commands/cpp/update.md").read_text()
+    count, findings = cross_fence_dependencies(document)
+    print("Actual Bash scopes:", count, "unresolved per-fence dependencies:", findings)
+    assert count == 49, "the complete maintained Bash population must be examined"
+    assert not findings, findings
+
+
+@pytest.mark.skipif(not shutil.which("shellcheck"), reason="shellcheck required for audit negative controls")
+def test_cross_fence_audit_detects_lost_variable_and_function():
+    bad = '```bash\nCPP_BOUND_INPUT=observed\ncpp_bound_function() { :; }\n```\n'
+    bad += '```bash\nprintf "%s\\n" "$CPP_BOUND_INPUT"\ncpp_bound_function\n```\n'
+    bad += '```bash\nif false; then\n  CPP_BOUND_INPUT=skipped\nfi\nprintf "%s\\n" "$CPP_BOUND_INPUT"\n```\n'
+    count, findings = cross_fence_dependencies(bad)
+    assert count == 3
+    assert (3, "variable", "CPP_BOUND_INPUT") in findings
+    assert (2, "variable", "CPP_BOUND_INPUT") in findings
+    assert (2, "function", "cpp_bound_function") in findings
+    good = '```bash\n: "${CPP_BOUND_INPUT:?bind literal in this call}"\nprintf "%s\\n" "$CPP_BOUND_INPUT"\n```\n'
+    assert cross_fence_dependencies(good) == (1, [])
+
+
+@pytest.mark.skipif(not shutil.which("bash"), reason="actual literal refusal fences require bash")
+@pytest.mark.parametrize("marker,malformation", [
+    (marker, problem)
+    for marker in ("# CPP_SHARED_REFRESH", "# CPP_CODEX_MIGRATION", "# CPP_SHARED_FINISH_GUARD")
+    for problem in ("unbound", "bad-root", "bad-revision", "bad-consent", "bad-package")
+    if not (problem in ("bad-consent", "bad-package") and marker != "# CPP_CODEX_MIGRATION"
+            or problem == "bad-revision" and marker == "# CPP_SHARED_REFRESH")
+])
+def test_managed_fences_refuse_unbound_or_malformed_literals(source, tmp_path, marker, malformation):
+    script = maintained_block(marker)
+    if malformation != "unbound":
+        script = bind_managed_literals(script, source if malformation != "bad-root" else "relative-root",
+                    "malformed" if malformation == "bad-revision" else git(source, "rev-parse", "HEAD"),
+                    ["../foreign" if malformation == "bad-package" else "cicd-verify"],
+                    "unreviewed" if malformation == "bad-consent" else "yes", 4)
+    home = tmp_path / "refusal-home"
+    home.mkdir()
+    before = tree(home)
+    result = subprocess.run(["bash", "-c", script], cwd=tmp_path,
+                            env=dict(os.environ, HOME=str(home), CPP_DIR=str(source)),
+                            capture_output=True, text=True, timeout=15)
+    assert result.returncode == 4 and tree(home) == before
+    assert "CPP_REVISION_GUARD: stable" not in result.stdout
+
+
+def assert_shared_executable_population(source):
+    """Read the real manifest against an owned on-disk executable population."""
+    for name, mode in (("manifest-extensionless", 0o755), ("manifest-python.py", 0o755),
+                       ("manifest-not-executable.sh", 0o644), ("manifest-directory/child", 0o755)):
+        path = source / "scripts" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fixture source bytes\n")
+        path.chmod(mode)
+        git(source, "add", "scripts/" + name)
+    git(source, "commit", "-qm", "fixture immediate executable membership")
+    executable = source / "scripts/manifest-extensionless"
+    nonexecutable = source / "scripts/manifest-not-executable.sh"
+    assert executable.is_file() and executable.stat().st_mode & 0o111
+    assert nonexecutable.is_file() and not nonexecutable.stat().st_mode & 0o111
+    assert (source / "scripts/manifest-directory").is_dir()
+    members = ClaudeLinks(source.parent / "population-home", source=source).manifest(request(source))["scripts"]
+    assert members, "shared executable manifest must have a nonzero population"
+    assert {"manifest-extensionless", "manifest-python.py"} <= set(members), (
+        "shared executable manifest lost non-shell helper")
+    assert "manifest-not-executable.sh" not in members, "shared executable manifest included non-executable"
+    assert "manifest-directory" not in members, "shared executable manifest included directory"
+    return members
+
+
+@pytest.mark.skipif(not shutil.which("bash"), reason="shared manifest consumers retain init Bash coupling")
+@pytest.mark.parametrize("consumer", ["install-drift", "permissions"])
+@pytest.mark.parametrize("fault", ["missing-non-shell", "included-non-executable"])
+def test_shared_manifest_readers_reject_wrong_members(source, monkeypatch, consumer, fault):
+    original = ClaudeLinks.manifest
+
+    def broken(self, current):
+        result = original(self, current)
+        members = result["scripts"]
+        assert "manifest-extensionless" in members and "manifest-not-executable.sh" not in members
+        if fault == "missing-non-shell":
+            del members["manifest-extensionless"]
+        else:
+            members["manifest-not-executable.sh"] = members["manifest-python.py"]
+        return result
+
+    monkeypatch.setattr(ClaudeLinks, "manifest", broken)
+    with pytest.raises(AssertionError, match="shared executable manifest") as caught:
+        if consumer == "install-drift":
+            from tests.test_install_drift import test_the_installer_loops_still_read_the_filter_this_axis_assumes
+            test_the_installer_loops_still_read_the_filter_this_axis_assumes(source)
+        else:
+            from tests.test_permissions_template_link_parity import test_link_loop_docs_use_the_widened_executable_gate
+            document = CLI.parents[1] / ".claude/commands/cpp/update.md"
+            test_link_loop_docs_use_the_widened_executable_gate(document, source)
+    print(consumer, fault, "RED assertion:", str(caught.value).splitlines()[0])

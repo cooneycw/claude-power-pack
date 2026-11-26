@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -1076,3 +1077,33 @@ def test_full_observation_rejects_an_actual_no_output_exit_one(tmp_path, monkeyp
     monkeypatch.setitem(globals(), "ROOT", tmp_path)
     with pytest.raises((AssertionError, ValueError)):
         test_preflight_bootstrap_full_observation_writes_no_host_surface(monkeypatch)
+
+
+@pytest.mark.skipif(not shutil.which("git"), reason="actual observer containment requires Git")
+def test_a_new_derived_unclassified_member_still_refuses(tmp_path, capsys):
+    sentinel = tmp_path / "unclassified-sentinel"
+    assert not sentinel.exists()
+    body = "printf unexpected > " + shlex.quote(str(sentinel)) + "\n"
+    root = _root(tmp_path, "unclassified", body, "#: HOST-SURFACE: none\n")
+    classification = root / hso.CLASSIFICATION_REL
+    assert classification.is_file()
+    classification.unlink()
+    assert not classification.exists()
+    members, _ = hso._load_check().derive_members(root)
+    assert members == {"probe.sh"} and "probe.sh" not in hso.ESCAPES and "probe.sh" not in hso.INVOCATIONS
+    code, output = _run(root, capsys)
+    assert code == 1 and "UNCLASSIFIED" in output, output
+    assert "ok -" not in output
+    assert not sentinel.exists()
+
+
+def test_shared_host_entry_is_explicitly_unobserved():
+    assert "cpp-host-update.py" in hso.ESCAPES
+    assert "cpp-host-update.py" not in hso.INVOCATIONS
+    entry = (ROOT / "scripts/cpp-host-update.py").read_text()
+    declarations = hso.declared_surfaces(entry, hso._load_check())
+    assert declarations and all(cert == "authored" for _, _, cert in declarations)
+    # Its Python snapshot child creates/executes a checkout outside HOME; this
+    # observer has no qualified invocation for that transitive write surface.
+    source = (ROOT / "lib/host_update/source.py").read_text()
+    assert "tempfile.TemporaryDirectory(" in source and "subprocess.run([sys.executable," in source

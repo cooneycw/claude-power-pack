@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -138,18 +139,44 @@ def main():
             assert probe.returncode == 0, "fixture is not genuinely unwritable: " + probe.stderr
             print("Unwritable executing UID: " + probe.stdout.strip())
         before = inventory(home)
-        script = "\n".join((refresh[0], migration[0], finish[0]))
-        script += '\nprintf "\\nCPP_COMMAND_EXIT=%s\\n" "$HOST_REFRESH_EXIT"\n'
+        def bind(script, *, names=(), initial_exit=4):
+            for marker, value in {
+                "REPLACE_WITH_CPP_DIR": shlex.quote(str(source)),
+                "REPLACE_WITH_REFRESH_REVISION": shlex.quote(revision),
+                "REPLACE_WITH_REVIEWED_PACKAGES": shlex.join(names),
+                "REPLACE_WITH_DECISION": "no",
+                "REPLACE_WITH_INITIAL_EXIT": str(initial_exit),
+            }.items():
+                script = script.replace(marker, value)
+            return script
+
+        def invoke(script):
+            return subprocess.run(["bash", "-c", script], env=env.copy(), cwd=base, preexec_fn=demote,
+                                  capture_output=True, text=True, timeout=180)
+
         try:
-            result = subprocess.run(["bash", "-c", script], env=env, cwd=base, preexec_fn=demote,
-                                    capture_output=True, text=True, timeout=180)
+            initial = invoke(bind(refresh[0]))
+            code = initial.returncode
+            assert code in (0, 1, 4, 5), initial.stderr
+            results = [initial]
+            names = next((line.removeprefix("Codex migration packages: ").split()
+                          for line in initial.stdout.splitlines()
+                          if line.startswith("Codex migration packages: ")), [])
+            if names:
+                migrated = invoke(bind(migration[0], names=names, initial_exit=code))
+                results.append(migrated)
+                code = migrated.returncode
+            guarded = invoke(bind(finish[0]))
+            results.append(guarded)
+            if guarded.returncode:
+                code = guarded.returncode
+            result = subprocess.CompletedProcess(["bash", "separate maintained tool calls"], code,
+                     "".join(r.stdout for r in results) + f"\nCPP_COMMAND_EXIT={code}\n",
+                     "".join(r.stderr for r in results))
         finally:
             if not legacy_case:
                 scripts.chmod(0o755)
-        assert result.returncode == 0, result.stderr
-        matches = re.findall(r"^CPP_COMMAND_EXIT=(0|1|4|5)$", result.stdout, re.M)
-        assert len(matches) == 1, "shared reader did not return its actual verdict"
-        code = int(matches[0])
+        assert code in (0, 1, 4, 5), result.stderr
         assert personal.read_bytes() == b"personal exact bytes"
         if legacy_case:
             assert inventory(package) == legacy_before

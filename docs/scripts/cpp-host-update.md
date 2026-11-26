@@ -353,6 +353,15 @@ empty producer revision; the reader accepts that only when every action is
 not-attempted/refused, and still guards the checkout revision. None can claim
 current. A deferred Claude link scope keeps its named refusal and exit1.
 
+Every Bash fence runs in its own process. Required inputs are literal bindings
+in that call, validated before use; no earlier variable, array or function is
+assumed to survive. Migration binds the printed full revision, reviewed package
+list, initial exit and this run's explicit yes/no decision. Missing/malformed
+bindings refuse. The finish fence binds the original revision and reports only
+stable versus moved/unavailable. Stable never turns an earlier unknown/failure
+into current: the summary retains the latest actual Step5a report and exit,
+including frozen/declined migration. A changed revision overrides it with4.
+
 The producer marker advances from2 to3 because removing maintained wiring
 from the closed deferred set would make a B2a caller reject its report AFTER
 writes. Frozen predecessor tests prove the old caller now refuses BEFORE
@@ -367,14 +376,19 @@ is unavailable4; malformed output after execution is failure1 and requires
 inspection. A CLI executable does not enroll an absent install.
 
 `make host-update-command-check` runs owned real command fixtures registered
-under controls/cpp-update-host-refresh. The stale GOOD case proves actual
+under controls/cpp-update-host-refresh, using a fresh Bash process per fence.
+The stale GOOD case proves actual
 writes with no pull. BAD cases prove the unwritable executing identity and
 closed-reader rejection of malformed output. The constructed anchor performs
 the real refresh but forges current/0; it must miss both BAD inputs while
 repairing the GOOD input. `tests/test_host_update_command.py` additionally
 covers revision movement, preservation, no selection, deferrals and plain
 runtime dependencies. Historical confirmed-prune tests retain their frozen
-legacy fences and are not presented as the current command reader.
+legacy fences and are not presented as the current command reader. The all49
+fence input audit has committed lost-variable, lost-function and conditional-
+assignment controls. It requires ShellCheck; absence is an explicit unexamined
+skip, not evidence of zero dependencies. The separate-process current/migration
+regressions both failed against cdf04386 before this correction.
 
 This is B2b-1 subset evidence. Command-derived AGY invocation, a guarded native
 probe, fresh authorization for both authentication lanes and native effectiveness

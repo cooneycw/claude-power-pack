@@ -9,7 +9,7 @@ import pytest
 
 from tests.test_host_update_adapters import source as source_fixture
 from tests.test_host_update_adapters import source_template as template_fixture
-from tests.test_host_update_command import maintained_block
+from tests.test_host_update_command import bind_managed_literals, maintained_block
 
 source_template = template_fixture
 source = source_fixture
@@ -121,7 +121,7 @@ def test_actual_callers_preserve_and_never_execute_personal_seam(source, tmp_pat
     assert not sentinel.exists()
     env = dict(os.environ, HOME=str(home), CPP_DIR=str(source if command == "update" else ROOT), CPP_DEFER_SURFACES="",
                CPP_CAPABILITIES_JSON='["commands","scripts"]')
-    result = subprocess.run(["bash", "-c", fences(command)], cwd=tmp_path, env=env,
+    result = subprocess.run(["bash", "-c", bind_managed_literals(fences(command), source)], cwd=tmp_path, env=env,
                             capture_output=True, text=True, timeout=60)
     assert not sentinel.exists(), "preserved personal seam was executed as trusted CPP code"
     assert seam.is_file() and not seam.is_symlink() and seam.read_bytes() == content

@@ -534,3 +534,52 @@ creating an ownership ledger. Source status is clean after removing the owned
 virtualenv seam. Exact /tmp/c.pb8igty7 was deleted; cleanup-inclusive runtime
 was359.72s. Log: f1-ci-shape.log. Formal pass2, fresh receipt and the directly
 supervised finish gate remain pending; implementation bytes are now frozen.
+
+
+### B2b-1 F2: separate Bash tool calls
+
+Pass2 at cdf04386 accepted F2: the migration and finish fences read variables,
+arrays and a function from a prior Bash call; the maintained reader concatenated
+those calls and hid both failures. On unchanged cdf04386, the final fresh-process
+current, accepted-migration and all-fence audit tests were3failed/14.30s
+(f2-final-instrument-red.log). The current case falsely said revision changed;
+the accepted migration left historical bytes unchanged. The all49-fence scan
+reported61 unresolved (fence,name) dependency pairs plus2 illustrative shell
+parse diagnostics. The corrected document has49 scopes,0 unresolved dependencies
+and0 parse diagnostics. Committed scanner cases catch a lost variable, lost
+function and a skipped conditional assignment. ShellCheck absence is explicitly
+unexamined, not a zero result. This static scan does not execute host writers.
+
+Every fence now derives its values locally or validates same-call literal
+bindings. The maintained reader and registered control start a new Bash process
+per call. Migration uses the actual printed revision/names and this run's explicit
+decision; the existing CLI validates the pinned child report before rendering it.
+The finish guard reports revision stability only; it retains the latest actual
+component report/exit and refuses a real move with4. Declined migration remains
+frozen/unknown with its scoped command. Malformed roots, revisions, decisions and
+package names refuse before writes. Source/CLI remain marker-only relative to
+the B2a base; no neutral/Pi or native/auth change is introduced.
+
+The expanded26-module run was732pass/4fail in380.48s. The failures were the
+identical-locator text pin, two obsolete update-loop coupling assertions and
+newly derived cpp-host-update.py classification. Amendment41925 authorized the
+four additional paths before edits. The locator bytes were restored unchanged.
+The two manifest consumers retain init assertions and existing negatives, and
+read real manifests with tracked executable Python/extensionless positives and
+non-executable/directory negatives. Assertion statements in those two functions
+plus their shared population helper increased5->13 (the helper counted once).
+Four committed consumer mutations each produce a RED assertion for a missing
+non-shell executable or wrongly included non-executable, then normal manifests
+pass. No executable distinction was removed to accommodate the shared writer.
+
+The observer explicitly leaves cpp-host-update.py unobserved/authored: its Python
+snapshot child creates/executes a source checkout outside HOME, for which this
+observer has no qualified invocation. The new classification test was RED before
+the table entry (1failed/5passed,11.56s); the committed newly derived unknown-member
+case still refuses and never executes its owned sentinel writer. The combined
+amendment/fresh-process/invalid-binding/audit/locator/self-read subset is now
+129passed/62.26s (f2-amendment-green.log). Final static checks passed: lint,
+typecheck567 files, binary guards, fixture preconditions, Unicode, census,
+verify coverage and host-surface declarations22 reachable helpers. Command
+length2289 remains below the original2291. These are subset results; final
+committed-head CI shape, full controls, third review and full gate follow.

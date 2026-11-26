@@ -434,3 +434,10 @@ no migration. Retired/unexpected packages are never adopted and require separate
 review first. The real e32c06ed~1 legacy install is the red case; the actual
 byte-identical v13.0.0 install remains the positive control. No fallback writer,
 neutral/Pi API change or native probe is part of this amendment.
+
+Each command fence must derive its inputs in its own process or validate literal
+bindings from earlier printed values. No prior variables, arrays or functions
+may be assumed. Separate-process readers must detect the cdf04386 current and
+accepted-migration failures. The final guard must refuse a real revision move;
+a stable revision alone cannot establish managed currency. Audit all49 Bash
+fences, with committed lost-state controls and explicit tool-unavailable limits.
