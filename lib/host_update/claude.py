@@ -3,11 +3,9 @@ from __future__ import annotations
 
 import re
 
-import yaml
-
 from lib.antigravity_skills import TOPICS, Snapshot
 
-from .antigravity import AntigravityAdapter
+from .antigravity import AntigravityAdapter, yaml_module
 from .host import CopyAdapter
 from .models import AdapterError, ExpectedBuild, ExpectedMember, ExpectedPackage, build_manifest_sha256
 
@@ -20,6 +18,7 @@ class ClaudeAdapter(CopyAdapter):
     def build(self, revision, policy):
         if self._build is not None and self._build.revision == revision.commit:
             return self._build
+        yaml = yaml_module(self.harness)
         snapshot = Snapshot(revision)
         packages = []
         actual = {p.split("/")[2] for p in snapshot.files

@@ -292,3 +292,28 @@ Orchestrator41456 prioritizes the fix-only v13.0.1 release after this correction
 is pushed and frozen for review. B2a receipt, fresh gate, full CI-shape rerun and
 PR are parked until the release tag-candidate report. No B2a PR or native run
 is claimed. Both #1889 and #1876 remain open/PARTIAL.
+
+
+### B2b-1 runtime checkpoint under owner ruling 1889A
+
+The first B2b-1 checkpoint addresses the plain-user runtime regression before
+removing any maintained legacy path. At base8e6efc03, isolated Python3.12.3
+with YAML unavailable runs the legacy stdlib link helper successfully, but the
+production registry returns unknown4 for every row because it imports YAML
+adapters eagerly. Owner1889A selects lazy YAML dependencies and one writer,
+with no legacy fallback.
+
+The committed plain-runtime cases use an owned empty stdlib venv. They assert
+YAML is absent both under the parent's -I/-S setup and under the interpreter
+configuration used by the pinned child. All three cases failed before the fix:
+Claude-link verify and Codex refresh returned4 rather than0; the mixed case
+lacked per-adapter named UNAVAILABLE results and independent stdlib progress.
+The source product bytes were still identical to8e6efc03 at that red run.
+
+After moving YAML imports to the actual YAML operations, all three cases pass
+(33.80s): complete Claude links verify current; Codex refresh publishes its
+nonzero expected population; Claude topics and AGY report their own missing
+yaml/PyYAML with unknown4 while the stdlib components succeed. No caller/core/
+Pi row schema changed. Owned red/green test roots were deleted. No native
+commands or credentials were accessed. The maintained update command is still
+unchanged at this checkpoint; deletion equivalence is the next stop condition.
