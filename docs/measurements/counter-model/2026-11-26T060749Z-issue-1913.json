@@ -1,0 +1,64 @@
+{
+  "branch": "issue-1913-preserve-helper-collisions",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "extra_passes_reason": "orchestrator requested a third pass after the paired finish gate exposed an uncovered orphan-prune reader fixture",
+  "head": "c5c72022a04eca55974cbdc7487c592afe9b6cd4",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/25/rollout-2026-11-25T16-21-16-01a21382-e9f4-78b2-8dbd-a63068a99358.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 36222927,
+        "path": "2026/11/25/rollout-2026-11-25T16-21-16-01a21382-e9f4-78b2-8dbd-a63068a99358.jsonl",
+        "sha256": "a94a4c2b3feff6d9df8f8adcc335331983e759ab7bbcc3577866c0f79e6536c7"
+      }
+    ],
+    "thread_id": "01a21382-e9f4-78b2-8dbd-a63068a99358"
+  },
+  "issue": "1913",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 3,
+  "recorded_at": "2026-11-26T06:07:49Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewed_artifact": {
+    "base_sha": "0b5946f28039b70dc10ecdbe3468eb0a4507d0a9",
+    "merge_base": "0b5946f28039b70dc10ecdbe3468eb0a4507d0a9",
+    "method": "runtime-head",
+    "patch_sha256": "055ae9cc133db6ce3f6d0a8f4511f7643f12207da8c6bf5c69ad78f9ada10422",
+    "report_record": 5873,
+    "target_head": "c5c72022a04eca55974cbdc7487c592afe9b6cd4"
+  },
+  "reviewer": "claude/claude-opus-5-5",
+  "reviewer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2",
+    "sources": [
+      {
+        "bytes": 11945186,
+        "path": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl",
+        "sha256": "fe134e9c71dc1c28bbcf78a278ca4ff08d87039ed8a8861aaf1fd4fd42b8486a"
+      }
+    ],
+    "transcript": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}

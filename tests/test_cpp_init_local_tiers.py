@@ -79,7 +79,8 @@ def test_fresh_local_tier_writes_without_tier2(tmp_path, kind, shell):
 @pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3")
 @pytest.mark.parametrize(
     "population,expected",
-    [("deferred", 3), ("broken", 1), ("non-executable", 1), ("parent-is-file", 1), ("directory", 1)],
+    [("deferred", 3), ("broken", 1), ("non-executable", 1), ("executable-personal", 1),
+     ("parent-is-file", 1), ("directory", 1)],
 )
 def test_unavailable_local_seam_refuses_before_configuration(tmp_path, population, expected):
     home = tmp_path / "home"
@@ -98,8 +99,9 @@ def test_unavailable_local_seam_refuses_before_configuration(tmp_path, populatio
             assert seam.is_symlink() and not seam.exists()
         else:
             seam.write_text("owned content\n")
-            seam.chmod(0o644)
-            assert seam.is_file() and not os.access(seam, os.X_OK)
+            seam.chmod(0o755 if population == "executable-personal" else 0o644)
+            assert seam.is_file() and not seam.is_symlink()
+            assert os.access(seam, os.X_OK) == (population == "executable-personal")
     else:
         assert not seam.exists() and not seam.is_symlink()
     env = dict(
@@ -114,7 +116,7 @@ def test_unavailable_local_seam_refuses_before_configuration(tmp_path, populatio
     assert not (home / ".config/opencode/opencode.json").exists()
     if population == "deferred":
         assert not seam.exists() and not seam.is_symlink()
-    elif population == "non-executable":
+    elif population in ("non-executable", "executable-personal"):
         assert seam.read_text() == "owned content\n"
     elif population == "parent-is-file":
         assert (home / ".claude").read_text() == "owned parent\n"

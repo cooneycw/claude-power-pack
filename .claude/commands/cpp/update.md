@@ -641,12 +641,10 @@ echo "$RUNTIME_STATUS"
 
 ## Step 5a: Bootstrap the Host-Write Seam (issue #1198)
 
-Every host write below goes through `~/.claude/scripts/cpp-host-write.sh`. That
-symlink is itself one of the things Step 5b installs, so on a host that does not
-have it yet EVERY call below exits 127 - and before #1198 the next line printed a
-checkmark regardless. Measured on 2026-09-22: `/cpp:update` reported
-`Flow allowlist merged (52 total allow rules)` having merged nothing, because the
-count it printed was read BEFORE the merge it never performed.
+Every host write uses the trusted checkout helper at
+`$CPP_DIR/scripts/cpp-host-write.sh`. Never execute a personal file or foreign
+link preserved at its installed path. Before #1198, invoking an absent installed
+seam exited127 while update still claimed success.
 
 The bootstrap goes through the seam too, invoked at its CHECKOUT path - which
 always exists when a checkout does. That keeps it declared and deferrable like
@@ -668,7 +666,7 @@ if [ -d ~/.claude/scripts ]; then
   case $? in
     0) SEAM_STATUS="available" ;;
     3) SEAM_STATUS="the seam's own install was deferred by request" ;;
-    *) SEAM_STATUS="UNAVAILABLE - the seam could not be installed" ;;
+    *) SEAM_STATUS="UNAVAILABLE - seam install refused or failed; see preserved-collision/error details" ;;
   esac
 else
   SEAM_STATUS="not installed (Tier 0/1: no ~/.claude/scripts, and this command will not create one)"
@@ -713,7 +711,7 @@ if [ -d ~/.claude/scripts ]; then
     name=$(basename "$script")
     # Through the declaring seam (#1132). The helper carries the already-linked
     # skip this block had, and honours --defer ~/.claude/scripts by name.
-    ~/.claude/scripts/cpp-host-write.sh link-into "$script" ~/.claude/scripts "$name"
+    "$CPP_DIR/scripts/cpp-host-write.sh" link-into "$script" ~/.claude/scripts "$name"
     #: COMPOSE A VERDICT, do not just run (issue #1198). This loop made ninety
     #: calls and drew no conclusion, so a seam that was absent linked nothing and
     #: the step said so nowhere - measured on 2026-09-22, 25 scripts unlinked
@@ -725,8 +723,8 @@ if [ -d ~/.claude/scripts ]; then
       *) SEAM_FAILED=$((SEAM_FAILED + 1)) ;;
     esac
   done
-  echo "→ Script refresh: $SEAM_OK linked/current, $SEAM_DEFERRED deferred, $SEAM_FAILED failed"
-  [ "$SEAM_FAILED" -gt 0 ] && echo "  WARNING: $SEAM_FAILED script(s) were NOT linked. Allowlist rules and command docs citing ~/.claude/scripts/<name> point at paths that do not exist."
+  echo "→ Script refresh: $SEAM_OK linked/skipped, $SEAM_DEFERRED deferred, $SEAM_FAILED failed/preserved conflicts"
+  [ "$SEAM_FAILED" -gt 0 ] && echo "  WARNING: $SEAM_FAILED script(s) failed or were preserved as conflicts; see diagnostics. Do not treat these paths as CPP helpers."
 else
   echo "→ Script refresh skipped (no ~/.claude/scripts - Tier 0/1 install)"
 fi
@@ -781,7 +779,7 @@ if [ "${PRUNE_CONFIRMED:-no}" = "yes" ]; then
     #: Exit 0 covers BOTH "removed" and "already absent" (another session got
     #: there first), so the tally reads the seam's own words: counting every 0
     #: as a removal claims work this run did not do (counter-model review).
-    if OUT=$(~/.claude/scripts/cpp-host-write.sh unlink-orphan ~/.claude/scripts "$name"); then
+    if OUT=$("$CPP_DIR/scripts/cpp-host-write.sh" unlink-orphan ~/.claude/scripts "$name"); then
       case "$OUT" in
         *"orphan removed"*) PRUNED=$((PRUNED + 1)) ;;
         *) PRUNE_GONE=$((PRUNE_GONE + 1)) ;;
@@ -1251,7 +1249,7 @@ PYSTATUS
   # Through the declaring seam (#1132). This merge was embedded PYTHON, which is
   # why no shell pattern found it: a cfg_path.write_text() satisfies no grep for
   # a redirect, cp, tee, mv or ln. Same .update() semantics, moved not improved.
-  ~/.claude/scripts/cpp-host-write.sh json-merge-sections \
+  "$CPP_DIR/scripts/cpp-host-write.sh" json-merge-sections \
     "$CPP_DIR/templates/opencode-gemma.json" "$OC_CONFIG" provider agent
   #: $GEMMA_PROFILE_STATUS was computed BEFORE the merge, so on its own it
   #: describes the state the merge was meant to change - printing it
@@ -1818,7 +1816,7 @@ If yes, run the same merge as `/cpp:init`:
 
 ```bash
 # Through the declaring seam (#1132), same call /cpp:init makes.
-~/.claude/scripts/cpp-host-write.sh settings-merge "$TEMPLATE"
+"$CPP_DIR/scripts/cpp-host-write.sh" settings-merge "$TEMPLATE"
 #: THE MEASURED CASE (issue #1198). This pair printed
 #: "✓ Flow allowlist merged (2 total allow rules)" with the seam absent and
 #: nothing merged, and printed the same line with the surface DEFERRED exactly
@@ -1892,7 +1890,7 @@ If yes, run the same idempotent merge as `/cpp:init`:
 # Through the declaring seam (#1132): the helper owns the write, this
 # document keeps the jq program. --defer ~/.claude/settings.json yields a
 # stated refusal instead of a silent skip.
-~/.claude/scripts/cpp-host-write.sh settings-edit --arg cmd "$CENSUS_CMD" <<'JQ'
+"$CPP_DIR/scripts/cpp-host-write.sh" settings-edit --arg cmd "$CENSUS_CMD" <<'JQ'
   .hooks = (.hooks // {})
   | .hooks.PermissionRequest = (.hooks.PermissionRequest // [])
   | if any(.hooks.PermissionRequest[]?; (.hooks // [])[]?.command == $cmd)
@@ -1963,7 +1961,7 @@ If yes, run the same idempotent merge as `/cpp:init`:
 # Through the declaring seam (#1132): the helper owns the write, this
 # document keeps the jq program. --defer ~/.claude/settings.json yields a
 # stated refusal instead of a silent skip.
-~/.claude/scripts/cpp-host-write.sh settings-edit --arg cmd "$RETRO_CMD" <<'JQ'
+"$CPP_DIR/scripts/cpp-host-write.sh" settings-edit --arg cmd "$RETRO_CMD" <<'JQ'
   .hooks = (.hooks // {})
   | .hooks.SessionStart = (.hooks.SessionStart // [])
   | if any(.hooks.SessionStart[]?; (.command == $cmd) or ((.hooks // [])[]?.command == $cmd))

@@ -56,7 +56,7 @@ def _checkout(root: Path) -> Path:
     (root / "scripts").mkdir()
     (root / "CLAUDE.md").write_text("# fake CPP\n", encoding="utf-8")
     # The seam itself: what distinguishes a CPP checkout from any Claude project.
-    (root / "scripts" / "cpp-host-write.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+    shutil.copy2(SEAM, root / "scripts" / "cpp-host-write.sh")
     return root
 
 
@@ -187,7 +187,7 @@ def test_update_step_5b_wires_the_prune_to_install_drifts_orphan_list() -> None:
     end = text.index("## Step 5b.1:")
     step = text[start:end]
     assert "orphaned_helpers" in step
-    assert "cpp-host-write.sh unlink-orphan" in step
+    assert '"$CPP_DIR/scripts/cpp-host-write.sh" unlink-orphan' in step
 
 
 def _listing_block() -> str:
@@ -247,7 +247,7 @@ def _prune_block() -> str:
     return blocks[0]
 
 
-def _prune_fixture(tmp_path: Path) -> tuple[Path, str]:
+def _prune_fixture(tmp_path: Path) -> tuple[Path, Path, str]:
     """One dangling link of ours and one listed orphan that is already gone."""
     checkout = _checkout(tmp_path / "cpp")
     home = tmp_path / "home"
@@ -255,9 +255,13 @@ def _prune_fixture(tmp_path: Path) -> tuple[Path, str]:
     scripts.mkdir(parents=True)
     (scripts / "gone.sh").symlink_to(checkout / "scripts" / "gone.sh")
     assert not (scripts / "vanished.sh").exists(), "fixture: one listed orphan is already gone"
-    # The block calls the stable path; point it at the seam under test.
-    (scripts / "cpp-host-write.sh").symlink_to(SEAM)
-    return home, _prune_block().replace("<the listed names>", "gone.sh vanished.sh")
+    # The real block uses CPP_DIR, never a personal installed seam. The
+    # checkout contains the actual helper; a no-op stub could hide deletion.
+    installed = scripts / "cpp-host-write.sh"
+    installed.write_text('#!/bin/sh\nprintf EXECUTED > "$HOME/prune-personal-executed"\nexit 0\n')
+    installed.chmod(0o755)
+    assert installed.is_file() and not installed.is_symlink()
+    return home, checkout, _prune_block().replace("<the listed names>", "gone.sh vanished.sh")
 
 
 def test_the_prune_tally_does_not_count_an_already_absent_entry_as_removed(
@@ -271,15 +275,16 @@ def test_the_prune_tally_does_not_count_an_already_absent_entry_as_removed(
     or deferred` - on every host, because the variable comes from here.
     """
     monkeypatch.setenv(DEFER_ENV, "~/.claude/scripts")
-    home, block = _prune_fixture(tmp_path)
+    home, checkout, block = _prune_fixture(tmp_path)
     scripts = home / ".claude" / "scripts"
 
     out = subprocess.run(
         ["bash", "-c", block],
-        env=_host_env(HOME=str(home), PRUNE_CONFIRMED="yes"),
+        env=_host_env(HOME=str(home), CPP_DIR=str(checkout), PRUNE_CONFIRMED="yes"),
         capture_output=True,
         text=True,
     ).stdout
+    assert not (home / "prune-personal-executed").exists(), "personal installed seam must not run"
     assert "1 removed, 1 already absent, 0 refused" in out, out
     assert not (scripts / "gone.sh").is_symlink()
 
@@ -289,12 +294,12 @@ def test_a_deferral_the_caller_names_is_honoured_and_tallied(tmp_path: Path) -> 
 
     Stripping the ambient variable must not cost the deferral path its coverage.
     """
-    home, block = _prune_fixture(tmp_path)
+    home, checkout, block = _prune_fixture(tmp_path)
     scripts = home / ".claude" / "scripts"
 
     out = subprocess.run(
         ["bash", "-c", block],
-        env=_host_env(HOME=str(home), PRUNE_CONFIRMED="yes", **{DEFER_ENV: "~/.claude/scripts"}),
+        env=_host_env(HOME=str(home), CPP_DIR=str(checkout), PRUNE_CONFIRMED="yes", **{DEFER_ENV: "~/.claude/scripts"}),
         capture_output=True,
         text=True,
     ).stdout
@@ -312,7 +317,7 @@ def test_an_unconfirmed_prune_removes_nothing(tmp_path: Path) -> None:
     block = _prune_block().replace("<the listed names>", "gone.sh")
     # No DEFER_ENV either: a deferral also removes nothing, so under an inherited
     # one this test passed whatever the confirmation check did (issue #1343).
-    env = {k: v for k, v in _host_env(HOME=str(home)).items() if k != "PRUNE_CONFIRMED"}
+    env = {k: v for k, v in _host_env(HOME=str(home), CPP_DIR=str(checkout)).items() if k != "PRUNE_CONFIRMED"}
 
     subprocess.run(["bash", "-c", block], env=env, capture_output=True, text=True)
     assert (scripts / "gone.sh").is_symlink(), "no confirmation, no delete"

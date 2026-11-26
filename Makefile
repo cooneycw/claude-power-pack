@@ -795,6 +795,16 @@ cpp-init-cicd-args-check:
 cpp-init-promises-check:
 	@python3 scripts/check-cpp-init-promises.py
 
+## verify-coverage: utility test-cpp-host-link-preservation - actual helper and maintained callers; full suite owns gate
+.PHONY: test-cpp-host-link-preservation cpp-host-link-controls
+CPP_HOST_LINK_TESTS ?= tests/test_cpp_host_link_preservation.py tests/test_cpp_init_local_tiers.py tests/test_cpp_host_writes.py
+test-cpp-host-link-preservation:
+	uv run --extra dev pytest -q $(CPP_HOST_LINK_TESTS)
+
+## verify-coverage: excluded cpp-host-link-controls - subset of negative-controls; ci: excluded duplicate-subset
+cpp-host-link-controls:
+	uv run python scripts/check-negative-controls.py --control controls/cpp-host-link-preservation --strict --verify-provenance
+
 ## verify-coverage: gate cpp-host-writes-check - no inline host write in /cpp:init or /cpp:update; ci: runs cpp-host-writes-check
 cpp-host-writes-check:
 	@python3 scripts/check-cpp-host-writes.py

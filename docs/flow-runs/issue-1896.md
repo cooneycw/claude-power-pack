@@ -858,3 +858,79 @@ an unrelated unavailable-source result. Local validation reports 26 install
 passes and one explicit root-regression skip, 95 observer passes, and all three
 A2 control families PASS. Lint/mypy (548 files), binary guards and negative-
 fixture preconditions pass. Root GREEN remains pending actual privileged CI.
+
+<!-- flow-run n=3 id=00d2c06f8a804352acd60178d59eb6cc -->
+## Run 3
+
+- Run-id:            00d2c06f8a804352acd60178d59eb6cc
+- Run-start:         b1cd1f1635a920ba4839097ebfff8977a0bf7dda
+
+- Issue: #1896, Tier 2 follow-up; Refs only. Two runtime measurements remain UNKNOWN.
+- Authority: orchestrator mailboxes 40992 and 40994 approve this separate follow-up,
+  citing https://github.com/cooneycw/claude-power-pack/issues/1896#issuecomment-7180740166.
+- Base: main b1cd1f1635a920ba4839097ebfff8977a0bf7dda (#1912 merged).
+- Branch: issue-1896-pi-partial-refresh, separate linked worktree and full history.
+- Owner recovery: #1897 stays frozen; its owner version remains d013ef49.
+
+### Section A - Outcome
+
+A foreign same-name pi skill must preserve its bytes while the other canonical
+CPP topics install or refresh. The whole row remains non-current and exit 1;
+partial progress cannot look like complete installation. Pi explicitly opts in
+to the shared core's existing partial_refresh policy. No core implementation,
+owner installation, runtime discovery, provider or updater enrollment changes.
+
+### Section B - Evidence and order
+
+Add a disposable full 18-topic CLI case with foreign boot, assert that the
+collision exists and differs from the delivered CPP marker, then run it RED on
+the pre-opt-in adapter. Enable PiAdapter's keyword partial_refresh=True. Run the
+case GREEN: preserve foreign bytes/mode/identity, independently compare all 17
+safe topic members and ledger records with the real fresh build, and feed the
+actual verifier to prove conflicts remain confined to boot with row exit 1.
+Update the existing paired policy control to explicitly select false for its
+neutral-core all-or-nothing arm; retain the safe-stale-topic distinction and
+markdown predicate check. Core defaults and global integrity stops stay intact.
+
+Run focused production pi/core/paired controls, lint and type checks; commit and
+freeze for ch-rev review. Record independent runtime receipt, then invoke the
+paired finish gate directly with full history under its own lease, with disk
+and fleet capacity checked first. At most two full suites/browser lanes fleet
+wide; no start below 25G free. Retain required evidence under workspace and
+remove each own completed basetemp promptly. PR CI follows clearance. No owner
+commands or changes to the frozen #1897 branch.
+
+### Section C - Planned file set
+
+1. `lib/host_update/pi_adapter.py` - explicit opt-in keyword only.
+2. `tests/test_pi_skill_install.py` - full real-topic foreign boot regression.
+3. `tests/test_host_update_adapters.py` - explicit false policy for neutral default control.
+4. `docs/flow-runs/issue-1896.md` - append-only plan and authority.
+5. `docs/flow-runs/issue-1896.as-read.md` - helper-managed current-run snapshot.
+6. `docs/flow-runs/issue-1896.lanes-demonstrated.md` - append bounded observations.
+7. `docs/measurements/pi/issue-1896-partial-refresh.md` - red/green and validation evidence.
+8. `docs/measurements/counter-model/*-issue-1896.json` - runtime-derived independent receipt.
+
+### Lanes for this change
+
+| Lane | Answer | Values and evidence |
+|---|---|---|
+| Checkout | will test | Linked worktree; fixtures own standalone source Git; no live main install |
+| Harness | not applicable | Pi adapter policy only; Claude/Codex installations unchanged |
+| Driver | not applicable | No workflow driver change |
+| Coordination | not covered | Managed messages and finish lease do not establish runtime coordination behavior |
+| CI provider | will test | Woodpecker PR CI after clearance; no GitHub Actions claim |
+| Project state | will test | A repository that has adopted a feature's file or record and one that has not: owned/edited/stale installs and foreign boot with absent safe topics |
+| Toolchain version | will test | CI's pinned uv and Python plus the host or container's installed versions; no version matrix |
+| Clone shape | will test | A full clone with all refs for paired gate; a fresh or shallow main-only clone is not newly covered |
+| Run location | will test | Invoked from the CPP root for Make and from another directory for fixture CLI; no owner HOME invocation |
+| Gate target | not applicable | No consumer interpreter or runner change |
+| Wave role state | not applicable | No registry release or re-registration change |
+| Reader: pi CLI report | will test | Actual install/verify JSON shows whole row non-current/exit 1 while safe topics match |
+| Reader: ownership ledger | will test | Actual safe-topic records match fresh members/revision; foreign boot never adopted |
+| Reader: neutral-core default | will test | Explicit false policy refuses all refresh before transaction while opt-in arm progresses |
+
+The default-policy reader is explicitly named because pi no longer supplies the
+core's default-false example after this change. No new report schema or
+aggregate acceptance instrument is introduced. #1896 UNKNOWN inventory and
+skill-loader diagnostic measurements are not answered by partial progress.

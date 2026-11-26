@@ -757,7 +757,7 @@ This will make the following changes:
     (see above; Tiers 2-5 are NOT required for this tier)
 
   [Tier 6 - Local Qwen]
-    - Installs if absent: ~/.claude/scripts/cpp-host-write.sh (link to the verified checkout helper).
+    - If absent, links ~/.claude/scripts/cpp-host-write.sh to the verified checkout; existing non-links are preserved/refused.
     - Requires: Qwen Code CLI as the agentic harness
       (npm install -g @qwen-code/qwen-code)
       NOTE: no cloud API key is needed - the harness talks straight to Ollama
@@ -787,7 +787,7 @@ This will make the following changes:
     (see above; Tiers 2-6 are NOT required for this tier)
 
   [Tier 7 - Local Gemma]
-    - Installs if absent: ~/.claude/scripts/cpp-host-write.sh (link to the verified checkout helper).
+    - If absent, links ~/.claude/scripts/cpp-host-write.sh to the verified checkout; existing non-links are preserved/refused.
     - Requires: OpenCode CLI as the agentic harness
       (npm install -g opencode-ai)
       NOTE: no cloud API key is needed - the harness talks straight to Ollama
@@ -1276,7 +1276,7 @@ python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
 case $? in
   0) SEAM_STATUS="available" ;;
   3) SEAM_STATUS="the seam's own install was deferred by request" ;;
-  *) SEAM_STATUS="UNAVAILABLE - the seam could not be installed" ;;
+  *) SEAM_STATUS="UNAVAILABLE - seam install refused or failed; see preserved-collision/error details" ;;
 esac
 echo "Host-write seam: $SEAM_STATUS"
 #: /cpp:init CREATING ~/.claude/scripts is correct here and is the difference
@@ -1297,7 +1297,7 @@ for script in "$CPP_DIR"/scripts/*; do
   # Through the declaring seam (#1132). One `ln -sf` in the source becomes
   # ninety-odd links at run time, which is why no per-site enumeration found
   # this write. The helper carries the already-linked skip this block had.
-  ~/.claude/scripts/cpp-host-write.sh link-into "$script" ~/.claude/scripts "$name"
+  "$CPP_DIR/scripts/cpp-host-write.sh" link-into "$script" ~/.claude/scripts "$name"
   #: COMPOSE A VERDICT, do not just run (issue #1198). Ninety calls that drew no
   #: conclusion meant an absent seam linked nothing and the step said so nowhere.
   case $? in
@@ -1306,8 +1306,8 @@ for script in "$CPP_DIR"/scripts/*; do
     *) SEAM_FAILED=$((SEAM_FAILED + 1)) ;;
   esac
 done
-echo "→ Helper scripts: $SEAM_OK linked/current, $SEAM_DEFERRED deferred, $SEAM_FAILED failed"
-[ "$SEAM_FAILED" -gt 0 ] && echo "  WARNING: $SEAM_FAILED script(s) were NOT linked. The allowlist rules installed below cite ~/.claude/scripts/<name> paths that will not exist."
+echo "→ Helper scripts: $SEAM_OK linked/skipped, $SEAM_DEFERRED deferred, $SEAM_FAILED failed/preserved conflicts"
+[ "$SEAM_FAILED" -gt 0 ] && echo "  WARNING: $SEAM_FAILED script(s) failed or were preserved as conflicts; see diagnostics. Treat these paths as unavailable."
 
 # NO HOOKS ARE INSTALLED HERE (issue #1206). CPP used to copy
 # .claude/hooks.json into every initialised project. Claude Code never loads
@@ -1434,7 +1434,7 @@ BEFORE=$([ -f "$TARGET" ] && jq '(.permissions.allow // []) | length' "$TARGET" 
 # check, parent dir, `{}` bootstrap, atomic tmp+mv - and this document keeps
 # the jq program. A managed environment passes --defer ~/.claude/settings.json
 # and gets a stated refusal naming the surface and its owner.
-~/.claude/scripts/cpp-host-write.sh settings-merge "$TEMPLATE"
+"$CPP_DIR/scripts/cpp-host-write.sh" settings-merge "$TEMPLATE"
 #: READ THE VERDICT (issue #1198). This pair printed a checkmark whether the
 #: seam wrote, deferred by request, failed, or was absent. The delta softened it
 #: - a failed merge shows "0 new rules" - but "✓ merged ... 0 new rules" still
@@ -1504,7 +1504,7 @@ CENSUS_CMD="~/.claude/scripts/hook-permission-census.sh"
 # Through the declaring seam (#1132): the helper owns the write, this
 # document keeps the jq program. --defer ~/.claude/settings.json yields a
 # stated refusal instead of a silent skip.
-~/.claude/scripts/cpp-host-write.sh settings-edit --arg cmd "$CENSUS_CMD" <<'JQ'
+"$CPP_DIR/scripts/cpp-host-write.sh" settings-edit --arg cmd "$CENSUS_CMD" <<'JQ'
 
 # Idempotent: add the hook only if this exact command is not already registered.
   .hooks = (.hooks // {})
@@ -1572,7 +1572,7 @@ RETRO_CMD="~/.claude/scripts/hook-pending-retro.sh"
 # Through the declaring seam (#1132): the helper owns the write, this
 # document keeps the jq program. --defer ~/.claude/settings.json yields a
 # stated refusal instead of a silent skip.
-~/.claude/scripts/cpp-host-write.sh settings-edit --arg cmd "$RETRO_CMD" <<'JQ'
+"$CPP_DIR/scripts/cpp-host-write.sh" settings-edit --arg cmd "$RETRO_CMD" <<'JQ'
 
 # Idempotent: add the hook only if this exact command is not already registered
 # (tolerant of both the {hooks:[...]} group shape and a bare {command} entry).
@@ -1624,7 +1624,7 @@ python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
 # it with --defer ~/.bashrc and get a stated refusal rather than a failure.
 # Guarded by its marker, like the tmux block below: running /cpp:init twice
 # leaves one export, not two (#1142).
-~/.claude/scripts/cpp-host-write.sh bashrc-append \
+"$CPP_DIR/scripts/cpp-host-write.sh" bashrc-append \
   '# Claude Power Pack - worktree context in prompt' - <<'PS1_EOF'
 
 # Claude Power Pack - worktree context in prompt
@@ -1670,7 +1670,7 @@ else
   # Through the declaring helper (#1139), which owns the marker guard this
   # block already had. A managed environment defers it with --defer ~/.bashrc
   # and gets a stated refusal naming the surface and its owner.
-  ~/.claude/scripts/cpp-host-write.sh bashrc-append 'tmux new-session' - <<'TMUX_EOF'
+  "$CPP_DIR/scripts/cpp-host-write.sh" bashrc-append 'tmux new-session' - <<'TMUX_EOF'
 
 # Claude Power Pack - tmux auto-start
 if command -v tmux &>/dev/null && [ -z "$TMUX" ] && [[ $- == *i* ]]; then
@@ -2194,24 +2194,23 @@ continue.
 python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
   --capabilities "${CPP_CAPABILITIES_JSON-}" --section local-seam || exit $?
 CPP_LOCAL_SEAM="$HOME/.claude/scripts/cpp-host-write.sh"
-if [ ! -e "$CPP_LOCAL_SEAM" ] && [ ! -L "$CPP_LOCAL_SEAM" ]; then
-  "$CPP_DIR/scripts/cpp-host-write.sh" link-into \
-    "$CPP_DIR/scripts/cpp-host-write.sh" "$HOME/.claude/scripts" cpp-host-write.sh
-  CPP_LOCAL_SEAM_STATUS=$?
-  case "$CPP_LOCAL_SEAM_STATUS" in
-    0) ;; # Check executability below before any configuration step.
-    3)
-      echo "Local-model host-write seam deferred by request; local-tier configuration not run."
-      exit 3
-      ;;
-    *)
-      echo "ERROR: local-model host-write seam install failed (exit $CPP_LOCAL_SEAM_STATUS); local-tier configuration not run."
-      exit 1
-      ;;
-  esac
-fi
-if [ ! -f "$CPP_LOCAL_SEAM" ] || [ ! -x "$CPP_LOCAL_SEAM" ]; then
-  echo "ERROR: local-model host-write seam is not an executable regular file at $CPP_LOCAL_SEAM; local-tier configuration not run."
+"$CPP_DIR/scripts/cpp-host-write.sh" link-into \
+  "$CPP_DIR/scripts/cpp-host-write.sh" "$HOME/.claude/scripts" cpp-host-write.sh
+CPP_LOCAL_SEAM_STATUS=$?
+case "$CPP_LOCAL_SEAM_STATUS" in
+  0) ;; # Check executability below before any configuration step.
+  3)
+    echo "Local-model host-write seam deferred by request; local-tier configuration not run."
+    exit 3
+    ;;
+  *)
+    echo "ERROR: local-model host-write seam install failed (exit $CPP_LOCAL_SEAM_STATUS); local-tier configuration not run."
+    exit 1
+    ;;
+esac
+if [ ! -L "$CPP_LOCAL_SEAM" ] || [ ! -x "$CPP_LOCAL_SEAM" ] || \
+   [ ! "$CPP_LOCAL_SEAM" -ef "$CPP_DIR/scripts/cpp-host-write.sh" ]; then
+  echo "ERROR: local-model host-write seam is not a verified executable CPP link at $CPP_LOCAL_SEAM; local-tier configuration not run."
   exit 1
 fi
 echo "Local-model host-write seam available: $CPP_LOCAL_SEAM"
@@ -2346,7 +2345,7 @@ python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
 # helper - so a defer-set naming ~/.bashrc refused those two, printed a stated
 # refusal, and wrote this one anyway. rc-append carries the marker guard this
 # block already had, and honours --defer for ~/.bashrc AND ~/.zshrc.
-~/.claude/scripts/cpp-host-write.sh rc-append "$QWEN_RC" 'QWEN_OLLAMA_URL' - <<QWEN_RC_EOF
+"$CPP_DIR/scripts/cpp-host-write.sh" rc-append "$QWEN_RC" 'QWEN_OLLAMA_URL' - <<QWEN_RC_EOF
 
 # Claude Power Pack - Qwen serving endpoint (issue #755)
 export QWEN_OLLAMA_URL=$QWEN_ENDPOINT
@@ -2545,7 +2544,7 @@ python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
 # helper - so a defer-set naming ~/.bashrc refused those two, printed a stated
 # refusal, and wrote this one anyway. rc-append carries the marker guard this
 # block already had, and honours --defer for ~/.bashrc AND ~/.zshrc.
-~/.claude/scripts/cpp-host-write.sh rc-append "$GEMMA_RC" 'GEMMA_OLLAMA_URL' - <<GEMMA_RC_EOF
+"$CPP_DIR/scripts/cpp-host-write.sh" rc-append "$GEMMA_RC" 'GEMMA_OLLAMA_URL' - <<GEMMA_RC_EOF
 
 # Claude Power Pack - Gemma serving endpoint (issue #755)
 export GEMMA_OLLAMA_URL=$GEMMA_ENDPOINT
@@ -2582,7 +2581,7 @@ OC_CONFIG="$HOME/.config/opencode/opencode.json"
 # Through the declaring seam (#1132). This merge was embedded PYTHON, which is
 # why no shell pattern found it: a cfg_path.write_text() satisfies no grep for a
 # redirect, cp, tee, mv or ln. Same .update() semantics, moved not improved.
-~/.claude/scripts/cpp-host-write.sh json-merge-sections \
+"$CPP_DIR/scripts/cpp-host-write.sh" json-merge-sections \
   "$CPP_DIR/templates/opencode-gemma.json" "$OC_CONFIG" provider agent
 case $? in
   0) echo "✓ gemma-ollama provider and gemma-implementer fence merged into $OC_CONFIG" ;;
@@ -2876,7 +2875,7 @@ BACKEND_FILE="$HOME/.config/claude-power-pack/secrets/cpp-memories.backend"
 
 case "$MEM_BACKEND_CHOICE" in
   i|md)
-    ~/.claude/scripts/cpp-host-write.sh file-write "$BACKEND_FILE" "md"
+    "$CPP_DIR/scripts/cpp-host-write.sh" file-write "$BACKEND_FILE" "md"
     #: The backend record decides which store later sessions read (issue #1198).
     #: An unwritten record does not fail loudly - it leaves the PREVIOUS backend
     #: selected, or none, while this line said the choice was applied.
@@ -2889,7 +2888,7 @@ case "$MEM_BACKEND_CHOICE" in
     echo "  Ledger: <repo>/.claude/learnings.md  (+ .claude/learnings.rejected.jsonl)"
     ;;
   ii|local-pg)
-    ~/.claude/scripts/cpp-host-write.sh file-write "$BACKEND_FILE" "local-pg"
+    "$CPP_DIR/scripts/cpp-host-write.sh" file-write "$BACKEND_FILE" "local-pg"
     #: The backend record decides which store later sessions read (issue #1198).
     #: An unwritten record does not fail loudly - it leaves the PREVIOUS backend
     #: selected, or none, while this line said the choice was applied.
@@ -2914,7 +2913,7 @@ case "$MEM_BACKEND_CHOICE" in
     echo "  Local credentials: POSTGRES_USER, POSTGRES_PASSWORD and POSTGRES_DB in the shipped compose configuration (plaintext development settings); values withheld."
     ;;
   iii|remote-pg)
-    ~/.claude/scripts/cpp-host-write.sh file-write "$BACKEND_FILE" "remote-pg"
+    "$CPP_DIR/scripts/cpp-host-write.sh" file-write "$BACKEND_FILE" "remote-pg"
     #: The backend record decides which store later sessions read (issue #1198).
     #: An unwritten record does not fail loudly - it leaves the PREVIOUS backend
     #: selected, or none, while this line said the choice was applied.
