@@ -1,0 +1,35 @@
+{
+  "scenario": "history-descendant-probe",
+  "expect": "BAD",
+  "record": {
+    "allowance": {
+      "skills": "/fixture/agent/skills",
+      "lock": "/fixture/agent/.cpp-skills.lock",
+      "source": "/fixture/source",
+      "histories": [
+        "/fixture/history"
+      ],
+      "settings": [
+        "/fixture/agent/settings.json"
+      ],
+      "mode": "install",
+      "cwd": "/fixture/work",
+      "metadata": [
+        "/fixture/work"
+      ],
+      "runtime_reads": [
+        "/usr",
+        "/lib",
+        "/dev/null"
+      ]
+    },
+    "root_pid": "10",
+    "traces": {
+      "10": "1.0 newfstatat(AT_FDCWD, \"/fixture/history/descendant\", {}, AT_SYMLINK_NOFOLLOW) = -1 ENOENT (No such file or directory)\n2.0 +++ exited with 0 +++\n"
+    }
+  },
+  "precondition_contains": [
+    "/fixture/history/descendant",
+    "newfstatat"
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "scenario": "transient-trusted-write",
+  "expect": "BAD",
+  "record": {
+    "allowance": {
+      "skills": "/fixture/agent/skills",
+      "lock": "/fixture/agent/.cpp-skills.lock",
+      "source": "/fixture/source",
+      "histories": [
+        "/fixture/history"
+      ],
+      "settings": [
+        "/fixture/agent/settings.json"
+      ],
+      "mode": "install",
+      "cwd": "/fixture/work",
+      "metadata": [
+        "/fixture/work"
+      ],
+      "runtime_reads": [
+        "/usr",
+        "/lib",
+        "/dev/null"
+      ]
+    },
+    "root_pid": "10",
+    "traces": {
+      "10": "1.0 openat(AT_FDCWD, \"/fixture/agent/extensions/transient\", O_WRONLY|O_CREAT, 0600) = 3</fixture/agent/extensions/transient>\n1.1 unlink(\"/fixture/agent/extensions/transient\") = 0\n2.0 +++ exited with 0 +++\n"
+    }
+  },
+  "precondition_contains": [
+    "O_WRONLY|O_CREAT",
+    "unlink("
+  ]
+}

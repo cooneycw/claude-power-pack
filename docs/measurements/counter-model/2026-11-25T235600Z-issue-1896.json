@@ -1,0 +1,69 @@
+{
+  "branch": "issue-1896-pi-a2-plan",
+  "counts": {
+    "accepted": 3,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "escalation": {
+    "raised_cap": 7,
+    "reference": "https://github.com/cooneycw/claude-power-pack/issues/1896#issuecomment-7178021233",
+    "ruled_by": "owner"
+  },
+  "extra_passes_reason": "ADR 0007 correction passes: pass 2 reviewed the poll/multiplexing fix, pass 3 the host-observer allowance correction after the first host run, pass 4 the residual timezone/CPython-landmark fix after rerun 1; rerun 2 at 38041ce1 then accepted GOOD=matches and BAD=finding",
+  "head": "38041ce14b8fb0d5f5f231a10236e199c057771b",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/25/rollout-2026-11-25T16-21-45-01a21383-5caa-7a60-b0dd-8fa74bd4c6bd.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 15636217,
+        "path": "2026/11/25/rollout-2026-11-25T16-21-45-01a21383-5caa-7a60-b0dd-8fa74bd4c6bd.jsonl",
+        "sha256": "416fbca6b79a0f83a2cf2b9f01369e52821f9c173da6316b06c704815c4bcf8f"
+      }
+    ],
+    "thread_id": "01a21383-5caa-7a60-b0dd-8fa74bd4c6bd"
+  },
+  "issue": "1896",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 4,
+  "recorded_at": "2026-11-25T23:56:00Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 4
+  },
+  "reviewed_artifact": {
+    "base_sha": "adf70c291cf3aa457e56a21cec17983dc761da13",
+    "merge_base": "adf70c291cf3aa457e56a21cec17983dc761da13",
+    "method": "runtime-head",
+    "patch_sha256": "41ddcdbc4c9c0d16c9f5421b056b419544a230dcdffdbe326dc5aa56c6c63445",
+    "report_record": 3205,
+    "target_head": "38041ce14b8fb0d5f5f231a10236e199c057771b"
+  },
+  "reviewer": "claude/claude-opus-5-5",
+  "reviewer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2",
+    "sources": [
+      {
+        "bytes": 7076099,
+        "path": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl",
+        "sha256": "620503977ed28c1f77576e65fdeeca78171fc35aaa8583369a6abe8e65978686"
+      }
+    ],
+    "transcript": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}

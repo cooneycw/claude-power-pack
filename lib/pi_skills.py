@@ -10,6 +10,7 @@ import json
 import os
 import re
 import stat
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
@@ -130,7 +131,7 @@ class BuildPolicy:
 def preflight(destination: Path, *, cwd: Path, home: Path, agent: str | Path | None = None,
               session_dir: str | None = None, environ: dict[str, str] | None = None,
               fidelity_only: bool = False, include_project: bool = True) -> BuildPolicy:
-    """Pi-only policy inputs for the future core Adapter.preflight seam."""
+    """Pi policy inputs shared by builds, snapshots and core adapter preflight."""
     env = os.environ if environ is None else environ
     cwd = nofollow(cwd.absolute())
     home = home.absolute()
@@ -150,7 +151,9 @@ def preflight(destination: Path, *, cwd: Path, home: Path, agent: str | Path | N
     if not include_project and not (fidelity_only and canonical_install):
         raise PolicyError("host fidelity is confined to canonical agent skills")
     project_root = cwd / ".pi"
-    if output == home or (include_project and (within(output, project_root) or within(project_root, output))):
+    project_overlap = within(project_root, output) or (
+        within(output, project_root) and not (fidelity_only and canonical_install))
+    if output == home or (include_project and project_overlap):
         raise PolicyError("output_root_under_trusted_config")
     if (within(output, agent_path) or within(agent_path, output)) and not (fidelity_only and canonical_install):
         raise PolicyError("output_root_under_trusted_config")
@@ -175,7 +178,8 @@ def markdown(path: Path, *, exact_mode: bool = True) -> bytes:
     return content
 
 
-def package_files(directory: Path, *, exact_mode: bool = True) -> dict[str, bytes]:
+def package_files(directory: Path, *, exact_mode: bool = True,
+                  reader: Callable[[Path], bytes] | None = None) -> dict[str, bytes]:
     nofollow(directory)
     found: dict[str, bytes] = {}
     def fail(error: OSError) -> None:
@@ -191,7 +195,10 @@ def package_files(directory: Path, *, exact_mode: bool = True) -> dict[str, byte
             member = path.relative_to(directory).as_posix()
             if member != "SKILL.md" and not re.fullmatch(r"references/[A-Za-z0-9_.-]+\.md", member):
                 raise PolicyError("unsupported package member: " + member)
-            found[member] = markdown(path) if exact_mode else markdown(path, exact_mode=False)
+            if reader:
+                found[member] = reader(path)
+            else:
+                found[member] = markdown(path) if exact_mode else markdown(path, exact_mode=False)
     if "SKILL.md" not in found:
         raise PolicyError("missing SKILL.md: " + str(directory))
     return found
@@ -225,7 +232,7 @@ class Package:
                 for name, data in self.members}
 
 
-def build(source: Path) -> tuple[Package, ...]:
+def build(source: Path, *, reader: Callable[[Path], bytes] | None = None) -> tuple[Package, ...]:
     """Build from canonical topics only; never trust a generated inventory."""
     source = nofollow(source.absolute())
     topics = nofollow(source / ".claude/skills")
@@ -239,7 +246,7 @@ def build(source: Path) -> tuple[Package, ...]:
             raise PolicyError("invalid topic slug: " + slug)
         if entry.is_symlink() or not entry.is_dir():
             raise PolicyError("canonical entry is not a real package: " + slug)
-        members = package_files(entry, exact_mode=False)
+        members = package_files(entry, exact_mode=False, reader=reader)
         text = members["SKILL.md"].decode("utf-8")
         front, body = header(text)
         declared = re.search(r"(?m)^name:\s*([^\n]+)$", front)
@@ -270,7 +277,7 @@ def build(source: Path) -> tuple[Package, ...]:
                 raise PolicyError("bundled reference collision: " + target)
             bundled[path] = target
             members[target] = b""  # reserve for recursive links
-            content = markdown(path, exact_mode=False).decode("utf-8")
+            content = (reader(path) if reader else markdown(path, exact_mode=False)).decode("utf-8")
             members[target] = rewrite(content, path, reference=True).encode()
             return target
 
@@ -345,7 +352,7 @@ def fidelity(expected: tuple[Package, ...], root: Path) -> dict[str, object]:
     return {"scope": "file-snapshot", "expected": len(expected), "checked": checked,
             "fidelity": state, "unexamined": unexamined,
             "effectiveness": "unknown", "findings": findings,
-            "installation": "not-implemented-A1"}
+            "installation": "not-examined"}
 
 
 def write(expected: tuple[Package, ...], destination: Path) -> None:
