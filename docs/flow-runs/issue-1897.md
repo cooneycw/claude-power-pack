@@ -258,3 +258,15 @@ test availability reporting, not the reviewed or owner-executed probe/recovery
 scripts. The binary guard, lint/type checks and all 26 probe/recovery cases pass;
 the owned basetemp was removed. This correction must receive the additional
 review and updated runtime receipt before the new head is gated or published.
+
+### Owner Part 1 sign-off - mailbox 41184
+
+The [owner's explicit sign-off](https://github.com/cooneycw/claude-power-pack/issues/1897#issuecomment-7183877534)
+says "Part 1 done" and permits Closes #1897, while keeping #1896's two UNKNOWNs
+and Section 5 / #1899-#1905 deferred. The public comment was verified directly.
+Update only current sign-off status in the summary, sanitized record and
+protocol, with attributed notes in the measurement and lanes. Pass 4 already
+approved fd14e186; this additional docs delta receives pass 5 within the fresh
+[owner cap of seven](https://github.com/cooneycw/claude-power-pack/issues/1897#issuecomment-7183862480).
+The owner-executed d013ef49 and later optional helper versions stay distinct.
+No additional owner command, helper or test change is authorized by this update.

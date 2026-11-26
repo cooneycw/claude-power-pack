@@ -1,8 +1,9 @@
 # #1897 Part 1 evidence for owner sign-off
 
-Owner decision: **PENDING**. The install/discovery/undo lane is observed; two
-#1896 measurements remain UNKNOWN. This record requests a decision on Part 1,
-not automatic approval of deeper integration or closure of #1896.
+Owner decision: **SIGNED OFF**. The [owner's sign-off](https://github.com/cooneycw/claude-power-pack/issues/1897#issuecomment-7183877534)
+says "Part 1 done". The install/discovery/undo lane is observed; two #1896
+measurements remain UNKNOWN. #1896 stays open, and deeper integration
+(Section 5 / #1899-#1905) remains deferred.
 
 The disposable fixture lane passed against delivered source `c434101e`: all 18
 CPP topic packages / 36 members installed and verified. A changed reference
@@ -46,4 +47,5 @@ The [sanitized owner record](issue-1897-owner-lane.json) attributes observations
 to master's relays and separates the locally verified decoded-report digest
 from host-reported artifact digests. The [full measurement](issue-1897-install-undo.md)
 retains fixture results, the probe defect, its red/green correction and recovery.
-Owner sign-off must be recorded explicitly before a closing reference is used.
+The owner explicitly permits **Closes #1897** for the evidence PR. This sign-off
+does not close #1896 or unpark the deeper-integration issues.

@@ -4,7 +4,8 @@ The owner cycle has since completed through the separately reviewed recovery
 at d013ef49 after the original probe's mode-comparison stop. See the
 [owner evidence](issue-1897-owner-lane.json) and
 [sign-off summary](issue-1897-owner-signoff.md). These are historical observations,
-not permission to repeat an owner installation. Owner sign-off remains pending.
+not permission to repeat an owner installation. The [owner signed off Part 1](https://github.com/cooneycw/claude-power-pack/issues/1897#issuecomment-7183877534);
+#1896's two UNKNOWNs and the Section 5 deferrals remain.
 
 Local preparation was authorized by mailbox 40632, followed by the durability
 exception in mailbox 40651. The [owner ruling](https://github.com/cooneycw/claude-power-pack/issues/1897#issuecomment-7179886781)

@@ -269,3 +269,13 @@ Make availability. `make binary-guards-check` changed from one unguarded test to
 ok; all 26 actual fixture cases passed again, with lint/type checks also green.
 The actual owner scripts and executed d013ef49 recovery remain unchanged.
 Basetemp cleanup completed after retaining the focused result.
+
+## Owner Part 1 signed off
+
+The [owner's verified sign-off](https://github.com/cooneycw/claude-power-pack/issues/1897#issuecomment-7183877534)
+says "Part 1 done" and allows Closes #1897. Earlier PENDING entries above are
+historical checkpoints. The owner accepted the stated probe defect and reviewed
+recovery history with both #1896 UNKNOWN measurements still standing; #1896
+remains open and Section 5 / #1899-#1905 remains deferred. The current summary
+and sanitized record now say SIGNED OFF. No helper, test or owner execution
+changed in this status update.

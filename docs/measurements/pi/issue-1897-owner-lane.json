@@ -104,10 +104,18 @@
     "The built-in-tool inventory was not exposed by the tool-inventory RPC.",
     "The measured RPC stderr did not expose skill-loader diagnostics."
   ],
-  "owner_part_1_signoff": "pending",
+  "owner_part_1_signoff": "signed_off",
   "limits": [
     "Scoped installation, actual discovery and executed undo observations; no unchanged-whole-agent or parent-timestamp claim.",
     "No new provider/contextual-effectiveness, bearer-isolation or container-boundary claim.",
     "Optional commit 64e9ef07 was not the owner-executed recovery."
-  ]
+  ],
+  "owner_signoff": {
+    "comment_url": "https://github.com/cooneycw/claude-power-pack/issues/1897#issuecomment-7183877534",
+    "owner_words": "Part 1 done",
+    "public_comment_verified": true,
+    "may_close_issue": 1897,
+    "remaining_open_issue": 1896,
+    "deeper_integration_deferred": "Section 5 / #1899-#1905"
+  }
 }

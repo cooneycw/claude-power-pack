@@ -90,3 +90,11 @@ The [sanitized owner evidence](../measurements/pi/issue-1897-owner-lane.json)
 and [sign-off summary](../measurements/pi/issue-1897-owner-signoff.md) preserve
 the stopped-probe history, normalization fix and separate approved recovery.
 No additional owner execution was performed for this documentation update.
+
+## Owner decision recorded - mailbox 41184
+
+Owner Part 1 sign-off is now **SIGNED OFF**, superseding earlier pending rows.
+The verified [sign-off comment](https://github.com/cooneycw/claude-power-pack/issues/1897#issuecomment-7183877534)
+permits Closes #1897 with the existing caveats. #1896 stays open with both
+UNKNOWN measurements, and Section 5 / #1899-#1905 stays deferred. This is a
+status/evidence update; the owner-executed recovery remains d013ef49.
