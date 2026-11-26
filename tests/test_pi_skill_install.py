@@ -1,11 +1,13 @@
 """Production pi CLI consumes the real core and a revision-bound topic build."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -103,6 +105,78 @@ def test_cli_installs_real_topics_and_verifies_under_core(tmp_path):
     assert verified.returncode == 0, report
     assert report["effectiveness"]["state"] == "unknown"
     assert case.ledger.read_bytes() == before
+
+
+def test_full_topics_preserve_foreign_boot_and_install_other_seventeen(tmp_path):
+    from lib.pi_skills import build
+
+    case = Case(tmp_path)
+    shutil.rmtree(case.source / ".claude/skills")
+    archive = tmp_path / "public-source.tar"
+    subprocess.run(["git", "-C", str(ROOT), "archive", "HEAD", f"--output={archive}"], check=True)
+    with tarfile.open(archive) as rows:
+        for row in rows:
+            path = case.source / row.name
+            assert path.resolve().is_relative_to(case.source)
+            if row.isdir():
+                path.mkdir(parents=True, exist_ok=True)
+            elif row.isfile():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                stream = rows.extractfile(row)
+                assert stream is not None
+                path.write_bytes(stream.read())
+                path.chmod(0o755 if row.mode & 0o111 else 0o644)
+    case.commit()
+    fresh = {package.slug: dict(package.members) for package in build(case.source)}
+    assert len(fresh) == 18 and "boot" in fresh
+    foreign = case.skills / "boot/SKILL.md"
+    foreign.parent.mkdir(parents=True)
+    foreign.write_bytes(b"---\nname: boot\ndescription: Personal boot fixture\n---\nDo not replace.\n")
+    foreign.chmod(0o640)
+    before = (foreign.read_bytes(), foreign.stat().st_mode, foreign.stat().st_ino, foreign.stat().st_mtime_ns)
+    assert b"claude-power-pack/.claude/skills/boot" not in before[0]
+    assert not case.ledger.exists() and not (case.skills / "code-quality").exists()
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(case.home),
+           "LANG": "C.UTF-8", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+           "PYTHONNOUSERSITE": "1", "PYTHONDONTWRITEBYTECODE": "1"}
+
+    def call(action):
+        answer = subprocess.run([sys.executable, str(CLI), action, "--root", str(case.source),
+                                 "--revision", case.revision, "--agent-dir", str(case.agent),
+                                 "--home", str(case.home), "--json"], cwd=case.cwd,
+                                env=env, capture_output=True, text=True, timeout=30)
+        assert answer.stdout, answer.stderr
+        return answer, json.loads(answer.stdout)
+
+    installed, report = call("--install")
+    assert installed.returncode == report["exit_code"] == 1, report
+    assert report["after"]["state"] != "current"
+    assert (foreign.read_bytes(), foreign.stat().st_mode, foreign.stat().st_ino, foreign.stat().st_mtime_ns) == before
+    safe = set(fresh) - {"boot"}
+    assert len(safe) == 17
+    assert (case.skills / "code-quality/SKILL.md").is_file()
+    assert report["action"] == "refreshed", report
+    records = json.loads(case.ledger.read_text())["adapters"]["pi"]
+    assert set(records) == safe  # The foreign topic never gains CPP ownership.
+    for slug in safe:
+        files = {str(path.relative_to(case.skills / slug)): path.read_bytes()
+                 for path in (case.skills / slug).rglob("*") if path.is_file()}
+        assert files == fresh[slug]
+        assert all(path.stat().st_mode & 0o777 == 0o644
+                   for path in (case.skills / slug).rglob("*") if path.is_file())
+        assert records[slug]["revision"] == case.revision
+        assert records[slug]["source"] == "claude-power-pack/.claude/skills/" + slug
+        assert records[slug]["members"] == {
+            name: {"sha256": hashlib.sha256(data).hexdigest(), "mode": 0o644}
+            for name, data in fresh[slug].items()}
+    ledger = case.ledger.read_bytes()
+    verified, report = call("--verify-installed")
+    assert verified.returncode == report["exit_code"] == 1, report
+    assert report["after"]["expected_packages"] == 18
+    assert report["after"]["expected_members"] == sum(len(members) for members in fresh.values()) > 0
+    assert report["after"]["state"] != "current"
+    assert {conflict["package"] for conflict in report["after"]["conflicts"]} == {"boot"}
+    assert case.ledger.read_bytes() == ledger
 
 
 def test_verify_absent_does_not_create_any_lock_or_skills(tmp_path):

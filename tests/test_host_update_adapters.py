@@ -4,7 +4,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import pytest
@@ -335,8 +335,8 @@ def test_blocked_package_record_survives_while_safe_packages_refresh(source, tmp
     assert {c["package"] for c in report["results"][2]["after"]["conflicts"]} == {name}
 
 
-@pytest.mark.parametrize("harness", ["pi", "antigravity"], ids=["pi-default", "agy-opt-in"])
-def test_default_pi_and_opt_in_copy_have_distinct_partial_policy(source, tmp_path, harness):
+@pytest.mark.parametrize("harness", ["pi", "antigravity"], ids=["explicit-default-policy", "agy-opt-in"])
+def test_explicit_default_policy_and_opt_in_copy_have_distinct_partial_policy(source, tmp_path, harness):
     from lib.host_update.pi_adapter import PiAdapter
 
     home = tmp_path / "home"
@@ -344,7 +344,13 @@ def test_default_pi_and_opt_in_copy_have_distinct_partial_policy(source, tmp_pat
     if harness == "pi":
         agent = home / ".pi/agent"
         agent.mkdir(parents=True)
-        adapter = PiAdapter(cwd=source, home=home, agent=agent, environ={})
+        class AllOrNothingPi(PiAdapter):
+            def preflight(self, desired):
+                # Production pi opts in. Keep this neutral-core false-policy
+                # control explicit rather than assuming pi still supplies it.
+                return replace(super().preflight(desired), partial_refresh=False)
+
+        adapter = AllOrNothingPi(cwd=source, home=home, agent=agent, environ={})
     else:
         adapter = registry(home, ("antigravity",))[2]
         home.joinpath(*adapter.prefix).mkdir(parents=True)
