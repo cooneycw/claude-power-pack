@@ -29,37 +29,45 @@ def pinned_source(source: Path, reference: str | None = None):
     if clean.returncode or clean.stdout or target.returncode:
         raise AdapterError("source is dirty or the requested commit is unavailable", exit_code=4)
     commit = target.stdout.decode().strip()
-    with tempfile.TemporaryDirectory(prefix="cpp-host-source-") as temporary:
-        root = Path(temporary) / "snapshot"
-        added = _source_git(initial, ["worktree", "add", "--detach", str(root), commit])
-        if added.returncode:
+    temporary = tempfile.TemporaryDirectory(prefix="cpp-host-source-")
+    yielded = False
+    try:
+        root = Path(temporary.name) / "snapshot"
+        cloned = _source_git(initial, ["clone", "--shared", "--no-checkout", "--", str(source), str(root)])
+        if cloned.returncode:
             raise AdapterError("private source snapshot could not be created", exit_code=4)
+        revision = Revision(commit, root)
+        checked = _source_git(revision, ["checkout", "--detach", commit])
+        if checked.returncode:
+            raise AdapterError("private source commit could not be checked out", exit_code=4)
+        tree = _source_git(revision, ["ls-tree", "-rz", commit])
+        if tree.returncode:
+            raise AdapterError("private source inventory unavailable", exit_code=4)
+        # Git stores executability, not checkout group/world write bits.
+        # The unchanged Codex copier preserves modes, so fix its INPUTS.
+        for row in tree.stdout.split(b"\0"):
+            if not row:
+                continue
+            head, name = row.split(b"\t", 1)
+            mode, kind, _oid = head.split()
+            if mode == b"120000" and name.startswith((b"scripts/", b"lib/")):
+                raise AdapterError("pinned executable source alias refused", exit_code=4)
+            if kind == b"blob" and mode in (b"100644", b"100755"):
+                path = root.joinpath(*parts(name.decode()))
+                fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+                try:
+                    os.fchmod(fd, 0o755 if mode == b"100755" else 0o644)
+                finally:
+                    os.close(fd)
+        yielded = True
+        yield revision
+    finally:
         try:
-            revision = Revision(commit, root)
-            tree = _source_git(revision, ["ls-tree", "-rz", commit])
-            if tree.returncode:
-                raise AdapterError("private source inventory unavailable", exit_code=4)
-            # Git stores executability, not checkout group/world write bits.
-            # The unchanged Codex copier preserves modes, so fix its INPUTS.
-            for row in tree.stdout.split(b"\0"):
-                if not row:
-                    continue
-                head, name = row.split(b"\t", 1)
-                mode, kind, _oid = head.split()
-                if mode == b"120000" and name.startswith((b"scripts/", b"lib/")):
-                    raise AdapterError("pinned executable source alias refused", exit_code=4)
-                if kind == b"blob" and mode in (b"100644", b"100755"):
-                    path = root.joinpath(*parts(name.decode()))
-                    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-                    try:
-                        os.fchmod(fd, 0o755 if mode == b"100755" else 0o644)
-                    finally:
-                        os.close(fd)
-            yield revision
-        finally:
-            removed = _source_git(initial, ["worktree", "remove", "--force", str(root)])
-            if removed.returncode:
-                raise ExecutionFailure("private source worktree cleanup failed", exit_code=1)
+            temporary.cleanup()
+        except OSError as error:
+            if yielded:
+                raise ExecutionFailure("private source cleanup failed; inspect installed state", exit_code=1) from error
+            raise AdapterError("private source cleanup failed", exit_code=4) from error
 
 
 def execute_snapshot(revision: Revision, arguments: list[str]) -> subprocess.CompletedProcess[str]:
@@ -119,8 +127,14 @@ def valid_report(report, exit_code: int, revision: str) -> bool:
             after = row["after"]
             if row["action"] in ("failed", "refused") and row["exit_code"] != 1:
                 return False
-            if row["action"] == "refreshed" and (row["exit_code"] != 0 or after["state"] != "current"):
-                return False
+            if row["action"] == "refreshed":
+                complete = row["exit_code"] == 0 and after["state"] == "current"
+                partial = (row["exit_code"] == 1 and after["state"] in ("unmanaged", "hand-edited")
+                           and after["expected_packages"] > 0 and bool(after["conflicts"])
+                           and all(c["package"] and c["state"] in ("unmanaged", "hand-edited", "stale", "absent")
+                                   for c in after["conflicts"]))
+                if not (complete or partial):
+                    return False
             if after["state"] == "current" and not (
                     row["selected"] and (row["exit_code"] == 0
                                          or row["exit_code"] == 1 and row["action"] == "failed")

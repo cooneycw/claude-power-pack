@@ -20,7 +20,8 @@ pytestmark = pytest.mark.skipif(not shutil.which("git"), reason="git required fo
 
 def git(root, *args):
     result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
-    assert result.returncode == 0, (args, result.stdout, result.stderr)
+    if result.returncode:
+        pytest.fail(f"git {args!r}: exit {result.returncode}\n{result.stdout}\n{result.stderr}", pytrace=False)
     return result.stdout.strip()
 
 
@@ -45,7 +46,7 @@ def source_template(tmp_path_factory):
                 path.chmod(0o755 if row.mode & 0o111 else 0o644)
     # Test the actual implementation being authored, committed into owned
     # history; never label dirty working-tree code as a source revision.
-    names = ["source", "host", "claude", "codex", "antigravity"]
+    names = ["source", "host", "claude", "codex", "antigravity", "models", "driver", "store"]
     for name in [*(f"lib/host_update/{n}.py" for n in names), "scripts/cpp-host-update.py"]:
         (source / name).write_bytes((ROOT / name).read_bytes())
     git(source, "init", "-q")
@@ -256,3 +257,149 @@ def test_qualified_adoption_retains_backup_and_other_adapters_progress(source, t
         "transaction-*/backup/python-packaging/references/docs/skills/python-packaging.md"))
     assert len(backups) == 1 and backups[0].read_bytes() == b"reviewed personal modification"
     assert guide.read_bytes() == src.read_bytes()
+
+
+def test_foreign_same_name_refuses_only_that_package(source, tmp_path):
+    home = tmp_path / "home"
+    foreign = home / ".claude/skills/boot/SKILL.md"
+    foreign.parent.mkdir(parents=True)
+    foreign.write_bytes(b"---\nname: boot\ndescription: A different project's skill\n---\nForeign boot\n")
+    before = files(foreign.parent)
+    assert b"claude-power-pack" not in foreign.read_bytes()
+    process, report = cli(source, home, "refresh", "--select", "claude-topics")
+    assert process.returncode == 1, report
+    assert files(foreign.parent) == before
+    from lib.antigravity_skills import TOPICS
+
+    assert len(TOPICS - {"boot"}) == 17
+    for topic in TOPICS - {"boot"}:
+        assert (home / ".claude/skills" / topic / "SKILL.md").is_file(), topic
+    ledger = json.loads((home / ".claude/skills/.cpp-managed/ownership.json").read_text())
+    assert set(ledger["adapters"]["claude-topics"]) == TOPICS - {"boot"}
+    adapter = registry(home)[0]
+    desired = request(source)
+    expected = adapter.build(desired.revision, adapter.preflight(desired))
+    for package in expected.packages:
+        if package.name != "boot":
+            assert files(home / ".claude/skills" / package.name) == {
+                p: (m.content, m.mode) for p, m in package.members.items()}
+            assert ledger["adapters"]["claude-topics"][package.name]["revision"] == report["revision"]
+    row = report["results"][0]
+    assert row["exit_code"] == 1 and row["after"]["state"] != "current"
+    assert {c["package"] for c in row["after"]["conflicts"]} == {"boot"}
+
+
+@pytest.mark.parametrize("orphan", [False, True], ids=["edited", "edited-orphan"])
+def test_blocked_package_record_survives_while_safe_packages_refresh(source, tmp_path, orphan):
+    home = tmp_path / "home"
+    home.mkdir()
+    builder = source / "lib/antigravity_skills.py"
+    original = builder.read_text()
+    name = "retired-topic" if orphan else "boot"
+    if orphan:
+        builder.write_text(original.replace("TOPICS = frozenset({", 'TOPICS = frozenset({"retired-topic",'))
+        skill = source / ".claude/skills/retired-topic/SKILL.md"
+        skill.parent.mkdir()
+        skill.write_text("---\nname: retired-topic\ndescription: Former topic\n---\nFormer content\n")
+        git(source, "add", ".")
+        git(source, "commit", "-qm", "former topic population")
+    initial, seeded = cli(source, home, "refresh", "--select", "antigravity")
+    assert initial.returncode == 0, seeded
+    root = home / ".gemini/config/skills"
+    ledger = root / ".cpp-managed/ownership.json"
+    old_record = json.loads(ledger.read_text())["adapters"]["antigravity"][name]
+    document = json.loads(ledger.read_text())
+    other = {"not-our-package": old_record}
+    document["adapters"]["other-adapter"] = other
+    ledger.write_text(json.dumps(document))
+    (root / name / "SKILL.md").write_bytes(b"personal edited package")
+    blocked = files(root / name)
+    if orphan:
+        builder.write_text(original)
+        git(source, "rm", "-r", ".claude/skills/retired-topic")
+    src = source / "docs/skills/python-packaging.md"
+    src.write_bytes(src.read_bytes() + b"\nsafe package source B\n")
+    git(source, "add", ".")
+    git(source, "commit", "-qm", "safe source B and optional retired topic")
+    safe = root / "python-packaging/references/docs/skills/python-packaging.md"
+    assert safe.read_bytes() != src.read_bytes()
+    result, report = cli(source, home)
+    assert result.returncode == 1, report
+    assert files(root / name) == blocked
+    assert safe.read_bytes() == src.read_bytes()
+    after_document = json.loads(ledger.read_text())
+    assert after_document["adapters"]["other-adapter"] == other
+    records = after_document["adapters"]["antigravity"]
+    assert records[name] == old_record
+    assert records["python-packaging"]["revision"] == report["revision"]
+    assert {c["package"] for c in report["results"][2]["after"]["conflicts"]} == {name}
+
+
+@pytest.mark.parametrize("harness", ["pi", "antigravity"], ids=["pi-default", "agy-opt-in"])
+def test_default_pi_and_opt_in_copy_have_distinct_partial_policy(source, tmp_path, harness):
+    from lib.host_update.pi_adapter import PiAdapter
+
+    home = tmp_path / "home"
+    home.mkdir()
+    if harness == "pi":
+        agent = home / ".pi/agent"
+        agent.mkdir(parents=True)
+        adapter = PiAdapter(cwd=source, home=home, agent=agent, environ={})
+    else:
+        adapter = registry(home, ("antigravity",))[2]
+        home.joinpath(*adapter.prefix).mkdir(parents=True)
+    desired = request(source, selected=True)
+    assert refresh(adapter, desired).exit_code == 0
+    policy = adapter.preflight(desired)
+    assert policy.partial_refresh is (harness != "pi")
+    if harness == "pi":
+        from lib.host_update.pi_adapter import markdown_member
+
+        assert policy.member_allowed is markdown_member
+    root = policy.install_root
+    ledger_before = json.loads(policy.ledger_path.read_text())
+    blocked = root / "python-packaging/SKILL.md"
+    assert blocked.exists()
+    blocked.write_bytes(b"preserved personal topic")
+    expected = adapter.build(desired.revision, policy)
+    safe_package = next(p for p in expected.packages if p.name == "code-quality")
+    safe_path = next(p for p in safe_package.members if p.endswith("/code-quality.md"))
+    safe = root / "code-quality" / safe_path
+    safe_before = safe.read_bytes()
+    src = source / "docs/skills/code-quality.md"
+    src.write_bytes(src.read_bytes() + b"\nnew safe guide B\n")
+    git(source, "commit", "-am", "safe source B")
+    assert safe_before != src.read_bytes()
+    result = refresh(adapter, request(source, selected=True))
+    assert result.exit_code == 1 and result.after.state != "current"
+    assert blocked.read_bytes() == b"preserved personal topic"
+    records = json.loads(policy.ledger_path.read_text())
+    assert records["adapters"][harness]["python-packaging"] == ledger_before["adapters"][harness]["python-packaging"]
+    if harness == "pi":
+        assert safe.read_bytes() == safe_before
+        assert records == ledger_before
+    else:
+        assert safe.read_bytes() == src.read_bytes()
+        assert {c.package for c in result.after.conflicts} == {"python-packaging"}
+
+
+def test_partial_policy_cannot_skip_cross_identity_ownership_failure(source, tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    assert run_host(registry(home, ("antigravity",)), request(source)).exit_code == 0
+    adapter = registry(home)[2]
+    policy = adapter.preflight(request(source))
+    assert policy.partial_refresh
+    document = json.loads(policy.ledger_path.read_text())
+    claim = document["adapters"]["antigravity"]["python-packaging"]
+    document["adapters"]["other-adapter"] = {"python-packaging": claim}
+    policy.ledger_path.write_text(json.dumps(document))
+    src = source / "docs/skills/code-quality.md"
+    src.write_bytes(src.read_bytes() + b"\nnew safe guide must not bypass ownership integrity\n")
+    git(source, "commit", "-am", "source B with global ownership failure")
+    before = files(home)
+    assert document["adapters"]["other-adapter"].keys() & {"python-packaging"}
+    result = refresh(adapter, request(source))
+    assert result.exit_code == 1 and result.action == "refused"
+    assert "another CPP identity" in result.reason
+    assert files(home) == before

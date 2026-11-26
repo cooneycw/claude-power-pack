@@ -59,7 +59,8 @@ def main():
                     path.chmod(0o755 if row.mode & 0o111 else 0o644)
         # During authoring this also commits untracked implementation inputs
         # into the fixture's own history; at a frozen head these bytes agree.
-        for name in [*(f"lib/host_update/{n}.py" for n in ("source", "host", "claude", "codex", "antigravity")),
+        for name in [*(f"lib/host_update/{n}.py" for n in ("source", "host", "claude", "codex", "antigravity",
+                                                        "models", "driver", "store")),
                      "scripts/cpp-host-update.py"]:
             (source / name).write_bytes((ROOT / name).read_bytes())
         git(source, "init", "-q")

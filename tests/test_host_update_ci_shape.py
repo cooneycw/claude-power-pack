@@ -72,6 +72,21 @@ def test_moved_source_is_unknown_and_preserves_installation(source_template, tmp
     assert files(home) == before
 
 
+def test_private_snapshot_never_registers_in_source(source_template, tmp_path):
+    from lib.host_update.source import pinned_source
+    from tests.test_host_update_adapters import files
+
+    source = tmp_path / "source"
+    git(tmp_path, "clone", "-q", str(source_template), str(source))
+    registrations = git(source, "worktree", "list", "--porcelain")
+    metadata = files(source / ".git")
+    with pinned_source(source) as revision:
+        assert git(source, "worktree", "list", "--porcelain") == registrations
+        assert files(source / ".git") == metadata
+        assert git(revision.snapshot_root, "rev-parse", "HEAD") == revision.commit
+    assert files(source / ".git") == metadata
+
+
 @pytest.mark.parametrize("fault", ["empty", "zero-count", "wrong-revision", "bad-summary"])
 def test_pinned_reader_rejects_bad_current_writer(source_template, tmp_path, fault):
     from lib.host_update.host import DEFERRED, INCLUDED

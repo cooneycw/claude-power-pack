@@ -99,3 +99,30 @@ pre-freeze implementation cut. The final fidelity control, lint and 558-file
 typecheck passed. Detailed discrimination results and permission/CI limits are
 in [the B1 acceptance record](../measurements/host-update-adapters.md). These
 results do not complete B2 maintained invocation or all-harness parity.
+
+## B1 bounded review amendment, Run 4
+
+<!-- lanes-demonstrated run=5ee1db43f88c41459157642b8e64db24 plan=a567ed000a8fc1864760477ee1c69c47532b656f3cbbce2ced829773375ac7fb -->
+
+| Lane | Result | Evidence |
+|---|---|---|
+| Checkout | passed | Amended `test_actual_entry_source_shapes`: full clones and actual linked source worktrees under 022/000; private standalone clones leave source Git metadata byte-unchanged in `test_private_snapshot_never_registers_in_source` |
+| Harness | passed | Actual Claude topics/Codex/AGY copies receive the same full B commit; `test_foreign_same_name_refuses_only_that_package` independently compares all 17 safe Claude packages while preserving foreign boot |
+| Project state | passed | Existing managed/unmanaged/selected-absent tests plus foreign, edited and edited-orphan cases; blocked bytes/records and another identity's records survive while safe packages refresh |
+| Clone shape | passed | Full, asserted depth-1 and linked source histories in `test_actual_entry_source_shapes`; dirty/moved/old-entry sources refuse without host mutation; no source worktree registration |
+| Run location | passed | Actual shared CLI refreshes from an unrelated initialized repository and verifies from CPP root in `test_current_checkout_refreshes_all_from_one_revision` |
+| Reader: real copy adapters/core | passed | 45-test amended suite plus two focused follow-ups (46 distinct tests); full after counts/conflicts, partial exit1 and blocked record/orphan preservation; global cross-identity failure still prevents all package writes |
+| Reader: production CLI/report/control decisions | passed | Actual partial-refresh CLI outputs consumed by the report validator; nine-case fidelity control passes and the declared blind anchor misses all four BAD inputs |
+| Reader: Claude skills-check | passed | Existing reader validates all 18 real managed topics in the clean case; the collision case independently compares the 17 safe expected packages |
+| Reader: fixture and pi API | passed | Unchanged core49, pi26 passed with one root-only skip; paired real Pi/default versus AGY/opt-in control; trailing false Policy flag preserves Pi's positional predicate and refusal-before-publication |
+| Reader: Kyle/skillc/kyle-candidate | passed | Seven unchanged independent AGY/Codex parity tests; generator, parser, canonical command inputs and baselines unchanged |
+| Reader: cpp/update/generated command routes | not run | B2; only actual standalone shared CLI exercised |
+| Reader: drift/status/capability planner | not run | Existing readers not switched |
+| Reader: AGY runtime | not run | No native model run, recorded probe ruling or runtime-selection acceptance |
+
+Review fixes ran red on `875f4a47` before implementation: foreign boot, an edited
+package, an edited orphan and the opt-in half of the paired case prevent safe
+package progress; source worktree registration changes source metadata. The
+default Pi half passed before and after. The amendment's final focused results
+and limits are in [the acceptance record](../measurements/host-update-adapters.md).
+Pi's later opt-in is [tracked separately](https://github.com/cooneycw/claude-power-pack/issues/1896#issuecomment-7180740166).

@@ -78,7 +78,7 @@ class CopyAdapter:
                 raise AdapterError("surface deferred to its declared manager", state=State.UNMANAGED,
                                    remedy="refresh through the declared surface owner")
         return Policy(root, root / ".cpp-managed/ownership.json", root.parent / ".cpp-skill-install.lock",
-                      root / ".cpp-managed/work")
+                      root / ".cpp-managed/work", partial_refresh=True)
 
     def anchor(self) -> Scope:
         return Scope(Policy(self.home, self.home / ".unused-ledger", self.home / ".unused-lock",

@@ -159,6 +159,13 @@ def _operate(adapter: Adapter, request: Request, *, verify_only: bool) -> Adapte
             # publish rejects all adoption/collision issues before transaction IO.
             writing = True
             after, metadata_only, recovery = publish(scope, build, previous, request)
+            if policy.partial_refresh and after.state != State.CURRENT:
+                names = ", ".join(sorted({c.package for c in after.conflicts}))
+                return AdapterResult(adapter.harness, build.revision, True, discovery.evidence,
+                                     before, Action.REFRESHED, after, 1,
+                                     "safe packages refreshed; package conflicts preserved: " + names,
+                                     recovery or "resolve preserved package conflicts separately",
+                                     metadata_refreshed=metadata_only)
             return AdapterResult(adapter.harness, build.revision, True, discovery.evidence,
                                  before, Action.REFRESHED, after, 0, remedy=recovery,
                                  metadata_refreshed=metadata_only)

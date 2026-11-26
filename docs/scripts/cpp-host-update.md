@@ -43,6 +43,14 @@ The pure `member_allowed(path, mode)` predicate permits pi to require Markdown
 and 0644 without forcing that policy on AGY. No JSON member is required inside
 packages. A final pi hidden-directory choice is not implied by these types.
 
+The trailing `partial_refresh` policy option defaults to false, after
+`member_allowed`, preserving existing positional callers and whole-population
+refusal. Production copy adapters opt in: a conflicting package and its prior
+record are preserved while safe packages refresh under the same locks. The
+result retains full-population counts and named conflicts, with exit 1 and
+action `refreshed` when safe packages progressed. This does not make policy,
+source, ledger, build-integrity or cross-identity ownership failures skippable.
+
 Preflight runs before installed-root IO, including realpath traversal and lock
 creation. Discovery uses only that policy's authorized paths; it cannot turn
 CLI presence into ownership. Source selection/exclusion is adapter policy, so
@@ -212,9 +220,9 @@ record current; the narrow refresh-only bootstrap is described below.
 
 Each root has `.cpp-managed/ownership.json` and bounded work/coordination files.
 Read-only verify creates no installation root, lock or record and never repairs
-metadata. The source phase uses an owned private detached Git worktree and
-removes it afterward; this temporary build operation updates only its own Git
-worktree metadata, not the caller's branch or checkout content. A clean source
+metadata. The source phase uses an owned standalone private clone with a
+detached checkout and removes it afterward. It reads shared source objects but
+does not register a worktree or write metadata in the caller's repository. A clean source
 and the requested commit must be available. The pinned driver and builders run
 from that snapshot. Source file modes are normalized from Git before the
 unchanged Codex generator runs, including checkout creation under umask 000.
@@ -237,6 +245,12 @@ reviewed migration remedy. `--adopt HARNESS:PACKAGE[/PATH]` is refresh-only,
 explicitly scoped and uses the core's retained backup; it is never a global
 force switch. Invalid/traversing adoption paths are invocation errors (2).
 Foreign neighbors, internal additions and edited orphans are preserved.
+Within a selected copy adapter, a same-name foreign package or hand edit blocks
+only that package. Safe packages still refresh; the row remains non-current
+with exit 1, a named conflict and a preservation remedy. An edited orphan keeps
+its bytes and old ownership record. No default remedy replaces a foreign skill.
+The standalone pi adapter retains the default all-or-nothing policy pending
+[its separately tracked opt-in](https://github.com/cooneycw/claude-power-pack/issues/1896#issuecomment-7180740166).
 
 Human and schema-1 JSON reports carry per-adapter evidence, before/action/after,
 nonzero expected/examined populations, reason/remedy and unknown effectiveness.
