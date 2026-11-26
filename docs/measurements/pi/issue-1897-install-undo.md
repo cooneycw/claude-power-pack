@@ -222,3 +222,9 @@ result; logs remain in persistent evidence. No owner dry-run or execution was
 performed here. The host sequence remains review, owner presentation and
 clearance for dry-run, review of the exact printed plan, owner approval for
 execute, recovery, and separate second existing-session reload observation.
+
+The review-note follow-up (mailbox 40929) makes the final lstat directory and
+identity/mode check explicit and records ENOTEMPTY as a narrower target-restore
+result in `root-retained.json`. It does not call that whole-filesystem recovery.
+All three affected root cases passed after the clarification; lint/type checks
+passed and the test basetemp was removed. No owner action occurred.

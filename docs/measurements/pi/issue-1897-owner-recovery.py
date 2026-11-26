@@ -6,6 +6,7 @@ exact removal plan; execute refuses anything differing from that reviewed plan.
 """
 
 import argparse
+import errno
 import fcntl
 import hashlib
 import importlib.util
@@ -196,9 +197,24 @@ def run(args):
         for operation in operations:
             path = Path(operation["path"])
             if operation.get("recorded_created_root"):
-                require(record["skills_existed"] is False and not path.is_symlink(),
+                info = path.lstat()
+                require(record["skills_existed"] is False and stat.S_ISDIR(info.st_mode),
                         "created skills-root removal refused")
-            if operation["operation"] == "unlink":
+                require((info.st_dev, info.st_ino, stat.S_IMODE(info.st_mode)) ==
+                        (root_info.st_dev, root_info.st_ino, stat.S_IMODE(root_info.st_mode)),
+                        "created skills-root identity/mode changed")
+                try:
+                    path.rmdir()  # Atomic empty-directory check; never list then delete.
+                except OSError as error:
+                    if error.errno == errno.ENOTEMPTY:
+                        restored = PROBE.state(targets) == record["before"]
+                        print(f"STOP: recorded CPP target restoration completed={restored}; "
+                              "skills root retained because it is not empty.", file=sys.stderr)
+                        PROBE.save(evidence / "root-retained.json", {"recorded_targets_restored": restored,
+                                                                   "skills_root_removed": False,
+                                                                   "reason": "not-empty"})
+                    raise
+            elif operation["operation"] == "unlink":
                 path.unlink()
             else:
                 path.rmdir()

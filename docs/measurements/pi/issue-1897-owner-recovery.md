@@ -28,8 +28,11 @@ skip flag. The explicit `--home` binding must equal the original record.
 
 Stop all other writers to the skill tree for the entire dry-run/review/execute
 window, including lock removal. This is an explicit operator precondition;
-advisory locks cannot prevent replacement-inode races. No new pi process,
-version query, provider turn or trusted-config change is part of recovery.
+advisory locks cannot prevent replacement-inode races.
+The advisory lock paths are themselves unlinked during target removal;
+exclusivity therefore rests on the operator's confirmed window throughout.
+No new pi process, version query, provider turn or trusted-config change is
+part of recovery.
 
 After owner clearance, the host helper runs this exact dry-run argv, substituting
 the reviewed paths. Both Python files must be from the same submitted commit:
@@ -97,6 +100,8 @@ In particular, an unrelated root child makes the FINAL rmdir refuse after
 the recorded CPP targets have been removed. That child survives, the root
 remains and no successful recovery receipt is written. Do not claim the agent
 was unchanged or that the baseline was fully restored in this case.
+The script reports whether recorded-target restoration completed and writes
+`root-retained.json` with that narrower result, never a successful `recovered.json`.
 No unrecorded neighbor, even CPP-marked, is a deletion candidate. Only canonical
 topics are examined; no whole-agent or whole-skills inventory is performed.
 

@@ -249,6 +249,8 @@ def test_unrelated_root_file_refuses_final_rmdir_and_survives(stopped):
     # entire agent was unchanged or that root restoration succeeded.
     record = json.loads((Path(stopped.journal) / "before-and-undo.json").read_text())
     assert all(not PROBE.manifest(Path(path)) for path in record["targets"])
+    partial = json.loads((Path(stopped.evidence) / "root-retained.json").read_text())
+    assert partial == {"recorded_targets_restored": True, "skills_root_removed": False, "reason": "not-empty"}
 
 
 @pytest.mark.parametrize("stopped", [False], indirect=True)

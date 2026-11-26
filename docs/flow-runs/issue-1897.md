@@ -219,3 +219,14 @@ A nonempty-root refusal occurs after the recorded topic/state removals and
 must not be reported as whole-filesystem restoration. One new push then freeze;
 independent review and owner presentation precede dry-run, and owner approval
 of the exact dry-run plan precedes execute.
+
+### Reviewer root-step notes - mailbox 40929
+
+The interim review of 6c5d4ddd raised no findings and requested explicit root
+step details. Recovery now lstat-checks directory type and the planned root
+identity/mode immediately before plain rmdir. ENOTEMPTY emits a STOP message
+and `root-retained.json` stating whether recorded targets were restored; it
+never emits successful recovery. The protocol explicitly notes the lock paths
+are themselves unlinked, so the operator's confirmed window remains essential.
+Affected empty/nonempty/symlink root cases all passed again (3 cases); basetemp
+removed. This is a narrow review clarification, not owner execution authority.
