@@ -1,0 +1,27 @@
+{
+  "topics": [
+    "best-practices",
+    "boot",
+    "browser-tiered",
+    "cicd-verification",
+    "claude-md-config",
+    "code-quality",
+    "context-efficiency",
+    "documentation",
+    "evaluate",
+    "hooks-automation",
+    "idd-workflow",
+    "infrastructure-hardening",
+    "mcp-optimization",
+    "project-deploy",
+    "python-packaging",
+    "secrets",
+    "session-management",
+    "spec-driven-dev"
+  ],
+  "guide": "# Intended fixture guide\nAGY_BUNDLED_GUIDE_CONTROL\n",
+  "parity_mutations": [
+    "changed-transform",
+    "changed-parser"
+  ]
+}
