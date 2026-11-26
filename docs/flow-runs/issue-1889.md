@@ -907,3 +907,16 @@ The actual e32c06ed~1 install at5204ea06 has80 packages,19 stale expected and no
 unexpected names; the named diagnostic regression was RED at498e2ed8. Actual
 v13.0.0 at40d25173 is byte/mode-identical and bootstraps without migration.
 Formal pass1 has one accepted F1; the next review is pass2 of defaultcap2.
+
+
+Active Run6 F2 amendment approved by ch-orch41899/41910, plan41909. Every
+update.md Bash fence must derive its inputs in that call or require validated
+literals bound in the same call. Audit all49 fences for prior variables, arrays
+and functions, recording before/after counts. Replace the concatenating maintained
+reader/control with separate Bash processes and retain actual revision-move
+refusal. On unchanged cdf04386, both current and accepted-migration fresh-shell
+regressions failed (2failed13.95s). Already-approved paths only; no native/auth,
+neutral/Pi or generator changes. Command remains shorter than2291lines.
+Formal pass2 accepted F2. Third pass authorized41899 with exact extra-pass-reason:
+F2 is a real correctness defect that the earlier passes and the test harness both missed (a blind instrument), and the fix is narrow.
+No fourth pass without owner escalation.
