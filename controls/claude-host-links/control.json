@@ -1,0 +1,57 @@
+{
+  "gate": "scripts/cpp-host-update.py",
+  "invocation": [
+    "uv",
+    "run",
+    "python",
+    "-c",
+    "from pathlib import Path; import runpy,sys; runpy.run_path(str(Path(sys.argv[2]).parents[1]/'run-case.py'),run_name='__main__')",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "good_signal": "^HOST_UPDATE: current",
+  "detect_signal": "^HOST_UPDATE: failure",
+  "unknown_signal": "^HOST_UPDATE: unknown",
+  "unavailable_signal": "^HOST_UPDATE: UNAVAILABLE - git missing$",
+  "limits": "Real production CLI and persistent owned Git source with actual CPP command and helper bytes. Verify never traverses installed links or changes home/target; the whole-tree oracle includes link text and regular foreign bytes. Controls establish fidelity/ownership and lock decisions, not native runtime effectiveness or maintained cpp/update wiring.",
+  "cases": [
+    {
+      "name": "good-confined",
+      "input": "cases/good-confined",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-outside",
+      "input": "cases/bad-outside",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-dangling",
+      "input": "cases/bad-dangling",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-regular-replacement",
+      "input": "cases/bad-regular-replacement",
+      "expect": "BAD"
+    },
+    {
+      "name": "unknown-lock",
+      "input": "cases/unknown-lock",
+      "expect": "UNKNOWN",
+      "anchor_expect": "clean",
+      "anchor_expect_reason": "Constructed blind verifier ignores the actual held lock."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/cpp-host-update.py",
+      "path": "anchors/constructed-always-current.py",
+      "sha256": "8066e322fa40a3e0467517cff79c2d2859c67c405dec51da8189012c331ed95f",
+      "why": "Deliberately reports current without inspecting link type, confined target, source fidelity or lock."
+    }
+  ]
+}

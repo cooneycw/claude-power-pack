@@ -161,3 +161,46 @@ rerun with a short owned basetemp (3.49 seconds). The fixture gap is recorded in
 The other five skips concern host Bash 3.2, signalling PID 1, real root, Node
 and the staged CI toolchain. A future paired run uses a short temporary root;
 none of these skips is counted as a pass.
+
+
+## B2a work checkpoint - parked for priority #1913
+
+Orchestrator41041 approved the split: B2a is typed existing Claude links,
+production schema2, fidelity/prune/controls and the helper bootstrap fix. B2b
+retains maintained cpp/update wiring, real command readers, attributed Codex
+input deltas and the ruling-first native probe. No B2b product paths or neutral
+core/Pi APIs changed. This checkpoint is WIP, not a reviewed/finished delivery.
+
+The five actual link controls passed: confined GOOD, outside/dangling/regular
+replacement BAD with contents preserved, and held-lock UNKNOWN. The constructed
+always-current anchor misses all three BAD inputs. The complete bare-caller
+control batch passed147 registrations, with54 historical anchors byte-compared.
+The initial full batch had correctly flagged its GOOD fixture because the
+fixture inherited this session's deferred-surface data; only owned fixture
+callers now remove that setting. Production deferral behavior remains enforced.
+
+The expanded real adapter suite passed88 tests (558.70s). The earlier70-case run
+passed66 and failed four fixture/reader assertions; inherited deferral, the
+old asdict serializer and a known source-alias refusal expectation were corrected.
+After the expanded suite started, the final report-reader guard was tightened:
+an unselected unknown/zero-population row cannot carry exit0. Its committed
+malformed-producer case failed before the guard (DID NOT RAISE) and the final
+reader/compatibility matrix passed10 tests (48.17s), including real failed-
+publication output. The final verdict heading names selected-component count.
+These final edits still require the exact-head paired finish gate.
+
+The exact predecessor helper-bootstrap expression failed with ModuleNotFoundError
+through a stable symlink; the physical-root fix passed the same test. Unchanged
+consumer suites passed49 core,26 Pi (one real-root skip), and33 builder/CLI/parity
+tests. Lint,560-file typecheck, guards, preconditions, inventories, coverage,
+command budgets, host-surface observation and security/import selftests passed.
+Owned suite/control temporary roots were deleted; logs remain outside the
+worktree under `/workspace/.cpp-validation/1889-b2a`.
+
+A separate disposable Make reproduction confirmed the legacy link-into helper
+can replace personal regular bytes and return0. Filed as live data-loss issue
+[#1913](https://github.com/cooneycw/claude-power-pack/issues/1913), not a Nit Store
+item. Orchestrator41078 directs parking B2a and doing that small priority fix on
+a fresh branch first. B2a does not change that helper or cpp/init/update. No
+formal B2a review, receipt, finish gate, PR or native run is claimed. Both #1889
+and #1876 remain open/PARTIAL.

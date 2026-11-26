@@ -379,3 +379,23 @@ aggregate rule-token behavior, complete hook history and shipped live-health
 checks remain with their named later deliveries. Missing historical argv,
 prompts and artifact byte correspondence remain visible #1887 evidence gaps;
 a specification does not turn them into measurements.
+
+
+## B2a Claude link component boundary
+
+Under ADR 0014's owner-ruling amendment, existing Claude command-family and
+helper links use a typed `links` backend. Topic/Codex/AGY copies retain the
+copier's symlink refusal. Production schema 2 has four component rows with
+explicit per-row `copies` or `links` labels and one common full revision.
+Source fidelity and the persistent clean link target are independent of the
+private execution snapshot. Exact installed name and CPP source prove ownership;
+foreign replacements and mixed farms survive, and unknown orphan history never
+authorizes deletion. Command/helper kinds enroll independently, without a tier
+upgrade. Verify creates nothing and refresh holds the existing Claude lock.
+The confined positive and outside/dangling/regular-replacement controls are
+committed before the backend ships. Link counts describe entries plus tracked
+source members, not native effectiveness.
+
+B2a does not wire maintained `/cpp:update`, change Codex command attribution or
+run a native probe. Those are B2b, whose PR follows B2a merge. Initial coverage
+remains PARTIAL and #1889/#1876 remain open for their remaining acceptance.

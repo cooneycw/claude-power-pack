@@ -32,7 +32,7 @@
     "not belong here.",
     "",
     "Shared cpp-host-update production and fixture Make targets are derived automatically;",
-    "actual adapter tests run through make test, with both CLI controls registered."
+    "actual adapter/link tests run through make test, with core, copy-fidelity and link CLI controls registered."
   ],
   "scripts": {
     "bash-prep.sh": {

@@ -1,14 +1,15 @@
-"""Production copy registry; the neutral core and pi API are unchanged."""
+"""Production component registry; the neutral core and pi API are unchanged."""
 from __future__ import annotations
 
 import json
 import os
 import stat
 from contextlib import ExitStack
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 from .driver import _error_result, _validate_revision, inspect, refresh
+from .links import ClaudeLinks
 from .models import (
     Action,
     AdapterError,
@@ -25,8 +26,9 @@ from .models import (
 from .scope import Scope, absolute, slug
 from .store import _directories, _document, locked, read_ledger, validate_build
 
-INCLUDED = ("claude-topics", "codex", "antigravity")
-DEFERRED = ("claude-command/helper-links (B2)", "pi shared-updater enrollment", "qwen", "gemma/opencode",
+INCLUDED = ("claude-topics", "codex", "antigravity", "claude-links")
+BACKENDS = {n: "links" if n == "claude-links" else "copies" for n in INCLUDED}
+DEFERRED = ("maintained cpp/update wiring (B2b)", "pi shared-updater enrollment", "qwen", "gemma/opencode",
             "command-derived AGY cpp-update invocation")
 
 
@@ -42,8 +44,15 @@ class HostReport:
     coverage: str = "partial"
     included: tuple[str, ...] = INCLUDED
     unimplemented: tuple[str, ...] = DEFERRED
-    backend: str = "copies"
-    schema: int = 1
+    backend: str = "mixed"
+    schema: int = 2
+
+
+def document(report: HostReport) -> dict:
+    """One production serializer; fixture/Pi AdapterResult stays unchanged."""
+    payload = asdict(report)
+    payload["results"] = [dict(row, backend=BACKENDS[row["harness"]]) for row in payload["results"]]
+    return payload
 
 
 class CopyAdapter:
@@ -181,18 +190,26 @@ class CopyAdapter:
             return bool(additions)
 
 
-def registry(home: Path, selected: tuple[str, ...] = (), deferred: tuple[str, ...] = ()) -> list[CopyAdapter]:
+def registry(home: Path, selected: tuple[str, ...] = (), deferred: tuple[str, ...] = (),
+             *, source: Path | None = None) -> list[CopyAdapter | ClaudeLinks]:
     from .antigravity import AntigravityAdapter
     from .claude import ClaudeAdapter
     from .codex import CodexAdapter
 
-    return [cls(home, selected=True if cls.harness in selected else None, deferred=deferred)
-            for cls in (ClaudeAdapter, CodexAdapter, AntigravityAdapter)]
+    adapters: list[CopyAdapter | ClaudeLinks] = [
+        cls(home, selected=True if cls.harness in selected else None, deferred=deferred)
+        for cls in (ClaudeAdapter, CodexAdapter, AntigravityAdapter)]
+    adapters.append(ClaudeLinks(home, source=source, selected=True if "claude-links" in selected else None,
+                                deferred=deferred))
+    return adapters
 
 
-def run_host(adapters: list[CopyAdapter], request: Request, *, verify_only: bool = False) -> HostReport:
+def run_host(adapters: list[CopyAdapter | ClaudeLinks], request: Request, *, verify_only: bool = False) -> HostReport:
     rows = []
     for adapter in adapters:
+        if isinstance(adapter, ClaudeLinks):
+            rows.append(adapter.operate(request, verify_only=verify_only))
+            continue
         local = replace(request, adopt_paths=tuple(p.split(":", 1)[1] for p in request.adopt_paths
                                                   if p.startswith(adapter.harness + ":")))
         try:
@@ -230,7 +247,7 @@ def run_host(adapters: list[CopyAdapter], request: Request, *, verify_only: bool
                       1 if 1 in codes else 4 if 4 in codes else 0 if 0 in codes else 5)
 
 
-def source_failure(reason: str, adapters: list[CopyAdapter] | None = None,
+def source_failure(reason: str, adapters: list[CopyAdapter | ClaudeLinks] | None = None,
                    request: Request | None = None, *, attempted: bool = False) -> HostReport:
     request = request or Request(Revision("", Path("/source-unavailable")))
     if adapters is None:

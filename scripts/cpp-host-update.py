@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Shared managed-copy refresh/verify; production coverage is explicitly PARTIAL."""
+#: NEGATIVE-CONTROL: controls/claude-host-links
 #: NEGATIVE-CONTROL: controls/host-update-core
 #: NEGATIVE-CONTROL: controls/antigravity-skill-install-fidelity
-#: PRODUCTION-COPY-ENTRY: 1
+#: PRODUCTION-HOST-ENTRY: 2
 #: HOST-SURFACE: ~/.claude/skills/<skill> owner=cpp write=copy certified=authored mode=refresh
 #: HOST-SURFACE: ~/.codex/skills/<skill> owner=cpp write=copy certified=authored mode=refresh
 #: HOST-SURFACE: ~/.gemini/config/skills/<skill> owner=cpp write=copy certified=authored mode=refresh
@@ -16,6 +17,8 @@
 #: HOST-SURFACE: ~/.claude/.cpp-skill-install.lock owner=cpp write=append certified=authored mode=refresh
 #: HOST-SURFACE: ~/.codex/.cpp-skill-install.lock owner=cpp write=append certified=authored mode=refresh
 #: HOST-SURFACE: ~/.gemini/config/.cpp-skill-install.lock owner=cpp write=append certified=authored mode=refresh
+#: HOST-SURFACE: ~/.claude/commands/<family> owner=cpp write=link certified=authored mode=refresh
+#: HOST-SURFACE: ~/.claude/scripts/<helper> owner=cpp write=link certified=authored mode=refresh
 #: HOST-SURFACE: note - ledger/work/coordination files stay inside skills/.cpp-managed
 #: HOST-SURFACE: note - --home explicitly overrides the home anchor
 
@@ -29,7 +32,7 @@ import sys
 from dataclasses import asdict, replace
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).absolute().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from lib.host_update.driver import run  # noqa: E402
 from lib.host_update.fixture import load_fixture  # noqa: E402
@@ -45,7 +48,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--home", type=Path, default=Path.home())
     parser.add_argument("--revision")
     parser.add_argument("--pinned", help=argparse.SUPPRESS)
-    parser.add_argument("--select", action="append", default=[], choices=("claude-topics", "codex", "antigravity"))
+    parser.add_argument("--persistent-source", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--select", action="append", default=[],
+                        choices=("claude-topics", "codex", "antigravity", "claude-links"))
     parser.add_argument("--defer-surface", action="append", default=[])
     parser.add_argument("--lock-timeout", type=float, default=5.0)
     parser.add_argument("--selected", choices=("auto", "yes", "no"), default="auto")
@@ -103,7 +108,7 @@ def production(args) -> int:
     bound_commit = ""
     initial = Request(Revision("", source), lock_timeout_seconds=args.lock_timeout, adopt_paths=tuple(args.adopt))
     try:
-        adapters = registry(home, selected, deferred)
+        adapters = registry(home, selected, deferred, source=args.persistent_source or source)
         selection = source_failure("source has not been bound", adapters, initial)
         if not any(r.reason == "source has not been bound" for r in selection.results):
             return render_host(selection, args.json)
@@ -111,7 +116,7 @@ def production(args) -> int:
             with pinned_source(source, args.revision) as revision:
                 bound_commit = revision.commit
                 forwarded = [args.operation, "--source-root", str(revision.snapshot_root), "--home", str(home),
-                             "--lock-timeout", str(args.lock_timeout)]
+                             "--lock-timeout", str(args.lock_timeout), "--persistent-source", str(source)]
                 for name in args.select:
                     forwarded += ["--select", name]
                 for name in args.adopt:
@@ -126,7 +131,9 @@ def production(args) -> int:
             else:
                 render_rows(json.loads(result.stdout))
             return result.returncode
-        if source != Path(__file__).absolute().parent.parent:
+        if not args.persistent_source:
+            raise AdapterError("pinned execution requires a persistent source authority", exit_code=4)
+        if source != Path(__file__).resolve().parent.parent:
             raise AdapterError("pinned execution must use the entry from its source snapshot", exit_code=4)
         request = Request(Revision(args.pinned, source), lock_timeout_seconds=args.lock_timeout,
                           adopt_paths=tuple(args.adopt))
@@ -142,12 +149,15 @@ def production(args) -> int:
 
 
 def render_host(report, as_json: bool) -> int:
+    from lib.host_update.host import document
+
     state = {0: "current", 1: "failure", 4: "unknown", 5: "not-applicable"}[report.exit_code]
-    print(f"HOST_UPDATE: {state} (PARTIAL; Claude topics, Codex, AGY topics; backend=copies)", file=sys.stderr)
+    print(f"HOST_UPDATE: {state} (PARTIAL; {sum(r.selected for r in report.results)} selected components; "
+          "backend=mixed)", file=sys.stderr)
     if as_json:
-        print(json.dumps(asdict(report), sort_keys=True, indent=2))
+        print(json.dumps(document(report), sort_keys=True, indent=2))
     else:
-        render_rows(asdict(report))
+        render_rows(document(report))
     return report.exit_code
 
 
@@ -156,7 +166,7 @@ def render_rows(report):
     for row in report["results"]:
         after = row["after"]
         print(f"{row['harness']}: {row['before']['state']} -> {after['state']}; {row['action']}; "
-              f"exit {row['exit_code']}; packages={after['expected_packages']}; "
+              f"backend={row['backend']}; exit {row['exit_code']}; packages={after['expected_packages']}; "
               f"members={after['examined_members']}/{after['expected_members']}; {row['reason']}; {row['remedy']}")
     print("Not implemented: " + ", ".join(report["unimplemented"]))
 

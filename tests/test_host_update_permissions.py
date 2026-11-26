@@ -35,7 +35,7 @@ def test_unwritable_destination_other_real_adapters_refresh(source_template):
             "commit", "-am", "source B")
         target = home / ".gemini/config/skills"
         identity = os.geteuid()
-        options = {}
+        options = {"env": {k: v for k, v in os.environ.items() if k != "CPP_DEFER_SURFACES"}}
         if identity == 0:
             identity = 65534
             for path in [source, home, *source.rglob("*"), *home.rglob("*")]:
@@ -44,7 +44,7 @@ def test_unwritable_destination_other_real_adapters_refresh(source_template):
             for path in [target, *target.rglob("*")]:
                 if not path.is_symlink():
                     os.chown(path, 0, 0)
-            options = {"user": identity, "group": identity, "extra_groups": ()}
+            options.update(user=identity, group=identity, extra_groups=())
         target.chmod(0o555)
         probe = subprocess.run([sys.executable, "-c", (
             "import os,pathlib,sys; assert os.geteuid()==int(sys.argv[2]); "
@@ -73,7 +73,9 @@ def test_unwritable_destination_other_real_adapters_refresh(source_template):
                                     timeout=120, **options)
             report = json.loads(answer.stdout)
             assert answer.returncode == 1, report
+            assert report["schema"] == 2 and report["backend"] == "mixed"
             rows = {r["harness"]: r for r in report["results"]}
+            assert rows["claude-links"]["backend"] == "links" and not rows["claude-links"]["selected"]
             assert rows["antigravity"]["exit_code"] == 1
             assert rows["antigravity"]["after"]["state"] != "current"
             assert all(rows[n]["after"]["state"] == "current" for n in ("codex", "claude-topics"))

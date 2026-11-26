@@ -188,11 +188,24 @@ antigravity-skills-check:
 test-host-update-core:
 	uv run --extra dev pytest -q $(HOST_UPDATE_TESTS)
 
-HOST_ADAPTER_TESTS ?= tests/test_host_update_adapters.py tests/test_host_update_integration.py tests/test_host_update_permissions.py tests/test_host_update_adapter_transactions.py tests/test_host_update_ci_shape.py
+HOST_ADAPTER_TESTS ?= tests/test_host_update_links.py tests/test_host_update_adapters.py tests/test_host_update_integration.py tests/test_host_update_permissions.py tests/test_host_update_adapter_transactions.py tests/test_host_update_ci_shape.py
 ## verify-coverage: utility test-host-update-adapters - real production adapters and report readers; full suite owns gate
 .PHONY: test-host-update-adapters test-host-update-ci-shape host-update-adapter-controls
 test-host-update-adapters:
 	uv run --extra dev pytest -q $(HOST_ADAPTER_TESTS)
+
+## verify-coverage: utility test-host-update-links - typed existing Claude link fidelity; full suite owns gate
+.PHONY: test-host-update-links host-update-link-controls
+HOST_LINK_CASE ?= good-confined
+## verify-coverage: utility test-host-update-link-case - real single control fixture diagnosis; full control batch owns verdict
+test-host-update-link-case:
+	uv run python controls/claude-host-links/run-case.py scripts/cpp-host-update.py controls/claude-host-links/cases/$(HOST_LINK_CASE)
+test-host-update-links:
+	uv run --extra dev pytest -q tests/test_host_update_links.py
+
+## verify-coverage: excluded host-update-link-controls - subset of negative-controls; ci: excluded duplicate-subset
+host-update-link-controls:
+	uv run python scripts/check-negative-controls.py --control controls/claude-host-links --strict --verify-provenance
 
 ## verify-coverage: utility test-host-update-ci-shape - owned shallow histories and umask-000 checkouts; full suite owns gate
 test-host-update-ci-shape:

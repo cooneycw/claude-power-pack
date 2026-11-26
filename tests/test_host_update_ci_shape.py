@@ -32,10 +32,15 @@ def test_actual_entry_source_shapes(source_template, tmp_path, mask, shape):
         assert (source / "docs/skills/python-packaging.md").stat().st_mode & 0o777 == 0o666
     if shape == "shallow":
         assert git(source, "rev-parse", "--is-shallow-repository") == "true"
+    from tests.test_host_update_links import seed
+
+    seed(home, source)
     result, report = cli(source, home, "refresh", "--select", "codex", "--select", "antigravity",
                          "--select", "claude-topics", cwd=tmp_path)
     assert result.returncode == 0, result.stderr + str(report)
     for row in report["results"]:
+        if not row["selected"]:
+            continue
         assert row["after"]["state"] == "current" and row["revision"] == report["revision"]
     for root in [home / ".codex/skills", home / ".claude/skills", home / ".gemini/config/skills"]:
         assert next(root.glob("*/SKILL.md")).stat().st_mode & 0o777 == 0o644
@@ -50,7 +55,7 @@ def test_dirty_source_does_not_mutate_home(source_template, tmp_path):
         out.write("\ndirty input\n")
     assert git(source, "status", "--porcelain")
     result, report = cli(source, home, "refresh", "--select", "antigravity")
-    assert result.returncode == 4 and all(r["action"] == "not-attempted" for r in report["results"])
+    assert result.returncode == 4 and all(r["action"] == "not-attempted" for r in report["results"] if r["selected"])
     assert list(home.iterdir()) == []
 
 
@@ -125,9 +130,10 @@ def test_control_declared_runtime_works_without_global_yaml(tmp_path):
     assert row["after"]["state"] == "current" and row["after"]["expected_packages"] == 18
 
 
-@pytest.mark.parametrize("fault", ["empty", "zero-count", "wrong-revision", "bad-summary"])
+@pytest.mark.parametrize("fault", ["empty", "zero-count", "wrong-revision", "bad-summary",
+                                         "missing-links", "mislabelled", "old-schema", "noncurrent-zero"])
 def test_pinned_reader_rejects_bad_current_writer(source_template, tmp_path, fault):
-    from lib.host_update.host import DEFERRED, INCLUDED
+    from lib.host_update.host import BACKENDS, DEFERRED, INCLUDED
     from lib.host_update.source import ExecutionFailure, execute_snapshot
     from tests.test_host_update_adapters import request
 
@@ -135,9 +141,10 @@ def test_pinned_reader_rejects_bad_current_writer(source_template, tmp_path, fau
     git(tmp_path, "clone", "-q", str(source_template), str(source))
     entry = source / "scripts/cpp-host-update.py"
     stage = {"state": "current", "expected_packages": 1, "expected_members": 1, "examined_members": 1}
-    payload = {"schema": 1, "coverage": "partial", "backend": "copies", "included": list(INCLUDED),
+    payload = {"schema": 2, "coverage": "partial", "backend": "mixed", "included": list(INCLUDED),
                "unimplemented": list(DEFERRED), "exit_code": 0,
-               "results": [{"harness": n, "selected": True, "exit_code": 0, "before": stage, "after": stage,
+               "results": [{"harness": n, "backend": BACKENDS[n], "selected": True, "exit_code": 0,
+                            "before": stage, "after": stage,
                             "action": "unchanged", "reason": "", "remedy": ""} for n in INCLUDED]}
     if fault == "empty":
         payload["results"] = []
@@ -145,8 +152,17 @@ def test_pinned_reader_rejects_bad_current_writer(source_template, tmp_path, fau
         stage.update(expected_packages=0, expected_members=0, examined_members=0)
     elif fault == "bad-summary":
         payload["exit_code"] = 4
+    elif fault == "missing-links":
+        payload["results"] = [r for r in payload["results"] if r["harness"] != "claude-links"]
+    elif fault == "mislabelled":
+        payload["results"][-1]["backend"] = "copies"
+    elif fault == "old-schema":
+        payload["schema"] = 1
+    elif fault == "noncurrent-zero":
+        payload["results"][-1].update(selected=False, after=dict(stage, state="unknown", expected_packages=0,
+                                                              expected_members=0, examined_members=0))
     bad_revision = "'f'*40" if fault == "wrong-revision" else "sys.argv[-1]"
-    entry.write_text("#: PRODUCTION-COPY-ENTRY: 1\nimport json,sys\n"
+    entry.write_text("#: PRODUCTION-HOST-ENTRY: 2\nimport json,sys\n"
                      + "r=json.loads(" + repr(json.dumps(payload)) + ")\n"
                      + f"r['revision']={bad_revision}\n"
                      + "for row in r['results']: row['revision']=r['revision']\n"
@@ -159,8 +175,16 @@ def test_pinned_reader_rejects_bad_current_writer(source_template, tmp_path, fau
         assert payload["results"][0]["after"]["expected_packages"] == 0
     elif fault == "wrong-revision":
         assert request(source).revision.commit != "f" * 40
-    else:
+    elif fault == "bad-summary":
         assert payload["exit_code"] == 4
+    elif fault == "missing-links":
+        assert len(payload["results"]) == 3
+    elif fault == "mislabelled":
+        assert payload["results"][-1]["backend"] != BACKENDS["claude-links"]
+    elif fault == "old-schema":
+        assert payload["schema"] == 1
+    else:
+        assert payload["results"][-1]["after"]["state"] == "unknown" and not payload["results"][-1]["selected"]
     with pytest.raises(ExecutionFailure, match="incomplete or inconsistent"):
         execute_snapshot(request(source).revision, ["verify", "--json"])
 
@@ -169,10 +193,10 @@ def test_unavailable_old_entry_is_unknown_before_execution(source_template, tmp_
     source, home = tmp_path / "source", tmp_path / "home"
     git(tmp_path, "clone", "-q", str(source_template), str(source))
     entry = source / "scripts/cpp-host-update.py"
-    entry.write_text("raise AssertionError('old entry must never execute')\n")
+    entry.write_text("#: PRODUCTION-COPY-ENTRY: 1\nraise AssertionError('old entry must never execute')\n")
     git(source, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
         "commit", "-am", "unsupported old production entry")
-    assert "PRODUCTION-COPY-ENTRY" not in entry.read_text()
+    assert "PRODUCTION-COPY-ENTRY: 1" in entry.read_text() and "PRODUCTION-HOST-ENTRY: 2" not in entry.read_text()
     result, report = cli(source, home, "refresh", "--select", "antigravity")
     assert result.returncode == 4 and report["results"][2]["action"] == "not-attempted"
     assert not home.exists()
@@ -193,3 +217,66 @@ def test_executable_source_alias_never_runs(source_template, tmp_path):
     result, report = cli(source, home, "refresh", "--select", "antigravity")
     assert result.returncode == 4 and report["results"][2]["action"] == "not-attempted"
     assert not home.exists()
+
+
+def test_stable_helper_symlink_bootstraps_physical_repository(tmp_path):
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    helper = tmp_path / "home/.claude/scripts/cpp-host-update.py"
+    helper.parent.mkdir(parents=True)
+    helper.symlink_to(root / "scripts/cpp-host-update.py")
+    assert helper.is_symlink() and helper.parent.parent.parent != root
+    result = subprocess.run([sys.executable, str(helper), "--help"], cwd=tmp_path,
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert "claude-links" in result.stdout and "--source-root" in result.stdout
+
+
+def test_old_caller_refuses_new_entry_before_execution(source_template, tmp_path, monkeypatch):
+    import hashlib
+    import subprocess
+
+    from lib.host_update import source as current_source
+    from lib.host_update.models import AdapterError
+    from tests.test_host_update_adapters import request
+
+    # Exact B1 caller at b1cd1f16, retained so main-only CI needs no old ref.
+    predecessor = """def execute_snapshot(revision: Revision, arguments: list[str]) -> subprocess.CompletedProcess[str]:
+    import sys
+
+    entry = revision.snapshot_root / "scripts/cpp-host-update.py"
+    content = _source_blob(revision, "scripts/cpp-host-update.py")
+    authority = Scope(Policy(revision.snapshot_root, revision.snapshot_root / ".unused-ledger",
+                             revision.snapshot_root / ".unused-lock", revision.snapshot_root / ".unused-work"))
+    if authority.read(entry) != content or b"PRODUCTION-COPY-ENTRY: 1" not in content:
+        raise AdapterError("requested revision has no supported pinned production entry", exit_code=4)
+    try:
+        result = subprocess.run([sys.executable, str(entry), *arguments, "--pinned", revision.commit],
+                                capture_output=True, text=True, timeout=300, umask=0o022)
+    except subprocess.SubprocessError as error:
+        raise ExecutionFailure("pinned driver execution incomplete; inspect installed state", exit_code=1) from error
+    try:
+        report = json.loads(result.stdout)
+    except ValueError as error:
+        raise ExecutionFailure("pinned driver returned no readable report", exit_code=1) from error
+    if not valid_report(report, result.returncode, revision.commit):
+        raise ExecutionFailure("pinned driver returned incomplete or inconsistent report", exit_code=1)
+    return result
+"""
+    assert hashlib.sha256(predecessor.encode()).hexdigest() == (
+        "2d0ce797b4a512dc95f9e3577cf63b0e852d5d8e3d073a77ddfc7488da0d7bda")
+    namespace = dict(vars(current_source))
+    exec(compile(predecessor, "predecessor_source.py", "exec"), namespace)
+    assert "PRODUCTION-HOST-ENTRY: 2" in (source_template / "scripts/cpp-host-update.py").read_text()
+    original = subprocess.run
+
+    def no_child(argv, *args, **kwargs):
+        assert argv[0] == "git", "unsupported producer executed before marker refusal"
+        return original(argv, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", no_child)
+    with pytest.raises(AdapterError, match="no supported pinned production entry"):
+        namespace["execute_snapshot"](request(source_template).revision, ["verify", "--json"])

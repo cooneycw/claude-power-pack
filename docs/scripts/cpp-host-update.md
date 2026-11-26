@@ -1,6 +1,6 @@
-# cpp-host-update: shared managed copies (PARTIAL)
+# cpp-host-update: shared managed copies and Claude links (PARTIAL)
 
-Issue #1889 (A core, B1 copy adapters); implementation source of truth is the
+Issue #1889 (A core, B1 copy adapters, B2a existing Claude links); implementation source of truth is the
 [host update contract](../../.specify/specs/antigravity-host-update/spec.md).
 
 Delivery A implements these types/callbacks through a fixture-only CLI and
@@ -8,7 +8,8 @@ neutral filesystem core. B1 adds the production copy adapters described below.
 Importing modules performs no configuration reads
 or filesystem writes. Publication and verification require an explicit adapter
 policy and a bound source revision. The callback API and explicit fixture mode
-remain compatible; production coverage does not include command/helper links.
+remain compatible. B2a adds a separate production-only Claude link backend;
+the neutral copier still refuses symlinks. Maintained command wiring is B2b.
 
 Import value types from `lib.host_update.models` and callbacks/functions from
 `lib.host_update.driver`. `Adapter` has a `harness` identifier and:
@@ -186,11 +187,11 @@ selection or production discovery. B1 adds actual copy-adapter tests below;
 all-harness and maintained-command acceptance remain separate.
 
 
-## Production copy adapters (B1)
+## Production adapters (B1 copies, B2a links)
 
 Use `uv run python scripts/cpp-host-update.py refresh --source-root /path/to/cpp`
 or the read-only installed-output operation `verify`. `--home /explicit/home`
-changes the approved anchor for all three adapters. Make equivalents are
+changes the approved anchor for the four production components. Make equivalents are
 `make host-update-refresh` and `make host-update-verify`, with
 `HOST_UPDATE_SOURCE`, `HOST_UPDATE_HOME` and optional `HOST_UPDATE_FLAGS`.
 Supplying `FIXTURE_ROOT` retains the original disposable fixture operation.
@@ -202,8 +203,10 @@ The initial registry is explicitly **PARTIAL**:
 | claude-topics | ~/.claude/skills | ~/.claude/.cpp-skill-install.lock |
 | codex | ~/.codex/skills | ~/.codex/.cpp-skill-install.lock |
 | antigravity | ~/.gemini/config/skills | ~/.gemini/config/.cpp-skill-install.lock |
+| claude-links (links) | ~/.claude/commands and ~/.claude/scripts | ~/.claude/.cpp-skill-install.lock |
 
-Claude command/helper `links` and maintained `/cpp:update` invocation are B2.
+Claude command/helper `links` are the separate B2a component below. Maintained
+`/cpp:update` invocation remains B2b.
 pi has a standalone core-backed adapter, but shared-registry enrollment remains
 a follow-up, as do Qwen and Gemma/OpenCode. Command-derived AGY invocation and
 runtime identity remain separate work. This CLI does not call native models,
@@ -211,14 +214,15 @@ read authentication stores, list agent/config roots or infer ownership from
 an installed CLI. File fidelity does not establish runtime selection.
 
 Default selection is existing validated CPP ownership or a recognized canonical
-source/GENERATED marker. `--select HARNESS` additionally selects an absent
-installation for repair; it does not filter out other managed harnesses.
+source/GENERATED marker. `--select HARNESS` additionally selects an absent copy
+installation for repair; link kinds still require established matching entries.
+Selection does not filter out other managed harnesses.
 With no managed/explicit selection, return not-applicable (5) without creating
 host roots. Initial planner/capability/status enrollment remains #1893.
 Read-only verification cannot label a missing, edited or unreadable ownership
 record current; the narrow refresh-only bootstrap is described below.
 
-Each root has `.cpp-managed/ownership.json` and bounded work/coordination files.
+Each copy root has `.cpp-managed/ownership.json` and bounded work/coordination files.
 Read-only verify creates no installation root, lock or record and never repairs
 metadata. The source phase uses an owned standalone private clone with a
 detached checkout and removes it afterward. It reads shared source objects but
@@ -252,10 +256,11 @@ its bytes and old ownership record. No default remedy replaces a foreign skill.
 The standalone pi adapter retains the default all-or-nothing policy pending
 [its separately tracked opt-in](https://github.com/cooneycw/claude-power-pack/issues/1896#issuecomment-7180740166).
 
-Human and schema-1 JSON reports carry per-adapter evidence, before/action/after,
+Human and schema-2 production JSON reports carry per-adapter evidence, before/action/after,
 nonzero expected/examined populations, reason/remedy and unknown effectiveness.
 Production JSON names included and deferred components, coverage `partial` and
-backend `copies`. The existing fixture schema remains unchanged. Exit 1 wins
+backend `mixed` with explicit per-component labels. The existing fixture schema
+remains unchanged. Exit 1 wins
 over unknown 4; all selected current is 0; no selection is 5. Failures remain
 isolated by harness and do not imply a host-wide transaction or rollback.
 
@@ -265,3 +270,67 @@ CPP lock. The historical native probe and one-run ruling are not reusable
 permission. Any future probe must refuse launch without a recorded governing
 ruling reference in both authentication lanes, including dedicated file-token
 setup. No new native run is acceptance evidence for B1.
+
+
+## Existing Claude links (B2a)
+
+Production JSON is schema 2, `backend: mixed`, with exactly four rows in registry
+order: `claude-topics/copies`, `codex/copies`, `antigravity/copies`, and
+`claude-links/links`. The production serializer adds per-row backend labels;
+fixture and Pi API/serialization remain unchanged. Each row carries the same
+full revision, including unselected `not-applicable` rows. Current requires a
+nonzero expected population and complete examined counts. A missing/mislabelled
+component, old schema or unsupported pinned entry is refused before trusting a
+success. Old callers cannot execute the new protocol entry and new callers
+cannot execute the old one; this is an explicit compatibility boundary.
+
+The links backend independently discovers existing command-family directory
+links under `~/.claude/commands` and helper links under `~/.claude/scripts`.
+Helpers are tracked executable regular files immediately under `scripts/`
+whose names are non-hidden, matching the existing installer glob,
+regardless of extension. The installed leaf and literal absolute target must
+match the exact approved persistent CPP root and tracked source mapping.
+Foreign-only directories, CLI presence, `--select claude-links`, and the other
+kind's installation do not enroll a tier. Missing entries in an established
+kind may be repaired, without creating an absent helper root.
+
+The source root supplied by the caller persists beyond the invocation. It must
+be clean and at the same full commit as the private execution snapshot. Links
+never point into that disposable snapshot. Source reads use a no-follow source
+authority after target mapping is proved, independently compare tracked Git
+object bytes, family membership and Git executable bits, and recheck the target
+after refresh. Checkout group/world permission bits are preserved, including
+umask-000 checkouts. The target is never pulled, moved, cleaned or chmodded.
+A different requested revision may still update copies, but makes the links
+unknown until the persistent target is independently at that revision.
+
+Verify checks installed entry types and target text without following installed
+links, holds an existing shared Claude lock and creates no lock/directory/link
+or record. Refresh holds the same exact `~/.claude/.cpp-skill-install.lock`
+exclusively with a bounded wait and re-inspects descriptor-bound roots and
+entries before mutation. Appearance/replacement of the lock during inspection
+is unknown. Cooperating shared updater calls serialize; legacy/native writers
+that ignore this lock remain outside that guarantee.
+
+Safe missing links progress even when an expected entry has been replaced by
+foreign content. Such files, directories, relative/wrong links and mixed farms
+are preserved, with full conflicts and exit 1. Only proven retired links can be
+unlinked: exact name/target, prior tracked kind membership in up to 64 available
+path-history commits, and unchanged link identity immediately before removal.
+A source-shaped orphan with insufficient history is preserved as unproven;
+shallow history supplies no guessed deletion authority. No recursive deletion,
+foreign conversion, adoption flag or broad root enumeration is added.
+
+For this row, `expected_packages` counts selected expected link entries;
+`expected_members` counts their tracked source files, and `examined_members`
+counts the source files whose installed links also match. Source/path/integrity
+uncertainty stops the link backend while copy rows can progress independently.
+The row never reports `copies`; runtime effectiveness remains unknown.
+
+`make test-host-update-links` exercises actual source/install histories.
+`make host-update-link-controls` runs a confined positive, preserved outside,
+dangling and regular-replacement negatives, and held-lock unknown against the
+real CLI and a constructed always-current anchor. This proves installed/source
+fidelity, not live model instruction following. `/cpp:update` readers, epic
+acceptance and the default-refusing native probe are B2b; no native run or auth
+setup is authorized by B2a.
