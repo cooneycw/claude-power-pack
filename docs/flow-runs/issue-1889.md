@@ -867,7 +867,8 @@ Base8e6efc03 is confirmed green by41646. PR1919 delivered B2a; no generated cpp-
 28. `tests/test_host_update_adapters.py` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
 29. `tests/test_host_update_ci_shape.py` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
 30. `lib/host_update/links.py` - ruling41749: narrow retirement removal to dangling targets only; preserve live targets as an existing UNMANAGED conflict/exit1. No schema/state/code additions.
-Scope:30 possible product paths plus own plan/as-read/lanes/receipt records. No probe paths, no neutral core/Pi API changes. Amend before extra product paths. Codex baseline untouched unless actual output deltas measured. Never repin historical members/generator/parser. Runtime regressions must run red before lazy-import fixes. Deletion comparison must establish shared deletion subset of actual legacy deletion, count all personal/foreign/retired/mixed population and enumerate legacy-only deletions. update.md before2291 lines; require lower after count.
+31. `controls/cpp-update-host-refresh/cases/unknown-stale-legacy/case.json` - owner1889A / mailbox41841: attributed real historical stale legacy package, shallow-CI reproducible named migration UNKNOWN.
+Scope:31 possible product paths plus own plan/as-read/lanes/receipt records. No probe paths, no neutral core/Pi API changes. Amend before extra product paths. Codex baseline untouched unless actual output deltas measured. Never repin historical members/generator/parser. Runtime regressions must run red before lazy-import fixes. Deletion comparison must establish shared deletion subset of actual legacy deletion, count all personal/foreign/retired/mixed population and enumerate legacy-only deletions. update.md before2291 lines; require lower after count.
 
 ### Implementation and validation
 One shared refresh replaces managed5a/5b/5c and7.9a, existing actual full revision, existing-install discovery and deferrals. Retain unrelated runtime/stash/local-model/MCP/memory/retired-surface operations. Real JSON/exit/finish-revision summary, no masked success. Controlled actual caller cases, byte/type oracles, genuine unwritable executing identity. Named control controls/cpp-update-host-refresh registered typed Make target host-update-command-check, GOOD stale refresh, BAD unwritable and malformed/revision moved reports, UNKNOWN unavailable; constructed masked-summary anchor. Existing parity bad attribution/pin/parser/generator cases protect both022/002 exact modes; preserve tracked-input race fix. No generated cpp-update reader or whole-epic/native acceptance claim.
@@ -893,3 +894,16 @@ Fresh review count0, default2 passes/thirdwithreason. Focused Make tests and con
 | Reader: native | not covered | B2b-2 deferred; nothing native/auth runs |
 
 Active Run6 scope amendment approved by ch-orch41749 after the20-entry legacy/shared deletion comparison failed. The live/dangling focused regression must run red before this conservative change; the three legacy-only deletion deltas stay explicit.
+
+
+Active Run6 F1 amendment: owner ruling1889 A relayed41841 activates scope41790;
+exact11-file amendment mailed41847 before edits. host.py bootstrap/error report
+may name stale expected versus retired/unexpected packages using existing row,
+Conflict and State shapes. update.md asks once for the named Codex adoption list,
+shows the exact persistent-root command and retained backups, and says frozen
+with the command on decline. Retired/unexpected entries stay preserved and are
+never adopted; no fallback. source.py/CLI stay marker-only, neutral/Pi unchanged.
+The actual e32c06ed~1 install at5204ea06 has80 packages,19 stale expected and no
+unexpected names; the named diagnostic regression was RED at498e2ed8. Actual
+v13.0.0 at40d25173 is byte/mode-identical and bootstraps without migration.
+Formal pass1 has one accepted F1; the next review is pass2 of defaultcap2.
