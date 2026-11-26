@@ -172,3 +172,17 @@ Orchestrator 40994 approves the separate branch; #1897 remains frozen.
 The [follow-up measurement](../measurements/pi/issue-1896-partial-refresh.md)
 records the actual pre-opt-in failure, fixed positive and fixture correction.
 All basetemps were removed after retaining necessary evidence under workspace.
+
+<!-- lanes-demonstrated run=00d2c06f8a804352acd60178d59eb6cc plan=10f9500fb59eddaf18657dc56d9c5746f599d7d0b6ee1afdf8f2a67ff93b9578 -->
+
+| Lane | Result | Test or observation |
+|---|---|---|
+| Checkout | passed | Separate linked worktree; full-topic CLI regression materializes a tracked source snapshot in a fixture-owned standalone repository |
+| CI provider | not run | Woodpecker PR CI awaits review, receipt, paired gate and PR creation; no CI pass claimed at this checkpoint |
+| Project state | passed | `test_full_topics_preserve_foreign_boot_and_install_other_seventeen`: foreign boot remains unchanged, 17 safe absent topics install; focused owned/edited cases also pass |
+| Toolchain version | passed | Installed container Python/uv/Make/Git ran 103 focused cases; pinned CI-image execution remains pending CI, with no matrix claim |
+| Clone shape | passed | Local `git rev-parse --is-shallow-repository` is false; paired gate will use this full-history checkout. Shallow runtime behavior is not newly covered |
+| Run location | passed | Make from CPP root and actual CLI from external fixture cwd in `test_full_topics_preserve_foreign_boot_and_install_other_seventeen` |
+| Reader: pi CLI report | passed | Actual install and verifier both exit 1/non-current; verifier reports only boot conflicts with all 18 expected topics |
+| Reader: ownership ledger | passed | Actual safe-topic records equal fresh member hashes/modes/source/revision, boot is absent from CPP ownership, verify leaves ledger bytes unchanged |
+| Reader: neutral-core default | passed | `test_explicit_default_policy_and_opt_in_copy_have_distinct_partial_policy`: explicit false arm preserves safe stale content and entire ledger, opt-in arm progresses |
