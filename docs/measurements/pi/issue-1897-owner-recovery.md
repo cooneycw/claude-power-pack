@@ -58,7 +58,11 @@ The script prints the exact ordered unlink/rmdir operations and saves them in
 record digest. It acquires all three existing locks without creation. Dry-run
 does not remove or write owner paths; its evidence files are private scratch.
 It invokes only the delivered read-only verifier, not the build/install targets.
-All removal candidates must be inside the exact recorded target roots. Personal
+Topic/state removal candidates must be inside the exact recorded target roots.
+The original logged inverse additionally authorizes a FINAL plain `rmdir` of
+the skills root when `skills_existed=false`; mailbox 40923 confirms this scope.
+Dry-run prints that final operation explicitly with `only_if_empty=true`.
+The plan also binds the current root identity and mode. Personal
 neighbors are never inventoried or added to that plan. If a canonical CPP-marked
 topic is omitted from the original record, recovery refuses the whole plan.
 
@@ -76,9 +80,12 @@ python3 <reviewed-checkout>/docs/measurements/pi/issue-1897-owner-recovery.py \
 
 Execution repeats verification, re-acquires every existing lock without
 creation, and requires exact equality with the saved dry-run plan before any
-deletion. It uses only unlink and rmdir; there is no recursive removal. It
-retains the skills root because that root is not in the recorded target list,
-even if empty. It verifies the recorded targets are absent and invokes the
+deletion. It uses only unlink and rmdir; there is no recursive removal. Its
+final removal operation, only when the record says the skills root was newly
+created, checks that the root is not a symlink and attempts plain `rmdir`.
+The OS refuses if any unrelated child exists, preserving that child and root.
+Pre-existing skills roots are retained. It verifies the recorded targets and
+any logged-new root are absent, then invokes the
 actual delivered verifier afterwards: expected missing-installed exit 1 with
 18 expected packages / 36 expected members / zero examined members, not current.
 Private command JSON distinguishes Make's failure status from the CLI verdict.
@@ -86,6 +93,10 @@ Private command JSON distinguishes Make's failure status from the CLI verdict.
 Any refusal or OS error stops. Preserve all journal/evidence and surviving
 state; no automatic retry, adoption or broad cleanup is authorized. A partial
 deletion caused by an unexpected OS failure requires another reviewed recovery.
+In particular, an unrelated root child makes the FINAL rmdir refuse after
+the recorded CPP targets have been removed. That child survives, the root
+remains and no successful recovery receipt is written. Do not claim the agent
+was unchanged or that the baseline was fully restored in this case.
 No unrecorded neighbor, even CPP-marked, is a deletion candidate. Only canonical
 topics are examined; no whole-agent or whole-skills inventory is performed.
 

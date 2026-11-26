@@ -1,5 +1,6 @@
 """Recovery controls use only disposable homes and the exact original probe."""
 
+import errno
 import fcntl
 import hashlib
 import importlib.util
@@ -28,7 +29,7 @@ def source(tmp_path_factory):
 
 
 @pytest.fixture
-def stopped(tmp_path, source, monkeypatch):
+def stopped(tmp_path, source, monkeypatch, request):
     old_path = tmp_path / "original_probe.py"
     original = (ROOT / "tests/fixtures/pi-owner-probe-a3dc5d6e.py.txt").read_bytes()
     assert hashlib.sha256(original).hexdigest() == "8bfd731d395d61b9f25a970aa247867a5e1cbd811bf171b912ff4b0745afa938"
@@ -39,9 +40,10 @@ def stopped(tmp_path, source, monkeypatch):
     spec.loader.exec_module(old)
     home, agent = tmp_path / "owner", tmp_path / "owner/agent"
     agent.mkdir(parents=True)
-    personal = agent / "skills/personal-fixture/SKILL.md"
-    personal.parent.mkdir(parents=True)
-    personal.write_text("personal fixture retained\n")
+    if getattr(request, "param", True):
+        personal = agent / "skills/personal-fixture/SKILL.md"
+        personal.parent.mkdir(parents=True)
+        personal.write_text("personal fixture retained\n")
     journal = tmp_path / "journal"
     args = type("Args", (), dict(source=str(source), home=str(home), agent=str(agent),
                                  journal=str(journal), exclusive_window_confirmed=True))()
@@ -211,3 +213,53 @@ def test_explicit_home_mismatch_refuses(stopped, tmp_path):
     with pytest.raises(ValueError, match="explicit home differs"):
         RECOVERY.run(stopped)
     assert PROBE.manifest(root) == before
+
+
+@pytest.mark.parametrize("stopped", [False], indirect=True)
+def test_created_empty_skills_root_is_final_dry_run_step_and_removed(stopped):
+    root = agent(stopped)
+    record = json.loads((Path(stopped.journal) / "before-and-undo.json").read_text())
+    assert record["skills_existed"] is False
+    before = PROBE.manifest(root)
+    RECOVERY.run(stopped)
+    assert PROBE.manifest(root) == before
+    plan = json.loads((Path(stopped.evidence) / "removal-plan.json").read_text())
+    assert plan["operations"][-1] == {"operation": "rmdir", "path": str(root / "skills"),
+                                     "only_if_empty": True, "recorded_created_root": True}
+    execute(stopped)
+    assert not (root / "skills").exists()
+    assert PROBE.manifest(root).keys() == {"."}
+    assert (Path(stopped.evidence) / "recovered.json").exists()
+
+
+@pytest.mark.parametrize("stopped", [False], indirect=True)
+def test_unrelated_root_file_refuses_final_rmdir_and_survives(stopped):
+    root = agent(stopped)
+    RECOVERY.run(stopped)
+    personal = root / "skills/unrelated-personal.txt"
+    personal.write_bytes(b"retain this unrelated file\n")
+    before = PROBE.manifest(personal)
+    with pytest.raises(OSError) as failure:
+        execute(stopped)
+    assert failure.value.errno == errno.ENOTEMPTY
+    assert PROBE.manifest(personal) == before
+    assert (root / "skills").is_dir()
+    assert not (Path(stopped.evidence) / "recovered.json").exists()
+    # Target undo completed before the final rmdir refusal. Do not claim the
+    # entire agent was unchanged or that root restoration succeeded.
+    record = json.loads((Path(stopped.journal) / "before-and-undo.json").read_text())
+    assert all(not PROBE.manifest(Path(path)) for path in record["targets"])
+
+
+@pytest.mark.parametrize("stopped", [False], indirect=True)
+def test_symlinked_skills_root_refuses_execution_before_any_deletion(stopped):
+    root = agent(stopped)
+    RECOVERY.run(stopped)
+    skills, saved = root / "skills", root / "saved-fixture-skills"
+    skills.rename(saved)
+    before = PROBE.manifest(saved)
+    skills.symlink_to(saved, target_is_directory=True)
+    with pytest.raises(ValueError, match="path alias refused"):
+        execute(stopped)
+    assert skills.is_symlink()
+    assert PROBE.manifest(saved) == before

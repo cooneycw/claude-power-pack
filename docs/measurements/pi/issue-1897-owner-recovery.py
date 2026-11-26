@@ -173,10 +173,16 @@ def run(args):
             row = sealed[str(target)][relative]
             operations.append({"operation": "unlink" if row["kind"] == "file" else "rmdir",
                                "path": str(target if relative == "." else target / relative)})
+    if record["skills_existed"] is False:
+        operations.append({"operation": "rmdir", "path": str(skills), "only_if_empty": True,
+                           "recorded_created_root": True})
+    root_info = skills.lstat()
     plan = {"revision": PROBE.REVISION, "source": str(source), "journal": str(journal),
             "record_sha256": hashlib.sha256(record_path.read_bytes()).hexdigest(),
             "home": str(home), "agent": str(agent), "targets": record["targets"],
-            "sealed": sealed, "operations": operations}
+            "sealed": sealed, "operations": operations,
+            "skills_root_identity": {"dev": root_info.st_dev, "ino": root_info.st_ino,
+                                     "mode": stat.S_IMODE(root_info.st_mode)}}
     locks = [primary, management / ".ownership.json.cpp-lock", management / ".work.cpp-lock"]
     with existing_locks(locks):
         require(PROBE.state(targets) == sealed, "recovery post-state changed before lock acquisition")
@@ -189,15 +195,21 @@ def run(args):
         PROBE.save(evidence / "execute-plan.json", plan)
         for operation in operations:
             path = Path(operation["path"])
+            if operation.get("recorded_created_root"):
+                require(record["skills_existed"] is False and not path.is_symlink(),
+                        "created skills-root removal refused")
             if operation["operation"] == "unlink":
                 path.unlink()
             else:
                 path.rmdir()
-    # The skills root is not a recorded target and is deliberately retained.
+    if record["skills_existed"] is False:
+        require(not os.path.lexists(skills), "new skills root was not restored to absent")
     require(PROBE.state(targets) == record["before"], "recorded target baseline was not restored")
     verify("after-recovery-verify", 1)
     require(PROBE.state(targets) == record["before"], "post-recovery verifier left CPP artifacts")
-    PROBE.save(evidence / "recovered.json", {"before": record["before"], "after": PROBE.state(targets)})
+    PROBE.save(evidence / "recovered.json", {"before": record["before"], "after": PROBE.state(targets),
+                                            "skills_existed_before": record["skills_existed"],
+                                            "skills_exists_after": skills.exists()})
     print("Recorded CPP targets restored to absent. In the SAME existing pi session, /reload again and "
           "compare the relevant list with baseline. Owner sign-off remains separate.")
 

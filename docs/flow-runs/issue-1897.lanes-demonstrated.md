@@ -64,3 +64,11 @@ This establishes the presence observation; it does not imply undo or restored
 discovery. Recovery and the second reload are still pending independent review
 and owner clearance. The host is retaining the journal durably. Both #1896
 UNKNOWN measurements and separate owner sign-off remain outstanding.
+
+Mailbox 40923 confirms the original root inverse: a logged-new skills root is
+now the final conditional rmdir operation, only empty and nonsymlink. Recovery
+fixture coverage now has 14 passing cases, including empty-root success,
+nonempty-root preservation/refusal and symlink-root refusal. A failed final
+rmdir is not whole-agent preservation: recorded targets have already been
+removed, and no successful restoration is claimed. No owner recovery or second
+reload result has yet been received.

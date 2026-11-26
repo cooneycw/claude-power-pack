@@ -206,3 +206,16 @@ original). This lets the stopped-install control remain reproducible after
 squash merge without relying on a WIP commit remaining reachable. These source
 fixtures require full local history through the explicitly pinned c434101e;
 shallow-checkout execution is outside this validation's declared clone lane.
+
+### Original root inverse clarified - mailbox 40923
+
+The orchestrator confirms the original logged inverse authorizes a FINAL plain
+rmdir of the skills root when `skills_existed=false`, only if empty and not a
+symlink. This supersedes the conservative root-retention limitation at 6c5d4ddd;
+it is the existing inverse, not a general expansion of removal scope. The
+reviewed dry-run must print that final conditional operation. Add committed
+empty-created-root success and unrelated-root-file refusal/preservation cases.
+A nonempty-root refusal occurs after the recorded topic/state removals and
+must not be reported as whole-filesystem restoration. One new push then freeze;
+independent review and owner presentation precede dry-run, and owner approval
+of the exact dry-run plan precedes execute.

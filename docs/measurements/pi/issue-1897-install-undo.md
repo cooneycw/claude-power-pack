@@ -200,3 +200,25 @@ must not be reported as whole-filesystem restoration if the empty root remains.
 The helper must obtain review/owner clearance before any recovery action, then
 capture the second reload separately. This is not owner sign-off or Section-5
 clearance; both #1896 UNKNOWN measurements remain visible.
+
+## Original root inverse restored - mailbox 40923
+
+The orchestrator confirms that the original logged inverse authorizes FINAL
+plain rmdir of a newly created skills root. The recovery now prints that exact
+conditional step in dry-run when `skills_existed=false`, binds root identity and
+mode in the reviewed plan, checks for a symlink, and relies on plain rmdir to
+refuse nonempty roots. Pre-existing roots remain. This supersedes the conservative
+root-retention limitation above without authorizing removal of unrelated data.
+
+All 13 recovery cases passed after this change, including empty-created-root
+removal and nonempty-created-root refusal. A further committed symlink-root case
+also passed, bringing recovery coverage to 14 passing cases. An unrelated file
+appearing after dry-run survives final rmdir refusal; CPP targets were already
+removed in that case, the root remains, and no success receipt is emitted.
+The symlink case refuses before deletion. A successful empty-root recovery
+removes both the 20 recorded targets and the logged-new root, then the actual
+verifier returns expected missing-installed. Basetemps were removed after each
+result; logs remain in persistent evidence. No owner dry-run or execution was
+performed here. The host sequence remains review, owner presentation and
+clearance for dry-run, review of the exact printed plan, owner approval for
+execute, recovery, and separate second existing-session reload observation.
