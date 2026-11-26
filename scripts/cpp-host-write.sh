@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#: NEGATIVE-CONTROL: controls/cpp-host-link-preservation
 #: NEGATIVE-CONTROL: controls/cpp-host-write
 #: NEGATIVE-CONTROL: controls/cpp-host-atomic
 #:
@@ -278,12 +279,28 @@ cmd_link_into() {
     local src="$1" dir="$2" name="$3"
     is_deferred "$dir" && { refuse "$dir" cpp; return $?; }
     [ -e "$src" ] || { printf 'cpp-host-write: FAILED source not found: %s\n' "$src" >&2; return 1; }
-    mkdir -p "$dir" || return 1
     if [ -L "$dir/$name" ]; then
-        printf 'cpp-host-write: ok %s/%s (already linked, skipped)\n' "$(normalise "$dir")" "$name"
+        printf 'cpp-host-write: ok %s/%s (existing link preserved, skipped)\n' "$(normalise "$dir")" "$name"
         return 0
     fi
-    ln -sf "$src" "$dir/$name" || return 1
+    if [ -e "$dir/$name" ]; then
+        printf 'cpp-host-write: PRESERVED %s/%s - existing non-symlink entry not replaced\n' "$(normalise "$dir")" "$name" >&2
+        return 1
+    fi
+    mkdir -p "$dir" || return 1
+    # symlink(2) fails exclusively on ANY existing leaf, including a directory.
+    # Plain ln can follow a directory created after the check; ln -f can destroy
+    # a regular file created in that interval. No platform-specific ln flags.
+    PYTHONPATH='' python3 -I - "$src" "$dir/$name" <<'PY_LINK' || return 1
+import os
+import sys
+
+try:
+    os.symlink(sys.argv[1], sys.argv[2])
+except FileExistsError:
+    print(f"cpp-host-write: PRESERVED {sys.argv[2]} - destination appeared; not replaced", file=sys.stderr)
+    raise SystemExit(1)
+PY_LINK
     printf 'cpp-host-write: ok %s/%s (linked)\n' "$(normalise "$dir")" "$name"
 }
 
