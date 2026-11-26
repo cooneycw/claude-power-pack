@@ -40,3 +40,20 @@ host-owned plain file, a link with any other shape, or one into a root that is
 not a CPP checkout. `tests/test_helper_orphan_prune.py` carries the negative
 control: an upstream-deleted helper is named and pruned, and each refusal case
 survives.
+
+
+## Link collision preservation (#1913)
+
+`link-into` returns1 with `cpp-host-write: PRESERVED` for an existing regular
+file, directory or other non-symlink leaf, before mkdir/link writes. Existing
+links remain untouched with exit0, and absent paths install normally. New links
+use Python3's exclusive symlink syscall, so a destination created after the
+check is preserved too; a raced directory never receives a nested link.
+Deferral remains exit3 and existing foreign links are preserved.
+
+Maintained init/update calls use the trusted checkout helper, including the
+helper loop and later configuration writes. A preserved personal executable at
+its installed path is never executed as the CPP seam. Collision diagnostics and
+failed/preserved counts reach the command summary. Local-tier bootstrap refuses
+an unverified seam before configuration. These changes do not migrate existing
+links or change other host-write operations.
