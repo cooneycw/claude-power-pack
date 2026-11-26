@@ -3,11 +3,15 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 import sys
 import types
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
+
+pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git required for tracked parity inputs")
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTROL = ROOT / "controls/antigravity-skill-build"
@@ -33,20 +37,136 @@ def load(path, name, source_root=ROOT):
 
 
 def canonical_source(destination):
-    """Fix checkout permission inputs to the historical 022 measurement.
+    """Copy tracked working-tree inputs under the historical 022 modes.
 
     copy2 preserves the source checkout modes regardless of the generator's
     umask. CI checks out sources as 0666/0777; Git records only executability.
     Normalize disposable inputs, retaining exact output mode comparisons.
+    Other workers plant temporary commands in the real tree (#1920); never
+    enumerate those untracked inputs or hide failures to read tracked ones.
     """
-    for suffix in (".claude/commands", "scripts", "docs", "charters", "lib", "controls"):
-        target = destination / suffix
-        shutil.copytree(ROOT / suffix, target, symlinks=True,
-                        ignore=shutil.ignore_patterns("__pycache__"))
-        for path in target.rglob("*"):
-            if not path.is_symlink() and path.is_file():
-                path.chmod(0o755 if path.stat().st_mode & 0o111 else 0o644)
+    paths = subprocess.check_output([
+        "git", "-c", "core.fsmonitor=false", "-c", f"safe.directory={ROOT}",
+        "-C", str(ROOT), "ls-files", "-z", "--",
+        ".claude/commands", "scripts", "docs", "charters", "lib", "controls",
+    ], text=True)
+    for name in paths.split("\0"):
+        if not name:
+            continue
+        source, target = ROOT / name, destination / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target, follow_symlinks=False)
+        if not target.is_symlink():
+            target.chmod(0o755 if target.stat().st_mode & 0o111 else 0o644)
     return destination
+
+
+def test_canonical_source_ignores_a_probe_removed_after_directory_listing(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    source.mkdir()
+    tracked = {
+        ".claude/commands/_tracked_probe_/auto.md": "tracked driver\n",
+        "scripts/executable.py": "#!/usr/bin/env python3\n",
+        "docs/guide.md": "tracked guide\n",
+        "charters/README.md": "tracked charter\n",
+        "lib/module.py": "# tracked module\n",
+        "controls/case.txt": "tracked control\n",
+    }
+    for name, content in tracked.items():
+        path = source / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+        path.chmod(0o777 if name == "scripts/executable.py" else 0o666)
+    link = source / "controls/guide-link"
+    link.symlink_to("../docs/guide.md")
+    subprocess.run(["git", "init", "--quiet", str(source)], check=True)
+    subprocess.run(["git", "-C", str(source), "add", "."], check=True)
+    probe = source / ".claude/commands/_closing_report_probe_"
+    probe.mkdir()
+    (probe / "auto.md").write_text("transient untracked driver\n")
+    indexed = subprocess.check_output(["git", "-C", str(source), "ls-files", "-z"], text=True).split("\0")
+    assert ".claude/commands/_closing_report_probe_/auto.md" not in indexed
+    assert ".claude/commands/_tracked_probe_/auto.md" in indexed
+    assert probe.is_dir() and (probe / "auto.md").is_file()
+    assert (source / "docs/guide.md").stat().st_mode & 0o777 == 0o666
+    assert (source / "scripts/executable.py").stat().st_mode & 0o777 == 0o777
+    original_scandir = os.scandir
+
+    @contextmanager
+    def list_then_remove(path):
+        with original_scandir(path) as rows:
+            entries = list(rows)
+        if path == source / ".claude/commands":
+            assert any(row.name == probe.name for row in entries)
+            (probe / "auto.md").unlink()
+            probe.rmdir()
+        yield iter(entries)
+
+    monkeypatch.setattr(os, "scandir", list_then_remove)
+    monkeypatch.setitem(canonical_source.__globals__, "ROOT", source)
+    output = tmp_path / "inputs"
+    try:
+        canonical_source(output)
+        assert not (output / ".claude/commands/_closing_report_probe_").exists()
+        for name, content in tracked.items():
+            assert (output / name).read_text() == content
+            expected = 0o755 if name == "scripts/executable.py" else 0o644
+            assert (output / name).stat().st_mode & 0o777 == expected
+        assert (output / "controls/guide-link").is_symlink()
+        assert (output / "controls/guide-link").readlink() == link.readlink()
+    finally:
+        if probe.exists():
+            (probe / "auto.md").unlink()
+            probe.rmdir()
+
+
+def test_canonical_source_stops_if_git_cannot_list_inputs(tmp_path, monkeypatch):
+    def cannot_list(*args, **kwargs):
+        raise subprocess.CalledProcessError(128, "git ls-files", stderr="input listing unavailable")
+
+    monkeypatch.setattr(subprocess, "check_output", cannot_list)
+    assert subprocess.check_output is cannot_list
+    output = tmp_path / "inputs"
+    with pytest.raises(subprocess.CalledProcessError, match="128"):
+        canonical_source(output)
+    assert not output.exists()
+
+
+def test_canonical_source_stops_on_a_missing_tracked_input(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    source.mkdir()
+    tracked = source / "docs/guide.md"
+    tracked.parent.mkdir()
+    tracked.write_text("tracked guide\n")
+    subprocess.run(["git", "init", "--quiet", str(source)], check=True)
+    subprocess.run(["git", "-C", str(source), "add", "."], check=True)
+    tracked.unlink()
+    assert not tracked.exists()
+    assert subprocess.check_output(["git", "-C", str(source), "ls-files"], text=True).strip() == "docs/guide.md"
+    monkeypatch.setitem(canonical_source.__globals__, "ROOT", source)
+    with pytest.raises(FileNotFoundError):
+        canonical_source(tmp_path / "inputs")
+
+
+def test_canonical_source_trusts_only_its_explicit_repository(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    source.mkdir()
+    tracked = source / "docs/guide.md"
+    tracked.parent.mkdir()
+    tracked.write_text("tracked guide\n")
+    subprocess.run(["git", "init", "--quiet", str(source)], check=True)
+    subprocess.run(["git", "-C", str(source), "add", "."], check=True)
+    monkeypatch.setenv("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    refused = subprocess.run(["git", "-C", str(source), "ls-files"], capture_output=True, text=True)
+    assert refused.returncode == 128 and "dubious ownership" in refused.stderr
+    monkeypatch.setitem(canonical_source.__globals__, "ROOT", source)
+    output = canonical_source(tmp_path / "inputs")
+    assert (output / "docs/guide.md").read_bytes() == tracked.read_bytes()
+    # The command-scoped trust must not change global Git configuration.
+    still_refused = subprocess.run(["git", "-C", str(source), "ls-files"], capture_output=True, text=True)
+    assert still_refused.returncode == 128 and "dubious ownership" in still_refused.stderr
 
 
 def baseline():
