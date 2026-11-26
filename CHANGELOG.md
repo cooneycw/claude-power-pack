@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [13.0.1] - 2026-11-26
+
+Fix-only patch from v13.0.0: one user-visible fix (#1913, PR #1915),
+backported from c47b5b2b. No other rolling-main changes are included.
+
+### Fixed
+
+- **Preserve personal helper paths during install/update.** Existing regular
+  files, directories and other non-symlinks are retained and return a conflict
+  instead of being overwritten or receiving nested links. Exclusive creation
+  also preserves entries that appear during installation. Init/update use the
+  trusted checkout helper, and local bootstrap stops before configuration if
+  its installed seam is personal or unverified.
+
 ## [13.0.0] - 2026-11-22
 
 Twenty-six merged PRs since v12.0.0 (`3ed25469`), through #1885. Counts by

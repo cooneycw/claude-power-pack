@@ -1,6 +1,6 @@
 # Claude Power Pack
 
-**v13.0.0** - Seven-step workflows, matched review helpers, and delegated lifecycle gates for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and Codex.
+**v13.0.1** - Preserves personal files when installing or updating CPP helpers. Workflows for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and Codex.
 
 ## What It Does
 
@@ -221,6 +221,13 @@ real annotated tag at [`626a96d9`](https://github.com/cooneycw/claude-power-pack
 It can be fetched with `git fetch origin tag v10.1.0`. No GitHub Release has
 been published. Further release/tag decisions remain the operator checkpoint
 tracked at [#1278](https://github.com/cooneycw/claude-power-pack/issues/1278).
+
+### v13.0.1 (2026-11-26)
+
+Fix-only patch from v13.0.0 for the personal-helper data-loss bug (#1913,
+PR #1915). Existing personal files and directories are preserved with a
+nonzero conflict result; init/update invoke the trusted checkout helper.
+This patch includes no other changes from rolling main.
 
 ### v13.0.0 (2026-11-22)
 
