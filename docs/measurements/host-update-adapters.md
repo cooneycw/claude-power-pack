@@ -424,3 +424,32 @@ placeholder. Those registration premises are corrected; its rerun, disposable
 CI-shape qualification, fresh formal review/receipt and supervised finish gate
 are still pending at this implementation checkpoint. No native/auth execution
 or whole-epic acceptance is claimed; #1889/#1876 remain open/PARTIAL.
+
+### B2b-1 pre-review qualification at f46f4b34
+
+The corrected whole bare batch passes all149 registrations, including the new
+typed Make target's GOOD, both BAD and UNKNOWN inputs. Its constructed anchor
+still repairs the stale GOOD installation but misses both BAD inputs by masking
+the final report/exit. All55 historical anchors were byte-compared with their
+named commits; none was off main or unknown. The completed log is
+bare-controls-final.log; its exact owned /tmp/b.7a353icj root was deleted.
+
+A disposable depth1 clone of exact f46f4b34 passed205 tests in255.23s and all
+four actual new Make control cases. The one skip is the historical shipped-byte
+case: .claude/commands/cpp/init.md at5a4d7fcd is unavailable in a depth1 clone.
+Its committed synthetic controls still ran; the skipped history lookup is not
+reported as a pass. The runner asserted checkout source mode0666 under
+umask000, used an aliased TMPDIR and minimal PATH, and set HOME=/root while
+running as actual UID1000. The new unwritable control independently printed
+and tested executing UID1000. There is no actual-root execution claim.
+
+The whole source was clean after removing the exact owned virtualenv symlink.
+ci-shape.log records the cases and cleanliness check. The exact owned
+/tmp/c.i8nq8cul clone, temporary roots and caches were deleted; cleanup-inclusive
+runtime was339.12s. Full/shallow/worktree sources, external cwd, copy/link mixes,
+unavailable tool/runtime paths, preservation and ordinary stdlib operation are
+covered by these fixtures. Native consumer behavior, both authentication lanes,
+toolchain-version matrix and delegated workflow changes remain unexamined.
+
+Formal B2b-1 review starts at count0, independently of the prior B2a passes.
+Fresh review/receipt and the directly supervised finish gate remain pending.
