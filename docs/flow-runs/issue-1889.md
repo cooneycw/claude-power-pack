@@ -458,15 +458,15 @@ priority. No native consumer or production host mutation is authorized by this p
 
 | Lane | Answer | Note |
 |---|---|---|
-| Checkout | will test | real production CLI from checkout/linked worktree and private detached source snapshot |
-| Harness | will test | real Claude TOPIC copies, Codex generated copies and AGY topic copies in disposable homes; commands/helpers deferred |
+| Checkout | will test | real production CLI from main checkout / linked worktree and private detached source snapshot |
+| Harness | will test | Claude install (TOPIC copies only) / Codex install; also AGY topic copies in disposable homes; commands/helpers deferred |
 | Driver | not covered | maintained cpp/update and its Claude/Codex command routes are B2; B1 actual standalone shared CLI only |
 | Coordination | not applicable | local advisory locks, no Kyle-dependent product branch; heavy validation uses gate supervisor |
 | CI provider | not applicable | no provider-selection change; PR CI Woodpecker only |
-| Project state | will test | managed, explicit selected absent, unselected absent, foreign-only, legacy exact/current and stale-unproven |
+| Project state | will test | a repository that has adopted a feature's file or record / one that has not; managed, selected absent, unselected absent, foreign-only and legacy cases |
 | Toolchain version | not covered | installed host and pinned CI only, no added version matrix |
-| Clone shape | will test | fixture-owned full, shallow HEAD-only and detached histories; unavailable source unknown |
-| Run location | will test | CPP root and unrelated invoking repository give same adapters/revision/results |
+| Clone shape | will test | a full clone with all refs / a fresh or shallow main-only clone; also detached fixture history; unavailable source unknown |
+| Run location | will test | invoked from the CPP root / from another directory (an unrelated repository), with same adapters/revision/results |
 | Gate target | not applicable | installation fidelity, not quality-gate interpreter/PATH routing |
 | Wave role state | not applicable | no mailbox registry/role behavior |
 | Reader: real copy adapters/core | tested against real output | actual pinned builds feed actual core; integration inspects installed bytes/membership/modes |
