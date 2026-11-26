@@ -955,3 +955,18 @@ Run every listed red case, pinned parity, full verify BEFORE pass4, then the
 entire149-control provenance batch. Fourth receipt escalation: ruled_by=owner,
 reference=the comment above, raised_cap=4. No fifth pass; material findings on
 pass4 return through ch-orch to owner. PR window still requires ch-orch clearance.
+
+
+Owner attribution correction at
+https://github.com/cooneycw/claude-power-pack/issues/1889#issuecomment-7205593196,
+relayed41983, supersedes the zero-cross-input-delta claim in the prior B plan.
+The generator is also bundled source material: exactly its flow-auto/flow-finish
+copies and their SHA256SUMS change. Existing scope paths13 (codex-baseline.json)
+and14 (test_antigravity_codex_parity.py) are explicitly active for exactly four
+attributed_input_delta rows and a committed bundled-input variation test.
+Each row must cite the actual committed B source SHA, old/new hashes and reason;
+all historical members, generator/parser paths, pins and other baseline fields
+remain unchanged. The held-old-input control must make the new test RED, even
+though two transforms on that same old input agree. Full parity, supervised full
+verify and the149-control batch precede the single approved fourth review.
+No fifth pass, PR window or native/auth authorization is added.
