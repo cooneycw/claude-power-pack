@@ -56,6 +56,49 @@ under #1876/#1888/#1889 must deliver command adaptation and actual invocation
 before that claim. Full receipt-backed flow parity also requires the AGY
 runtime evidence adapter in **#1886**.
 
+## Amendment (2026-11-26): existing Claude command and helper links
+
+The [owner ruling "1889 A"](https://github.com/cooneycw/claude-power-pack/issues/1889#issuecomment-7178523792)
+creates one exception to this ADR's symlink rejection: Claude Code's existing
+CPP command-family and flow-helper links stay links under the shared updater.
+This includes the existing command links under `~/.claude/commands/` and helper
+links under `~/.claude/scripts/`. It permits no new link kinds or harnesses.
+Claude topic skills, Codex skills, AGY topics and every new harness remain
+managed copies; their roots and package members retain the no-symlink policy.
+
+The exception uses a typed, bounded, verified Claude-only link backend in the
+shared driver. Each link must name its expected CPP source and resolve inside
+the approved CPP checkout bound to the run's full source revision. A matching
+suffix or a link-shaped name alone does not establish ownership or confinement.
+Do not inspect or mutate arbitrary neighbors, follow an aliased install root,
+or read target contents before proving the target is within that checkout.
+
+Read-only verification checks each installed entry's actual type, link target
+and confined resolution, then compares the expected source membership, bytes
+and executable modes against the pinned revision. Check the persistent target
+checkout's revision and cleanliness; links into a disposable build snapshot
+that will be removed do not satisfy this contract. Resolving a link is a
+topology check, not proof of current source contents. Unreadable or unprovable
+state remains unknown; verify creates or repairs nothing.
+
+Before the backend ships, commit controls for a link pointing outside the
+checkout, a dangling link, and an expected link replaced by a regular file.
+Each must be refused or reported non-current, with unexpected user content
+preserved. Include a confined, intact link as the positive control. These are
+requirements for #1889-B2, not implementation or executed acceptance evidence
+in this amendment.
+
+The updater report identifies this backend as **`links`**, never `copies`.
+Report Claude topic copies separately when summarizing mixed components. The
+existing shared revision, ownership, bounded lock, preservation and independent
+per-harness failure contracts still apply. The backend does not grant a new
+write scope or weaken the managed-copy core's symlink refusal.
+
+Delivery order is this docs-only amendment first, #1889-B1 copy adapters, then
+#1889-B2 maintained update wiring and Claude links. The amendment lands before
+that implementation; it does not complete #1889 or the epic acceptance. Initial
+harness coverage remains explicitly PARTIAL.
+
 ## Selected Option B pipeline and ownership contract
 
 Canonical `.claude/skills/<slug>/` packages plus their external
