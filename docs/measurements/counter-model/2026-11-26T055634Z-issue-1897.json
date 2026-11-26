@@ -1,0 +1,69 @@
+{
+  "branch": "issue-1897-pi-validation",
+  "counts": {
+    "accepted": 4,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "escalation": {
+    "raised_cap": 7,
+    "reference": "https://github.com/cooneycw/claude-power-pack/issues/1897#issuecomment-7183862480",
+    "ruled_by": "owner"
+  },
+  "extra_passes_reason": "passes 4-5 reviewed a test-only binary-guard fix and the owner Part 1 sign-off docs after the owner-execution review",
+  "head": "338c5f49a2211117ac6467cdd9d05f9bd95d6b49",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/25/rollout-2026-11-25T16-21-45-01a21383-5caa-7a60-b0dd-8fa74bd4c6bd.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 26964534,
+        "path": "2026/11/25/rollout-2026-11-25T16-21-45-01a21383-5caa-7a60-b0dd-8fa74bd4c6bd.jsonl",
+        "sha256": "b8d99792bb26c688fedb8db34ffdb3dafc73308bb921dc82682b47672448abf9"
+      }
+    ],
+    "thread_id": "01a21383-5caa-7a60-b0dd-8fa74bd4c6bd"
+  },
+  "issue": "1897",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 5,
+  "recorded_at": "2026-11-26T05:56:34Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewed_artifact": {
+    "base_sha": "0b5946f28039b70dc10ecdbe3468eb0a4507d0a9",
+    "merge_base": "0b5946f28039b70dc10ecdbe3468eb0a4507d0a9",
+    "method": "runtime-head",
+    "patch_sha256": "284978574f7a6362b64a87a7dbef1822be4a94e84e6254fbf85a3ac21f84e85c",
+    "report_record": 5741,
+    "target_head": "338c5f49a2211117ac6467cdd9d05f9bd95d6b49"
+  },
+  "reviewer": "claude/claude-opus-5-5",
+  "reviewer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2",
+    "sources": [
+      {
+        "bytes": 11774214,
+        "path": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl",
+        "sha256": "41013ec33c81f54eb789e793144144f64558adcf2a5ebe2605c576c96041ca71"
+      }
+    ],
+    "transcript": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}

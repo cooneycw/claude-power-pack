@@ -1,0 +1,121 @@
+{
+  "issue": 1897,
+  "evidence_kind": "sanitized host observations relayed by master through orchestrator",
+  "sources": {
+    "presence_relay_mailbox": 40900,
+    "presence_original_reference": 40899,
+    "completion_relay_mailbox": 40996,
+    "recovery_review_mailbox": 40941
+  },
+  "source_revision": "c434101e7ae580de3bb81ca1db9d325a0483c44c",
+  "baseline": {
+    "pi_skill_entries": 0
+  },
+  "install": {
+    "reported_cli_exit": 0,
+    "reported_state": "current",
+    "expected_packages": 18,
+    "expected_members": 36,
+    "examined_members": 36
+  },
+  "probe_stop": {
+    "probe_commit": "a3dc5d6ee4af315477b7da74ab1cf38029477286",
+    "error": "installed bytes/modes differ",
+    "cause": "expected build directory modes depended on umask 0002; installer creates 0755 directories",
+    "build_directory_mode": "0775",
+    "installed_directory_mode": "0755",
+    "differing_directories": 28,
+    "reported_file_bytes_and_modes_match": 36,
+    "sealed_post_written": false,
+    "undo_run_by_original_probe": false
+  },
+  "presence": {
+    "observed_at_utc": "2026-11-26T03:25:27Z",
+    "existing_session_reload": true,
+    "pi_skill_entries": 18,
+    "all_user_scope": true,
+    "reported_slugs_equal_journal": true,
+    "slugs": [
+      "best-practices",
+      "boot",
+      "browser-tiered",
+      "cicd-verification",
+      "claude-md-config",
+      "code-quality",
+      "context-efficiency",
+      "documentation",
+      "evaluate",
+      "hooks-automation",
+      "idd-workflow",
+      "infrastructure-hardening",
+      "mcp-optimization",
+      "project-deploy",
+      "python-packaging",
+      "secrets",
+      "session-management",
+      "spec-driven-dev"
+    ]
+  },
+  "recovery": {
+    "reviewed_and_executed_commit": "d013ef498318efbfc60592999faf4ac9a808ec28",
+    "recovery_script_sha256": "fe2b3b8931760c7bf910cf9a752f02f523581d5dead99228e3c34c4b87a72085",
+    "imported_fixed_probe_sha256": "bfb5a356e8060f299896a4648199762c3959a35b9582c816c870d3b03fa4d06a",
+    "reported_owner_approval": true,
+    "started_at_utc": "2026-11-26T04:25:56Z",
+    "completed_at_utc": "2026-11-26T04:25:57Z",
+    "exit_code": 0,
+    "reported_execute_plan_equals_removal_plan": true,
+    "plan_sha256": "fc919532130f924320c032ba206e6398c20b642dcf4a01ca76a1d82b866fedc4",
+    "reported_recorded_targets_absent": 20,
+    "skills_existed_before": false,
+    "reported_skills_exists_after": false,
+    "reported_primary_lock_absent": true,
+    "after_verify": {
+      "make_exit": 2,
+      "cli_exit": 1,
+      "state": "absent",
+      "expected_packages": 18,
+      "expected_members": 36,
+      "examined_members": 0
+    }
+  },
+  "final_discovery": {
+    "observed_at_utc": "2026-11-26T04:26:17Z",
+    "same_existing_session_reload": true,
+    "pi_skill_entries": 0,
+    "equals_baseline": true
+  },
+  "retained_host_artifact_sha256s": {
+    "after-recovery-verify.json": "15b32b22cb9fea924eefb78396fee5d801db181b04735545448d11f49ca880d1",
+    "dry-run-verify.json": "05a44694e769e25d88a115d6f1889594fa2db0b5ff37960c7845a272b11785e7",
+    "execute-verify.json": "05a44694e769e25d88a115d6f1889594fa2db0b5ff37960c7845a272b11785e7",
+    "execute-plan.json": "fc919532130f924320c032ba206e6398c20b642dcf4a01ca76a1d82b866fedc4",
+    "removal-plan.json": "fc919532130f924320c032ba206e6398c20b642dcf4a01ca76a1d82b866fedc4",
+    "recovered.json": "a1631e59e38b4f70e102c394cd1de7605441168907faf54bc35052ded4ae117f"
+  },
+  "local_verification": {
+    "decoded_completion_report_sha256": "26e051967acc1ef7483da9cb8a21f303b8ea809680d38ff2253db48c0c22cc34",
+    "decoded_report_sha256_verified": true,
+    "individual_host_artifact_digests_independently_recomputed": false,
+    "owner_commands_run_locally": false
+  },
+  "retention": "Host reports original journal, recovery evidence and journal backup retained; temporary worktrees removed.",
+  "standing_unknowns": [
+    "The built-in-tool inventory was not exposed by the tool-inventory RPC.",
+    "The measured RPC stderr did not expose skill-loader diagnostics."
+  ],
+  "owner_part_1_signoff": "signed_off",
+  "limits": [
+    "Scoped installation, actual discovery and executed undo observations; no unchanged-whole-agent or parent-timestamp claim.",
+    "No new provider/contextual-effectiveness, bearer-isolation or container-boundary claim.",
+    "Optional commit 64e9ef07 was not the owner-executed recovery."
+  ],
+  "owner_signoff": {
+    "comment_url": "https://github.com/cooneycw/claude-power-pack/issues/1897#issuecomment-7183877534",
+    "owner_words": "Part 1 done",
+    "public_comment_verified": true,
+    "may_close_issue": 1897,
+    "remaining_open_issue": 1896,
+    "deeper_integration_deferred": "Section 5 / #1899-#1905"
+  }
+}
