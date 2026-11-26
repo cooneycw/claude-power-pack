@@ -28,7 +28,7 @@ from .store import _directories, _document, locked, read_ledger, validate_build
 
 INCLUDED = ("claude-topics", "codex", "antigravity", "claude-links")
 BACKENDS = {n: "links" if n == "claude-links" else "copies" for n in INCLUDED}
-DEFERRED = ("maintained cpp/update wiring (B2b)", "pi shared-updater enrollment", "qwen", "gemma/opencode",
+DEFERRED = ("pi shared-updater enrollment", "qwen", "gemma/opencode",
             "command-derived AGY cpp-update invocation")
 
 

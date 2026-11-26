@@ -1,0 +1,55 @@
+{
+  "gate": {
+    "kind": "make-target",
+    "file": "Makefile",
+    "target": "host-update-command-check"
+  },
+  "invocation": [
+    "make",
+    "--no-print-directory",
+    "-f",
+    "{gate}",
+    "{target}",
+    "HOST_UPDATE_COMMAND_CASE={case}"
+  ],
+  "good_exit": 0,
+  "good_signal": "^HOST_COMMAND: current$",
+  "detect_signal": "^HOST_COMMAND: failure$",
+  "unknown_signal": "^HOST_COMMAND: unknown$",
+  "unavailable_signal": "^HOST_COMMAND: UNAVAILABLE - .* missing$",
+  "limits": "Actual maintained Bash refresh and final revision guard, real production CLI and owned Git/HOME. GOOD proves missing links are repaired with no source pull. BAD uses an asserted unwritable executing UID and malformed producer report. UNKNOWN lacks the entry; no fallback writer runs. The anchor executes the same real refresh but masks its final summary/exit. Native effectiveness and B2b-2 probe authorization are unexamined.",
+  "cases": [
+    {
+      "name": "good-stale-refresh",
+      "input": "cases/good-stale-refresh",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-unwritable",
+      "input": "cases/bad-unwritable",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-summary",
+      "input": "cases/bad-summary",
+      "expect": "BAD"
+    },
+    {
+      "name": "unknown-unavailable",
+      "input": "cases/unknown-unavailable",
+      "expect": "UNKNOWN",
+      "anchor_expect": "clean",
+      "anchor_expect_reason": "The blind anchor masks the unknown result as current."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "Makefile",
+      "path": "anchors/constructed-masked-summary.mk",
+      "sha256": "46a791069e3a7e1bba9795fe5d603fe7438c589ae3d3184c04501d802fa5c6ab",
+      "why": "Executes real refresh, then replaces the report and exit with current/0; the stale GOOD fixture must still be repaired."
+    }
+  ]
+}

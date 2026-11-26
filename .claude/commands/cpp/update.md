@@ -639,164 +639,103 @@ echo "$RUNTIME_STATUS"
 
 ---
 
-## Step 5a: Bootstrap the Host-Write Seam (issue #1198)
+## Step 5a: Shared Managed Host Refresh (PARTIAL, issue #1889)
 
-Every host write uses the trusted checkout helper at
-`$CPP_DIR/scripts/cpp-host-write.sh`. Never execute a personal file or foreign
-link preserved at its installed path. Before #1198, invoking an absent installed
-seam exited127 while update still claimed success.
+Run one shared refresh even when Step3 pulled no commits: source currency does
+not establish installed currency. This replaces the script/command link loops
+and the separate Codex install. The driver discovers existing CPP installs;
+CLI presence alone does not enroll a host, and each Claude link kind enrolls
+independently. It forwards `CPP_DEFER_SURFACES` to the declared managers.
+Never fall back to a legacy writer after a refusal or unavailable result.
 
-The bootstrap goes through the seam too, invoked at its CHECKOUT path - which
-always exists when a checkout does. That keeps it declared and deferrable like
-every other write, rather than a carve-out the `check-cpp-host-writes` gate has
-to be taught to ignore. `link-into` does its own `mkdir -p`, so this one call is
-the whole bootstrap.
-
-**IT MUST NOT CREATE `~/.claude/scripts`.** `link-into` does its own `mkdir -p`,
-so bootstrapping unconditionally would create that directory on a Tier 0/1 host
-- and Step 5b's `[ -d ~/.claude/scripts ]` guard would then pass for the first
-time and install ninety helpers, silently upgrading an install the next step
-explicitly promises never to self-upgrade. So the tier is read BEFORE the
-bootstrap, and decides it (counter-model review).
+The parent and pinned child use the same Python interpreter. Claude links and
+Codex require only the standard library; selected Claude topics and AGY require
+PyYAML and report their own named UNAVAILABLE result if it is absent. Keep the
+full source revision for the final summary guard. Execute the checkout entry,
+never a personal file preserved at an installed helper path.
 
 ```bash
-if [ -d ~/.claude/scripts ]; then
-  "$CPP_DIR/scripts/cpp-host-write.sh" link-into \
-    "$CPP_DIR/scripts/cpp-host-write.sh" ~/.claude/scripts cpp-host-write.sh
-  case $? in
-    0) SEAM_STATUS="available" ;;
-    3) SEAM_STATUS="the seam's own install was deferred by request" ;;
-    *) SEAM_STATUS="UNAVAILABLE - seam install refused or failed; see preserved-collision/error details" ;;
-  esac
-else
-  SEAM_STATUS="not installed (Tier 0/1: no ~/.claude/scripts, and this command will not create one)"
-fi
-echo "Host-write seam: $SEAM_STATUS"
+# CPP_SHARED_REFRESH
+HOST_REFRESH_REVISION=$(git -C "$CPP_DIR" rev-parse --verify HEAD 2>/dev/null)
+HOST_REFRESH_STATUS=$(python3 -I -B - "$CPP_DIR" "$HOST_REFRESH_REVISION" <<'CPP_REFRESH_READER'
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+root, revision = Path(sys.argv[1]), sys.argv[2]
+failure_code = 4
+try:
+    if not re.fullmatch(r"[0-9a-f]{40,64}", revision):
+        raise ValueError("full source revision unavailable")
+    if not (root / "scripts/cpp-host-update.py").is_file():
+        raise ValueError("production entry unavailable; no fallback writer")
+    failure_code = 1
+    result = subprocess.run(
+        [sys.executable, "-I", "-B", str(root / "scripts/cpp-host-update.py"), "refresh",
+         "--source-root", str(root), "--home", os.path.expanduser("~"),
+         "--revision", revision, "--json"],
+        capture_output=True, text=True, timeout=360)
+    print(result.stderr, end="", file=sys.stderr)
+    report = json.loads(result.stdout)
+    sys.path.insert(0, str(root))
+    from lib.host_update.source import valid_report
+    producer_revision = revision
+    if (result.returncode in (1, 4, 5) and report.get("revision") == ""
+            and all(row["action"] in ("not-attempted", "refused") for row in report["results"])):
+        # Discovery/refusal can finish before any source is bound or write attempted.
+        producer_revision = ""
+    if not valid_report(report, result.returncode, producer_revision):
+        raise ValueError("incomplete or inconsistent production report; inspect installed state")
+    finish = subprocess.run(["git", "-C", str(root), "rev-parse", "--verify", "HEAD"],
+                            capture_output=True, text=True, check=True).stdout.strip()
+    if finish != revision:
+        raise ValueError("source revision changed during refresh; inspect installed state")
+    states = {0: "current", 1: "failure", 4: "UNAVAILABLE", 5: "not-applicable"}
+    print(f"Managed refresh: {states[result.returncode]} (coverage=partial; native effectiveness unexamined)")
+    print(f"Revision: {revision}")
+    for row in report["results"]:
+        after = row["after"]
+        print(f"{row['harness']}: {after['state']}; {row['action']}; exit {row['exit_code']}; "
+              f"packages={after['expected_packages']}; "
+              f"members={after['examined_members']}/{after['expected_members']}")
+        for detail in (row["reason"], row["remedy"]):
+            if detail:
+                print("  " + detail.replace("\n", " "))
+        for conflict in after.get("conflicts", []):
+            print(f"  {conflict['package']}: {conflict['state']}; " + conflict['reason'].replace("\n", " "))
+    print("Deferred coverage: " + "; ".join(report["unimplemented"]))
+except Exception as error:
+    state = "failure" if failure_code == 1 else "UNAVAILABLE"
+    print(f"Managed refresh: {state} - " + str(error).replace("\n", " "))
+    print(f"Revision: {revision or 'unavailable'}")
+    raise SystemExit(failure_code)
+raise SystemExit(result.returncode)
+CPP_REFRESH_READER
+)
+HOST_REFRESH_EXIT=$?
+case "$HOST_REFRESH_EXIT" in
+  0|1|4|5) ;;
+  *) HOST_REFRESH_EXIT=4
+     HOST_REFRESH_STATUS="Managed refresh: UNAVAILABLE - shared reader did not complete; inspect installed state" ;;
+esac
+printf '%s\n' "$HOST_REFRESH_STATUS"
 ```
 
-Report `SEAM_STATUS` and continue. Anything but `available` is a supported
-state, not a stop: the steps below each read their own call's verdict, so they
-say which of the four things happened rather than claiming the write landed.
+Use the actual per-component states, expected/examined counts, conflicts and
+exit above in Step10. Exit0 means all selected components are current at the
+bound revision; exit1 means failure or preserved conflicts; exit4 means
+unexamined/unavailable; exit5 means no applicable existing installation.
+Failures continue the unrelated update steps, but never become a success claim.
+Preserve personal, foreign, hand-edited and deferred entries; offer their named
+remedy separately. No automatic adoption or tier upgrade is authorized here.
 
-**The status says what it measured, and nothing wider.** An earlier draft had
-the deferred branch announce that "every host write below will report deferred"
-- which is not something this call establishes. `--defer ~/.claude/scripts`
-defers the SEAM'S OWN INSTALL; it says nothing about `~/.claude/settings.json`
-or `~/.bashrc`, whose calls each consult their own defer-set entry and report
-their own verdict. Overclaiming from one surface to all of them is this issue's
-defect wearing the fix's clothes.
-
----
-
-## Step 5b: Script Symlink Refresh (Tier 2)
-
-The git pull may have ADDED new helper scripts under `scripts/` (e.g. the flow
-helper family, issue #581). EXISTING symlinks in `~/.claude/scripts/` follow
-the pull automatically, but a NEW script has no symlink yet - and the flow
-allowlist rules delivered by Step 7.5 match the stable `~/.claude/scripts/`
-path, so without this refresh a new rule points at a path that does not exist
-and the zero-prompt lane silently degrades. The loop links every EXECUTABLE
-file in `scripts/` regardless of extension (issue #669: the old `*.sh`-only
-glob skipped `flow-wave-plan.py`, so its shipped allow rule pointed at a
-nonexistent path); non-executable `.py` library files, directories, and
-`__pycache__` are skipped by the executability gate. Re-run the same
-idempotent link loop as `/cpp:init` Tier 2; skip when this install has no
-`~/.claude/scripts/` directory (Tier 0/1 - never self-upgrade the tier here):
-
-```bash
-if [ -d ~/.claude/scripts ]; then
-  SEAM_OK=0; SEAM_DEFERRED=0; SEAM_FAILED=0
-  for script in "$CPP_DIR"/scripts/*; do
-    [ -f "$script" ] && [ -x "$script" ] || continue
-    name=$(basename "$script")
-    # Through the declaring seam (#1132). The helper carries the already-linked
-    # skip this block had, and honours --defer ~/.claude/scripts by name.
-    "$CPP_DIR/scripts/cpp-host-write.sh" link-into "$script" ~/.claude/scripts "$name"
-    #: COMPOSE A VERDICT, do not just run (issue #1198). This loop made ninety
-    #: calls and drew no conclusion, so a seam that was absent linked nothing and
-    #: the step said so nowhere - measured on 2026-09-22, 25 scripts unlinked
-    #: while the run reported success. The tally is what makes the next step's
-    #: "npm-global-upgrade.sh is not installed" traceable to a cause here.
-    case $? in
-      0) SEAM_OK=$((SEAM_OK + 1)) ;;
-      3) SEAM_DEFERRED=$((SEAM_DEFERRED + 1)) ;;
-      *) SEAM_FAILED=$((SEAM_FAILED + 1)) ;;
-    esac
-  done
-  echo "→ Script refresh: $SEAM_OK linked/skipped, $SEAM_DEFERRED deferred, $SEAM_FAILED failed/preserved conflicts"
-  [ "$SEAM_FAILED" -gt 0 ] && echo "  WARNING: $SEAM_FAILED script(s) failed or were preserved as conflicts; see diagnostics. Do not treat these paths as CPP helpers."
-else
-  echo "→ Script refresh skipped (no ~/.claude/scripts - Tier 0/1 install)"
-fi
-```
-
-**The prune half (issue #1263).** The loop above only ever ADDS. When a helper
-is deleted upstream, its link in `~/.claude/scripts/` survives and dangles -
-measured: `project-next-vendor.py`, dangling from af348f8 (#1144) until it was
-removed by hand - and install-drift names it at every session start while
-nothing acts on it. So list the orphans, driven by install-drift's own orphan
-axis rather than a fresh scan (one definition of "ours", not two):
-
-**An empty list is a verdict only when the scan RAN.** A missing scanner, a
-missing `jq`, malformed JSON, or a skipped report with no `orphaned_helpers`
-array all produce no names - and the first cut printed "No orphaned helper
-links" for every one of them (counter-model review). So the read and the answer
-are separate: `ORPHAN_SCAN=read` only when the report parsed and carried the
-array, and anything else says the scan did not run.
-
-```bash
-if [ -d ~/.claude/scripts ]; then
-  HELPER_ORPHANS=""
-  ORPHAN_SCAN=unavailable
-  if DRIFT_JSON=$(CPP_INSTALL_DRIFT_CHECKOUT="$CPP_DIR" "$CPP_DIR/scripts/install-drift.sh" --json) \
-     && printf '%s' "$DRIFT_JSON" | jq -e '.orphaned_helpers | type == "array"' >/dev/null 2>&1; then
-    ORPHAN_SCAN=read
-    HELPER_ORPHANS=$(printf '%s' "$DRIFT_JSON" | jq -r '.orphaned_helpers[]')
-  fi
-  if [ "$ORPHAN_SCAN" != "read" ]; then
-    echo "→ Orphan scan NOT run (install-drift.sh --json gave no orphaned_helpers array) - unchecked, not clean"
-  elif [ -n "$HELPER_ORPHANS" ]; then
-    echo "Orphaned helper links (installed, their checkout source was deleted upstream):"
-    printf '  %s\n' $HELPER_ORPHANS
-  else
-    echo "→ No orphaned helper links"
-  fi
-fi
-```
-
-If any are listed, **ask the user** (AskUserQuestion) whether to remove them,
-naming each one. Set `PRUNE_CONFIRMED=yes` only on an explicit yes, and pass the
-listed names to the block below as literals. Never prune unasked: the list is a
-read, the removal is a write to the user's host.
-
-```bash
-if [ "${PRUNE_CONFIRMED:-no}" = "yes" ]; then
-  PRUNED=0; PRUNE_GONE=0; PRUNE_REFUSED=0
-  for name in <the listed names>; do
-    # The seam RE-PROVES ownership per entry (dangling, install-shaped, into a
-    # CPP checkout) and refuses anything else - a name is a string, and the
-    # entry can change between the listing and this call.
-    #: Exit 0 covers BOTH "removed" and "already absent" (another session got
-    #: there first), so the tally reads the seam's own words: counting every 0
-    #: as a removal claims work this run did not do (counter-model review).
-    if OUT=$("$CPP_DIR/scripts/cpp-host-write.sh" unlink-orphan ~/.claude/scripts "$name"); then
-      case "$OUT" in
-        *"orphan removed"*) PRUNED=$((PRUNED + 1)) ;;
-        *) PRUNE_GONE=$((PRUNE_GONE + 1)) ;;
-      esac
-    else
-      PRUNE_REFUSED=$((PRUNE_REFUSED + 1))
-    fi
-    echo "$OUT"
-  done
-  echo "→ Orphan prune: $PRUNED removed, $PRUNE_GONE already absent, $PRUNE_REFUSED refused or deferred"
-else
-  echo "→ Orphan prune: not run (no orphans, or the user declined)"
-fi
-```
-
-Carry the prune line into the Step 10 summary. A refused entry is reported, not
-retried: the seam refused it because it is not a dangling link of ours.
+For links, only proven retired dangling entries may be removed. A retired
+executable kind whose target still exists stays as an unmanaged conflict with
+exit1. The shared ownership proof also preserves foreign-checkout dangling,
+unproven and relative links that legacy confirmed pruning could delete.
 
 ---
 
@@ -850,57 +789,12 @@ here - never as a recurring prompt. See `docs/agents/shared-stash-stack.md`.
 
 ---
 
-## Step 5c: Command-Surface Symlink Check (issue #663)
+## Step 5c: Command-Surface Result
 
-The user-scope command symlinks (`~/.claude/commands/<family>` -> the
-checkout, installed by `/cpp:init` Tier 1) are the CANONICAL command surface:
-they follow the Step-3 `git pull` atomically, so there is nothing to refresh -
-this step only VERIFIES they exist and still point at this checkout. Call the
-helper BARE (allowlist rule matches the stable path):
-
-```bash
-~/.claude/scripts/cpp-commands-link.sh --check
-```
-
-The drift verdicts are deliberately split (issue #756). A family CPP just
-shipped with no link at all is unambiguous: the symlink tier (issue #663)
-exists so the command surface follows `git pull`, and requiring a prompt here
-means every new family silently fails to reach users who defer the update. A
-link pointing somewhere else is a choice the user may have made, and still
-needs a human.
-
-- `CPP_COMMANDS_LINK: ok` - report `✓ Command symlinks current` and continue.
-  **Report it as a TOPOLOGY result, never as an install-health verdict** (issue
-  #685): quote the helper's own `families:` and `ok:` numbers from its summary
-  line; the `ok:` number means that many family links resolve to this checkout,
-  and says nothing about whether the checkout's CONTENT is correct. A
-  restore-over-clone accident produced a working tree with 106 files reverted
-  and 111 upstream-deleted files resurrected; every link resolved, this step
-  read `ok`, and the Step-3 `git pull` said "Already up to date" - three green
-  signals while every served command was stale. Do not summarise this step as
-  "command surface healthy".
-- A `checkout: N tracked modified, M untracked (-uall) ...` line may precede the
-  verdict. It is an ADVISORY observation, not drift: relay it with its counts
-  and leave the verdict alone. Dirtiness is not staleness - a maintainer
-  mid-edit and a corrupted restore look the same from here, which is why the
-  counts are split (a handful of untracked scratch reads very differently from
-  106 tracked modifications). If the numbers look wrong for the host, the
-  content checks are `git -C "$CPP_DIR" status --porcelain -uall` (expect empty)
-  and `git -C "$CPP_DIR" rev-parse HEAD origin/main` (expect equal).
-- `CPP_COMMANDS_LINK: drift-missing` (exit 3) - new families have no link and
-  no stale link needs a decision. Without prompting, run the install bare
-  (`~/.claude/scripts/cpp-commands-link.sh`). Use its `linked   <fam> -> ...`
-  lines and `changed:` counter as the source for N, then report
-  `✓ linked N new famil(ies)`.
-- `CPP_COMMANDS_LINK: drift` (exit 1) - a link points at ANOTHER checkout, or
-  an owned link is an orphan for a retired family. Ask the user, then run the
-  install (bare, no flags):
-  `~/.claude/scripts/cpp-commands-link.sh`
-- `foreign` lines are the user's own content winning a name collision -
-  surface them, never modify them.
-- Exit 127 (helper not yet linked): Step 5b just linked it on Tier 2+ hosts;
-  fall back to `"$CPP_DIR/scripts/cpp-commands-link.sh" --check` once, or skip
-  with a note on a Tier 0/1 install.
+Read the `claude-links` row from Step5a. Its result covers tracked source bytes,
+executable modes and expected link membership, with personal/foreign conflicts
+preserved. No second command-link installer runs here. A current link row does
+not establish native runtime effectiveness or marketplace-cache currency.
 
 **Marketplace-cache migration (#662 / ADR 0005):** while the retired `/plugin`
 families remain installed, sessions may read the STALE cached copies instead of
@@ -2020,28 +1914,14 @@ installs (#582 follow-through tracked with #575).
 
 ## Step 7.9: Generated Host-Surface Refresh (issue #575)
 
-CPP ships installers and teardowns for the generated surfaces it writes into
-HOME, and until #575 **none of them were invoked here** - so an updated host
-ended up missing current files AND keeping retired ones. Both halves run in
-this step. It is fail-open throughout: any failure warns and continues, never
-aborting the update.
+Managed skills were handled once in Step5a. This step retains the separate
+memory-harness installer and retired-surface review. Failures warn and continue
+with their own verdict; they do not replace the managed-component report.
 
-**7.9a - Install the current Codex skills.** Until #575 nothing installed
-CPP's generated skills to `~/.codex/skills/`, so Codex could not see any CPP
-skill. Since issue #1670 they are not a tracked tree: `--install` builds them
-from the sources this update just pulled, checks the build against those
-sources, and publishes it - so this step is also what brings the host's copies
-back in line after a pull. The installer prunes managed orphans at the
-destination too, so a skill dropped upstream stops loading here. Skip when
-Codex is not installed on this box.
-
-```bash
-if command -v codex >/dev/null 2>&1; then
-  python3 scripts/codex-skill-sync.py --install || echo "WARNING: codex skill install failed (continuing)"
-else
-  echo "→ Codex skills skipped (codex CLI not installed)"
-fi
-```
+**7.9a - Read the shared Codex result.** Step5a already refreshed existing
+managed Codex copies at the bound revision. Use that row's actual state and
+counts; no separate installer runs here. A Codex executable alone does not
+select an absent install. Explicit installation remains `/cpp:init` work.
 
 **7.9b - Wire the common-memory harness.** `scripts/install-memory-harness.sh`
 has always advertised itself as safe to re-run from `/cpp:update`, and nothing
@@ -2184,8 +2064,17 @@ named a commit two behind the one the host's commands, helpers and Codex skills
 were actually served from). Re-read HEAD now, and say so when it moved:
 
 ```bash
+# CPP_SHARED_FINISH_GUARD
 FINISH_COMMIT=$(git -C "$CPP_DIR" rev-parse --short HEAD)
+HOST_FINISH_REVISION=$(git -C "$CPP_DIR" rev-parse --verify HEAD 2>/dev/null)
+if [ -z "$HOST_REFRESH_REVISION" ] || [ "$HOST_FINISH_REVISION" != "$HOST_REFRESH_REVISION" ]; then
+  HOST_REFRESH_EXIT=4
+  HOST_REFRESH_STATUS="Managed refresh: UNAVAILABLE - revision changed after refresh; inspect installed state
+Revision: ${HOST_REFRESH_REVISION:-unavailable}
+Finished revision: ${HOST_FINISH_REVISION:-unavailable}"
+fi
 echo "Finished on: $FINISH_COMMIT"
+printf '%s\n' "$HOST_REFRESH_STATUS"
 ```
 
 When `FINISH_COMMIT` differs from `NEW_COMMIT`, the `Commit:` line below reads
@@ -2196,7 +2085,7 @@ in, not the state this run passed through.
 
 ```
 =================================
-CPP Update Complete
+CPP Update Report
 =================================
 
 Version: v{OLD_VERSION} -> v{NEW_VERSION}
@@ -2204,7 +2093,8 @@ Commit:  {OLD_COMMIT} -> {NEW_COMMIT} {(finished on FINISH_COMMIT - moved during
 Branch:  {BRANCH}
 Tier:    {TIER} {(upgraded from X if applicable)}
 {Bash:   Step 3.6 finding with its remedy - only when Step 3.6 reported one}
-Helpers: {Step 5b refresh line}; {Step 5b orphan-prune line}
+Managed refresh (PARTIAL, exit {HOST_REFRESH_EXIT}):
+  {HOST_REFRESH_STATUS - actual final guarded per-component report from Step5a/Step10}
 
 Changes pulled:
   {list of new commits, or "Already up to date"}
@@ -2229,9 +2119,7 @@ Docker MCP Drift:
    point unless prune-all)", or "drift remaining (user kept some servers)"}
 
 Host Surfaces:
-  {HOST_SURFACE_STATUS - e.g. "refreshed (73 codex skills installed, memory harness
-   linked, no retired surfaces present)", "partial (user kept a retired surface)",
-   or "clean"}
+  {HOST_SURFACE_STATUS - memory harness / retired-surface result only; Codex is in the managed report above}
 
 Local-Model Lanes:
   {LOCAL_MODEL_LANES_STATUS - carries each harness's OWN verdict, e.g. "Tier 6
@@ -2259,9 +2147,9 @@ Run /cpp:status for full installation details.
 - Legacy systemd units are detected and removed only after user confirmation
 - MCP drift detection compares CPP's expected servers against leftover retired
   containers, legacy systemd remnants, claude mcp registrations, and listening ports
-- Generated host surfaces are refreshed in Step 7.9 (issue #575): the Codex skill
-  install and the common-memory harness both run here, and retired surfaces are
-  detected against the curated `.claude/retired-surfaces.yaml`
+- Managed copies and links use the single shared Step5a refresh. Step7.9 retains
+  the memory harness and retired-surface review against the curated
+  `.claude/retired-surfaces.yaml`
 - Step 5d refreshes already-present Tier 6/7 harnesses and re-merges the Gemma
   provider and agent profile, but never installs an absent tier. The re-merge
   keeps the `gemma-implementer` mechanical fence from going stale (issue #754)

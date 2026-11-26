@@ -399,3 +399,27 @@ source members, not native effectiveness.
 B2a does not wire maintained `/cpp:update`, change Codex command attribution or
 run a native probe. Those are B2b, whose PR follows B2a merge. Initial coverage
 remains PARTIAL and #1889/#1876 remain open for their remaining acceptance.
+
+
+## B2b-1 maintained-wiring subset
+
+B2b-1 replaces managed Step5a/5b/5c and7.9a writers with one shared refresh,
+full-revision binding, existing-install discovery and preserved deferrals.
+The actual report/exit supplies per-component summary counts and conflicts;
+final revision movement invalidates currency. Existing no-selection exit5 stays
+not-applicable. Only proven retired dangling links are removed; retired live
+targets stay unmanaged/exit1. The shared deletion population must be a subset
+of the exact confirmed legacy population, with safer differences enumerated.
+
+Producer marker3 changes the closed deferred-set contract before execution;
+JSON schema2 and neutral/Pi APIs stay unchanged. Plain stdlib Claude links and
+Codex work without PyYAML; selected YAML adapters report their own unavailable4.
+One registered typed Make control exercises actual command fences, stale
+installation repair without a pull, unwritable identity, malformed output and
+entry absence, against an anchor that refreshes but masks its final summary.
+
+Acceptance is deliberately a subset: guarded probe entry, both authentication
+lane rulings and native effectiveness follow only in B2b-2 or later. Historical
+attempt4 bytes are immutable and no old authorization is reusable. The Codex
+generator excludes cpp-update, so no generated cpp-update reader is claimed.
+The parent #1889/#1876 issues remain open/PARTIAL.

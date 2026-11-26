@@ -356,3 +356,71 @@ negative-fixture checks pass. retirement-green.log records the completed run;
 the owned /tmp/b.rlklrbxk test root and interrupted predecessor roots were
 deleted. The first combined attempt exceeded its180s execution timeout and is
 not counted as a verdict; the completed rerun used a sufficient timeout.
+
+### B2b-1 maintained reader implementation checkpoint
+
+The maintained update now invokes one shared refresh even when its source pull
+is a no-op, capturing the full revision and propagating existing deferrals.
+Managed Step5a/5b/5c and7.9a have no second writer or legacy fallback. The actual
+closed report/exit supplies component states, expected/examined counts and
+conflicts. The final guard invalidates managed currency when HEAD moved.
+Unrelated stash, local-model, MCP, memory and retired-surface steps remain.
+The maintained document decreased from2291 lines at8e6efc03 to2179 lines,
+a strict net decrease of112.
+
+The frozen B2a marker2 caller regression was RED before the marker change: it
+executed the still-compatible producer instead of refusing before execution
+(3.80s). Producer marker3 now fences the changed closed deferred set before
+writes. The old marker2 producer and prior marker1 producer are independently
+refused. JSON schema2, component row shapes, neutral core and Pi APIs stay
+unchanged. The first actual-maintained-block regression was also RED against
+the old command (6.80s): no shared writer was present.
+
+All87 real maintained/runtime/preservation/legacy-seam/count-reader and
+compatibility cases pass (196.46s), including stale helper repair and proven
+retired dangling removal with no source pull; preservation of a personal seam
+without executing it; genuinely unwritable UID1000; deferrals; entry absence;
+no-selection exit5; skipped-refresh mutation; and final revision movement.
+An owned empty venv plus a PATH excluding the native Codex CLI proves the
+maintained refresh updates actual Codex reference.md bytes to a separately
+built expected member. With owned YAML installs present, the same fixture
+reports named missing-yaml unknown4 for Claude topics/AGY while Codex progresses.
+
+The reader preserves an existing pre-execution contract: a no-selection5,
+unknown4 or refused1 may have an empty producer revision if every action is
+not-attempted/refused. It validates those non-current envelopes independently
+and keeps the captured checkout revision for the final guard. It never admits
+an unbound current0. A deferred Claude scope retains its named refusal/exit1,
+rather than being mislabeled as malformed output.
+
+Two fixture premises were corrected during development, before formal review.
+Codex procedure bodies live in reference.md, not their stable SKILL.md wrapper;
+the test now asserts that the actual expected member differs before refreshing.
+The seam detector's directly counted update calls go from6 to4: bootstrap and
+the link loop disappear; the former prune consultation was already inside an
+if statement and outside this count. Init stays14. Historical public-seam and
+tally tests use the exact pinned legacy fences and identify them as historical;
+the current reader tests execute the actual new maintained fences.
+
+All28 independent Codex parity/attribution/pin/parser/generator/mode cases pass
+(15.08s). The404-member historical baseline, generator and parser pins remain
+unchanged; measured current output deltas are zero. A nonempty attribution
+fixture reproduced the old002 reader's rejection before the correction. Both
+022/002 now consume the same attributed candidates while exact modes still
+compare between the independent real generators. Only the expected group-write
+bit is adjusted for comparison with the historical022 measurement. The added
+world-write counterexample failed before that adjustment was narrowed and now
+remains detectable, alongside wrong hash/mode/reason/source-commit and pin cases.
+No conditional baseline JSON edit was needed and no generated cpp-update reader
+is claimed.
+
+Lint,567-file typecheck, binary guards, negative-fixture checks, instrument
+census, verify coverage and guarded host-write checks pass. Logs are
+wiring-readers-final.log and parity-and-static-final.log in the B2b-1 evidence
+directory; their exact owned temporary roots were deleted. The first full bare
+control batch rejected the new registration because its files were untracked
+and its Make invocation used a literal goal instead of the required target
+placeholder. Those registration premises are corrected; its rerun, disposable
+CI-shape qualification, fresh formal review/receipt and supervised finish gate
+are still pending at this implementation checkpoint. No native/auth execution
+or whole-epic acceptance is claimed; #1889/#1876 remain open/PARTIAL.

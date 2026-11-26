@@ -7,6 +7,12 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_host_update_adapters import source as source_fixture
+from tests.test_host_update_adapters import source_template as template_fixture
+from tests.test_host_update_command import maintained_block
+
+source_template = template_fixture
+source = source_fixture
 ROOT = Path(__file__).resolve().parents[1]
 GATE = ROOT / "scripts/cpp-host-write.sh"
 pytestmark = [pytest.mark.skipif(not shutil.which("bash"), reason="bash required"),
@@ -96,30 +102,35 @@ def fences(command):
     blocks = re.findall(r"```bash\n(.*?)```", text, re.S)
     if command == "init":
         return next(block for block in blocks if "# BOOTSTRAP THE SEAM" in block and "SEAM_OK=0" in block)
-    bootstrap = next(block for block in blocks if 'SEAM_STATUS="not installed (Tier 0/1' in block)
-    loop = next(block for block in blocks if "SEAM_OK=0" in block and 'for script in "$CPP_DIR"/scripts/*' in block)
-    return bootstrap + "\n" + loop
+    return maintained_block("# CPP_SHARED_REFRESH")
 
 
 @pytest.mark.parametrize("command", ["init", "update"])
-def test_actual_callers_preserve_and_never_execute_personal_seam(tmp_path, command):
+@pytest.mark.skipif(not shutil.which("git"), reason="real maintained updater requires Git source")
+def test_actual_callers_preserve_and_never_execute_personal_seam(source, tmp_path, command):
     home = tmp_path / "home"
     seam = home / ".claude/scripts/cpp-host-write.sh"
     seam.parent.mkdir(parents=True)
+    if command == "update":
+        (seam.parent / "cpp-commands-link.sh").symlink_to(source / "scripts/cpp-commands-link.sh")
     sentinel = home / "PERSONAL_SEAM_EXECUTED"
     content = b'#!/bin/sh\nprintf EXECUTED > "$HOME/PERSONAL_SEAM_EXECUTED"\nexit 0\n'
     seam.write_bytes(content)
     seam.chmod(0o755)
     assert seam.is_file() and not seam.is_symlink() and os.access(seam, os.X_OK)
     assert not sentinel.exists()
-    env = dict(os.environ, HOME=str(home), CPP_DIR=str(ROOT), CPP_DEFER_SURFACES="",
+    env = dict(os.environ, HOME=str(home), CPP_DIR=str(source if command == "update" else ROOT), CPP_DEFER_SURFACES="",
                CPP_CAPABILITIES_JSON='["commands","scripts"]')
     result = subprocess.run(["bash", "-c", fences(command)], cwd=tmp_path, env=env,
                             capture_output=True, text=True, timeout=60)
     assert not sentinel.exists(), "preserved personal seam was executed as trusted CPP code"
     assert seam.is_file() and not seam.is_symlink() and seam.read_bytes() == content
-    assert "PRESERVED" in result.stderr and "UNAVAILABLE" in result.stdout
-    assert "failed" in result.stdout and "preserv" in result.stdout.lower()
+    if command == "init":
+        assert "PRESERVED" in result.stderr and "UNAVAILABLE" in result.stdout
+        assert "failed" in result.stdout and "preserv" in result.stdout.lower()
+    else:
+        assert "Managed refresh: failure" in result.stdout and "unmanaged" in result.stdout
+        assert "preserv" in result.stdout.lower()
 
 
 @pytest.mark.parametrize("kind", ["regular", "directory"])

@@ -2,6 +2,8 @@
 import hashlib
 import json
 import os
+import re
+import shlex
 import shutil
 import subprocess
 import venv
@@ -9,11 +11,12 @@ from pathlib import Path
 
 import pytest
 
+from lib.host_update.codex import CodexAdapter
 from lib.host_update.links import ClaudeLinks
 from tests.test_host_update_adapters import CLI, cli, git, request
 from tests.test_host_update_adapters import source as source_fixture
 from tests.test_host_update_adapters import source_template as template_fixture
-from tests.test_host_update_links import seed
+from tests.test_host_update_links import seed, tree
 
 source_template = template_fixture
 source = source_fixture
@@ -274,3 +277,189 @@ def test_retired_live_target_preserved_and_dangling_target_pruned(source, tmp_pa
     again = adapter.operate(request(source), verify_only=False)
     assert again.exit_code == 1 and again.after.state == "unmanaged", again
     assert len(again.after.conflicts) == 1 and live.is_symlink()
+
+
+def maintained_block(marker):
+    document = (CLI.parents[1] / ".claude/commands/cpp/update.md").read_text()
+    blocks = [b for b in re.findall(r"```bash\n(.*?)```", document, re.S) if marker in b]
+    assert len(blocks) == 1, f"expected one actual maintained block for {marker}"
+    return blocks[0]
+
+
+def run_maintained(source, home, *, finish=False, between="", deferred="", path=None):
+    script = maintained_block("# CPP_SHARED_REFRESH")
+    if finish:
+        script += "\n" + between + "\n" + maintained_block("# CPP_SHARED_FINISH_GUARD")
+    script += '\nprintf "\\nCPP_REFRESH_EXIT=%s\\n" "$HOST_REFRESH_EXIT"\n'
+    env = dict(os.environ, HOME=str(home), CPP_DIR=str(source), CPP_DEFER_SURFACES=deferred)
+    if path is not None:
+        assert shutil.which("git", path=path) and shutil.which("python3", path=path)
+        assert shutil.which("codex", path=path) is None, "custom PATH must exclude the native CLI"
+        env["PATH"] = path
+    return subprocess.run(["bash", "-c", script], cwd=home.parent, env=env,
+                          capture_output=True, text=True, timeout=180)
+
+
+@pytest.mark.skipif(not shutil.which("bash"), reason="real maintained fences require bash")
+def test_maintained_refresh_repairs_stale_install_without_a_source_pull(source, tmp_path):
+    retired_target = source / "scripts/maintained-retired.sh"
+    retired_target.write_text("#!/bin/sh\nexit 0\n")
+    retired_target.chmod(0o755)
+    git(source, "add", "scripts/maintained-retired.sh")
+    git(source, "commit", "-qm", "fixture prior managed helper")
+    home = tmp_path / "home"
+    adapter = seed(home, source)
+    assert adapter.operate(request(source), verify_only=False).exit_code == 0
+    retired = home / ".claude/scripts/maintained-retired.sh"
+    git(source, "rm", "scripts/maintained-retired.sh")
+    git(source, "commit", "-qm", "fixture current source retired helper")
+    assert retired.is_symlink() and not retired.exists()
+    missing = home / ".claude/scripts/cpp-host-write.sh"
+    missing.unlink()
+    assert not missing.exists() and not missing.is_symlink()
+    old = git(source, "rev-parse", "HEAD")
+    result = run_maintained(source, home, finish=True)
+    assert result.returncode == 0, result.stderr
+    assert "CPP_REFRESH_EXIT=0" in result.stdout and "Managed refresh: current" in result.stdout, result.stdout
+    assert missing.is_symlink() and missing.readlink() == source / "scripts/cpp-host-write.sh", (
+        "shared refresh did not repair missing helper")
+    assert not retired.is_symlink()
+    assert git(source, "rev-parse", "HEAD") == old
+    assert f"Revision: {old}" in result.stdout and "coverage=partial" in result.stdout
+    assert "claude-links: current" in result.stdout
+
+
+@pytest.mark.skipif(not shutil.which("bash"), reason="real maintained fences require bash")
+@pytest.mark.parametrize("scenario", ["foreign-only", "personal-seam", "unavailable", "unwritable", "deferred"])
+def test_maintained_refresh_reports_actual_preserved_and_unavailable_states(source, tmp_path, scenario):
+    home = tmp_path / "home"
+    if scenario == "foreign-only":
+        personal = home / ".codex/skills/personal/SKILL.md"
+        personal.parent.mkdir(parents=True)
+        personal.write_bytes(b"personal skill")
+        before = tree(home)
+        result = run_maintained(source, home)
+        assert tree(home) == before
+        assert "CPP_REFRESH_EXIT=5" in result.stdout and "not-applicable" in result.stdout, result.stdout
+        return
+    seed(home, source)
+    scripts = home / ".claude/scripts"
+    personal = scripts / "cpp-host-write.sh"
+    if scenario == "personal-seam":
+        personal.unlink()
+        personal.write_text('#!/bin/sh\nprintf executed > "$HOME/PERSONAL_SEAM_EXECUTED"\n')
+        personal.chmod(0o755)
+        assert personal.is_file() and not personal.is_symlink()
+        expected = personal.read_bytes()
+    elif scenario == "unavailable":
+        entry = source / "scripts/cpp-host-update.py"
+        git(source, "rm", str(entry.relative_to(source)))
+        git(source, "commit", "-qm", "fixture unavailable production entry")
+        assert not entry.exists()
+    elif scenario == "unwritable":
+        scripts.chmod(0o555)
+        if os.access(scripts, os.W_OK):
+            scripts.chmod(0o755)
+            pytest.skip("executing identity can write through mode restriction; no unwritable claim")
+        assert not os.access(scripts, os.W_OK), "fixture must be unwritable to the actual executing identity"
+    before = tree(home)
+    try:
+        result = run_maintained(source, home, deferred="~/.claude/scripts" if scenario == "deferred" else "")
+    finally:
+        scripts.chmod(0o755)
+    assert "Managed refresh: current" not in result.stdout, result.stdout
+    assert "CPP_REFRESH_EXIT=1" in result.stdout or "CPP_REFRESH_EXIT=4" in result.stdout, result.stdout
+    if scenario == "personal-seam":
+        assert personal.read_bytes() == expected and not personal.is_symlink()
+        assert not (home / "PERSONAL_SEAM_EXECUTED").exists()
+        assert "unmanaged" in result.stdout
+    elif scenario == "unavailable":
+        assert "UNAVAILABLE" in result.stdout
+        assert tree(home) == before
+    elif scenario == "deferred":
+        assert "Managed refresh: failure" in result.stdout
+        assert "Claude links deferred to declared owner" in result.stdout
+        assert "CPP_REFRESH_EXIT=1" in result.stdout and tree(home) == before
+    else:
+        assert not (scripts / "stash-worktree-guard.sh").exists()
+
+
+@pytest.mark.skipif(not shutil.which("bash"), reason="real maintained fences require bash")
+def test_maintained_finish_guard_invalidates_a_moved_source(source, tmp_path):
+    home = tmp_path / "home"
+    seed(home, source)
+    old = git(source, "rev-parse", "HEAD")
+    between = 'git -C "$CPP_DIR" commit --allow-empty -qm "fixture concurrent source movement"'
+    result = run_maintained(source, home, finish=True, between=between)
+    assert git(source, "rev-parse", "HEAD") != old
+    assert "CPP_REFRESH_EXIT=4" in result.stdout and "revision changed after refresh" in result.stdout, result.stdout
+    assert f"Revision: {old}" in result.stdout
+
+
+@pytest.mark.skipif(not shutil.which("bash"), reason="real maintained fences require bash")
+def test_skipped_refresh_is_detected_by_actual_installation_oracle(source, tmp_path, monkeypatch):
+    original = maintained_block
+
+    def skip_refresh(marker):
+        if marker != "# CPP_SHARED_REFRESH":
+            return original(marker)
+        return '''HOST_REFRESH_REVISION=$(git -C "$CPP_DIR" rev-parse HEAD)
+HOST_REFRESH_EXIT=0
+HOST_REFRESH_STATUS="Managed refresh: current (coverage=partial)
+Revision: $HOST_REFRESH_REVISION
+claude-links: current"
+'''
+
+    monkeypatch.setitem(run_maintained.__globals__, "maintained_block", skip_refresh)
+    with pytest.raises(AssertionError, match="shared refresh did not repair missing helper"):
+        test_maintained_refresh_repairs_stale_install_without_a_source_pull(source, tmp_path)
+
+
+@pytest.mark.skipif(not shutil.which("bash"), reason="real maintained fences require bash")
+@pytest.mark.parametrize("yaml_installs", [False, True])
+def test_maintained_codex_refresh_without_codex_cli_or_yaml(source, tmp_path, plain_python, yaml_installs):
+    home = tmp_path / "home"
+    home.mkdir()
+    selected = ["--select", "codex"]
+    if yaml_installs:
+        selected += ["--select", "claude-topics", "--select", "antigravity"]
+    seeded, payload = cli(source, home, "refresh", *selected)
+    assert seeded.returncode == 0, payload
+    installed = home / ".codex/skills/flow-auto/reference.md"
+    old = installed.read_bytes()
+    command = source / ".claude/commands/flow/auto.md"
+    with command.open("a") as stream:
+        stream.write("\nFixture current-source refresh requirement.\n")
+    git(source, "add", str(command.relative_to(source)))
+    git(source, "commit", "-qm", "fixture changed canonical command")
+    revision = git(source, "rev-parse", "HEAD")
+    assert b"Fixture current-source refresh requirement." not in old
+    adapter = CodexAdapter(home)
+    current = request(source)
+    build = adapter.build(current.revision, adapter.preflight(current))
+    expected = next(p for p in build.packages if p.name == "flow-auto").members["reference.md"].content
+    assert expected != old and b"Fixture current-source refresh requirement." in expected
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    for name in ("git", "bash"):
+        binary = shutil.which(name)
+        assert binary is not None
+        (tools / name).symlink_to(binary)
+    (tools / "python3").write_text("#!/bin/sh\nexec " + shlex.quote(str(plain_python)) + ' "$@"\n')
+    (tools / "python3").chmod(0o755)
+    path = str(tools)
+    assert shutil.which("git", path=path) == str(tools / "git")
+    assert shutil.which("bash", path=path) == str(tools / "bash")
+    assert shutil.which("python3", path=path) == str(tools / "python3")
+    assert shutil.which("codex", path=path) is None, "fixture must exclude the native CLI"
+    result = run_maintained(source, home, finish=True, path=path)
+    assert "codex: current" in result.stdout, result.stdout + result.stderr
+    if yaml_installs:
+        assert "CPP_REFRESH_EXIT=4" in result.stdout and "Managed refresh: UNAVAILABLE" in result.stdout
+        for harness in ("claude-topics", "antigravity"):
+            assert f"{harness}: unknown" in result.stdout and f"UNAVAILABLE: {harness}:" in result.stdout
+        assert "missing module yaml" in result.stdout
+    else:
+        assert "CPP_REFRESH_EXIT=0" in result.stdout, result.stdout + result.stderr
+    assert installed.read_bytes() == expected
+    assert git(source, "rev-parse", "HEAD") == revision

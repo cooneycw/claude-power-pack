@@ -77,7 +77,7 @@ def execute_snapshot(revision: Revision, arguments: list[str]) -> subprocess.Com
     content = _source_blob(revision, "scripts/cpp-host-update.py")
     authority = Scope(Policy(revision.snapshot_root, revision.snapshot_root / ".unused-ledger",
                              revision.snapshot_root / ".unused-lock", revision.snapshot_root / ".unused-work"))
-    if authority.read(entry) != content or b"PRODUCTION-HOST-ENTRY: 2" not in content:
+    if authority.read(entry) != content or b"PRODUCTION-HOST-ENTRY: 3" not in content:
         raise AdapterError("requested revision has no supported pinned production entry", exit_code=4)
     try:
         result = subprocess.run([sys.executable, str(entry), *arguments, "--pinned", revision.commit],

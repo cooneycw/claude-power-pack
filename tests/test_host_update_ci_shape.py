@@ -170,7 +170,7 @@ def test_pinned_reader_rejects_bad_current_writer(source_template, tmp_path, fau
         payload["results"][-1].update(selected=False, after=dict(stage, state="unknown", expected_packages=0,
                                                               expected_members=0, examined_members=0))
     bad_revision = "'f'*40" if fault == "wrong-revision" else "sys.argv[-1]"
-    entry.write_text("#: PRODUCTION-HOST-ENTRY: 2\nimport json,sys\n"
+    entry.write_text("#: PRODUCTION-HOST-ENTRY: 3\nimport json,sys\n"
                      + "r=json.loads(" + repr(json.dumps(payload)) + ")\n"
                      + f"r['revision']={bad_revision}\n"
                      + "for row in r['results']: row['revision']=r['revision']\n"
@@ -197,14 +197,15 @@ def test_pinned_reader_rejects_bad_current_writer(source_template, tmp_path, fau
         execute_snapshot(request(source).revision, ["verify", "--json"])
 
 
-def test_unavailable_old_entry_is_unknown_before_execution(source_template, tmp_path):
+@pytest.mark.parametrize("marker", ["PRODUCTION-COPY-ENTRY: 1", "PRODUCTION-HOST-ENTRY: 2"])
+def test_unavailable_old_entry_is_unknown_before_execution(source_template, tmp_path, marker):
     source, home = tmp_path / "source", tmp_path / "home"
     git(tmp_path, "clone", "-q", str(source_template), str(source))
     entry = source / "scripts/cpp-host-update.py"
-    entry.write_text("#: PRODUCTION-COPY-ENTRY: 1\nraise AssertionError('old entry must never execute')\n")
+    entry.write_text(f"#: {marker}\nraise AssertionError('old entry must never execute')\n")
     git(source, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
         "commit", "-am", "unsupported old production entry")
-    assert "PRODUCTION-COPY-ENTRY: 1" in entry.read_text() and "PRODUCTION-HOST-ENTRY: 2" not in entry.read_text()
+    assert marker in entry.read_text() and "PRODUCTION-HOST-ENTRY: 3" not in entry.read_text()
     result, report = cli(source, home, "refresh", "--select", "antigravity")
     assert result.returncode == 4 and report["results"][2]["action"] == "not-attempted"
     assert not home.exists()
@@ -278,11 +279,57 @@ def test_old_caller_refuses_new_entry_before_execution(source_template, tmp_path
         "2d0ce797b4a512dc95f9e3577cf63b0e852d5d8e3d073a77ddfc7488da0d7bda")
     namespace = dict(vars(current_source))
     exec(compile(predecessor, "predecessor_source.py", "exec"), namespace)
-    assert "PRODUCTION-HOST-ENTRY: 2" in (source_template / "scripts/cpp-host-update.py").read_text()
+    assert "PRODUCTION-HOST-ENTRY: 3" in (source_template / "scripts/cpp-host-update.py").read_text()
     original = subprocess.run
 
     def no_child(argv, *args, **kwargs):
         assert argv[0] == "git", "unsupported producer executed before marker refusal"
+        return original(argv, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", no_child)
+    with pytest.raises(AdapterError, match="no supported pinned production entry"):
+        namespace["execute_snapshot"](request(source_template).revision, ["verify", "--json"])
+
+
+def test_b2a_reader_refuses_changed_coverage_producer_before_execution(source_template, monkeypatch):
+    import hashlib
+    import subprocess
+
+    from lib.host_update import source as current_source
+    from lib.host_update.models import AdapterError
+    from tests.test_host_update_adapters import request
+
+    predecessor = (
+        r"""def execute_snapshot(revision: Revision, arguments: list[str]) -> subprocess.CompletedProcess[str]:
+    import sys
+
+    entry = revision.snapshot_root / "scripts/cpp-host-update.py"
+    content = _source_blob(revision, "scripts/cpp-host-update.py")
+    authority = Scope(Policy(revision.snapshot_root, revision.snapshot_root / ".unused-ledger",
+                             revision.snapshot_root / ".unused-lock", revision.snapshot_root / ".unused-work"))
+    if authority.read(entry) != content or b"PRODUCTION-HOST-ENTRY: 2" not in content:
+        raise AdapterError("requested revision has no supported pinned production entry", exit_code=4)
+    try:
+        result = subprocess.run([sys.executable, str(entry), *arguments, "--pinned", revision.commit],
+                                capture_output=True, text=True, timeout=300, umask=0o022)
+    except subprocess.SubprocessError as error:
+        raise ExecutionFailure("pinned driver execution incomplete; inspect installed state", exit_code=1) from error
+    try:
+        report = json.loads(result.stdout)
+    except ValueError as error:
+        raise ExecutionFailure("pinned driver returned no readable report", exit_code=1) from error
+    if not valid_report(report, result.returncode, revision.commit):
+        raise ExecutionFailure("pinned driver returned incomplete or inconsistent report", exit_code=1)
+    return result
+""")
+    assert hashlib.sha256(predecessor.encode()).hexdigest() == (
+        "24edafd5e2b440976ca060b42ab7ae2fbe6ff6fa3992523075aad732fd99ef4f")
+    namespace = dict(vars(current_source))
+    exec(compile(predecessor, "b2a_predecessor_source.py", "exec"), namespace)
+    original = subprocess.run
+
+    def no_child(argv, *args, **kwargs):
+        assert argv[0] == "git", "B2a caller executed changed producer before marker refusal"
         return original(argv, *args, **kwargs)
 
     monkeypatch.setattr(subprocess, "run", no_child)
