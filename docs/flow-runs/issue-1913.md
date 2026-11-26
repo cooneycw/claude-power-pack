@@ -59,8 +59,9 @@ cpp-update reader exists without separately enrolling that surface.
 14. `docs/scripts/cpp-host-write.md` - documented preserved collision/refusal and trusted caller route.
 15. `changelog.d/1913.md` - concrete data-loss correction and caller behavior.
 16. `docs/measurements/1913-helper-preservation.md` - actual red/green, controls, readers/lanes and remaining native gaps, no pending result called passed.
+17. `tests/test_helper_orphan_prune.py` - narrow amendment approved mailbox41239: real Step5b reader supplies CPP_DIR and actual checkout seam; assertion follows quoted trusted route, retained removal/absent/deferral/unconfirmed semantics, hostile installed seam not executed.
 
-Scope: 16 paths, including six tiny control/metadata files and a passive511-line
+Scope: 17 paths, including six tiny control/metadata files and a passive511-line
 historical anchor. Small helper/caller correction; no unrelated source changes.
 Own plan/as-read/lanes and receipt evidence are additional run records.
 
@@ -72,6 +73,11 @@ actual caller fences and generated Codex output, then ch-rev priority review,
 receipt and direct supervised gate after df>=25GB and fleet<=2 heavy-lane check.
 Fresh review count0, default2passes/thirdwithreason; no inherited B rounds.
 PR Closes1913 only; owner/master decide release/tag after merge.
+
+Amendment: mailbox41239 approves one real reader fixture after finish-35637329
+failed2tests (13948passed,5skipped). Confirm unchanged product prune semantics
+before test edits. Third formal pass has explicit gate-found uncovered-reader
+reason, no raised cap. Failed gate remains failed evidence.
 
 ### Lanes for this change
 
@@ -93,4 +99,5 @@ PR Closes1913 only; owner/master decide release/tag after merge.
 | Reader: independent Codex parity | reader unchanged | actual80-skill output inventory matches original baseline, both independent generators/parsers rerun; cpp-update excluded |
 | Reader: existing host-write gates | tested against real output | real maintained documents through existing checker and current counts; no gate relaxation |
 | Reader: B2a shared schema/Pi | reader unchanged | parked B2a not in this branch; no neutral updater/Pi changes |
+| Reader: Step5b orphan-prune fences | tested against real output | actual checkout helper and CPP_DIR, unchanged removed/absent/deferred/unconfirmed outcomes; fixture cannot execute a personal installed seam |
 | Reader: live Claude/Codex instruction following | not covered | executing deterministic fences establishes helper/caller behavior, no native/model run |

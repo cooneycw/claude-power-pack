@@ -54,3 +54,30 @@ initial unquoted empty assignment tripped shellcheckSC1007; explicit empty
 quotes fixed that style finding. Lint, shellcheck, command budgets, actual
 host-write gate and doc-flag checks passed afterward. Pass2/receipt/full gate
 remain pending; accepted required review findings2, rejected0, deferred0.
+
+
+## Gate-found orphan-prune reader amendment
+
+DIRECT finish-35637329 at ee306800 failed at the test prerequisite:13948passed,
+2failed,5skipped (598.61s). Both failures were real Step5b reader tests: a stale
+unquoted installed-path assertion, and a fixture that supplied neither CPP_DIR
+nor an executable checkout helper. The gate is failed evidence; its exact owned
+temporary root was deleted. The five skips were host Bash3.2, unsignalable PID1,
+real root, Node and staged CI toolchain, not passes.
+
+Mailbox41239 approves adding only test_helper_orphan_prune.py to the plan and a
+third formal review with the explicit gate-found uncovered-reader reason.
+Before editing it, the actual product prune body was byte-compared with b1cd1f16
+and found unchanged; the real maintained block with a real checkout helper and
+CPP_DIR still produced1removed/1alreadyabsent/0refused. No product change is
+needed. The fixture now copies the real helper, passes CPP_DIR, and installs a
+hostile personal seam to prove it is never executed. Confirmation/deferral and
+whole prune outcomes remain intact.
+
+The combined focused battery passed80 (8.68s). Bypassing confirmation makes the
+unconfirmed case fail on actual deletion; restoring the installed seam route
+makes the tally case fail on executing the personal seam. Both mutations were
+restored. The first confirmation mutation removed the block's selector marker
+and was rejected as an invalid probe; its log is retained separately, not counted
+as the semantic red. Lint, actual host-write gate, binary/precondition checks
+passed. New exact-head review/receipt and a successful full gate are still needed.

@@ -1,6 +1,6 @@
 # #1913 lane and reader evidence
 
-<!-- lanes-demonstrated run=990a9d5449ea476f882e97f0f1d7e140 plan=9c5b0f5dc93285db054512cedacc769f39eab400aba98fd901146bad33dc8dbd -->
+<!-- lanes-demonstrated run=990a9d5449ea476f882e97f0f1d7e140 plan=537001d25d3885e9daf7e7129b55319fd541e0b63f6d1febc40d99235b56373f -->
 
 | Lane | Result | Evidence |
 |---|---|---|
@@ -19,9 +19,14 @@
 | Reader: local tier bootstrap/config | passed | Actual qwen/gemma/fence snippets; executable-personal and existing unavailable-seam cases stop before configuration; no native commands |
 | Reader: independent Codex parity | passed |33 builder/CLI/parity tests,80-skill actual member/hash/mode inventory unchanged; original baseline/parser/generator unchanged |
 | Reader: host-write controls | passed |147 full registrations,55 historical byte comparisons; new actual main anchor misses regular/directory BADs and agrees on GOOD |
+| Reader: orphan-prune fences | passed |80 focused checks include real CPP_DIR/helper and hostile personal seam; unchanged removal/absent/deferral/unconfirmed outcomes, both semantic mutations fail |
 | Reader: parked B2a/Pi | not run | No neutral core, Pi or B2a schema changes in this branch |
 | Reader: live native instruction following | not run | Deterministic maintained fences only; no live-model/auth/setup run |
 
 Pre-fix main:5failed58passed, including real personal byte/type loss. Fixed
 focused66passed, broader CPP894passed. All evidence logs are outside worktree,
 owned temporary trees deleted. Independent review and full finish gate pending.
+
+Gate finish-35637329 failed2readerfixtures with13948passed/5skipped; no full-gate
+PASS is claimed. Mail41239 narrow fixture amendment passes80focused; fresh third
+review/receipt and full rerun pending. Failed gate temp tree was deleted.
