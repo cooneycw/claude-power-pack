@@ -317,3 +317,42 @@ yaml/PyYAML with unknown4 while the stdlib components succeed. No caller/core/
 Pi row schema changed. Owned red/green test roots were deleted. No native
 commands or credentials were accessed. The maintained update command is still
 unchanged at this checkpoint; deletion equivalence is the next stop condition.
+
+### B2b-1 conservative retirement checkpoint (ruling41749)
+
+The deletion comparison runs the exact frozen legacy Step5b Bash fences,
+including confirmed orphan pruning, against the shared adapter on two owned
+farms. Each starts with10 logical entries (20 physical initial entries total):
+current CPP, proven retired dangling, retired executable kind with a live
+non-executable target, unproven CPP-shaped orphan, personal file/directory,
+foreign live/dangling, renamed and relative links. The fixture asserts source
+history/modes, clean revision, initial population and preserved personal bytes.
+
+At runtime checkpoint ef3147e1, the comparison failed: the shared adapter
+removed nonexec-fixture.sh even though its target still existed and the legacy
+step preserved it. Legacy deleted4 entries; shared deleted2. Work stopped for
+ruling41749 before changing deletion authority. The additional focused adapter
+case also failed before the fix (7.10s): a live retired target's link vanished.
+Logs are deletion-equivalence.log and retired-live-red.log under
+/workspace/.cpp-validation/1889-b2b-1/; their exact owned test roots were deleted.
+
+The approved narrowing checks target existence through the proven link under
+the existing lock, retaining the immediately-before-unlink identity check.
+Live retired targets are preserved with existing State.UNMANAGED, conflict
+reason "retired CPP link target still present; preserved for review", and
+existing exit1. Proven retired dangling links retain their B2a removal behavior.
+No row, schema, State or exit-code extension is introduced. The fixture names
+three intended safer differences explicitly: foreign-dangling.sh,
+never-recorded-b2b-fixture.sh and relative.sh are legacy deletions preserved by
+the shared adapter because its ownership proof is narrower.
+
+After the narrowing, all66 command/runtime, existing B2a link and CI-shape
+cases pass (397.89s). The comparison now removes only retired-fixture.sh on the
+shared side, a subset of the four legacy deletions; the three safer differences
+above remain explicit assertions. The focused case also proves a second run
+with only the preserved live-retired conflict remains unmanaged/exit1. No
+existing B2a expectation changed. Lint,567-file typecheck, binary guards and
+negative-fixture checks pass. retirement-green.log records the completed run;
+the owned /tmp/b.rlklrbxk test root and interrupted predecessor roots were
+deleted. The first combined attempt exceeded its180s execution timeout and is
+not counted as a verdict; the completed rerun used a sufficient timeout.
