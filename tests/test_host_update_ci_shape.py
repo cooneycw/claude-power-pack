@@ -92,7 +92,8 @@ def test_private_snapshot_never_registers_in_source(source_template, tmp_path):
     assert files(source / ".git") == metadata
 
 
-def test_control_declared_runtime_works_without_global_yaml(tmp_path):
+@pytest.mark.parametrize("tmp_shape", ["physical", "alias"])
+def test_control_declared_runtime_works_without_global_yaml(tmp_path, tmp_shape):
     import shlex
     import subprocess
     import sys
@@ -112,7 +113,14 @@ def test_control_declared_runtime_works_without_global_yaml(tmp_path):
     if os.environ.get("VIRTUAL_ENV"):
         excluded.add(Path(os.environ["VIRTUAL_ENV"], "bin").resolve())
     paths = [p for p in os.environ["PATH"].split(os.pathsep) if p and Path(p).resolve() not in excluded]
-    env = dict(os.environ, PATH=os.pathsep.join([str(tools), *paths]))
+    physical = tmp_path / "runtime-tmp"
+    physical.mkdir()
+    temporary = physical
+    if tmp_shape == "alias":
+        temporary = tmp_path / "runtime-alias"
+        temporary.symlink_to(physical, target_is_directory=True)
+        assert temporary.is_symlink() and temporary.resolve() == physical
+    env = dict(os.environ, PATH=os.pathsep.join([str(tools), *paths]), TMPDIR=str(temporary))
     for name in ("VIRTUAL_ENV", "PYTHONPATH", "UV_PROJECT_ENVIRONMENT"):
         env.pop(name, None)
     assert shutil.which("python3", path=env["PATH"]) == str(python)

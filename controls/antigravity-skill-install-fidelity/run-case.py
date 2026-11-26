@@ -31,7 +31,9 @@ def main():
         return 3
     scenario = json.loads((case / "case.json").read_text())["scenario"]
     with tempfile.TemporaryDirectory(prefix="cpp-real-adapter-control-") as temporary:
-        base = Path(temporary)
+        # This is our disposable fixture root, never a host source authority.
+        # Compare archive members to the same physical temporary prefix.
+        base = Path(temporary).resolve()
         source, home = base / "source", base / "home"
         source.mkdir()
         home.mkdir()

@@ -257,3 +257,38 @@ root was removed. Lint,561-file typecheck,binary guards and fixture checks pass.
 No macOS execution is claimed; Linux reproduced the alias-prefix condition.
 The148-control battery and89-test merged adapter run above predate this narrow
 fix. Formal pass2 and a fresh exact-head paired finish gate remain pending.
+
+
+### Paired gate and additional CI shape; B2a parked for priority release
+
+At receipt-only d2cd8be3, fresh direct supervised finish-49b5a2ab passed all5
+steps, exit0:13,994 tests passed,5 skipped (1049.63s),561-file typecheck,
+148 controls and55/55 historical anchors byte-compared. Gate elapsed1590.84s;
+total wrapper1690.15s included deleting its exact owned `/tmp/g.24ygsn9p` tree.
+Five skips cover macOS Bash3.2, PID1 signaling, real-root privilege, Node and
+staged CI tools. Five existing fixture HIGH warnings were nonblocking; no
+CRITICAL finding occurred. Log: `/workspace/.cpp-validation/1889-b2a/paired-finish.log`.
+
+The additional disposable depth1 checkout asserted umask000 source mode0666,
+used symlinked TMPDIR and HOME=/root, and ran asUID1000 (no actual-root claim).
+It passed59 tests but failed the real AGY fidelity control's archive fixture:
+`path.resolve().is_relative_to(source)` compared against an unresolved owned
+temporary prefix. The runner's post-test clean-tree assertion also failed;
+it had created its own `.venv` symlink and did not print the final status, so
+that assertion is not evidence of a clean source. The entire owned clone,
+caches and temporary tree were deleted. Log: `ci-shape.log` beside the gate log.
+
+The added physical/alias runtime parametrization reproduced the archive-guard
+failure before the fix. Resolving ONLY the control's owned temporary root
+preserves its archive confinement guard and all product source-authority rules.
+Both runtime cases pass (2tests,17.71s); the actual AGY control passes all nine
+GOOD/BAD/UNKNOWN cases and its blind anchor still misses all four BAD inputs.
+Lint and561-file typecheck pass. The owned focused pytest root was deleted.
+The next shape runner must remove its exact own virtualenv seam before checking
+source cleanliness. Formal pass3 records the CI-shape-found reason; the prior
+receipt/gate do not cover this final fixture correction.
+
+Orchestrator41456 prioritizes the fix-only v13.0.1 release after this correction
+is pushed and frozen for review. B2a receipt, fresh gate, full CI-shape rerun and
+PR are parked until the release tag-candidate report. No B2a PR or native run
+is claimed. Both #1889 and #1876 remain open/PARTIAL.
