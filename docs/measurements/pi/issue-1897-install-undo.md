@@ -228,3 +228,37 @@ identity/mode check explicit and records ENOTEMPTY as a narrower target-restore
 result in `root-retained.json`. It does not call that whole-filesystem recovery.
 All three affected root cases passed after the clarification; lint/type checks
 passed and the test basetemp was removed. No owner action occurred.
+
+## Owner recovery and baseline discovery completed - master's relay 40996
+
+The owner-authorized recovery used ONLY reviewed commit
+`d013ef498318efbfc60592999faf4ac9a808ec28`, recovery script SHA256
+`fe2b3b8931760c7bf910cf9a752f02f523581d5dead99228e3c34c4b87a72085`,
+with the fixed probe module. Optional later `64e9ef07` was not executed on the
+owner installation. The host reports execution at 04:25:56Z, exit 0 at 04:25:57Z.
+Both execution and reviewed dry-run plans have SHA256
+`fc919532130f924320c032ba206e6398c20b642dcf4a01ca76a1d82b866fedc4`.
+All 20 recorded CPP targets, the logged-new skills root and primary lock are
+reported absent. The actual delivered verifier after recovery returned absent:
+18 expected packages / 36 expected members / zero examined, CLI exit 1 and Make
+exit 2. This is expected missing-installed, not installed-parity green.
+
+Master reports `/reload` in the SAME existing pi session at 04:26:17Z followed
+by zero `/skill:` completion entries, matching the zero-entry pre-install
+baseline. The earlier 18/18 user-scope presence is the nonempty positive control
+before that absence observation. This completes the observed owner
+baseline/install/presence/undo/baseline sequence. It does not erase the original
+probe stop or imply that the original probe completed its own undo.
+
+The decoded host execution-report text SHA256 was independently verified here:
+`26e051967acc1ef7483da9cb8a21f303b8ea809680d38ff2253db48c0c22cc34`.
+Individual host journal/plan/receipt file hashes are host-reported, not locally
+recomputed. The [sanitized record](issue-1897-owner-lane.json) preserves those
+attributions and excludes private paths/session names and unrelated content.
+Master reports retaining original journal, recovery evidence and journal backup,
+while removing three temporary worktrees. No owner command ran in this worker.
+
+The [owner-facing Part 1 summary](issue-1897-owner-signoff.md) was sent to the
+orchestrator before further review/gates/PR. Owner Part-1 sign-off is PENDING;
+Refs #1897 remains the closing disposition until explicitly changed. Both #1896
+UNKNOWN measurements remain, and Section 5 is not automatically authorized.

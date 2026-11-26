@@ -230,3 +230,21 @@ never emits successful recovery. The protocol explicitly notes the lock paths
 are themselves unlinked, so the operator's confirmed window remains essential.
 Affected empty/nonempty/symlink root cases all passed again (3 cases); basetemp
 removed. This is a narrow review clarification, not owner execution authority.
+
+### Owner completion and evidence-only unfreeze - mailbox 40996
+
+Master's relay reports approved recovery d013ef49 completed at 04:25:56Z with
+exit 0, execute plan identical to the reviewed dry-run plan, scoped targets and
+logged-new root absent, actual verifier missing-installed, and the same pi
+session reloaded back to zero at 04:26:17Z. This is attributed host evidence,
+not a new local owner action. No owner Part-1 sign-off is yet recorded.
+
+The orchestrator unfreezes docs/evidence only. Add sanitized
+`docs/measurements/pi/issue-1897-owner-lane.json` and the owner-facing summary
+`docs/measurements/pi/issue-1897-owner-signoff.md`; append actual observations to
+existing measurement and lane records. Retain the separately committed optional
+64e9ef07 clarifications for delta review, but identify d013ef49 as the sole
+owner-executed recovery. Preserve the original probe failure and actual red/green
+fix history. Send the sign-off summary to the orchestrator before review,
+receipt, direct paired gate and PR. Use Refs #1897 unless the owner explicitly
+signs off before merge; no Section-5 integration or #1896 UNKNOWN is waived.

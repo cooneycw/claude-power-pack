@@ -72,3 +72,21 @@ nonempty-root preservation/refusal and symlink-root refusal. A failed final
 rmdir is not whole-agent preservation: recorded targets have already been
 removed, and no successful restoration is claimed. No owner recovery or second
 reload result has yet been received.
+
+## Owner lane complete - master relay 40996
+
+| Lane / reader | Observed result | Attribution / limit |
+|---|---|---|
+| Owner install/verifier | current, 18 packages / 36 examined members | Actual host CLI; original probe subsequently stopped on the directory-mode defect |
+| Owner reload presence | 18/18 user-scope topics, equal journal slugs | Master's presence relay 40900 / original reference 40899 at 03:25:27Z; baseline zero |
+| Owner undo | exit 0, reviewed dry-run plan equals execute plan | Owner-approved reviewed d013ef49 at 04:25:56Z; optional 64e9ef07 was not executed |
+| Scoped owner filesystem | 20 recorded targets plus logged-new root/primary lock absent | Master's retained recovery receipt; no whole-agent or parent-timestamp claim |
+| Actual post-undo verifier | absent, expected 18 packages / 36 members / zero examined | CLI 1 / Make 2 is expected missing-installed, not parity green |
+| Owner second reload | zero skill entries, equal baseline | SAME existing session at 04:26:17Z, master's relay 40996 |
+| Owner sign-off | PENDING | Summary sent to orchestrator; observations do not themselves constitute Part-1 sign-off |
+| Remaining #1896 measurements | UNKNOWN | Tool-inventory RPC and skill-loader diagnostics remain unmeasured |
+
+The [sanitized owner evidence](../measurements/pi/issue-1897-owner-lane.json)
+and [sign-off summary](../measurements/pi/issue-1897-owner-signoff.md) preserve
+the stopped-probe history, normalization fix and separate approved recovery.
+No additional owner execution was performed for this documentation update.
