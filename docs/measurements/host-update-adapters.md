@@ -583,3 +583,53 @@ typecheck567 files, binary guards, fixture preconditions, Unicode, census,
 verify coverage and host-surface declarations22 reachable helpers. Command
 length2289 remains below the original2291. These are subset results; final
 committed-head CI shape, full controls, third review and full gate follow.
+
+
+### F2 committed-head qualification and local-shape limit
+
+At clean131e5f5f256b1c1d01a9d599edcb7d7f5e95416d the entire bare-caller control
+batch passed149 registrations with55/55 historical anchors byte-compared
+(416.89s including owned cleanup; f2-final-controls.log). The corrected
+26-module CI-shape run passed733 tests with5 explicit missing-history skips
+(386.01s), then all5 actual host-update-command-check fixtures reached their
+expected current/failure/failure/unknown/unknown verdicts. The clone was clean
+after removing its exact owned virtualenv seam. Shape:depth1, umask000/source0666,
+HOME=/root with actual UID1000, alias TMPDIR, minimal PATH plus explicit ShellCheck.
+The historical installer fixtures remain attributed/vendored and run in shallow
+CI; only their extra real-object-history comparisons skip when unavailable.
+
+Exactly four existing tests were deselected from this local shape, NOT counted
+as passed. On unchanged main8e6efc03, the identical shape reproduced all four
+failures (4failed/0.70s; f2-home-baseline.log), and the outer runner returned2
+over the failed inner make/pytest. Three ambient-home assertions cannot stat
+/root as UID1000; the unset-HOME test correctly refuses the child's UID home
+/home/claude but expects REAL HOME to mean the parent's HOME=/root. These are
+pre-existing local HOME=/root+UID1000 shape artifacts; no fixture fix is included:
+
+- tests/test_cpp_tier_detection.py::test_a_fresh_project_reaches_tier_2_on_scripts_alone
+- tests/test_cpp_tier_detection.py::test_an_older_install_that_still_has_hooks_json_is_unaffected
+- tests/test_cpp_tier_detection.py::test_two_scripts_is_NOT_tier_2
+- tests/test_host_surface_observe.py::test_sandbox_verifier_refuses_when_home_is_unset
+
+Orchestrator41933 approved exactly these deselections and recorded the gap in
+[Nit Store1725](https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7200507818).
+The normal-HOME paired gate and actual-root PR CI remain separate required
+checks; no local artifact is presented as their result. The five history skips
+and four explicit deselections are not passes. The first interrupted131 run
+had4fail/339pass/3skip; its actual output is archived as f2-ci-shape-red.log.
+
+Evidence-file limitation: the copied external CI runner retained the old F1
+log basename and overwrote its original raw file. That raw F1 log is unavailable;
+the committed F1 evidence at cdf04386 is retained. The current failed run is
+archived under F2 names, the original path explicitly records the loss, and
+future F2 runs use f2-ci-shape.log. The runner's existing final SystemExit already
+propagates the inner status; the baseline failing-inner run demonstrated outer2.
+No false green was claimed. Final third review/receipt, full gate and PR CI are
+still pending; no native/auth or B2b-2 acceptance is implied.
+
+
+The corrected131 CI runner finally returned0:396.93s through tests and the five
+fixture invocations,484.57s including owned clone/cache/temp cleanup. The exact
+root /tmp/c.b8cc78dd was deleted. f2-ci-shape.log and f2-ci-runner.log retain the
+actual outputs. The following checkpoint changes only this evidence and the
+approved scope summary31->35; implementation remains131e5f5f.
