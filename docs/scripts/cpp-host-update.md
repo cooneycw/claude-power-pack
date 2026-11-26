@@ -1,14 +1,14 @@
-# cpp-host-update: harness-neutral managed-copy core
+# cpp-host-update: shared managed copies (PARTIAL)
 
-Issue #1889-A; implementation source of truth is the
+Issue #1889 (A core, B1 copy adapters); implementation source of truth is the
 [host update contract](../../.specify/specs/antigravity-host-update/spec.md).
 
 Delivery A implements these types/callbacks through a fixture-only CLI and
-neutral filesystem core. It does not enroll production harnesses or discover
-host-global installations. Importing modules performs no configuration reads
+neutral filesystem core. B1 adds the production copy adapters described below.
+Importing modules performs no configuration reads
 or filesystem writes. Publication and verification require an explicit adapter
-policy and a bound source revision; validation/control coverage is still being
-completed on the work-in-progress branch.
+policy and a bound source revision. The callback API and explicit fixture mode
+remain compatible; production coverage does not include command/helper links.
 
 Import value types from `lib.host_update.models` and callbacks/functions from
 `lib.host_update.driver`. `Adapter` has a `harness` identifier and:
@@ -173,6 +173,81 @@ Pipe-synchronized subprocess tests establish actual flock EAGAIN before releasin
 another writer. Both same-package revision orders and different packages sharing
 one ledger are covered; the unlocked-copier mutation fails the synchronization
 oracle. Another mutation creating a lock during verify fails the no-write oracle.
-These are disposable fixture results, not AGY/pi execution, runtime selection,
-production host discovery or all-harness acceptance. Those readers remain in B
-and later adapter deliveries.
+These A results are disposable fixture evidence, not AGY/pi execution, runtime
+selection or production discovery. B1 adds actual copy-adapter tests below;
+all-harness and maintained-command acceptance remain separate.
+
+
+## Production copy adapters (B1)
+
+Use `uv run python scripts/cpp-host-update.py refresh --source-root /path/to/cpp`
+or the read-only installed-output operation `verify`. `--home /explicit/home`
+changes the approved anchor for all three adapters. Make equivalents are
+`make host-update-refresh` and `make host-update-verify`, with
+`HOST_UPDATE_SOURCE`, `HOST_UPDATE_HOME` and optional `HOST_UPDATE_FLAGS`.
+Supplying `FIXTURE_ROOT` retains the original disposable fixture operation.
+
+The initial registry is explicitly **PARTIAL**:
+
+| Row | Installed copy scope | Lock |
+|---|---|---|
+| claude-topics | ~/.claude/skills | ~/.claude/.cpp-skill-install.lock |
+| codex | ~/.codex/skills | ~/.codex/.cpp-skill-install.lock |
+| antigravity | ~/.gemini/config/skills | ~/.gemini/config/.cpp-skill-install.lock |
+
+Claude command/helper `links` and maintained `/cpp:update` invocation are B2.
+pi has a standalone core-backed adapter, but shared-registry enrollment remains
+a follow-up, as do Qwen and Gemma/OpenCode. Command-derived AGY invocation and
+runtime identity remain separate work. This CLI does not call native models,
+read authentication stores, list agent/config roots or infer ownership from
+an installed CLI. File fidelity does not establish runtime selection.
+
+Default selection is existing validated CPP ownership or a recognized canonical
+source/GENERATED marker. `--select HARNESS` additionally selects an absent
+installation for repair; it does not filter out other managed harnesses.
+With no managed/explicit selection, return not-applicable (5) without creating
+host roots. Initial planner/capability/status enrollment remains #1893.
+Read-only verification cannot label a missing, edited or unreadable ownership
+record current; the narrow refresh-only bootstrap is described below.
+
+Each root has `.cpp-managed/ownership.json` and bounded work/coordination files.
+Read-only verify creates no installation root, lock or record and never repairs
+metadata. The source phase uses an owned private detached Git worktree and
+removes it afterward; this temporary build operation updates only its own Git
+worktree metadata, not the caller's branch or checkout content. A clean source
+and the requested commit must be available. The pinned driver and builders run
+from that snapshot. Source file modes are normalized from Git before the
+unchanged Codex generator runs, including checkout creation under umask 000.
+No adapter pulls or resolves a different revision. Every attempted row reports
+the same full commit; a source failure reports not-attempted with no guessed SHA.
+
+User-controlled prefixes, including .gemini and config ABOVE skills, are opened
+no-follow before inventory/build/lock operations. System aliases above the
+approved home anchor are not authority for user config aliases. Symlinks and
+foreign entries remain refused/preserved. `--defer-surface PATH` (or the existing
+`CPP_DEFER_SURFACES` data) refuses overlapping roots and exact external locks;
+there is no manager detection or silent successful skip.
+
+A legacy marker is discovery evidence, not prior byte provenance. Refresh can
+initialize records only for complete legacy packages already equal to a fresh
+build in membership, directories, bytes and modes, rechecked under the existing
+exclusive lock. It changes no package bytes and reports metadata refreshed.
+Stale legacy output without verifiable prior records stays unknown (4), with a
+reviewed migration remedy. `--adopt HARNESS:PACKAGE[/PATH]` is refresh-only,
+explicitly scoped and uses the core's retained backup; it is never a global
+force switch. Invalid/traversing adoption paths are invocation errors (2).
+Foreign neighbors, internal additions and edited orphans are preserved.
+
+Human and schema-1 JSON reports carry per-adapter evidence, before/action/after,
+nonzero expected/examined populations, reason/remedy and unknown effectiveness.
+Production JSON names included and deferred components, coverage `partial` and
+backend `copies`. The existing fixture schema remains unchanged. Exit 1 wins
+over unknown 4; all selected current is 0; no selection is 5. Failures remain
+isolated by harness and do not imply a host-wide transaction or rollback.
+
+The Codex lock coordinates with its old installer, but old/native writers need
+not honor the new ledger protocol. Direct native AGY operations do not take the
+CPP lock. The historical native probe and one-run ruling are not reusable
+permission. Any future probe must refuse launch without a recorded governing
+ruling reference in both authentication lanes, including dedicated file-token
+setup. No new native run is acceptance evidence for B1.

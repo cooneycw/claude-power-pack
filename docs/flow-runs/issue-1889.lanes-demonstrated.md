@@ -73,3 +73,29 @@ These remain later deliveries, not work folded into A:
 - #1888 attributed input changes and explained baseline decisions: [Nit record](https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7168403197); compare historical/candidate generators on the same inputs, never silently re-pin.
 - #1888 historical parser isolation: [canonical Nit record](https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7172824059); the pinned generator must not share the candidate link parser through its module path.
 - #1889-B real-adapter same-revision assertion: [canonical Nit record](https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7168730806); fixture-adapter success does not discharge it.
+
+## B1 copy adapters, Run 3
+
+<!-- lanes-demonstrated run=cbff69dcdd074f20b794f98166080f42 plan=a36e1de7753c0a694a93599086f83f4f8a9f03ac0482894d609c9c42b19c1059 -->
+
+| Lane | Result | Evidence |
+|---|---|---|
+| Checkout | passed | `test_actual_entry_source_shapes` runs the actual pinned production CLI from full main-like fixture clones and real linked worktrees under masks 022 and 000 |
+| Harness | passed | `test_current_checkout_refreshes_all_from_one_revision` feeds actual Claude topics, Codex and AGY copy adapters from A to the same full B commit and independently compares installed membership/bytes/modes |
+| Project state | passed | `test_cli_presence_and_foreign_directory_do_not_enroll`, `test_real_adapters_and_claude_checker`, legacy exact/stale cases and explicit selected-absent setup exercise managed/unmanaged/missing output; foreign-only roots do not enroll |
+| Clone shape | passed | `test_actual_entry_source_shapes` includes full and asserted depth-1 sources; dirty/moved sources and unavailable old entry refuse without host mutation |
+| Run location | passed | `test_current_checkout_refreshes_all_from_one_revision` refreshes from an unrelated initialized Git repository and verifies from CPP root; actual results bind the same full source revision |
+| Reader: real copy adapters/core | passed | 39 adapter tests; complete fresh builds compared with actual installed files and ownership records; wrong real adapter revision rejects while the other two progress |
+| Reader: production CLI/report/control decisions | passed | Actual CLI and nine registered GOOD/BAD/UNKNOWN cases pass; four bad current producers reject and all four fail when report validation is bypassed |
+| Reader: Claude skills-check | passed | `test_real_adapters_and_claude_checker` requires the unchanged existing reader to validate all 18 actual managed topics |
+| Reader: fixture and pi API | passed | Unchanged consumer battery: 49 core, 26 pi passed; one pi real-root test skipped; no public type/default/schema changes |
+| Reader: Kyle/skillc/kyle-candidate | passed | Unchanged independent AGY/Codex parity suite: seven passed; generator, command sources and baseline unchanged |
+| Reader: cpp/update/generated command routes | not run | B2 delivery; direct standalone shared CLI only |
+| Reader: drift/status/capability planner | not run | Existing readers not switched; follow-up deliveries retain their acceptance |
+| Reader: AGY runtime | not run | No native model run or contextual runtime selection evidence |
+
+`make test-host-update-adapters`: 39 passed in 314.73 seconds on the final
+pre-freeze implementation cut. The final fidelity control, lint and 558-file
+typecheck passed. Detailed discrimination results and permission/CI limits are
+in [the B1 acceptance record](../measurements/host-update-adapters.md). These
+results do not complete B2 maintained invocation or all-harness parity.

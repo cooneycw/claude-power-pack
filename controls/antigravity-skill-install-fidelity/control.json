@@ -1,0 +1,77 @@
+{
+  "gate": "scripts/cpp-host-update.py",
+  "invocation": [
+    "python3",
+    "-c",
+    "from pathlib import Path; import runpy,sys; runpy.run_path(str(Path(sys.argv[2]).parents[1]/'run-case.py'),run_name='__main__')",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "good_signal": "^HOST_UPDATE: current",
+  "detect_signal": "^HOST_UPDATE: failure",
+  "unknown_signal": "^HOST_UPDATE: unknown",
+  "unavailable_signal": "^HOST_UPDATE: UNAVAILABLE - git missing$",
+  "limits": "Actual copy adapters and shared production CLI under disposable homes. Source histories and prior installs are real. The always-current verifier misses every BAD case and both UNKNOWN cases; refresh delegates to the real CLI for the GOOD multi-adapter case. Fidelity is installed files/records, not native runtime selection. Lock/no-lock/concurrency/failure/permission cases additionally exercise actual adapters in tests.",
+  "cases": [
+    {
+      "name": "good-current",
+      "input": "cases/good-current",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-refresh",
+      "input": "cases/good-refresh",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-stale",
+      "input": "cases/bad-stale",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-missing-member",
+      "input": "cases/bad-missing-member",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-hand-edited",
+      "input": "cases/bad-hand-edited",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-foreign-content",
+      "input": "cases/bad-foreign-content",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-revision",
+      "input": "cases/bad-revision",
+      "expect": "UNKNOWN",
+      "anchor_expect": "clean",
+      "anchor_expect_reason": "The blind verifier ignores revision and locking evidence."
+    },
+    {
+      "name": "unknown-lock",
+      "input": "cases/unknown-lock",
+      "expect": "UNKNOWN",
+      "anchor_expect": "clean",
+      "anchor_expect_reason": "The blind verifier ignores revision and locking evidence."
+    },
+    {
+      "name": "good-verify-no-lock",
+      "input": "cases/good-verify-no-lock",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/cpp-host-update.py",
+      "path": "anchors/constructed-always-current.py",
+      "sha256": "980424fbebe585afb8b072a2fa61f806863314e24885fb8829f245725b05a0b8",
+      "why": "Constructed verify always reports current without examining installed files, ownership, source revision or locks; preserves real refresh for the GOOD refresh lane."
+    }
+  ]
+}
