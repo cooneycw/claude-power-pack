@@ -201,7 +201,7 @@ A failure at one destination must not stop the other selected installations.
 
 B1 is explicitly PARTIAL, including only Claude topic copies, Codex generated
 skills and AGY topic copies. Claude commands/helpers and maintained cpp/update
-wiring are B2, pending the owner decision described below. pi, Qwen and
+wiring are B2 under the owner's documented link exception below. pi, Qwen and
 Gemma/OpenCode are follow-up adapters. No initial subset establishes all-harness
 or workflow parity. #1889 remains open through B2; the epic cpp/update
 acceptance is not completed by a standalone B1 CLI test.
@@ -219,11 +219,14 @@ MCP, drift/status/planner and runtime receipt work remain #1890/#1891/#1892/
 
 Initial draft d5a16eec was plan-only, not approved. Orchestrator review40522
 approves (2) legacy migration and (3) Codex input attribution, and requires a
-B1/B2 split. The Claude link backend proposal is NOT authorized: ch-orch sent
-an owner question via master with alternatives: documented link exception,
-topics-only with conversion follow-up, or conversion now. B1 therefore makes
-NO link/backend/core-callback change. A prior interpretation that existing
-Claude links could be folded into B unconditionally is withdrawn.
+B1/B2 split. The owner then ruled "1889 A" (1889 comment7178523792; relayed40530):
+existing Claude command/helper links stay links as a typed, bounded, verified
+Claude-only exception; topic skills and new harnesses remain copies. The
+required ADR0014 amendment must land FIRST in its own docs-only PR0, before
+B1/B2 code. B1 still makes NO link/backend/core-callback change. The three
+stages are PR0 amendment, B1 copy adapters, then B2 maintained invocation and
+Claude links. This revision records that ruling; no earlier interpretation is
+standing authorization to weaken copy-core symlink refusal.
 
 Fresh branch issue-1889-shared-adapters in
 /workspace/claude-power-pack-adapters is based on main12b39ceb. Only this draft
@@ -231,13 +234,24 @@ plan is changed. Other local worktrees hold completed contract/core/builder
 and historical probes; other containers' unpublished work is unexamined. The
 owner host and CPP pin are untouched. Assignment40515; revision request40522.
 
+### PR0 prerequisite - docs-only, lands before B1 code
+
+A separate branch from current main changes only
+`docs/decisions/0014-antigravity-capability.md` plus its own plan/as-read/review
+records. Its short AMENDMENT records the owner ruling, existing Claude command
+and helper scope, targets confined inside the pinned CPP checkout, no new link
+kinds, read-only type/target/content verification and required negative cases.
+It requires reports to call the backend `links`, never `copies`. PR0 lands
+before code. This B1 draft will reconcile with PR0's approved plan history
+before its own approval stamp; no historical approved section is overwritten.
+
 ### Section C - B1 proposed plan for approval
 
 1. `lib/host_update/source.py` - resolve a full commit once, refuse dirty/unavailable source and materialize a private detached source snapshot with Git overrides/hooks/fsmonitor disabled; use its driver/adapters/builders and clean only the owned temporary worktree.
 2. `lib/host_update/claude.py` - actual Claude TOPIC managed-copy adapter only, building pinned canonical packages under the existing metadata.source fidelity contract; no commands/helpers, symlink allowance or configuration enumeration.
 3. `lib/host_update/codex.py` - actual Codex managed-copy adapter using the unchanged pinned generator and existing install lock; GENERATED is discovery evidence, not proof of previous installed bytes.
 4. `lib/host_update/antigravity.py` - actual topic-only AGY adapter consuming the merged builder; descriptor-relative no-follow preflight from approved home through .gemini/config before granting skills/ledger/work and the exact config/.cpp-skill-install.lock scope.
-5. `lib/host_update/host.py` - production registry/selection, same-revision dispatch through the existing core and typed PARTIAL report envelope naming included components, absent/unknown states, unsupported harnesses and deferred Claude commands/helpers/B2 invocation.
+5. `lib/host_update/host.py` - production registry/selection, same-revision dispatch through the existing core and typed PARTIAL report envelope naming copy components, absent/unknown states, unsupported harnesses and deferred Claude command/helper links/B2 invocation.
 6. `scripts/cpp-host-update.py` - production refresh/verify entry with explicit source/home/selection/defer/adoption boundaries, HOST-SURFACE declarations and real human/JSON summaries; retain backwards-compatible explicit fixture mode.
 7. `tests/test_host_update_adapters.py` - real discovery and pinned builds for all three copy adapters; metadata/GENERATED/receipt versus CLI-only/foreign evidence; legacy exact-match record bootstrap and stale-unproven UNKNOWN; no-follow prefix refusal BEFORE forbidden IO; actual Claude output consumed by the existing skills-check reader.
 8. `tests/test_host_update_integration.py` - actual CLI and real three-adapter refresh from prior A to current B, exact SAME full revision in all selected rows, independent fresh-build/installed bytes/membership/modes and foreign sibling preservation; a different/guessed-revision adapter must fail.
@@ -275,16 +289,15 @@ pending; no product implementation has begun.
 
 ### B2 future list - NOT B1 implementation authority
 
-The exact B2 Section C will be approved in its own run after B1 and the owner
-ruling; this list records the split rather than pre-approving future code.
+The exact B2 Section C will be approved in its own run after PR0 and B1; this list records the split rather than pre-approving future code.
 
 1. `.claude/commands/cpp/update.md` - invoke shared production refresh once after source fetch, including zero commits pulled, and preserve actual per-harness failures in summary; replace duplicated refreshes only within the owner-approved component scope; budget offsets/instruction audit.
-2. `lib/host_update/claude.py` - whatever the owner permits for commands/helpers, or an explicit topics-only boundary with a separately filed helper-to-copy follow-up.
-3. `lib/host_update/models.py` - ONLY if an owner-approved link exception requires an additive typed lifecycle/backend seam, with the default copy API unchanged and prior coordination with ch-w2.
-4. `lib/host_update/driver.py` - ONLY the corresponding owner-approved shared lifecycle extension; never globally weaken symlink refusal.
-5. `lib/host_update/links.py` - ONLY if the owner chooses a documented exception; otherwise no link backend, and conversion remains a scoped follow-up or separate approved work.
+2. `lib/host_update/claude.py` - existing command/helper links under the owner-approved narrow exception; topics remain copies and the report preserves component backend labels.
+3. `lib/host_update/models.py` - additive typed lifecycle/backend seam for the owner-approved Claude exception, default copy API unchanged, coordinated with ch-w2 before any change.
+4. `lib/host_update/driver.py` - corresponding bounded shared lifecycle extension for Claude links; never globally weaken copy-core symlink refusal.
+5. `lib/host_update/links.py` - typed bounded Claude-only backend after PR0 lands; verify targets resolve inside the pinned CPP checkout, no new link kinds, preserve/report foreign, dangling and non-link replacements.
 6. `tests/test_host_update_command.py` - maintained Claude and generated Codex command readers consume actual production outputs, including no-op source pull, CLI absent and partial failure; no authored report substitutes.
-7. `tests/test_host_update_links.py` - ONLY if the owner approves link handling; preservation, defer/host-write seam, content/revision and interruption evidence.
+7. `tests/test_host_update_links.py` - owner-required committed outside-checkout, dangling-link and regular-file-replacement negatives; preservation, defer/host-write seam, source-content/revision and interruption evidence.
 8. `controls/antigravity-skill-build/codex-baseline.json` - only reviewed source-driven input attribution for cpp/update, historical members and generator/parser pins unchanged.
 9. `tests/test_antigravity_codex_parity.py` - consume the same attributed source delta under both masks, preserve exact independent generator/parser output bytes/modes and reject an unattributed input change.
 10. `docs/measurements/host-update-acceptance.probe.py` - NEW gated optional native probe, separate from immutable historical attempt4: require a recorded governing ruling reference bound to the reviewed run in BOTH authentication lanes, including prescribed dedicated file-token setup; no auth-store reads/copies or automatic login.
@@ -293,6 +306,7 @@ ruling; this list records the split rather than pre-approving future code.
 13. `docs/measurements/host-update-adapters.md` - B2/epic real-adapter acceptance and owner-approved live evidence if any; otherwise name missing runtime/command-derived AGY invocation.
 14. `Makefile` - necessary focused B2 tests/controls under the same shared updater, no bespoke per-AGY update workflow.
 15. `changelog.d/1889.md` - describe final approved B2 scope without turning PARTIAL into all-harness parity.
+16. `lib/host_update/host.py` - component/backend report labels: Claude command/helper backend is `links`, NEVER `copies`; Claude topics/Codex/AGY remain copies, including mixed-component summaries.
 
 ### B1 decisions and preservation policy
 
@@ -390,7 +404,7 @@ priority. No native consumer or production host mutation is authorized by this p
 | Reader: production CLI/report/control decisions | tested against real output | real reports and trees, no independently authored JSON substitutes; blind anchor/mutations |
 | Reader: Claude skills-check | tested against real output | actual managed Claude topic output fed to unchanged existing checker |
 | Reader: fixture and pi API | reader unchanged | core types/default callbacks and fixture schema preserved; rerun actual existing consumers |
-| Reader: cpp/update/generated command routes | not covered | B2 wires actual reports after owner scope decision; no parallel updater claimed |
+| Reader: cpp/update/generated command routes | not covered | B2 wires actual reports under the recorded owner exception after PR0/B1; no parallel updater claimed |
 | Reader: drift/status/capability planner | not covered | existing readers not switched; #1892/#1893 integrations retain own acceptance |
 | Reader: AGY runtime | not covered | no native model run; recorded-ruling probe gate is mandatory before any later live acceptance |
 | Reader: Kyle/skillc/kyle-candidate | reader unchanged | Codex generator and canonical command inputs unchanged in B1; existing independent parity suite remains required |
