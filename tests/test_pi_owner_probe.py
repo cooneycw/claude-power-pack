@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.pi_owner_fixture_tools import fixture_source, fixture_subprocess
+
 pytestmark = pytest.mark.skipif(
     shutil.which("git") is None or shutil.which("make") is None,
     reason="requires git and make for disposable owner fixtures",
@@ -23,12 +25,19 @@ PROBE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(PROBE)
 
 
+@pytest.fixture(autouse=True)
+def owner_tools(tmp_path, monkeypatch, source):
+    # The real host helper deliberately excludes ambient PATH. Deliver CI's
+    # staged tools only in this disposable fixture, without changing its bytes.
+    monkeypatch.setattr(PROBE, "subprocess", fixture_subprocess(tmp_path))
+    revision = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
+    monkeypatch.setattr(PROBE, "REVISION", revision)
+
+
 @pytest.fixture(scope="module")
 def source(tmp_path_factory):
     path = tmp_path_factory.mktemp("pi-owner-source") / "repo"
-    subprocess.run(["git", "clone", "--quiet", "--no-hardlinks", str(ROOT), str(path)], check=True)
-    subprocess.run(["git", "-C", str(path), "checkout", "--quiet", "--detach", PROBE.REVISION], check=True)
-    return path
+    return fixture_source(ROOT, path)
 
 
 def arguments(tmp_path, source):
@@ -57,6 +66,22 @@ def test_positive_full_real_cli_and_scoped_undo(tmp_path, source, monkeypatch, p
     assert not (Path(args.agent) / ".cpp-skills.lock").exists()
     assert (Path(args.journal) / "scoped-restored.json").exists()
     # Simulated confirmations test sequencing only, never actual pi discovery.
+
+
+def test_staged_only_tools_reproduce_missing_git_then_run_real_cli(tmp_path, source, monkeypatch):
+    args = arguments(tmp_path, source)
+    git = PROBE.subprocess.tool_dir / "git"
+    binary = git.readlink()
+    git.unlink()
+    assert shutil.which("git", path=str(git.parent)) is None
+    with pytest.raises(FileNotFoundError, match="git"):
+        PROBE.run(args)
+    assert not Path(args.journal).exists()
+    git.symlink_to(binary)
+    answers = iter(["RELOAD-PRESENCE-CAPTURED", "RELOAD-BASELINE-CAPTURED"])
+    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+    PROBE.run(args)
+    assert (Path(args.journal) / "scoped-restored.json").exists()
 
 
 @pytest.mark.parametrize("collision", ["skills/code-quality", "skills/.cpp-managed", ".cpp-skills.lock"])
@@ -153,9 +178,11 @@ def test_make_metacharacters_in_path_refused(tmp_path):
 def test_umask_0002_build_uses_installer_directory_policy(tmp_path, source, monkeypatch):
     """Regression: original a3dc5d6e stops after actual positive installation."""
     # Existing output from a prior test must not mask directory creation under
-    # 0002. A new clone excludes the source's ignored generated output.
+    # 0002. A worktree excludes ignored output without copying a detached
+    # shallow/partial clone's object store a second time (CI pipeline 4046).
     isolated = tmp_path / "umask-source"
-    subprocess.run(["git", "clone", "--quiet", "--no-hardlinks", str(source), str(isolated)], check=True)
+    subprocess.run(["git", "-C", str(source), "worktree", "add", "--quiet",
+                    "--detach", str(isolated), PROBE.REVISION], check=True)
     args = arguments(tmp_path, isolated)
     answers = iter(["RELOAD-PRESENCE-CAPTURED", "RELOAD-BASELINE-CAPTURED"])
     monkeypatch.setattr("builtins.input", lambda prompt: next(answers))

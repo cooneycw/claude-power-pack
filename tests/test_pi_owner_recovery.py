@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.pi_owner_fixture_tools import fixture_source, fixture_subprocess
+
 pytestmark = pytest.mark.skipif(
     shutil.which("git") is None or shutil.which("make") is None,
     reason="requires git and make for disposable owner fixtures",
@@ -26,16 +28,24 @@ SPEC.loader.exec_module(RECOVERY)
 PROBE = RECOVERY.PROBE
 
 
+@pytest.fixture(autouse=True)
+def owner_tools(tmp_path, monkeypatch, source):
+    tools = fixture_subprocess(tmp_path)
+    monkeypatch.setattr(PROBE, "subprocess", tools)
+    monkeypatch.setattr(RECOVERY, "subprocess", tools)
+    revision = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
+    monkeypatch.setattr(PROBE, "REVISION", revision)
+    return tools
+
+
 @pytest.fixture(scope="module")
 def source(tmp_path_factory):
     path = tmp_path_factory.mktemp("pi-recovery-source") / "repo"
-    subprocess.run(["git", "clone", "--quiet", "--no-hardlinks", str(ROOT), str(path)], check=True)
-    subprocess.run(["git", "-C", str(path), "checkout", "--quiet", "--detach", PROBE.REVISION], check=True)
-    return path
+    return fixture_source(ROOT, path)
 
 
 @pytest.fixture
-def stopped(tmp_path, source, monkeypatch, request):
+def stopped(tmp_path, source, monkeypatch, request, owner_tools):
     old_path = tmp_path / "original_probe.py"
     original = (ROOT / "tests/fixtures/pi-owner-probe-a3dc5d6e.py.txt").read_bytes()
     assert hashlib.sha256(original).hexdigest() == "8bfd731d395d61b9f25a970aa247867a5e1cbd811bf171b912ff4b0745afa938"
@@ -44,6 +54,8 @@ def stopped(tmp_path, source, monkeypatch, request):
     assert spec is not None and spec.loader is not None
     old = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(old)
+    monkeypatch.setattr(old, "subprocess", owner_tools)
+    monkeypatch.setattr(old, "REVISION", PROBE.REVISION)
     home, agent = tmp_path / "owner", tmp_path / "owner/agent"
     agent.mkdir(parents=True)
     if getattr(request, "param", True):
