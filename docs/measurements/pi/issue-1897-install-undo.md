@@ -99,3 +99,32 @@ its raw stdout SHA256 is
 `ccac5bcb0930ec17cf32f337cd7543b75398b0e7773f4bf932ac10dd5700eb84`.
 The original driver remains retained separately. No owner or pi-discovery
 observation was added by this durability work.
+
+
+## Approved fresh-base fixture replay - 2026-11-26
+
+The public owner ruling and mailbox 40665 approve the plan and require a fresh
+fixture run after merging main without rebasing. Merge `fbd5d25f` incorporated
+`c434101e7ae580de3bb81ca1db9d325a0483c44c`; the separate clean detached source
+used that full main revision. The portable replay changed only its pinned
+revision for this run. Driver SHA256:
+`29f6e780188c7f4fcda5ee6fe17e5301086bd2c54b95c9d58158650e3c61cf02`.
+
+The four scenarios again observed 18 packages / 36 members and 21 actual
+install/verifier calls. Full positive verification passed. Changed reference,
+missing package and stripped marker each produced actual CLI parity exit 1;
+each changed state refused fixture undo without deletion, and actual repair
+returned complete positive verification. All final scoped baseline comparisons
+and personal identity/mtime checks passed. Post-undo verification returned
+missing-installed exit 1 with 18 expected packages and zero examined members.
+Source cleanliness and fixture cleanup were confirmed.
+
+Fresh summary SHA256:
+`af639665ca1ecd4e2c26564cc72e501755adb023b5b5f570fee937e97b68122d`.
+Raw stdout SHA256:
+`113797968ba0b2ace1fbe1a4e1c41e8088ce60a416ba34703cd829e1263c95a4`.
+These identify retained local bytes, not authenticity or owner evidence.
+No pi executable was available; discovery remains UNEXECUTED. The raw summary's
+historical authority-pending string describes an unexecuted owner lane; owner
+authority is now granted subject to exact commands being shown first. No owner
+installation, reload, undo or sign-off occurred in this fixture replay.

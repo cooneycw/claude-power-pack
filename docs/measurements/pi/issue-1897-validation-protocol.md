@@ -1,9 +1,11 @@
 # #1897 topic installation and undo protocol
 
-Local preparation is authorized by mailbox 40632. The issue remains parked.
-Mailbox 40651 separately permits a WIP branch push for durable backup only.
-No PR, CI or owner action is authorized; owner unparking and one real
-install/undo are awaiting a ruling through the orchestrator.
+Local preparation was authorized by mailbox 40632, followed by the durability
+exception in mailbox 40651. The [owner ruling](https://github.com/cooneycw/claude-power-pack/issues/1897#issuecomment-7179886781)
+and orchestrator mailbox 40665 now approve the plan and unpark fixture work,
+including branch pushes and PR CI. The orchestrator still requires clearance
+before opening a PR. One owner install/undo is authorized only after fixture
+success and presentation of the exact committed commands to the owner.
 
 Use the delivered code at `337f411a6bb2cf104040fd5407a1987842ea89bb` for initial
 fixture replay. A later execution must record its exact source revision and
@@ -68,7 +70,7 @@ synthetic personal file bytes/modes and its identity/mtime, and report which
 directory metadata is outside that comparison. Dispose only of the registered
 scratch root after retaining the evidence; never use a broad cleanup glob.
 
-## Owner batch - not executable until separately cleared
+## Owner batch - exact commands must be shown first
 
 The host operator supplies the exact source/tool revision, approved existing
 session/context, scoped pre-state and exclusive topic-writer window. No new pi
@@ -79,7 +81,8 @@ provider turn. Capture only the relevant skill UI, not pane history.
 The first batch supports absent canonical CPP topic slots and management state,
 with unrelated personal skills allowed. An existing slot/collision/ownership
 record returns a concrete preservation/restore amendment before any install.
-No automatic owner adoption. Record an existing primary lock and retain it.
+No automatic owner adoption. Under mailbox 40665's first-batch absent-state
+requirement, an existing primary lock also stops the batch before installation.
 Never enumerate the whole agent or inspect credential paths. Published records
 exclude credential-file names/contents, tokens and private host/session names.
 

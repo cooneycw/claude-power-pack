@@ -139,3 +139,24 @@ A portable replay derivative changes only source/run location initialization.
 It completed against the persistent source and reproduced the same summary
 bytes, with fixture cleanup and source cleanliness observed. Raw evidence stays
 outside the CPP checkout; historical /tmp strings inside it remain unchanged.
+
+
+### Owner approval and fresh-base checkpoint - mailbox 40665
+
+The [public owner ruling](https://github.com/cooneycw/claude-power-pack/issues/1897#issuecomment-7179886781)
+unparks #1897 and permits fixture pushes/PR CI plus one narrowly scoped owner
+install/verify/reload/undo/reload. Mailbox 40665 approves this plan, requires
+merging main `c434101e7ae580de3bb81ca1db9d325a0483c44c` without rebasing,
+and keeps PR creation pending orchestrator clearance. This supersedes earlier
+pending-authority statements; it does not claim a helper approval stamp.
+
+Merge `fbd5d25f` preserves the prior WIP history. A new replay against a clean
+detached source at that exact main revision passed the four fixture scenarios.
+The sanitized results and digests are appended to the measurement record.
+Owner action remains unexecuted: exact commands must first be committed and
+sent to the orchestrator for presentation to the owner. The supported owner
+preflight now stops if any target slug or CPP state, including a primary lock,
+already exists. The earlier retain-existing-lock option is not used here.
+No new pi process may use owner HOME, including a version query. No provider
+turn, trusted-config change or credential inspection is permitted. #1896's
+review cap does not transfer; #1897 uses the default review cap.

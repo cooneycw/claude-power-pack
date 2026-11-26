@@ -31,3 +31,13 @@ Mailbox 40651 adds only a WIP durability-push exception. The repository, clean
 source and raw evidence now persist under workspace storage; original file
 hashes were rechecked and a path-portable fixture replay completed with the
 same summary. This does not change the owner/CI/discovery/sign-off rows above.
+
+
+Mailbox 40665 and the public owner ruling now approve the plan and unpark #1897.
+The earlier pending-authority descriptions above are historical. Main
+`c434101e` was merged without rebasing, and a clean source at that revision
+repeated all four fixture scenarios: full 18/36 parity positive, three parity
+negatives, three undo refusals, repaired positives and final scoped baseline
+restoration. The measurement record retains fresh digests. Owner/discovery/
+sign-off rows remain unexecuted; an exact committed owner probe must be shown
+before owner execution. PR creation still awaits orchestrator clearance.
