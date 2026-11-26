@@ -179,3 +179,70 @@ first as a positive search control. New module/CLI has no existing implementatio
 to search; the future readers above are known from the approved contract and
 pi-worker coordination. No cross-repository interface change or new capability
 enrollment is claimed. Lane file is fresh (11 days old at plan preparation).
+
+<!-- flow-run n=2 id=ce18e218d63a4326b62ca6eb9458eee3 -->
+## Run 2
+
+- Run-id:            ce18e218d63a4326b62ca6eb9458eee3
+- Run-start:         12b39ceb146dc89860be036e577ae248e362a19d
+
+- Issue:             #1889, PR0 docs-only prerequisite; parent #1876
+- Necessity verdict: Needs reframing - amend accepted ADR before adapter code
+- Approval:          granted for the requested amendment scope only
+- Approver:          ch-orch mailbox40530, relaying owner ruling1889 comment7178523792
+
+### Section A - intent
+
+The owner chose to preserve Claude's existing command/helper links under the
+shared updater. ADR0014 currently rejects symlinks without that exception.
+Record the narrow exception before implementing it, so the code review has
+an explicit authority and verifiable bounds. Topic skills and new harnesses
+remain managed copies. No installer/backend behavior ships in this PR.
+
+### Section B evidence
+
+Base12b39ceb includes accepted ADR0014, contract/core and AGY builder. The
+owner ruling is https://github.com/cooneycw/claude-power-pack/issues/1889#issuecomment-7178523792
+("1889 A"). Orchestrator40530 requires a separate docs-only PR0 landing FIRST,
+then B1 copy adapters, then B2 maintained invocation and bounded Claude links.
+Original draft/B1 plans live on issue-1889-shared-adapters and are unapproved;
+this branch carries only PR0. Existing ADR blanket-rejection clauses were
+read; a clearly dated amendment narrows them without rewriting history.
+#1889/#1888 and epic acceptance remain open. No issue-body edit is planned.
+
+### Section C - the approved PR0 plan
+
+1. `docs/decisions/0014-antigravity-capability.md` - add dated owner-ruling amendment: existing Claude command/helper links only; targets resolve inside the pinned CPP checkout; no new link kinds; read-only type/target/content/revision verification; outside/dangling/regular-file replacement controls required with B2; report backend as links, never copies; topics/new harnesses stay copies; ADR lands before code.
+
+Scope: one docs file plus this plan/as-read and later review/lane receipt.
+No product code, installer, generator, host/config mutation or native model run.
+Authorization is the explicit amendment instruction40530; it does not approve
+B1 or B2 implementation. Separate B1/B2 plan reconciliation follows PR0 merge.
+
+Verification: focused Make docs-link and Unicode checks; independent review
+before PR; full remaining gates in PR CI with ch-orch clearance. No regression
+or live runtime claim for this documentation amendment. B2 must commit the
+three required negative controls before its link backend ships.
+
+### Lanes for this change
+
+| Lane | Answer | Note |
+|---|---|---|
+| Checkout | not applicable | docs amendment, no checkout-path behavior |
+| Harness | not applicable | no installation or runtime change; records Claude-only future exception |
+| Driver | not applicable | no command/driver implementation changes |
+| Coordination | not applicable | no coordination behavior |
+| CI provider | not applicable | no provider logic; PR CI Woodpecker |
+| Project state | not applicable | no state-reading behavior |
+| Toolchain version | not applicable | prose only |
+| Clone shape | not applicable | no history-dependent implementation |
+| Run location | not applicable | no runtime entry |
+| Gate target | not applicable | no quality-gate behavior change |
+| Wave role state | not applicable | no role state change |
+| Reader: adapter implementer/reviewer | not covered | normative future backend contract; B2 must feed real output to its tests/reader |
+| Reader: existing runtime consumers | reader unchanged | no code/schema/generated input changes |
+
+Reader search positive control found ADR0014 referenced by the authoritative
+host-update spec. Existing rejection clauses at ADR lines35/67/219 were read.
+The amendment states its precedence and limited scope; future backend evidence
+is not asserted to exist now. All earlier approved run history stays intact.
