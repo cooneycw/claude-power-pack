@@ -872,7 +872,14 @@ Base8e6efc03 is confirmed green by41646. PR1919 delivered B2a; no generated cpp-
 33. `tests/test_permissions_template_link_parity.py` - amendment41925: actual shared manifest population and executable/non-executable/non-shell controls; retain init assertions.
 34. `scripts/host-surface-observe.py` - amendment41925: explicitly classify cpp-host-update.py without observation/certification claims; no catch-all.
 35. `tests/test_host_surface_observe.py` - amendment41925: classification proof and newly derived unclassified-member refusal control.
-Scope:35 possible product paths plus own plan/as-read/lanes/receipt records. No probe paths, no neutral core/Pi API changes. Amend before extra product paths. Codex baseline untouched unless actual output deltas measured. Never repin historical members/generator/parser. Runtime regressions must run red before lazy-import fixes. Deletion comparison must establish shared deletion subset of actual legacy deletion, count all personal/foreign/retired/mixed population and enumerate legacy-only deletions. update.md before2291 lines; require lower after count.
+36. `scripts/codex-skill-sync.py` - owner ruling7204721638: delete exactly six stale cpp/update exception rows and no other bytes; immutable historical generator/parser/pins remain unchanged.
+37. `tests/test_codex_skill_sync.py` - rebuild the frozen generator by reinserting the six rows; reject retired-row reintroduction and any non-table byte mutation; retain stale-exception/output checks.
+38. `tests/test_cpp_command_wiring.py` - replace the retired standalone Codex-installer assertion with actual shared-fence wiring and a missing-fence/comment-only negative.
+39. `tests/test_negative_controls.py` - typed/plain gate metadata reader through shared parse_gate; preserve source population, self-registration and nested-case exclusions, with both descriptor kinds and malformed negatives.
+40. `tests/test_stable_path_scripts_installable.py` - retain init executability and consumer-derived stable-path checks; use the actual shared executable manifest for update and its missing/wrong-inclusion controls.
+41. `controls/host-surface-observe/anchors/constructed-blind-covered-by.py` - regenerate from current origin with the unchanged stored patch and preserved module docstring.
+42. `controls/host-surface-observe/control.json` - canonical constructed-anchor digest refresh only; no historical repin.
+Scope:42 possible product paths plus own plan/as-read/lanes/receipt records. No probe paths, no neutral core/Pi API changes. Amend before extra product paths. Codex baseline untouched unless actual output deltas measured. Never repin historical members/generator/parser. Runtime regressions must run red before lazy-import fixes. Deletion comparison must establish shared deletion subset of actual legacy deletion, count all personal/foreign/retired/mixed population and enumerate legacy-only deletions. update.md before2291 lines; require lower after count.
 
 ### Implementation and validation
 One shared refresh replaces managed5a/5b/5c and7.9a, existing actual full revision, existing-install discovery and deferrals. Retain unrelated runtime/stash/local-model/MCP/memory/retired-surface operations. Real JSON/exit/finish-revision summary, no masked success. Controlled actual caller cases, byte/type oracles, genuine unwritable executing identity. Named control controls/cpp-update-host-refresh registered typed Make target host-update-command-check, GOOD stale refresh, BAD unwritable and malformed/revision moved reports, UNKNOWN unavailable; constructed masked-summary anchor. Existing parity bad attribution/pin/parser/generator cases protect both022/002 exact modes; preserve tracked-input race fix. No generated cpp-update reader or whole-epic/native acceptance claim.
@@ -932,3 +939,19 @@ init/negative distinctions and adding missing-executable/wrong-inclusion cases.
 Explicitly classify the newly derived shared entry without observed claims and
 prove an unknown derived newcomer still refuses. Report assertion counts. Third
 review only; a material third-pass finding escalates to owner via ch-orch.
+
+
+Owner ruling at https://github.com/cooneycw/claude-power-pack/issues/1889#issuecomment-7204721638,
+relayed by ch-orch41964, unparked B2b-1 with option B and exactly one fourth
+review. Plan41957 is approved: the seven paths above plus existing
+`tests/test_host_update_command.py`, `docs/scripts/cpp-host-update.md` and
+`docs/measurements/host-update-adapters.md`, with own records. No update.md,
+parser, frozen reference, baseline JSON, CLI/source/core/Pi or native/auth change.
+The gate at279482dc was5fail/14084pass/5skip; all seven corresponding baseline
+cases passed unchanged8e. Scratch data-only A/B at022/002 produced identical
+80 packages/404 members against both current and frozen transforms, with actual
+wrong-byte/mode negatives; only the six-row table deletion is authorized.
+Run every listed red case, pinned parity, full verify BEFORE pass4, then the
+entire149-control provenance batch. Fourth receipt escalation: ruled_by=owner,
+reference=the comment above, raised_cap=4. No fifth pass; material findings on
+pass4 return through ch-orch to owner. PR window still requires ch-orch clearance.
