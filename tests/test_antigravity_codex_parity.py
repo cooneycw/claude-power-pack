@@ -224,6 +224,75 @@ def test_two_generators_use_independent_parsers_and_identical_inputs(tmp_path, m
         os.umask(previous)
 
 
+
+def _assert_self_bundled_input_variation(tmp_path, mask):
+    data = baseline()
+    frozen_path = CONTROL / data["generator_path"]
+    current_path = ROOT / "scripts/codex-skill-sync.py"
+    frozen_bytes, current_bytes = frozen_path.read_bytes(), current_path.read_bytes()
+    assert current_bytes != frozen_bytes, "the approved data deletion must vary the bundled source input"
+    old_source = canonical_source(tmp_path / "old-inputs")
+    new_source = canonical_source(tmp_path / "new-inputs")
+    (old_source / "scripts/codex-skill-sync.py").write_bytes(frozen_bytes)
+    variants = (
+        ("before", frozen_path, old_source),
+        ("after", current_path, new_source),
+        ("frozen-on-after", frozen_path, new_source),
+    )
+    outputs, modules = [], []
+    previous = os.umask(mask)
+    try:
+        for label, code, inputs in variants:
+            module = load(code, f"self_bundle_{label}_{mask}", inputs)
+            output = tmp_path / label
+            assert module.main(["--write", "--output-root", str(output)]) == 0
+            outputs.append(output)
+            modules.append(module)
+    finally:
+        os.umask(previous)
+    before, after, frozen_after = [inventory(output) for output in outputs]
+    assert len(before) == len(after) == len(frozen_after) == len(data["members"]) == 404
+    assert after == frozen_after, "transforms must agree on identical new inputs"
+    assert set(modules[1]._LINK_PARSER_CACHE).isdisjoint(modules[2]._LINK_PARSER_CACHE)
+    # Equal transforms alone cannot prove the input was varied: the old input
+    # makes both agree too. These actual bundled bytes close that blind spot.
+    expected = set()
+    for consumer in ("flow-auto", "flow-finish"):
+        name = f"{consumer}/scripts/codex-skill-sync.py"
+        assert (outputs[0] / name).read_bytes() == frozen_bytes
+        assert (outputs[1] / name).read_bytes() == current_bytes, "bundled generator input was held old"
+        expected.update((name, f"{consumer}/scripts/SHA256SUMS"))
+    changed = {name for name in before.keys() | after.keys() if before.get(name) != after.get(name)}
+    assert changed == expected, "only two self-bundled source copies and their checksums may change"
+    assert all(before[name][1] == after[name][1] for name in changed), "input variation must retain modes"
+    print(f"self-bundle {mask:03o}: four input deltas, zero same-input transform deltas")
+
+
+@pytest.mark.parametrize("mask", [0o022, 0o002])
+def test_bundled_generator_input_variation_is_measured(tmp_path, mask):
+    _assert_self_bundled_input_variation(tmp_path, mask)
+
+
+@pytest.mark.parametrize("mask", [0o022, 0o002])
+def test_bundled_input_variation_rejects_held_old_input(tmp_path, monkeypatch, mask):
+    real_copy = canonical_source
+    current = (ROOT / "scripts/codex-skill-sync.py").read_bytes()
+    frozen = (CONTROL / baseline()["generator_path"]).read_bytes()
+    assert current != frozen
+
+    def hold_old(destination):
+        source = real_copy(destination)
+        member = source / "scripts/codex-skill-sync.py"
+        assert member.read_bytes() == current, "the real copier must start with the changed input"
+        member.write_bytes(frozen)
+        assert member.read_bytes() != current, "the negative fixture must hold the old input"
+        return source
+
+    monkeypatch.setitem(_assert_self_bundled_input_variation.__globals__, "canonical_source", hold_old)
+    with pytest.raises(AssertionError, match="bundled generator input was held old"):
+        _assert_self_bundled_input_variation(tmp_path, mask)
+    print(f"held-old-input {mask:03o}: RED bundled-member assertion despite equal transforms")
+
 def test_changed_transform_is_detected(tmp_path, monkeypatch):
     data = baseline()
     pinned = load(CONTROL / data["generator_path"], "agy_transform_pinned")

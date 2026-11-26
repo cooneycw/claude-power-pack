@@ -1100,14 +1100,45 @@ def test_the_narrow_self_registration_check_misses_a_different_controls_untracke
 
 
 
-def test_discover_is_not_recursive_so_nested_case_trees_are_not_double_discovered() -> None:
-    """The self-registration nests whole repos under controls/.
 
-    `discover()` walks `<root>/scripts` with `iterdir()`, which is not
-    recursive, so the toy gates inside the nested case trees are never picked up
-    by the outer run. #964 asked for this to be asserted rather than assumed,
-    because if it were ever made recursive the outer run would start evaluating
-    the fixtures as though they were real repository instruments.
+def _declared_gate_files(values, harness):
+    rule = harness._census_rule()
+    assert rule is not None, "UNAVAILABLE: shared gate descriptor parser missing"
+    paths = set()
+    for value in values:
+        reference, why = rule.parse_gate(value)
+        assert reference is not None, f"invalid declared gate: {why}"
+        assert "cases" not in Path(reference.file).parts, f"nested fixture gate: {reference.file}"
+        paths.add(reference.file)
+    assert paths, "UNAVAILABLE: no declared gate population"
+    return sorted(paths)
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("scripts/check-negative-controls.py", "scripts/check-negative-controls.py"),
+    ({"kind": "make-target", "file": "Makefile", "target": "host-update-command-check"}, "Makefile"),
+])
+def test_discovery_reader_accepts_plain_and_typed_real_gate_files(value, expected):
+    assert _declared_gate_files([value], _load_harness_module()) == [expected]
+
+
+@pytest.mark.parametrize("value,reason", [
+    ("controls/toy/cases/bad/scripts/toy.sh", "nested fixture gate"),
+    ({"kind": "make-target", "file": "controls/toy/cases/bad/Makefile", "target": "toy"}, "invalid declared gate"),
+    ({"kind": "unknown", "file": "Makefile", "target": "toy"}, "invalid declared gate"),
+])
+def test_discovery_reader_refuses_nested_or_malformed_gate_files(value, reason):
+    harness = _load_harness_module()
+    assert _declared_gate_files([{"kind": "make-target", "file": "Makefile", "target": "toy"}], harness)
+    with pytest.raises(AssertionError, match=reason):
+        _declared_gate_files([value], harness)
+    print(f"descriptor {reason}: RED assertion")
+
+def test_discover_is_not_recursive_so_nested_case_trees_are_not_double_discovered() -> None:
+    """Discovery may recurse within source scopes, never into control cases.
+
+    The registration's declared gate can be a path or a typed Make target;
+    both are resolved by the same parser the harness and census use.
     """
     nested_gates = sorted(SELF_CONTROL.glob("cases/*/scripts/toy-gate.sh"))
     assert nested_gates, "the nested fixtures moved; this test is now vacuous"
@@ -1127,11 +1158,11 @@ def test_discover_is_not_recursive_so_nested_case_trees_are_not_double_discovere
     harness = _load_harness_module()
     registrations = harness.discover(ROOT)
     directive_files = [str(path.relative_to(ROOT)) for path, _control in registrations]
-    discovered = sorted({
+    discovered = _declared_gate_files([
         json.loads((ROOT / control / "control.json").read_text(encoding="utf-8"))["gate"]
         for _path, control in registrations
         if (ROOT / control / "control.json").is_file()
-    })
+    ], harness)
     assert discovered, registrations
     for path in directive_files:
         assert "/cases/" not in path, f"discover() read a nested directive: {path}"

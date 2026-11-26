@@ -871,7 +871,7 @@ def assert_shared_executable_population(source):
 
 
 @pytest.mark.skipif(not shutil.which("bash"), reason="shared manifest consumers retain init Bash coupling")
-@pytest.mark.parametrize("consumer", ["install-drift", "permissions"])
+@pytest.mark.parametrize("consumer", ["install-drift", "permissions", "stable-path"])
 @pytest.mark.parametrize("fault", ["missing-non-shell", "included-non-executable"])
 def test_shared_manifest_readers_reject_wrong_members(source, monkeypatch, consumer, fault):
     original = ClaudeLinks.manifest
@@ -891,8 +891,11 @@ def test_shared_manifest_readers_reject_wrong_members(source, monkeypatch, consu
         if consumer == "install-drift":
             from tests.test_install_drift import test_the_installer_loops_still_read_the_filter_this_axis_assumes
             test_the_installer_loops_still_read_the_filter_this_axis_assumes(source)
-        else:
+        elif consumer == "permissions":
             from tests.test_permissions_template_link_parity import test_link_loop_docs_use_the_widened_executable_gate
             document = CLI.parents[1] / ".claude/commands/cpp/update.md"
             test_link_loop_docs_use_the_widened_executable_gate(document, source)
+        else:
+            from tests.test_stable_path_scripts_installable import test_the_installer_gate_is_still_executability
+            test_the_installer_gate_is_still_executability(source)
     print(consumer, fault, "RED assertion:", str(caught.value).splitlines()[0])

@@ -3432,6 +3432,77 @@ def test_every_cpp_checkout_exception_still_matches_its_source():
     assert codex_skill_sync.stale_cpp_checkout_exceptions() == []
 
 
+
+# Owner ruling1889 B: only these six retired data records may differ from v13.
+_RETIRED_CPP_HELPERS = (
+    "friction-log.sh", "commands-mirror-sync.sh", "codex-skill-sync.py",
+    "install-memory-harness.sh", "retired-surface-prune.py", "install-drift.sh",
+)
+_FROZEN_GENERATOR_SHA = "395696707af11e0bd181741879534fbe02807fe56f659c189b44e3e45bc5d7ea"
+_FROZEN_PARSER_SHA = "e807b3bb918ab46fed38e27a979956896fa0f5543221798ad80c75d9c05698cd"
+
+
+def _retired_cpp_generator_fixture():
+    reference = ROOT / "controls/antigravity-skill-build/reference/codex-skill-sync-40d25173.py"
+    frozen = reference.read_bytes()
+    assert hashlib.sha256(frozen).hexdigest() == _FROZEN_GENERATOR_SHA
+    rows = [line for line in frozen.splitlines(keepends=True)
+            if any(line.startswith(f'    ("cpp/update.md", "{name}",'.encode()) for name in _RETIRED_CPP_HELPERS)]
+    assert len(rows) == 6
+    expected = frozen
+    for row in rows:
+        expected = expected.replace(row, b"", 1)
+    anchor = next(line for line in frozen.splitlines(keepends=True)
+                  if line.startswith(b'    ("cpp/update.md", "mcp-drift.py",'))
+    return frozen, expected, anchor, b"".join(rows)
+
+
+def _assert_only_retired_cpp_data_changed(candidate: bytes):
+    frozen, expected, anchor, rows = _retired_cpp_generator_fixture()
+    assert candidate == expected, "only the six approved retired CPP exception rows may differ"
+    assert candidate.count(anchor) == 1
+    rebuilt = candidate.replace(anchor, anchor + rows, 1)
+    assert rebuilt == frozen, "re-adding six rows must rebuild the exact frozen generator"
+    assert hashlib.sha256(rebuilt).hexdigest() == _FROZEN_GENERATOR_SHA
+
+
+def test_current_generator_only_removes_the_six_retired_cpp_exception_rows():
+    _assert_only_retired_cpp_data_changed(_script_path.read_bytes())
+    reference = ROOT / "controls/antigravity-skill-build/reference/check-md-relative-links.py"
+    parser = ROOT / "scripts/check-md-relative-links.py"
+    assert hashlib.sha256(reference.read_bytes()).hexdigest() == _FROZEN_PARSER_SHA
+    assert parser.read_bytes() == reference.read_bytes(), "the parser is not part of the data-only ruling"
+
+
+@pytest.mark.parametrize("fault", ["outside-table", "retired-row"])
+def test_data_only_generator_guard_rejects_other_bytes(fault):
+    _, expected, anchor, rows = _retired_cpp_generator_fixture()
+    _assert_only_retired_cpp_data_changed(expected)
+    if fault == "outside-table":
+        assert b"def is_cpp_checkout_ref(" in expected
+        bad = expected.replace(b"def is_cpp_checkout_ref(", b"def blind_cpp_checkout_ref(", 1)
+    else:
+        row = next(line for line in rows.splitlines(keepends=True) if b'"codex-skill-sync.py"' in line)
+        bad = expected.replace(anchor, anchor + row, 1)
+    assert bad != expected
+    with pytest.raises(AssertionError, match="six approved retired CPP exception rows"):
+        _assert_only_retired_cpp_data_changed(bad)
+    print(f"generator {fault}: RED assertion (approved data-only candidate passes)")
+
+
+def test_stale_checkout_guard_rejects_reintroduced_retired_install(monkeypatch):
+    entry = ("cpp/update.md", "codex-skill-sync.py", "{ref} --install", "/cpp:update operates on the checkout")
+    needle = codex_skill_sync._exception_needle(entry[1], entry[2])
+    document = (ROOT / ".claude/commands/cpp/update.md").read_text()
+    assert all(needle not in line for line in _fenced_lines(document)), "retired install must not be executable"
+    live = tuple(row for row in codex_skill_sync.CPP_CHECKOUT_RELATIVE_REFS
+                 if not (row[0] == "cpp/update.md" and row[1] in _RETIRED_CPP_HELPERS))
+    monkeypatch.setattr(codex_skill_sync, "CPP_CHECKOUT_RELATIVE_REFS", live + (entry,))
+    assert codex_skill_sync.stale_cpp_checkout_exceptions() == [entry]
+    with pytest.raises(AssertionError):
+        test_every_cpp_checkout_exception_still_matches_its_source()
+    print("retired install row: RED actual stale-check assertion")
+
 def _fenced_lines(text: str) -> list[str]:
     lines, in_fence = [], False
     for line in text.split("\n"):

@@ -229,7 +229,7 @@ detached checkout and removes it afterward. It reads shared source objects but
 does not register a worktree or write metadata in the caller's repository. A clean source
 and the requested commit must be available. The pinned driver and builders run
 from that snapshot. Source file modes are normalized from Git before the
-unchanged Codex generator runs, including checkout creation under umask 000.
+Codex generator runs, including checkout creation under umask 000.
 No adapter pulls or resolves a different revision. Every attempted row reports
 the same full commit; a source failure reports not-attempted with no guessed SHA.
 
@@ -420,3 +420,20 @@ separate review before this migration is offered. This keeps the existing
 Decision2 refusal rather than inventing deletion or ownership authority.
 There is no fallback to the legacy installer. An approved migration retries
 through the same shared writer; subsequent ordinary updates need no adoption.
+
+
+### Owner-approved generator data retirement
+
+[Owner ruling B](https://github.com/cooneycw/claude-power-pack/issues/1889#issuecomment-7204721638)
+allows exactly six retired cpp/update records to be deleted from the current
+Codex generator's checkout-reference exception table. Re-adding those rows must
+rebuild the exact frozen v13 generator; any other byte change fails the guard.
+The parser and frozen generator/parser references and pins remain unchanged.
+
+The generator is also bundled source for flow-auto and flow-finish. Its two
+copies and their SHA256SUMS therefore change as input data. The
+[attribution ruling](https://github.com/cooneycw/claude-power-pack/issues/1889#issuecomment-7205593196)
+allows exactly those four measured input deltas with a committed source SHA,
+old/new hashes and reasons. Historical members are not replaced. Frozen and
+current transforms still produce identical bytes and modes on identical new
+inputs at022/002; a separate test must reject holding the old bundled input.

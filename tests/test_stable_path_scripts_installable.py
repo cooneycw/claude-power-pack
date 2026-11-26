@@ -37,6 +37,13 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_host_update_adapters import source as source_fixture
+from tests.test_host_update_adapters import source_template as template_fixture
+from tests.test_host_update_command import assert_shared_executable_population
+
+source_template = template_fixture
+source = source_fixture
+
 ROOT = Path(__file__).resolve().parents[1]
 COMMANDS = ROOT / ".claude" / "commands"
 SCRIPTS = ROOT / "scripts"
@@ -47,8 +54,8 @@ STABLE_REF = re.compile(r"~/\.claude/scripts/([A-Za-z0-9._-]+\.(?:sh|py))")
 
 #: The mode comes from the INDEX, which needs git. The CI `validate` image
 #: (uv:python3.11-bookworm-slim) ships bash but not git, so the assertion that
-#: shells out carries the guard CLAUDE.md requires; the two checks that only
-#: read files stay unguarded and always run.
+#: shells out carries the guard CLAUDE.md requires. Pure file readers stay
+#: unguarded; the shared-manifest population also requires Git.
 requires_git = pytest.mark.skipif(
     shutil.which("git") is None,
     reason="requires git on PATH (absent in the CI validate container)",
@@ -110,17 +117,12 @@ def test_every_stable_path_script_is_executable() -> None:
     )
 
 
-def test_the_installer_gate_is_still_executability() -> None:
-    """The assumption the test above rests on, asserted rather than assumed.
-
-    If either loop stopped gating on `-x`, this pin would be enforcing a
-    condition nothing requires - still green, and no longer about anything.
-    """
-    for doc, label in (
-        (COMMANDS / "cpp" / "init.md", "/cpp:init Tier 2"),
-        (COMMANDS / "cpp" / "update.md", "/cpp:update Step 5b"),
-    ):
-        assert '[ -f "$script" ] && [ -x "$script" ] || continue' in doc.read_text(), (
-            f"{label} no longer gates the symlink loop on executability - re-derive "
-            f"what this test should be asserting (issue #1066)"
-        )
+@requires_git
+def test_the_installer_gate_is_still_executability(source) -> None:
+    """Pin init's executable loop and update's real shared manifest population."""
+    init = (COMMANDS / "cpp/init.md").read_text()
+    assert '[ -f "$script" ] && [ -x "$script" ] || continue' in init, (
+        "/cpp:init Tier2 must retain the executable-only install population")
+    update = (COMMANDS / "cpp/update.md").read_text()
+    assert "# CPP_SHARED_REFRESH" in update, "update must enroll the shared manifest reader"
+    assert_shared_executable_population(source)

@@ -633,3 +633,47 @@ fixture invocations,484.57s including owned clone/cache/temp cleanup. The exact
 root /tmp/c.b8cc78dd was deleted. f2-ci-shape.log and f2-ci-runner.log retain the
 actual outputs. The following checkpoint changes only this evidence and the
 approved scope summary31->35; implementation remains131e5f5f.
+
+
+### Owner-approved post-gate integration correction
+
+At receipt head279482dc the normal supervised gate returned1:5failed,
+14084passed,5skipped in837.82s,964.19s including owned cleanup. The five nodes
+all pass on unchanged8e (7cases/0.63s), so these were caused by B2b-1. The
+failures were stale generator exception data, the removed separate Codex writer
+and executable-loop assertions, a string-only reader of typed Make metadata,
+and an unregenerated constructed observer anchor. The existing guards were not
+weakened. The fixture-precondition supplemental is separately recorded at
+https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7201480890.
+
+Owner ruling
+https://github.com/cooneycw/claude-power-pack/issues/1889#issuecomment-7204721638
+permits deleting only the six stale data rows and one fourth review (cap4,
+ruled_by=owner; no fifth). The current generator becomes110081fd while adding
+back the exact six rows rebuilds the immutable39569670 v13 generator. The
+current/frozen parser remains e807b3bb. Actual non-table byte and retired-row
+inputs fail the new guard. The original generator and stale-data guards plus
+anchor freshness were RED before deletion/regeneration:3fail/40pass,24.22s.
+The canonical anchor tool inherits only the approved four classification lines;
+its stored patch stays unchanged and its manifest changes only the digest to
+54ecf15e23ca99de0a188aa261d5b1bbd4ab8cd82bc26f00f285dd1cc0c5002a.
+
+The first scratch A/B varied transform code but held the old generator file in
+canonical source inputs. Its zero cross-input baseline-delta claim was therefore
+incomplete. The committed parity matrix caught this after the approved deletion:
+70 focused cases passed and two attribution checks failed. Corrected measurement
+varies both roles: generator code and its self-bundled source input. At022/002,
+80packages/404members remain identical between frozen/current transforms on the
+same NEW inputs, but exactly two bundled script copies and their two checksums
+change across OLD/NEW inputs, with unchanged modes. An actual wrong-byte control
+is detected. Corrected scratch result1pass/7.42s; scratch deleted.
+
+Owner attribution ruling
+https://github.com/cooneycw/claude-power-pack/issues/1889#issuecomment-7205593196
+accepts exactly those four attributed_input_delta rows, with committed B source
+SHA, old/new hashes and reason; no historical member, reference or pin changes.
+The committed variation test also runs the held-old-input counterexample: both
+transforms still agree on that wrong input, but its actual bundled-member bytes
+must fail the new assertion. The source commit precedes its attribution commit
+so provenance names real committed content. Full parity, full verify and149
+controls precede the still-unused fourth review; no PR/native acceptance yet.
