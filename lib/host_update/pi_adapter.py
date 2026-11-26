@@ -71,7 +71,7 @@ class PiAdapter:
             pi_skills.nofollow(request.revision.snapshot_root)
             skills = context.destination
             return Policy(skills, skills / ".cpp-managed/ownership.json", agent / ".cpp-skills.lock",
-                          skills / ".cpp-managed/work", markdown_member)
+                          skills / ".cpp-managed/work", markdown_member, partial_refresh=True)
         except (ValueError, UnicodeError) as error:
             raise AdapterError(str(error)) from error
 
