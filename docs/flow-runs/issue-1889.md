@@ -823,3 +823,70 @@ inherit B1's consumed review count or #1888's scoped raised cap.
 | Reader: AGY runtime and cpp-update invocation | not covered | new recorded ruling required before any live probe; command-derived AGY invocation and runtime receipt adapter remain separate |
 | Reader: drift/status/planner and other repos | not covered | no reader enrollment switched in B2; follow-up acceptance remains owned by its delivery; generator/CLI compatibility remains protected |
 
+
+<!-- flow-run n=6 id=684f9555ad654495b4355b805b96cf6e -->
+## Run 6
+
+- Run-id:            684f9555ad654495b4355b805b96cf6e
+- Run-start:         8e6efc03d1393a3bafcce8496709d5161154e7cf
+- Necessity verdict: Still needed
+- Approval: granted for B2b-1 only
+- Approver: ch-orch mailbox41657 and41726, relaying owner ruling1889A; amended source list mailed41729 before edits
+
+### Section B evidence
+Base8e6efc03 is confirmed green by41646. PR1919 delivered B2a; no generated cpp-update reader exists. Plain Python3.12.3 -I -S runtime check found legacy link-into succeeds0 while shared production reports4 missingyaml. Owner1889A requires lazy PyYAML, stdlib Claude links/Codex, named per-adapter UNAVAILABLE, one writer/no fallback. Probe B2b-2 is deferred after B2b-1 merge; no native execution or credential handling authorized.
+
+### Section C - the approved plan
+1. `.claude/commands/cpp/update.md` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+2. `tests/test_host_update_command.py` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+3. `tests/test_cpp_host_link_preservation.py` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+4. `tests/test_helper_orphan_prune.py` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+5. `tests/test_cpp_host_writes.py` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+6. `controls/cpp-update-host-refresh/control.json` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+7. `controls/cpp-update-host-refresh/run-case.py` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+8. `controls/cpp-update-host-refresh/anchors/constructed-masked-summary.mk` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+9. `controls/cpp-update-host-refresh/cases/good-stale-refresh/case.json` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+10. `controls/cpp-update-host-refresh/cases/bad-unwritable/case.json` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+11. `controls/cpp-update-host-refresh/cases/bad-summary/case.json` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+12. `controls/cpp-update-host-refresh/cases/unknown-unavailable/case.json` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+13. `controls/antigravity-skill-build/codex-baseline.json` - conditional measured attributed input deltas only; immutable historical pins/members.
+14. `tests/test_antigravity_codex_parity.py` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+15. `Makefile` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+16. `controls/census.md` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+17. `.claude/verify-coverage.json` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+18. `docs/scripts/cpp-host-update.md` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+19. `docs/measurements/host-update-adapters.md` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+20. `.specify/specs/antigravity-host-update/spec.md` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+21. `changelog.d/1889.md` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+22. `lib/host_update/host.py` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+23. `lib/host_update/claude.py` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+24. `lib/host_update/antigravity.py` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+25. `lib/antigravity_skills.py` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+26. `scripts/cpp-host-update.py` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+27. `lib/host_update/source.py` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+28. `tests/test_host_update_adapters.py` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+29. `tests/test_host_update_ci_shape.py` - B2b-1 wiring, closed reader/runtime, safety fixture/control or documented subset acceptance as plan41654/41657/41726 and amendment41729.
+Scope:29 possible product paths plus own plan/as-read/lanes/receipt records. No probe paths, no neutral core/Pi API changes. Amend before extra product paths. Codex baseline untouched unless actual output deltas measured. Never repin historical members/generator/parser. Runtime regressions must run red before lazy-import fixes. Deletion comparison must establish shared deletion subset of actual legacy deletion, count all personal/foreign/retired/mixed population and enumerate legacy-only deletions. update.md before2291 lines; require lower after count.
+
+### Implementation and validation
+One shared refresh replaces managed5a/5b/5c and7.9a, existing actual full revision, existing-install discovery and deferrals. Retain unrelated runtime/stash/local-model/MCP/memory/retired-surface operations. Real JSON/exit/finish-revision summary, no masked success. Controlled actual caller cases, byte/type oracles, genuine unwritable executing identity. Named control controls/cpp-update-host-refresh registered typed Make target host-update-command-check, GOOD stale refresh, BAD unwritable and malformed/revision moved reports, UNKNOWN unavailable; constructed masked-summary anchor. Existing parity bad attribution/pin/parser/generator cases protect both022/002 exact modes; preserve tracked-input race fix. No generated cpp-update reader or whole-epic/native acceptance claim.
+Fresh review count0, default2 passes/thirdwithreason. Focused Make tests and controls, whole bare control batch, owner CI shape(depth1,umask000,HOMEroot/realUID distinction,aliasTMPDIR,minimalPATH), fresh receipt then DIRECT supervised gate normal MCPenv/noouterwrapper/noactiveflag, max2heavy/df25GB, short ownedtemps immediately cleaned. PR window via orchestrator, Refs1889/1876 only.
+
+### Lanes for this change
+
+| Lane | Answer | Note |
+|---|---|---|
+| Checkout | will test | main-layout and linked worktree, actual private pinned snapshots |
+| Harness | will test | Claude install / Codex install; maintained Claude fences plus actual Claude links/topics,Codex/AGY copies; no generated cpp-update reader |
+| Driver | not covered | delegated workflow implementations unchanged, no live model obedience |
+| Coordination | not applicable | no new Kyle product dependency; normal supervised validation |
+| CI provider | not applicable | unchanged, normal CPP Woodpecker PR CI |
+| Project state | will test | a repository that has adopted a feature's file or record / one that has not; managed/absent/foreign/mixed/deferred roots and legacy/shared deletion |
+| Toolchain version | will test | CI's pinned uv and Python / the host or container's installed versions; plain stdlib/missing YAML versus project env; no version matrix |
+| Clone shape | will test | a full clone with all refs / a fresh or shallow main-only clone; fail honestly on unavailable proof |
+| Run location | will test | invoked from the CPP root / from another directory |
+| Gate target | not applicable | no consumer interpreter policy change |
+| Wave role state | not applicable | no lifecycle registry changes |
+| Reader: maintained command/report | will test | actual fences, production reports/installations, no-op source stale installs and failure/revision cases |
+| Reader: generated Codex | will test | actual output/parity/delta measurement, never a cpp-update mirror |
+| Reader: native | not covered | B2b-2 deferred; nothing native/auth runs |
