@@ -1,16 +1,17 @@
 """Real production adapters, pinned builders and installed fidelity readers."""
 import json
+import os
 import shutil
 import subprocess
 import sys
 import tarfile
-from dataclasses import asdict, replace
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from lib.host_update.driver import refresh
-from lib.host_update.host import INCLUDED, registry, run_host
+from lib.host_update.host import INCLUDED, document, registry, run_host
 from lib.host_update.models import Request, Revision
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,7 +47,7 @@ def source_template(tmp_path_factory):
                 path.chmod(0o755 if row.mode & 0o111 else 0o644)
     # Test the actual implementation being authored, committed into owned
     # history; never label dirty working-tree code as a source revision.
-    names = ["source", "host", "claude", "codex", "antigravity", "models", "driver", "store"]
+    names = ["links", "source", "host", "claude", "codex", "antigravity", "models", "driver", "store"]
     for name in [*(f"lib/host_update/{n}.py" for n in names), "scripts/cpp-host-update.py"]:
         (source / name).write_bytes((ROOT / name).read_bytes())
     git(source, "init", "-q")
@@ -74,7 +75,8 @@ def request(source, **kwargs):
 def cli(source, home, operation="refresh", *extra, cwd=None):
     result = subprocess.run([sys.executable, str(CLI), operation, "--source-root", str(source),
                              "--home", str(home), "--json", *extra],
-                            capture_output=True, text=True, cwd=cwd, timeout=120)
+                            capture_output=True, text=True, cwd=cwd, timeout=120,
+                            env={k: v for k, v in os.environ.items() if k != "CPP_DEFER_SURFACES"})
     assert result.stdout, result.stderr
     return result, json.loads(result.stdout)
 
@@ -90,7 +92,7 @@ def test_real_adapters_and_claude_checker(source, tmp_path):
     answer = run_host(registry(home, INCLUDED), request(source))
     assert answer.exit_code == 0, answer
     assert {r.harness for r in answer.results} == set(INCLUDED)
-    assert all(r.revision == answer.revision and r.after.expected_packages > 0 for r in answer.results)
+    assert all(r.revision == answer.revision and r.after.expected_packages > 0 for r in answer.results if r.selected)
     assert not (home / ".claude/commands").exists()
     checked = subprocess.run([sys.executable, str(source / "scripts/skills-check.py"), "--root", str(source),
                               "--managed-root", str(home / ".claude/skills")], capture_output=True, text=True)
@@ -231,7 +233,7 @@ def test_bootstrap_io_failure_reports_actual_remaining_state(source, tmp_path, m
     row = report.results[2]
     assert report.exit_code == 1 and row.action == "failed"
     assert row.after.state == "current" and row.metadata_refreshed
-    assert valid_report(json.loads(json.dumps(asdict(report))), 1, report.revision)
+    assert valid_report(json.loads(json.dumps(document(report))), 1, report.revision)
     assert run_host(registry(home), request(source), verify_only=True).exit_code == 0
 
 
@@ -252,7 +254,7 @@ def test_qualified_adoption_retains_backup_and_other_adapters_progress(source, t
     git(source, "commit", "-am", "source B for reviewed adoption")
     process, report = cli(source, home, "refresh", "--adopt", "antigravity:python-packaging")
     assert process.returncode == 0, report
-    assert all(r["after"]["state"] == "current" for r in report["results"])
+    assert all(r["after"]["state"] == "current" for r in report["results"] if r["selected"])
     backups = list((root / ".cpp-managed/work").glob(
         "transaction-*/backup/python-packaging/references/docs/skills/python-packaging.md"))
     assert len(backups) == 1 and backups[0].read_bytes() == b"reviewed personal modification"

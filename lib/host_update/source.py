@@ -77,7 +77,7 @@ def execute_snapshot(revision: Revision, arguments: list[str]) -> subprocess.Com
     content = _source_blob(revision, "scripts/cpp-host-update.py")
     authority = Scope(Policy(revision.snapshot_root, revision.snapshot_root / ".unused-ledger",
                              revision.snapshot_root / ".unused-lock", revision.snapshot_root / ".unused-work"))
-    if authority.read(entry) != content or b"PRODUCTION-COPY-ENTRY: 1" not in content:
+    if authority.read(entry) != content or b"PRODUCTION-HOST-ENTRY: 2" not in content:
         raise AdapterError("requested revision has no supported pinned production entry", exit_code=4)
     try:
         result = subprocess.run([sys.executable, str(entry), *arguments, "--pinned", revision.commit],
@@ -95,12 +95,12 @@ def execute_snapshot(revision: Revision, arguments: list[str]) -> subprocess.Com
 
 def valid_report(report, exit_code: int, revision: str) -> bool:
     """Validate the actual producer envelope before any caller trusts current."""
-    from .host import DEFERRED, INCLUDED
+    from .host import BACKENDS, DEFERRED, INCLUDED
 
     try:
         rows = report["results"]
-        if (type(report["schema"]) is not int or report["schema"] != 1
-                or report["coverage"] != "partial" or report["backend"] != "copies"
+        if (type(report["schema"]) is not int or report["schema"] != 2
+                or report["coverage"] != "partial" or report["backend"] != "mixed"
                 or report["included"] != list(INCLUDED) or report["unimplemented"] != list(DEFERRED)
                 or report["revision"] != revision or type(report["exit_code"]) is not int
                 or report["exit_code"] != exit_code or not isinstance(rows, list)
@@ -111,7 +111,8 @@ def valid_report(report, exit_code: int, revision: str) -> bool:
         if not codes <= {0, 1, 4, 5} or exit_code != aggregate:
             return False
         for row in rows:
-            if (row["revision"] != revision or type(row["selected"]) is not bool
+            if (row["backend"] != BACKENDS[row["harness"]]
+                    or row["revision"] != revision or type(row["selected"]) is not bool
                     or type(row["exit_code"]) is not int
                     or not isinstance(row["reason"], str) or not isinstance(row["remedy"], str)
                     or row["action"] not in ("unchanged", "refreshed", "refused", "failed", "not-attempted")):
@@ -125,6 +126,8 @@ def valid_report(report, exit_code: int, revision: str) -> bool:
                        for n in ("expected_packages", "expected_members", "examined_members")):
                     return False
             after = row["after"]
+            if row["exit_code"] == 0 and (not row["selected"] or after["state"] != "current"):
+                return False
             if row["action"] in ("failed", "refused") and row["exit_code"] != 1:
                 return False
             if row["action"] == "refreshed":

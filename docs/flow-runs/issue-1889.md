@@ -596,3 +596,230 @@ clone reads are bounded to approved source, temporary clone owns all writes.
 | Reader: AGY runtime | not covered | no native model run; recorded-ruling probe gate is mandatory before any later live acceptance |
 | Reader: Kyle/skillc/kyle-candidate | reader unchanged | Codex generator and canonical command inputs unchanged in B1; existing independent parity suite remains required |
 
+
+<!-- flow-run n=5 id=eee1b090f5f641d7ac3150286d52c057 -->
+## Run 5
+
+- Run-id:            eee1b090f5f641d7ac3150286d52c057
+- Run-start:         b1cd1f1635a920ba4839097ebfff8977a0bf7dda
+
+- Issue: #1889 B2; parent #1876
+- Approval: granted for B2a with B2b split - ch-orch mailbox41041 (2026-11-26)
+- Approver: ch-orch mailbox41041, replying to concrete checkpoint3f672821/mail41040
+- Assignment: ch-orch mailbox40991, after PR1912 merged
+
+### Section A - intent
+
+The shared updater now refreshes real Claude topic, Codex and AGY copies, but
+`/cpp:update` still performs separate legacy helper/command/Codex operations.
+A current checkout can therefore leave managed copies stale, and the report
+cannot verify the owner's existing Claude command/helper links as a component.
+B2 makes the maintained command call the shared updater once even when no
+commits were pulled, verifies the approved existing link kinds, and reports
+actual component failures instead of a generic successful update heading.
+
+The new optional native probe must refuse before any native command or auth
+setup without a recorded governing ruling bound to the reviewed runner and
+chosen authentication lane. Plan approval authorizes implementing and testing
+that gate with injected callbacks, not a native run, login or credential access.
+Initial coverage stays PARTIAL. Pi shared enrollment/its separately queued
+opt-in, Qwen, Gemma/OpenCode, AGY command-derived cpp-update invocation and
+receipt-backed AGY runtime identity remain separate deliveries. Neither #1889
+nor #1876 is closed merely by the initial subset or by a gated probe file.
+
+### Section B - evidence and design boundary
+
+Base: main b1cd1f1635a920ba4839097ebfff8977a0bf7dda, PR1912 merged. New branch
+`issue-1889-update-links`, worktree `/workspace/claude-power-pack-update-links`.
+Only this run's plan/as-read evidence changes before approval. Run1-4 history
+and approval digests remain untouched. Issue body read by the helper; digest
+2b4d3f124af50f0eda6d73bb385e010900bbf39fc0627553e7054351bc73f91c.
+
+Read the merged ADR0014 amendment (owner ruling1889A/7178523792), contract,
+current production host/source/CLI, cpp/update Steps3/5a-5c/7.9/10, command-link
+and helper installers, cpp-host-write per-entry discipline, existing command
+readers and independent Codex parity tests. Positive reader search found the
+actual cpp/update Codex installer and helper links; no unsearched external
+consumer is claimed covered. Historical attempt4 probe code is on the old
+`probe/agy-1888` branch at c2d8e03e, not a maintained main entry. It stays
+unchanged and supplies no reusable permission. Pi worker notified41018 before
+any possible API work; preferred design below avoids neutral/Pi API changes.
+Pi worker reply41021 confirms its opt-in uses native AdapterResult only, not
+the production envelope; no maintained generic ruling helper exists to reuse.
+Its one-use owner-bound probe artifacts supply no B2 authorization.
+
+**Small typed seam.** Keep neutral models.py/driver.py/scope.py/store.py and Pi
+unchanged. Dispatch a separate typed Claude-only link backend from the existing
+production host.run_host. Reuse its state/action/result vocabulary without
+teaching the regular-file copier to follow links. Keep fixture/Pi formats and
+callbacks unchanged. Production JSON advances explicitly to schema2 with four
+component rows: claude-topics/copies, claude-links/links, codex/copies and
+antigravity/copies; root backend is mixed. One serializer owns these tags.
+The pinned entry compatibility marker advances too: both old/new entry readers
+must reject unsupported producer versions before execution/writes, never run an
+older producer and count missing link coverage as current. Source validator,
+human formatter, controls and real readers consume the same schema.
+
+**Persistent targets.** Carry the caller-approved persistent CPP root alongside
+the private source snapshot into the pinned driver. Links never point into the
+run-owned disposable clone. Prove persistent root is clean and at the desired
+full commit before target reads and under the mutation lock; later source moves
+or dirtiness make links non-current/unknown. Never pull, switch, clean, chmod or
+otherwise modify this target checkout. Verify source membership/bytes and Git's
+executable/non-executable mode distinction; retain exact installed modes for
+copies. Do not normalize the user's checkout to make links pass.
+
+**Existing kinds only.** Commands are the existing per-family directory links;
+helpers are the current Tier2 population of tracked executable regular files
+immediately under scripts/, regardless of extension. Derive names from pinned
+source, not a second hand-maintained list. Ownership requires the expected
+installed name AND exact approved CPP source mapping and confined no-follow
+source topology, not a suffix or basename alone. Discover command/helper kinds
+independently from real matching CPP links. Directory presence, a CLI, foreign
+files or a command install do not enroll the helper tier. Do not create absent
+Tier0/1 helper roots. Missing entries in an established managed kind may be
+repaired; foreign links/real files/directories and mixed farms are preserved.
+Retired links can be unlinked only with proven prior CPP source membership and
+unchanged link identity; insufficient history/unprovable ownership is retained
+and reported, not guessed. No recursive deletion, broad farm conversion or
+implicit adoption. A dangling expected entry is never current.
+
+**Writes and locks.** Validate .claude and the command/helper root prefixes
+no-follow before inventory/source reads/lock creation. Limit mutations to the
+named link entries and existing exact Claude install lock; no new link kinds,
+agent-root enumeration or auth/config reads. Verify creates no directories,
+locks, links or records. Refresh uses the shared Claude lock with bounded wait,
+re-inspects entries before changing them and verifies afterward. Foreign/edited
+entries block only those entries while safe entries progress, keeping the row
+non-current/exit1. Source/path/lock/integrity uncertainty remains a hard stop
+for that backend. This serializes cooperating shared updater calls, not native
+or legacy writers that ignore its lock. Preserve copy failure isolation.
+
+**Maintained command.** Replace only the owned Step5 link-refresh/bootstrap/
+prune/check duplication and Step7.9a Codex-only installer with one shared refresh
+step through the project uv runtime, with a checkout-path fallback if its
+stable helper is absent. Preserve no-tier-upgrade, explicit defer data and the
+other MCP/settings/local-model/memory/retired-surface operations. Do not infer
+selection from invoking CLI or `command -v codex`. Keep the real exit and parsed
+report for Step10; malformed/empty reports cannot produce a successful summary.
+Always run when the source is already current. Distinguish the verified full
+revision from a later FINISH_COMMIT; a subsequently moved link target cannot be
+reported as current at finish. Do not silently refresh a second revision.
+
+**Probe authorization.** New entry defaults to refusal/check-only and requires
+a structured recorded ruling with authority/reference, issue/run, reviewed
+code head, selected auth lane, allowed operation and validity bounds. It is a
+recorded authority reference, not cryptographic proof of who ruled. Missing,
+stale, wrong-head/lane and incomplete records refuse BEFORE every native or
+setup callback, including version/help/login/setup paths. Both ambient-session
+and dedicated-file-token branches pass the same gate; the dedicated setup must
+be explicitly covered too. Never inspect/copy credentials to detect the lane.
+Use only measured/prescribed CLI/setup syntax authorized by a new ruling;
+unproven dedicated setup remains unsupported/unknown before launch. Keep
+configuration isolation distinct from credential isolation. Retain only
+sanitized bounded nonce/result evidence, no tokens/auth stores or raw sensitive
+stdout/stderr. Guard tests use fake callbacks and nonsecret fixture records;
+real AGY invocation remains unperformed until separately authorized.
+
+### Section C - approved B2a file set
+
+1. `lib/host_update/links.py` - new typed Claude-only policies/manifests/discovery/verify/refresh with descriptor-bound roots, persistent source fidelity, existing-kind selection, bounded shared lock and per-entry preservation/prune proof.
+2. `lib/host_update/host.py` - shared component dispatch, explicit production schema2/backend tags and deferred gaps; no neutral copier or Pi behavior change.
+3. `lib/host_update/source.py` - forward persistent source root separately from private clone; closed schema2/entry compatibility checks and common full revision; unsupported producer refusal before writes.
+4. `scripts/cpp-host-update.py` - schema2 CLI/renderer, persistent-root handoff and link selection/defer outcomes, authored link HOST-SURFACE declarations, physical helper-link bootstrap (Nit7180160022); fixture mode unchanged.
+5. `tests/test_host_update_links.py` - real expected command/helper links; positive plus outside/dangling/regular-replacement negatives, no forbidden target reads, root aliases, mixed farms/foreign preservation, no-tier-upgrade, source dirt/move/modes, locks/no-write/interruption and proven-retired versus unproven orphan behavior.
+6. `tests/test_host_update_adapters.py` - extend owned source overlay with links module and explicit copy-component expectations; preserve independent real Claude reader and existing copy coverage.
+7. `tests/test_host_update_integration.py` - actual schema2/common-revision selected-component integration while retaining all three copy acceptance assertions.
+8. `tests/test_host_update_permissions.py` - schema2 selected-row checks, retain executing-identity permission proof and root-lane honesty; link failure cannot stop other copies.
+9. `tests/test_host_update_adapter_transactions.py` - update source/report reader expectations only; existing actual AGY lock/prune/interruption cases remain intact.
+10. `tests/test_host_update_ci_shape.py` - schema2 bad/mislabelled/zero/missing-component producer cases, compatibility refusal before execution, persistent-source handoff and helper symlink invocation; keep full/shallow/worktree/mask and declared-runtime cases.
+11. `controls/claude-host-links/control.json` - register actual shared CLI link verification with explicit project runtime and GOOD/BAD/UNKNOWN signals.
+12. `controls/claude-host-links/run-case.py` - owned persistent source/home and actual installed links; whole-tree preservation oracle, source/target preconditions and full nonzero population.
+13. `controls/claude-host-links/anchors/constructed-always-current.py` - declared blind link verifier that misses the required bad cases.
+14. `controls/claude-host-links/cases/good-confined/case.json` - intact links into the approved clean pinned source, with real bytes/membership/executable-mode comparison.
+15. `controls/claude-host-links/cases/bad-outside/case.json` - expected name points outside the approved checkout, preserved and non-current before target contents are read.
+16. `controls/claude-host-links/cases/bad-dangling/case.json` - unproven/incorrect dangling expected link preserved and non-current, not confused with a proven retired orphan.
+17. `controls/claude-host-links/cases/bad-regular-replacement/case.json` - expected link replaced by personal regular content, preserved and non-current.
+18. `controls/claude-host-links/cases/unknown-lock/case.json` - held/unavailable exact lock reports unknown without writes; missing-lock verification remains read-only in tests.
+19. `Makefile` - focused B2a link/control targets using explicit project runtimes; existing full gate remains authority.
+20. `controls/census.md` - register shared link control and real detection limits; native probe registration belongs to B2b.
+21. `.claude/verify-coverage.json` - account for new B2a targets through maintained derivation, no exemptions.
+22. `docs/scripts/cpp-host-update.md` - schema2/backend units, persistent links/locks/tier/defer/preservation rules; command wiring and probe remain deferred B2b.
+23. `docs/scripts.md` - update shared entry description without duplicating implementation detail.
+24. `.specify/specs/antigravity-host-update/spec.md` - ADR link exception and B2a initial-subset acceptance; preserve copy refusal and remaining epic deliveries.
+25. `docs/measurements/host-update-adapters.md` - B2a link/backend fidelity acceptance and limits; command readers/native probe remain B2b.
+26. `changelog.d/1889.md` - append B2a links/report scope, retain A/B1 and explicit PARTIAL coverage.
+27. `controls/antigravity-skill-install-fidelity/run-case.py` - update actual source overlay and schema2 selected-copy result reader; existing AGY fidelity cases/anchor/discrimination remain intact.
+Scope: these27 named B2a product paths (8 small link-control files), plus
+own plan/as-read/lanes and receipt evidence. Approval: mailbox41041 split of
+checkpoint3f672821. Do not change cpp/update, command readers, Codex attribution
+or the native probe in B2a. No neutral/Pi API changes. Amend before extra paths.
+
+### B2b deferred file list - separate delivery after B2a
+
+- `.claude/commands/cpp/update.md` - one maintained shared refresh after dependency/source steps, including zero-pull path; replace approved link/Codex duplication, retain other operations and actual partial/failure/revision summary; offset command budget by deleting superseded instruction blocks.
+- `tests/test_host_update_command.py` - execute maintained Claude update/summary fences against real registry outputs; the generator currently excludes cpp-update, so any Codex command enrollment requires explicit B2b scope approval. Cover already-current source/stale installs, actual failed destination, CLI/helper absent, mixed backend labels and source move before final summary; native model instruction-following is not claimed.
+- `tests/test_host_update_probe_gate.py` - actual new probe entry with forbidden-launch/setup callbacks: all invalid ruling variants refuse in BOTH auth lanes; positive authorized callback runs; removed-guard mutation must fail; no native commands or credentials.
+- `docs/measurements/host-update-acceptance.probe.py` - new opt-in gated native consumer probe/check-only entry; immutable historical attempt4 untouched; both auth/setup branches gated before callbacks and sanitized evidence only.
+- `controls/host-update-probe-gate/control.json` - register the actual probe entry as a controlled external instrument, explicit uv runtime, no census/coverage exemption.
+- `controls/host-update-probe-gate/run-case.py` - invoke the real probe entry with injected native/setup callbacks and nonsecret fixtures; enumerate each case/lane outcome and assert forbidden callbacks were not reached.
+- `controls/host-update-probe-gate/anchors/constructed-missing-ruling-guard.py` - constructed bypass reaches the fake launch on invalid authority; never runs a native binary.
+- `controls/host-update-probe-gate/cases/good-authorized/case.json` - valid current ruling in both auth lanes reaches exactly the permitted fake callback, with setup order checked.
+- `controls/host-update-probe-gate/cases/bad-ruling/case.json` - explicit matrix of absent/stale/wrong-head/wrong-lane/incomplete-dedicated-setup records in both lanes, each refusing before callbacks.
+- `controls/host-update-probe-gate/cases/unknown-record/case.json` - malformed/unreadable governing record is unknown and cannot launch.
+- `controls/antigravity-skill-build/codex-baseline.json` - ONLY reviewed attributed source-input deltas for changed command/bundled inputs, with source checkpoint and reason; original members, commit, generator and parser pins remain immutable.
+- `tests/test_antigravity_codex_parity.py` - apply attributed bytes under both masks, preserve exact independent-generator/parser mode comparison and source normalization; reject unrecorded source changes and historical-manifest tampering with committed negative inputs.
+
+B2b also reuses the shared Make/docs/census/coverage/changelog paths above only
+for its own wiring/probe/attribution changes. B2b gets a new plan baseline and
+review receipt. Its PR opens only after B2a merges (mail41041). Both #1889 and
+#1876 remain open and PARTIAL. Implementing/testing fake authorization callbacks
+supplies no authorization for native execution or credential handling.
+
+Risks: target source lifetime/races, source-content fidelity versus topology,
+wrong backend tags, tier enrollment from foreign content, stale protocol
+producers, command-reader summary masking, attribution becoming a re-pin, and
+a probe gate covering only one auth/setup branch. Keep each distinction in a
+committed case. Establish nonzero positive populations before reporting a scan
+clean. Run meaningful regressions red before their fix and the lock/target/
+backend/always-current/removed-ruling mutations; a missing feature on old main
+is not labelled a regression. Review default2passes/thirdwithreason, never
+inherit B1's consumed review count or #1888's scoped raised cap.
+
+### Execution and validation order for B2a
+
+1. Implement typed links/source/report seam and link controls, neutral/Pi unchanged.
+2. Focused Make tests, real current/shallow/worktree production CLI and installed
+   helper link route; meaningful regressions red before fixes, controlled bad
+   link preconditions and constructed-blind anchor distinguish bad from good.
+3. ENTIRE bare-caller negative-controls batch before formal review. Fresh B2a
+   review count0, default2passes/thirdwithreason. No inherited raised cap.
+4. Exact-head independent review/receipt, then DIRECT supervised full gate:
+   normal MCP environment, no outer lock wrapper, df>=25GB and at most2 fleet
+   heavy lanes. Short own tmp roots, immediate cleanup, logs outside worktree.
+5. Orchestrator PR window; Refs1889/1876 only. B2b PR waits for B2a merge.
+
+### Lanes for this change
+
+| Lane | Answer | Note |
+|---|---|---|
+| Checkout | will test | main checkout / linked worktree; private snapshot plus separate persistent link target, wrong/moving/dirty target refused |
+| Harness | will test | Claude install / Codex install / AGY topic copies via real production adapters; maintained command readers and native model invocation deferred B2b |
+| Driver | not covered | cpp/update wiring, /flow:auto (Claude implements) and delegated drivers unchanged in B2a; no live instruction-following claim |
+| Coordination | not applicable | same product semantics without Kyle / with Kyle; existing advisory install locks, no new Kyle product API; heavy gates use supervisor |
+| CI provider | not applicable | Woodpecker / GitHub Actions / none recorded selection unchanged; normal CPP PR CI only |
+| Project state | will test | a repository that has adopted a feature's file or record / one that has not; managed/absent/foreign/mixed farms and existing-kind tier selection |
+| Toolchain version | not covered | CI's pinned uv and Python / host installed versions, no added version matrix; actual declared-runtime regression and owned source modes retained |
+| Clone shape | will test | a full clone with all refs / a fresh or shallow main-only clone; missing prior orphan history is explicitly unknown/preserved, never guessed |
+| Run location | will test | invoked from the CPP root / from another directory; production CLI source path and helper symlink route |
+| Gate target | not applicable | shared updater fidelity and probe authority, no consumer quality-gate interpreter/PATH policy change |
+| Wave role state | not applicable | no fresh/released-role registry change |
+| Reader: maintained Claude cpp/update | not covered | deferred B2b; no change or coverage claimed in B2a |
+| Reader: generated Codex cpp-update | absent | generator excludes cpp/update; enrollment requires explicit B2b scope approval; no coverage claimed |
+| Reader: shared production report consumers | tested against real output | actual closed schema2/backend/common-revision payloads, missing/zero/mislabelled/wrong-version negatives and actual control decisions |
+| Reader: Claude link/copy surfaces | tested against real output | actual installed link types/targets plus pinned content; independent copy bytes/modes and unchanged Claude topic reader |
+| Reader: fixture/Pi API | reader unchanged | neutral types/callbacks/serialization unchanged; rerun existing core/Pi suites and notify Pi worker before any proposed departure |
+| Reader: native probe launcher | not covered | deferred B2b; no change or coverage claimed in B2a |
+| Reader: AGY runtime and cpp-update invocation | not covered | new recorded ruling required before any live probe; command-derived AGY invocation and runtime receipt adapter remain separate |
+| Reader: drift/status/planner and other repos | not covered | no reader enrollment switched in B2; follow-up acceptance remains owned by its delivery; generator/CLI compatibility remains protected |
+

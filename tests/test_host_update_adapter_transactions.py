@@ -170,6 +170,8 @@ def test_actual_prior_revision_orphan_pruning(source, tmp_path, edited):
     git(source, "commit", "-qm", "former 19-topic producer")
     first, report = cli(source, home, "refresh", "--select", "antigravity")
     assert first.returncode == 0, report
+    assert report["schema"] == 2
+    assert all(r["backend"] == "copies" for r in report["results"] if r["selected"])
     retired = home / ".gemini/config/skills/retired-topic"
     assert retired.is_dir()
     ledger = home / ".gemini/config/skills/.cpp-managed/ownership.json"

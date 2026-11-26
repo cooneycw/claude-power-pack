@@ -31,7 +31,9 @@ def main():
         return 3
     scenario = json.loads((case / "case.json").read_text())["scenario"]
     with tempfile.TemporaryDirectory(prefix="cpp-real-adapter-control-") as temporary:
-        base = Path(temporary)
+        # This is our disposable fixture root, never a host source authority.
+        # Compare archive members to the same physical temporary prefix.
+        base = Path(temporary).resolve()
         source, home = base / "source", base / "home"
         source.mkdir()
         home.mkdir()
@@ -59,7 +61,7 @@ def main():
                     path.chmod(0o755 if row.mode & 0o111 else 0o644)
         # During authoring this also commits untracked implementation inputs
         # into the fixture's own history; at a frozen head these bytes agree.
-        for name in [*(f"lib/host_update/{n}.py" for n in ("source", "host", "claude", "codex", "antigravity",
+        for name in [*(f"lib/host_update/{n}.py" for n in ("links", "source", "host", "claude", "codex", "antigravity",
                                                         "models", "driver", "store")),
                      "scripts/cpp-host-update.py"]:
             (source / name).write_bytes((ROOT / name).read_bytes())
@@ -108,14 +110,17 @@ def main():
         with policy.lock_path.open("a+b") if scenario == "lock" else tempfile.TemporaryFile() as held:
             if scenario == "lock":
                 fcntl.flock(held, fcntl.LOCK_EX)
-            result = subprocess.run(args, capture_output=True, text=True, timeout=90)
+            result = subprocess.run(args, capture_output=True, text=True, timeout=90,
+                                    env={k: v for k, v in os.environ.items() if k != "CPP_DEFER_SURFACES"})
         if not all_three and inventory(home) != before:
             print("CONTROL_ORACLE: verifier mutated installed state")
             return 9
         assert neighbor.read_bytes() == b"foreign sibling"
         if all_three and result.returncode == 0:
             report = json.loads(result.stdout)
-            assert len(report["results"]) == 3 and all(r["after"]["state"] == "current" for r in report["results"])
+            assert report["schema"] == 2 and len(report["results"]) == 4
+            assert all(r["backend"] == "copies" and r["after"]["state"] == "current"
+                       for r in report["results"] if r["selected"])
             assert {r["revision"] for r in report["results"]} == {git(source, "rev-parse", "HEAD")}
             assert guide.read_bytes() != initial
         print(result.stdout, end="")

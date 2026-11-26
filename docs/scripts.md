@@ -72,7 +72,7 @@ legitimately about something other than one script is declared on the marker bel
 - `counter-model-uniformity-check` - tells copied reviewer literals from verified uniformity (#1091). [reference](scripts/counter-model-uniformity-check.md)
 - `cpp-checkout-freshness` - says whether the CPP checkout is behind its remote, or `unknown` (#1282). [reference](scripts/cpp-checkout-freshness.md)
 - `cpp-commands-link` - links command families into `~/.claude/commands`. [reference](scripts/cpp-commands-link.md)
-- `cpp-host-update` - shared PARTIAL Claude-topic/Codex/AGY managed-copy refresh and verification, retaining fixture mode (#1889). [reference](scripts/cpp-host-update.md)
+- `cpp-host-update` - shared PARTIAL Claude-topic/Codex/AGY copy and existing Claude-link refresh/verification, retaining fixture mode (#1889). [reference](scripts/cpp-host-update.md)
 - `cpp-host-write` - the one audited host-write helper for `/cpp:init` and `/cpp:update`. [reference](scripts/cpp-host-write.md)
 - `cpp-install-receipt` - persists cpp:init's observed step results. [reference](scripts/cpp-install-receipt.md)
 - `cpp-mcp-state` - private temporary run state for cpp:init across harness shells (#1587). [reference](scripts/cpp-mcp-state.md)

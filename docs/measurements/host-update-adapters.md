@@ -161,3 +161,134 @@ rerun with a short owned basetemp (3.49 seconds). The fixture gap is recorded in
 The other five skips concern host Bash 3.2, signalling PID 1, real root, Node
 and the staged CI toolchain. A future paired run uses a short temporary root;
 none of these skips is counted as a pass.
+
+
+## B2a work checkpoint - parked for priority #1913
+
+Orchestrator41041 approved the split: B2a is typed existing Claude links,
+production schema2, fidelity/prune/controls and the helper bootstrap fix. B2b
+retains maintained cpp/update wiring, real command readers, attributed Codex
+input deltas and the ruling-first native probe. No B2b product paths or neutral
+core/Pi APIs changed. This checkpoint is WIP, not a reviewed/finished delivery.
+
+The five actual link controls passed: confined GOOD, outside/dangling/regular
+replacement BAD with contents preserved, and held-lock UNKNOWN. The constructed
+always-current anchor misses all three BAD inputs. The complete bare-caller
+control batch passed147 registrations, with54 historical anchors byte-compared.
+The initial full batch had correctly flagged its GOOD fixture because the
+fixture inherited this session's deferred-surface data; only owned fixture
+callers now remove that setting. Production deferral behavior remains enforced.
+
+The expanded real adapter suite passed88 tests (558.70s). The earlier70-case run
+passed66 and failed four fixture/reader assertions; inherited deferral, the
+old asdict serializer and a known source-alias refusal expectation were corrected.
+After the expanded suite started, the final report-reader guard was tightened:
+an unselected unknown/zero-population row cannot carry exit0. Its committed
+malformed-producer case failed before the guard (DID NOT RAISE) and the final
+reader/compatibility matrix passed10 tests (48.17s), including real failed-
+publication output. The final verdict heading names selected-component count.
+These final edits still require the exact-head paired finish gate.
+
+The exact predecessor helper-bootstrap expression failed with ModuleNotFoundError
+through a stable symlink; the physical-root fix passed the same test. Unchanged
+consumer suites passed49 core,26 Pi (one real-root skip), and33 builder/CLI/parity
+tests. Lint,560-file typecheck, guards, preconditions, inventories, coverage,
+command budgets, host-surface observation and security/import selftests passed.
+Owned suite/control temporary roots were deleted; logs remain outside the
+worktree under `/workspace/.cpp-validation/1889-b2a`.
+
+A separate disposable Make reproduction confirmed the legacy link-into helper
+can replace personal regular bytes and return0. Filed as live data-loss issue
+[#1913](https://github.com/cooneycw/claude-power-pack/issues/1913), not a Nit Store
+item. Orchestrator41078 directs parking B2a and doing that small priority fix on
+a fresh branch first. B2a does not change that helper or cpp/init/update. No
+formal B2a review, receipt, finish gate, PR or native run is claimed. Both #1889
+and #1876 remain open/PARTIAL.
+
+
+### B2a resumed after priority preservation fix
+
+Orchestrator41309 reports PR1915 merged as c47b5b2b and #1913 closed. B2a
+merged current main without rebasing at a5bf6518; the only conflict was the
+adapter-test dataclasses import, retaining upstream Pi's `replace`. No priority
+helper or maintained command changes are authored in B2a. The merged adapter
+battery passed89 tests (210.21s); logs are outside this worktree at
+`/workspace/.cpp-validation/1889-b2a/resumed-adapters.log`.
+
+A pre-freeze source-kind regression constructed a clean Git command-family
+submodule, asserted its 160000 commit tree entry, and failed on the preceding
+B2a implementation: exit1 instead of required unknown4. The narrow manifest
+guard now refuses unsupported command gitlinks before link pruning. The same
+regression passed verify and refresh with the complete installed tree preserved.
+Its first fixed run correctly returned unknown but the fixture omitted the
+allowed refresh lock; seeding that lock made the preservation oracle exact.
+Lint and 561-file typecheck passed. This adds one case beyond the89-test run;
+final paired verification remains required after formal review.
+
+The standalone Pi opt-in from PR1914 is preserved. The Codex generator excludes
+cpp/update: no generated cpp-update reader exists, and any B2b enrollment needs
+explicit scope approval rather than a claimed reader test. No native probe,
+authentication change, formal B2a review or PR has occurred at this freeze.
+
+
+The resumed complete bare-caller negative-control battery passed148 registered
+controls, with55 historical anchors byte-compared and none uncompared
+(395.83s including wrapper/cleanup). The new confined link GOOD case passes;
+outside, dangling and regular-replacement BAD inputs are detected, and its
+always-current anchor misses all three as required. The unknown-lock input
+remains non-current. Log: `/workspace/.cpp-validation/1889-b2a/resumed-controls.log`.
+The exact owned control temporary root was removed after the run. The scope
+check reports agreement:27 planned product paths,30 touched including own
+records. Formal B2a pass1 and a fresh direct paired finish gate remain pending.
+
+
+### B2a formal pass1 correction
+
+Reviewer ch-rev41357 requested changes at7e03f089: the pinned self-check resolved
+only its entry path, while its snapshot authority stayed absolute. A symlinked
+TMPDIR prefix therefore yielded an inconsistent report. The committed real CLI
+regression passed with a physical TMPDIR, then failed on7e03f089 with the alias
+(`tmp-alias`, ExecutionFailure/incomplete or inconsistent report). The fix keeps
+both snapshot comparison paths absolute; physical import bootstrap resolution
+is retained. The new test and existing stable helper symlink bootstrap passed
+2 tests (16.54s). Snapshot temporary directories were removed and persistent
+installed link targets remained the approved checkout. The exact owned pytest
+root was removed. Lint,561-file typecheck,binary guards and fixture checks pass.
+No macOS execution is claimed; Linux reproduced the alias-prefix condition.
+The148-control battery and89-test merged adapter run above predate this narrow
+fix. Formal pass2 and a fresh exact-head paired finish gate remain pending.
+
+
+### Paired gate and additional CI shape; B2a parked for priority release
+
+At receipt-only d2cd8be3, fresh direct supervised finish-49b5a2ab passed all5
+steps, exit0:13,994 tests passed,5 skipped (1049.63s),561-file typecheck,
+148 controls and55/55 historical anchors byte-compared. Gate elapsed1590.84s;
+total wrapper1690.15s included deleting its exact owned `/tmp/g.24ygsn9p` tree.
+Five skips cover macOS Bash3.2, PID1 signaling, real-root privilege, Node and
+staged CI tools. Five existing fixture HIGH warnings were nonblocking; no
+CRITICAL finding occurred. Log: `/workspace/.cpp-validation/1889-b2a/paired-finish.log`.
+
+The additional disposable depth1 checkout asserted umask000 source mode0666,
+used symlinked TMPDIR and HOME=/root, and ran asUID1000 (no actual-root claim).
+It passed59 tests but failed the real AGY fidelity control's archive fixture:
+`path.resolve().is_relative_to(source)` compared against an unresolved owned
+temporary prefix. The runner's post-test clean-tree assertion also failed;
+it had created its own `.venv` symlink and did not print the final status, so
+that assertion is not evidence of a clean source. The entire owned clone,
+caches and temporary tree were deleted. Log: `ci-shape.log` beside the gate log.
+
+The added physical/alias runtime parametrization reproduced the archive-guard
+failure before the fix. Resolving ONLY the control's owned temporary root
+preserves its archive confinement guard and all product source-authority rules.
+Both runtime cases pass (2tests,17.71s); the actual AGY control passes all nine
+GOOD/BAD/UNKNOWN cases and its blind anchor still misses all four BAD inputs.
+Lint and561-file typecheck pass. The owned focused pytest root was deleted.
+The next shape runner must remove its exact own virtualenv seam before checking
+source cleanliness. Formal pass3 records the CI-shape-found reason; the prior
+receipt/gate do not cover this final fixture correction.
+
+Orchestrator41456 prioritizes the fix-only v13.0.1 release after this correction
+is pushed and frozen for review. B2a receipt, fresh gate, full CI-shape rerun and
+PR are parked until the release tag-candidate report. No B2a PR or native run
+is claimed. Both #1889 and #1876 remain open/PARTIAL.
