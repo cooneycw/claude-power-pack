@@ -76,6 +76,7 @@ class Policy:
     lock_path: Path
     work_root: Path
     member_allowed: Callable[[str, int], bool] = regular_member
+    partial_refresh: bool = False
 
 
 @dataclass(frozen=True)

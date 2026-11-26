@@ -1,0 +1,64 @@
+{
+  "branch": "issue-1889-shared-adapters",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "extra_passes_reason": "pass 3 reviewed the gate-found runtime fix: the paired finish gate at 1a1a70ef found the new AGY fidelity control declared plain python3, which lacks the project's PyYAML; the control invocation now uses uv run python with a no-global-yaml regression",
+  "head": "5825b9c18eca458d71ff1c284e8ec990937d9286",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/25/rollout-2026-11-25T16-21-16-01a21382-e9f4-78b2-8dbd-a63068a99358.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 27744085,
+        "path": "2026/11/25/rollout-2026-11-25T16-21-16-01a21382-e9f4-78b2-8dbd-a63068a99358.jsonl",
+        "sha256": "4bbefaf39781362367c1ca37a7f829e8b8c9e835857555eaec8033bea8d4bd7c"
+      }
+    ],
+    "thread_id": "01a21382-e9f4-78b2-8dbd-a63068a99358"
+  },
+  "issue": "1889",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 3,
+  "recorded_at": "2026-11-26T03:49:18Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 1
+  },
+  "reviewed_artifact": {
+    "base_sha": "c434101e7ae580de3bb81ca1db9d325a0483c44c",
+    "merge_base": "c434101e7ae580de3bb81ca1db9d325a0483c44c",
+    "method": "runtime-head",
+    "patch_sha256": "f19f46d339c0d680e261389cf9976de01af3c9cefa277cfadd007553e7493b69",
+    "report_record": 4652,
+    "target_head": "5825b9c18eca458d71ff1c284e8ec990937d9286"
+  },
+  "reviewer": "claude/claude-opus-5-5",
+  "reviewer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2",
+    "sources": [
+      {
+        "bytes": 9240479,
+        "path": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl",
+        "sha256": "d9e594d00b327f257d70048103cc41acd96176729b1d18fcc22278786ee78620"
+      }
+    ],
+    "transcript": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}

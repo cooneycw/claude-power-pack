@@ -29,7 +29,10 @@
     "A `tested` entry asserts that the named module drives the SCRIPT, not that",
     "it mentions the name. Several modules name a script only as a fixture or an",
     "allowlist member; those are not what makes a green load-bearing, and they do",
-    "not belong here."
+    "not belong here.",
+    "",
+    "Shared cpp-host-update production and fixture Make targets are derived automatically;",
+    "actual adapter tests run through make test, with both CLI controls registered."
   ],
   "scripts": {
     "bash-prep.sh": {

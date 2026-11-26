@@ -188,6 +188,20 @@ antigravity-skills-check:
 test-host-update-core:
 	uv run --extra dev pytest -q $(HOST_UPDATE_TESTS)
 
+HOST_ADAPTER_TESTS ?= tests/test_host_update_adapters.py tests/test_host_update_integration.py tests/test_host_update_permissions.py tests/test_host_update_adapter_transactions.py tests/test_host_update_ci_shape.py
+## verify-coverage: utility test-host-update-adapters - real production adapters and report readers; full suite owns gate
+.PHONY: test-host-update-adapters test-host-update-ci-shape host-update-adapter-controls
+test-host-update-adapters:
+	uv run --extra dev pytest -q $(HOST_ADAPTER_TESTS)
+
+## verify-coverage: utility test-host-update-ci-shape - owned shallow histories and umask-000 checkouts; full suite owns gate
+test-host-update-ci-shape:
+	uv run --extra dev pytest -q tests/test_host_update_ci_shape.py
+
+## verify-coverage: excluded host-update-adapter-controls - subset of negative-controls; ci: excluded duplicate-subset
+host-update-adapter-controls:
+	uv run python scripts/check-negative-controls.py --control controls/antigravity-skill-install-fidelity --strict --verify-provenance
+
 ## verify-coverage: utility test-host-update-lock-repeat - deterministic subprocess lock/concurrency stress; full suite owns the gate
 HOST_UPDATE_REPEAT ?= 20
 test-host-update-lock-repeat:
@@ -200,13 +214,24 @@ test-host-update-lock-repeat:
 host-update-controls:
 	python3 scripts/check-negative-controls.py --control controls/host-update-core --strict --verify-provenance
 
-## verify-coverage: excluded host-update-verify - needs an explicit disposable fixture root, not the host; ci: excluded needs-fixture
+HOST_UPDATE_SOURCE ?= $(CURDIR)
+HOST_UPDATE_HOME ?= $(HOME)
+HOST_UPDATE_FLAGS ?=
+## verify-coverage: excluded host-update-verify - explicit host/fixture inspection needs installed output; ci: excluded needs-install
 host-update-verify:
-	python3 scripts/cpp-host-update.py verify --fixture-root "$(FIXTURE_ROOT)" --json
+	@if [ -n "$(FIXTURE_ROOT)" ]; then \
+		python3 scripts/cpp-host-update.py verify --fixture-root "$(FIXTURE_ROOT)" --json; \
+	else \
+		uv run python scripts/cpp-host-update.py verify --source-root "$(HOST_UPDATE_SOURCE)" --home "$(HOST_UPDATE_HOME)" $(HOST_UPDATE_FLAGS) --json; \
+	fi
 
-## verify-coverage: excluded host-update-refresh - mutates an explicitly marked disposable fixture only; ci: excluded needs-fixture
+## verify-coverage: excluded host-update-refresh - mutates explicitly selected/discovered host copies or disposable fixture; ci: excluded needs-install
 host-update-refresh:
-	python3 scripts/cpp-host-update.py refresh --fixture-root "$(FIXTURE_ROOT)" --json
+	@if [ -n "$(FIXTURE_ROOT)" ]; then \
+		python3 scripts/cpp-host-update.py refresh --fixture-root "$(FIXTURE_ROOT)" --json; \
+	else \
+		uv run python scripts/cpp-host-update.py refresh --source-root "$(HOST_UPDATE_SOURCE)" --home "$(HOST_UPDATE_HOME)" $(HOST_UPDATE_FLAGS) --json; \
+	fi
 
 ## verify-coverage: gate typecheck - mypy over the tree; ci: runs validate
 typecheck:
