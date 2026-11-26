@@ -41,3 +41,10 @@ negatives, three undo refusals, repaired positives and final scoped baseline
 restoration. The measurement record retains fresh digests. Owner/discovery/
 sign-off rows remain unexecuted; an exact committed owner probe must be shown
 before owner execution. PR creation still awaits orchestrator clearance.
+
+Mailbox 40671's exact probe is now prepared with committed opposite controls.
+Disposable-home runs of that same probe cover success, collisions, changed
+post-state, held locks, aliases and unsafe path bindings. All eleven new cases
+passed; combined focused production/probe tests report 37 passed and one
+existing root-only skip. No simulated prompt response counts as pi discovery.
+The host-helper command protocol still requires presentation before owner use.

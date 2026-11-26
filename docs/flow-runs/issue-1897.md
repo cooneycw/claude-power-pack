@@ -160,3 +160,17 @@ already exists. The earlier retain-existing-lock option is not used here.
 No new pi process may use owner HOME, including a version query. No provider
 turn, trusted-config change or credential inspection is permitted. #1896's
 review cap does not transfer; #1897 uses the default review cap.
+
+### Exact probe amendment - mailbox 40671 (before implementation)
+
+Mailbox 40671 assigns the exact owner probe now that the fixture lane passed.
+Add `docs/measurements/pi/issue-1897-owner-probe.py` and its adjacent command
+protocol `issue-1897-owner-probe.md`, plus committed opposite cases in
+`tests/test_pi_owner_probe.py`. These are one-use validation artifacts, not a
+product uninstaller or new acceptance gate. The probe will use the delivered
+Make/CLI, record pre-state and inverse before install, require an exclusive
+operator window, pause for manual existing-session reload evidence, and remove
+only a sealed still-matching created manifest. It never starts pi. Any changed
+state refuses deletion; fixture controls cover that refusal and a collision
+before install as well as a complete positive. No owner activation occurs here;
+commit SHA, path and digest go to the orchestrator for owner presentation first.

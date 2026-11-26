@@ -128,3 +128,22 @@ No pi executable was available; discovery remains UNEXECUTED. The raw summary's
 historical authority-pending string describes an unexecuted owner lane; owner
 authority is now granted subject to exact commands being shown first. No owner
 installation, reload, undo or sign-off occurred in this fixture replay.
+
+## Exact owner-probe preparation - mailbox 40671
+
+The adjacent `issue-1897-owner-probe.py` and command protocol are prepared for
+owner presentation, not executed against owner paths. Eleven committed fixture
+cases exercise the same probe with the actual pinned delivered CLI: complete
+install/verify/undo with and without a personal neighbor; three existing-state
+refusals; edited post-state and unexpected management-member refusals; missing
+reload confirmation; held-lock refusal; alias refusal; and Make-metacharacter
+path refusal. Every refusal leaves the relevant agent state intact. Successful
+runs restore the scoped baseline. Simulated fixture confirmations establish
+sequencing only, never real pi discovery.
+
+`make test-pi-skill-install PYTEST_ARGS='tests/test_pi_owner_probe.py'` reports
+37 passed, 1 skipped. The existing unreadable-fixture privilege regression
+requires real root and was skipped; no pass is claimed for it. The new probe
+controls all ran. Lint, typecheck, Markdown checks and staged whitespace checks
+also passed. No owner install, pi process, reload observation or sign-off is
+claimed; those rows remain pending the exact committed commands being shown.
