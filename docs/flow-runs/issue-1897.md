@@ -1,0 +1,141 @@
+# Flow run record - issue #1897
+
+HISTORICAL RECORD of what was agreed BEFORE the code was written, at the base SHA
+each run below names. It is not a description of the shipped system, it is not a
+second statement of the issue contract or of a Tier 3 spec, and it does not
+graduate. APPEND-ONLY (#1320): each /flow:auto run adds its own `## Run <n>`
+section; nothing earlier is edited, and every check reads only its own run.
+
+<!-- flow-run n=1 id=273368568fab4e52b3c4bac50fc1154b -->
+## Run 1
+
+- Run-id:            273368568fab4e52b3c4bac50fc1154b
+- Run-start:         337f411a6bb2cf104040fd5407a1987842ea89bb
+
+- Issue: #1897, Tier 1, parent #1876; P1-B live topic-installation validation.
+- Issue-as-read: helper captured SHA256
+  `e8fc3dc38dcc2a4c0d142612002a1829294badc69c2fd6d72d12771ffd27755b`
+  (2691 bytes). The public as-read snapshot is pending formal approval.
+- Authority: mailbox 40632 approves LOCAL plan/protocol preparation and fixture
+  dry runs. The owner ruling on unparking/publication and one owner-session
+  install/undo is pending. No helper approval stamp is claimed here.
+- Branch: `issue-1897-pi-validation`, based on merged main `337f411a`.
+- Frozen design: rev 6.1 Sections 3, 4 P1-B and 5; retain its bytes unchanged.
+
+### Section A - Outcome and constraints
+
+Demonstrate the delivered complete topic build/install/verify path, actual pi
+reload discovery, and an executed exact undo. Retain expected/examined counts,
+hashes/modes, real outputs and a scoped before/after comparison for owner review.
+Owner sign-off gates any deeper integration. The two remaining #1896
+measurements stay UNKNOWN and must be visible at that sign-off.
+
+All corrupt/missing/marker negatives run only in disposable fixtures. Preserve
+pre-existing user skills and collisions; no owner adoption is authorized. Owner
+actions, once approved, are limited to skill install/verify and reload in the
+existing authorized session. Do not launch a new pi process with owner HOME,
+inspect credential paths, enumerate the whole agent, change trusted settings,
+tools/extensions/MCP/rules, invoke workflows, or make a provider turn. Evidence
+omits credential-file names/contents, tokens, private host/session names and
+unrelated conversation/scrollback. No CPP push, CI or PR before clearance.
+
+### Section B - Approach and ordered evidence
+
+1. Prepare the [protocol](../measurements/pi/issue-1897-validation-protocol.md)
+   and raw-evidence record. Use a separate clean detached source at `337f411a`
+   for dry runs so local planning edits do not dirty source binding.
+2. Use existing Make targets and the real CLI/core to install the entire fresh
+   expected population into fixture roots. Derive counts and file manifests
+   from the actual build. Keep a synthetic personal neighbor as a preservation
+   control. Record each install's scoped pre-state and inverse before execution.
+3. In fixtures, change one bundled-reference byte, remove an expected member
+   or package, and strip a source marker. Assert each negative precondition;
+   parity must fail with a nonzero expected population. Restore from the actual
+   fresh build using the real installer; explicit adoption is fixture-only.
+   Show positive verification again. Discovery is unexecuted without actual pi.
+4. Prove fixture undo restores the scoped baseline and retains the personal
+   neighbor. Exercise the refusal to erase an intervening edit. Establish
+   presence before interpreting absence after undo. Empty post-undo output is
+   an expected missing-installed state, not installed-parity green.
+5. Carry #1896's six-boundary results with attribution and limits. Record real
+   pi discovery separately from copier/verifier facts. The built-in inventory
+   and skill-loader diagnostic measurements remain UNKNOWN.
+6. After an owner ruling, finalize and review the concrete owner batch against
+   its scoped pre-state before any write. The first supported batch requires
+   canonical topic slots and CPP management state absent; unrelated personal
+   skills may exist. A collision or pre-existing management state requires a
+   preservation/restore amendment, never automatic adoption.
+7. Log exact undo before owner install, including management ledger/work and
+   all three coordination locks. Establish an operator-exclusive writer window
+   for the whole install/undo, including cleanup of newly created lock paths.
+   Existing locks are retained. Cleanup removes only logged, still-matching
+   CPP-created paths; unexpected/intervening edits stop cleanup for review.
+   Verify all members, observe reload presence, execute undo, reload again and
+   compare the scoped filesystem/discovery baseline. Parent timestamps or a
+   global unchanged-agent claim are not inferred from file/hash/mode equality.
+8. Obtain explicit owner sign-off. Do not automatically unpark Section 5 work.
+
+### Section C - Planned file set
+
+1. `docs/flow-runs/issue-1897.md` - this append-only scope/authority record.
+2. `docs/flow-runs/issue-1897.as-read.md` - helper's issue snapshot at approval.
+3. `docs/flow-runs/issue-1897.lanes-demonstrated.md` - observations and unknowns.
+4. `docs/measurements/pi/issue-1897-validation-protocol.md` - fixture and owner
+   protocol, pinned command recipes, pre-state/undo requirements.
+5. `docs/measurements/pi/issue-1897-install-undo.md` - attributed sanitized
+   raw-result summary with digests; append actual fixture/owner runs separately.
+
+Scope: documentation, existing-command fixture replay and host evidence only.
+No new product installer/uninstaller, provider or runtime feature. A missing
+rollback/report helper or executable owner relay needs a scoped amendment and
+committed opposite controls before activation. Existing readers receive actual
+outputs, not rewritten verdicts. No automatic new acceptance-grading helper.
+
+Risks: missing pi or owner authority leaves discovery/owner lanes unexecuted;
+collisions or existing CPP records may require a narrower reviewed recovery
+plan. Undo must account for work/journal/derived locks, not just topic folders.
+Removing a newly created primary lock requires the exclusive writer window;
+advisory locks alone cannot prove absence of a racing writer. Owner validation
+cannot waive #1896 UNKNOWNs. The cap-7 ruling for #1896 does not transfer here.
+
+### Lanes for this change
+
+| Lane | Answer | Values and evidence plan |
+|---|---|---|
+| Checkout | will test | Linked worktree pinned to main `337f411a`; main checkout execution is not newly covered |
+| Harness | not applicable | Existing Claude/Codex installations unchanged; pi reader is recorded separately |
+| Driver | not applicable | Manual managed validation, no delegated-driver behavior changes |
+| Coordination | not covered | Managed task messages are not a runtime Kyle coordination test; fixture commands do not claim that lane |
+| CI provider | not covered | No CI while frozen; Woodpecker only after clearance, no live GitHub Actions claim |
+| Project state | will test | Absent CPP state with synthetic personal neighbor, owned installed state, edited/missing/marker fixture states; unsupported owner collisions refuse |
+| Toolchain version | will test | Installed local interpreter/Make/Git, approved host pi version recorded exactly; no matrix claim |
+| Clone shape | not covered | This validation uses full local history; prior A1 full/shallow coverage remains attributed, not rerun evidence |
+| Run location | will test | CPP-root Make invocation; external invocation is not newly covered by this replay |
+| Gate target | not applicable | No consumer interpreter/quality-runner change |
+| Wave role state | not applicable | No registry release/re-registration behavior change |
+| Reader: installed verifier | will test | Actual CLI/core compares actual full fresh output to actual installed packages, including failing mutations and repaired positive |
+| Reader: fixture pi discovery | will test | Real fixture pi when available; missing binary means unexecuted, not a pass |
+| Reader: owner pi reload | will test | Existing owner session only after ruling and concrete batch review; relevant discovery evidence only |
+| Reader: owner evidence/sign-off | will test | Actual pre-state/install/undo/discovery records, with all remaining UNKNOWNs visible |
+
+Reader identification follows the issue's explicit readers and existing
+`pi-skill-sync`/`pi-host-fixture` references. This change alters no production
+output schema and asserts no absence of other cross-repository readers.
+
+
+### Durability checkpoint authority - mailbox 40651
+
+The orchestrator permits a WIP branch push with NO PR for durable backup.
+This exception does not unpark the issue or authorize CI or owner action.
+The working repository and detached source now live under persistent workspace
+storage, with independent Git objects and no active /tmp Git dependency. The
+run identity and as-read helper state were copied byte-for-byte; there is still
+no helper approval stamp for owner execution. A WIP commit records local
+preparation, not Part-1 sign-off.
+
+Both original evidence sets and the original replay source were copied without
+changing their bytes, and all 228 files in the evidence sets were hash-compared.
+A portable replay derivative changes only source/run location initialization.
+It completed against the persistent source and reproduced the same summary
+bytes, with fixture cleanup and source cleanliness observed. Raw evidence stays
+outside the CPP checkout; historical /tmp strings inside it remain unchanged.
