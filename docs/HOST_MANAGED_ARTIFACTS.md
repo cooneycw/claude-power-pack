@@ -193,11 +193,24 @@ The `drift_check` task remains available in the CI task manifest's deploy plan f
 operator-driven deploy workflows, but the Woodpecker CI pipeline does not run it as
 a pre-deploy gate.
 
-## Pi topic skills (P1-A1 boundary)
+## Pi topic skills
 
-A1 only writes generated build output outside agent/history configuration.
-`<agent>/skills/<slug>` and `<agent>/.cpp-skill-install.lock` are planned A2
-managed-copy installation surfaces, not writes implemented here. Staging,
-ownership ledger and adoption backups must remain within the approved skills
-root. Shared updater enrollment is deferred to #1900. The A1 drift reader is
-read-only file-snapshot inspection; runtime effectiveness remains unknown.
+Standalone builds write outside agent/history configuration. Explicit
+`pi-skill-sync.py --install` writes only canonical `<agent>/skills/<slug>`,
+management state below `<agent>/skills/.cpp-managed`, and the exact advisory
+lock `<agent>/.cpp-skills.lock`. The primary lock's parent is not an additional
+inventory or write scope. No auth-file metadata establishes policy/selection.
+
+Management state comprises `ownership.json`, work transactions/pending journal,
+adoption backups under `work/transaction-*/backup`, and persistent sibling locks
+`.ownership.json.cpp-lock` and `.work.cpp-lock`. The real core takes all three
+locks exclusively for refresh. Verify opens existing locks shared and creates
+no files/directories/records. Unreadable or unstable evidence is unknown.
+Explicit adoption reports its retained backup location; undo requires reviewing
+that exact backup against current package/record state, never blindly deleting
+foreign neighbors or replacing edited files. Interrupted transactions retain
+recovery evidence for review. Owner installation/undo validation remains #1897.
+
+Shared updater enrollment is deferred to #1900. The drift reader remains a
+read-only file snapshot. Runtime effectiveness and host RPC/syscall acceptance
+stay unknown until their separate fixture observations execute.

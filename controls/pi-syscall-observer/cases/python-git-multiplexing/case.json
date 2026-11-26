@@ -1,0 +1,39 @@
+{
+  "scenario": "python-git-multiplexing",
+  "expect": "GOOD",
+  "record": {
+    "allowance": {
+      "skills": "/fixture/agent/skills",
+      "lock": "/fixture/agent/.cpp-skills.lock",
+      "source": "/fixture/source",
+      "histories": [
+        "/fixture/history"
+      ],
+      "settings": [
+        "/fixture/agent/settings.json"
+      ],
+      "mode": "install",
+      "cwd": "/fixture/work",
+      "metadata": [
+        "/fixture/work"
+      ],
+      "runtime_reads": [
+        "/usr",
+        "/lib",
+        "/dev/null"
+      ]
+    },
+    "root_pid": "10",
+    "traces": {
+      "10": "1.00 openat(AT_FDCWD, \"/fixture/source/.git/HEAD\", O_RDONLY|O_NOFOLLOW) = 3</fixture/source/.git/HEAD>\n1.01 pipe2([4<pipe:[1]>, 5<pipe:[1]>], O_CLOEXEC) = 0\n1.02 clone(child_stack=NULL, flags=SIGCHLD) = 11\n1.03 poll([{fd=4<pipe:[1]>, events=POLLIN}], 1, -1) = 1 ([{fd=4, revents=POLLIN}])\n1.04 ppoll([{fd=4<pipe:[1]>, events=POLLIN}], 1, NULL, NULL, 8) = 1\n1.05 select(5, [4<pipe:[1]>], [], [], NULL) = 1 (in [4])\n1.06 pselect6(5, [4<pipe:[1]>], NULL, NULL, NULL, {sigmask=NULL, sigsetsize=8}) = 1\n1.07 epoll_create1(EPOLL_CLOEXEC) = 6<anon_inode:[eventpoll]>\n1.08 epoll_ctl(6<anon_inode:[eventpoll]>, EPOLL_CTL_ADD, 4<pipe:[1]>, {events=EPOLLIN, data={u32=4, u64=4}}) = 0\n1.09 epoll_wait(6<anon_inode:[eventpoll]>, [{events=EPOLLIN, data={u32=4, u64=4}}], 1, -1) = 1\n1.10 epoll_pwait(6<anon_inode:[eventpoll]>, [], 1, 0, NULL, 8) = 0\n1.11 epoll_pwait2(6<anon_inode:[eventpoll]>, [], 1, {tv_sec=0, tv_nsec=0}, NULL, 8) = 0\n1.12 read(4<pipe:[1]>, \"fixture\", 7) = 7\n1.13 wait4(11, [{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 11\n2.00 +++ exited with 0 +++\n",
+      "11": "1.025 openat(AT_FDCWD, \"/fixture/source/.git/HEAD\", O_RDONLY|O_NOFOLLOW) = 3</fixture/source/.git/HEAD>\n1.026 read(3</fixture/source/.git/HEAD>, \"fixture\", 7) = 7\n1.027 write(1<pipe:[1]>, \"fixture\", 7) = 7\n1.028 +++ exited with 0 +++\n"
+    }
+  },
+  "precondition_contains": [
+    "pipe2(",
+    "poll(",
+    "read(",
+    "write(",
+    "wait4("
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "scenario": "runtime-ssl-near-miss",
+  "expect": "BAD",
+  "record": {
+    "allowance": {
+      "skills": "/fixture/agent/skills",
+      "lock": "/fixture/agent/.cpp-skills.lock",
+      "source": "/fixture/source",
+      "histories": [
+        "/fixture/history"
+      ],
+      "settings": [
+        "/fixture/agent/settings.json"
+      ],
+      "mode": "install",
+      "cwd": "/fixture/work",
+      "metadata": [
+        "/fixture/work"
+      ],
+      "runtime_reads": [
+        "/usr/lib/python3.12"
+      ],
+      "runtime_files": [
+        "/etc/locale.alias",
+        "/etc/ssl/openssl.cnf",
+        "/proc/sys/crypto/fips_enabled",
+        "/sys/devices/system/cpu/online",
+        "/etc/gitattributes",
+        "/fixture/config/git/attributes",
+        "/fixture/config/git/ignore",
+        "/dev/null",
+        "/usr/bin/git"
+      ],
+      "git_metadata_roots": [
+        "/fixture/main/.git",
+        "/fixture/main/.git/worktrees/WT"
+      ],
+      "native_library_dirs": [
+        "/usr/lib/x86_64-linux-gnu",
+        "/lib/x86_64-linux-gnu"
+      ]
+    },
+    "root_pid": "10",
+    "traces": {
+      "10": "1.0 openat(AT_FDCWD, \"/etc/ssl/unapproved.cnf\", O_RDONLY) = 3</etc/ssl/unapproved.cnf>\n2.0 +++ exited with 0 +++\n"
+    }
+  },
+  "precondition_contains": [
+    "/etc/ssl/unapproved.cnf",
+    "O_RDONLY"
+  ],
+  "origin": "Composite of sanitized host slices; selected syscall lines, normalized paths/opaque buffers, one synthetic pid and exit framing.",
+  "source_slice_sha256": "014dbc716a2d18c865f073474ab79510488ca2a1da8134565b1c96e13334adce"
+}

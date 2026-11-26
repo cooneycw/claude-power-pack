@@ -1,0 +1,42 @@
+{
+  "scenario": "runtime-landmark-read",
+  "expect": "BAD",
+  "record": {
+    "allowance": {
+      "skills": "/fixture/agent/skills",
+      "lock": "/fixture/agent/.cpp-skills.lock",
+      "source": "/fixture/source",
+      "histories": [
+        "/fixture/history"
+      ],
+      "settings": [
+        "/fixture/agent/settings.json"
+      ],
+      "mode": "install",
+      "cwd": "/fixture/work",
+      "metadata": [
+        "/fixture/work"
+      ],
+      "runtime_reads": [
+        "/usr/lib/python3.12"
+      ],
+      "runtime_metadata": [
+        "/usr/bin/lib/python3.12/os.py",
+        "/usr/bin/lib/python3.12/os.pyc",
+        "/usr/bin/lib/python3.12/lib-dynload"
+      ],
+      "runtime_files": [
+        "/usr/share/zoneinfo/Fixture/Selected",
+        "/etc/localtime"
+      ]
+    },
+    "root_pid": "10",
+    "traces": {
+      "10": "1.0 openat(AT_FDCWD, \"/usr/bin/lib/python3.12/os.py\", O_RDONLY) = -1 ENOENT (fixture)\n2.0 +++ exited with 0 +++\n"
+    }
+  },
+  "origin": "Constructed residual runtime allowance control; synthetic zone labels, timestamps/fds/framing; no raw host replay.",
+  "precondition_contains": [
+    "/usr/bin/lib/python3.12/os.py"
+  ]
+}

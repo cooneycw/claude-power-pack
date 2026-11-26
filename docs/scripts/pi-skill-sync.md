@@ -1,9 +1,8 @@
 # pi-skill-sync
 
-P1-A1 of #1896 builds portable canonical topic packages and compares file
-snapshots. It does not install, adopt, prune, write ownership records, enroll pi
-in the shared updater or assert runtime effectiveness. P1-A2 uses the real
-`lib.host_update` API frozen at `91635a1d07b20d069fe8db1591b85ee7b3c444ac`.
+Build portable canonical topic packages, compare file snapshots, or explicitly
+install/verify through the real `lib.host_update` core merged in #1908.
+Shared updater enrollment and contextual runtime effectiveness remain separate.
 
 ```sh
 make pi-skills
@@ -60,6 +59,40 @@ byte/member/marker/payload differences. It must fail the bad controls. The real
 pi RPC diagnostic-differential and syscall controls are A2 host-fixture work;
 missing binaries mean UNKNOWN/unexecuted, never accepted coverage. Missing
 fd/rg remain informational observed startup warnings, not an automatic install.
+
+`--install` and `--verify-installed` select canonical `<agent>/skills` only;
+neither accepts `--output-root` or `--host-fidelity`. Agent must already exist.
+Optional `--revision` is a full commit matching the clean source root, default
+HEAD. The builder rejects ignored/untracked source inputs and checks every
+actual Markdown read against a tracked regular non-executable blob. Git overrides
+cannot redirect binding. `--lock-timeout` is finite and bounded by core.
+`--adopt SLUG` is repeatable and valid only with install; it explicitly permits
+reviewed foreign/edited package adoption with an in-scope retained backup.
+Another CPP identity's claim refuses even adoption; migration is separate.
+
+Install uses core exclusive locks, re-inspects, stages, verifies bytes/modes,
+then publishes ownership. Verify uses existing primary and derived locks shared,
+creates nothing and never reconciles records. Hand-edited content is preserved;
+when a valid prior owned tree already equals the full fresh build, install may
+refresh only management metadata and report `metadata_refreshed`. This cannot
+adopt unmarked content. The JSON carries native before/after conflicts and
+expected/examined counts; scope is `cooperating-writer-installation`, effectiveness
+unknown. Exit 0 is current, 1 known refusal/failure/difference, 4 unknown,
+5 not applicable, 2 usage error. A snapshot remains `file-snapshot` and says
+installation not examined. No host acceptance follows from local green tests.
+
+```sh
+make test-pi-skill-install
+make test-pi-host-observers
+make pi-install-controls
+# Explicit host-changing operation, from a clean approved source checkout:
+make pi-skills-install
+make pi-skills-verify
+```
+
+The installation targets pass optional `PI_SKILL_ARGS` to the CLI. Host surfaces
+and reviewed backup/undo limits are listed in
+[HOST_MANAGED_ARTIFACTS](../HOST_MANAGED_ARTIFACTS.md).
 
 Codex generator parity loads the exact vendored generator bytes pinned to
 `40d25173` and candidate generator bytes against the SAME candidate inputs.

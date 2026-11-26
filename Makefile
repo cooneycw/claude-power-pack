@@ -1018,6 +1018,36 @@ skills-check:
 test-pi-skills:
 	uv run --extra dev pytest -q tests/test_pi_skill_sync.py tests/test_pi_skill_policy.py tests/test_skills_check.py tests/test_install_drift.py $(PYTEST_ARGS)
 
+.PHONY: test-pi-skill-install
+## verify-coverage: excluded test-pi-skill-install - focused production pi/core integration; included by full test
+test-pi-skill-install:
+	uv run --extra dev pytest -q tests/test_pi_skill_install.py tests/test_pi_skill_concurrency.py $(PYTEST_ARGS)
+
+.PHONY: test-pi-host-observers pi-install-controls
+## verify-coverage: excluded test-pi-host-observers - fixture reader/lifecycle tests; full test includes them
+test-pi-host-observers:
+	uv run --extra dev pytest -q tests/test_pi_host_fixture.py tests/test_pi_syscall_audit.py $(PYTEST_ARGS)
+
+## verify-coverage: excluded pi-install-controls - targeted subset of registered controls already in negative-controls
+pi-install-controls:
+	@python3 scripts/check-negative-controls.py --control controls/pi-skill-install --strict --verify-provenance
+	@python3 scripts/check-negative-controls.py --control controls/pi-rpc-observer --strict --verify-provenance
+	@python3 scripts/check-negative-controls.py --control controls/pi-syscall-observer --strict --verify-provenance
+
+.PHONY: pi-skills-install pi-skills-verify pi-host-observer-selftest
+## verify-coverage: excluded pi-skills-install - explicit host-changing installation; hermetic tests cover the CLI
+pi-skills-install:
+	@python3 scripts/pi-skill-sync.py --install $(PI_SKILL_ARGS)
+
+## verify-coverage: excluded pi-skills-verify - host installed-state inspection; hermetic tests cover the CLI
+pi-skills-verify:
+	@python3 scripts/pi-skill-sync.py --verify-installed $(PI_SKILL_ARGS)
+
+## verify-coverage: excluded pi-host-observer-selftest - committed reader cases, also in full tests and negative-controls
+pi-host-observer-selftest:
+	@python3 scripts/pi-host-fixture.py --self-test
+	@python3 scripts/pi-syscall-audit.py --self-test
+
 .PHONY: pi-skills pi-skills-check pi-skills-fidelity
 ## verify-coverage: excluded pi-skills - builds ignored pi output; deliberately outside full verify, covered by focused hermetic tests
 pi-skills:

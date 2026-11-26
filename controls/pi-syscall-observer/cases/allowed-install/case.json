@@ -1,0 +1,34 @@
+{
+  "scenario": "allowed-install",
+  "expect": "GOOD",
+  "record": {
+    "allowance": {
+      "skills": "/fixture/agent/skills",
+      "lock": "/fixture/agent/.cpp-skills.lock",
+      "source": "/fixture/source",
+      "histories": [
+        "/fixture/history"
+      ],
+      "settings": [
+        "/fixture/agent/settings.json"
+      ],
+      "mode": "install",
+      "cwd": "/fixture/work",
+      "metadata": [
+        "/fixture/work"
+      ],
+      "runtime_reads": [
+        "/usr",
+        "/lib",
+        "/dev/null"
+      ]
+    },
+    "root_pid": "10",
+    "traces": {
+      "10": "1.0 openat(AT_FDCWD, \"/fixture/agent/skills/topic/SKILL.md\", O_WRONLY|O_CREAT|O_NOFOLLOW, 0644) = 3</fixture/agent/skills/topic/SKILL.md>\n2.0 +++ exited with 0 +++\n"
+    }
+  },
+  "precondition_contains": [
+    "+++ exited with 0 +++"
+  ]
+}

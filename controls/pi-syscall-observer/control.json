@@ -1,0 +1,272 @@
+{
+  "gate": "scripts/pi-syscall-audit.py",
+  "invocation": [
+    "python3",
+    "controls/pi-syscall-observer/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "PI_SYSCALL: (finding|refused)",
+  "unknown_signal": "PI_SYSCALL: unknown",
+  "unavailable_signal": "PI_INSTALL_CONTROL: unavailable - ",
+  "limits": "Fixture-only real subject/reader. No live pi, syscall, provider or credential-isolation evidence.",
+  "cases": [
+    {
+      "name": "allowed-install",
+      "input": "cases/allowed-install",
+      "expect": "GOOD"
+    },
+    {
+      "name": "allowed-readonly-verify",
+      "input": "cases/allowed-readonly-verify",
+      "expect": "GOOD"
+    },
+    {
+      "name": "auth-file-stat",
+      "input": "cases/auth-file-stat",
+      "expect": "BAD"
+    },
+    {
+      "name": "child-descriptor-relative-write",
+      "input": "cases/child-descriptor-relative-write",
+      "expect": "BAD"
+    },
+    {
+      "name": "derived-locks-existing-only-verify",
+      "input": "cases/derived-locks-existing-only-verify",
+      "expect": "GOOD"
+    },
+    {
+      "name": "derived-locks-refresh",
+      "input": "cases/derived-locks-refresh",
+      "expect": "GOOD"
+    },
+    {
+      "name": "history-descendant-probe",
+      "input": "cases/history-descendant-probe",
+      "expect": "BAD"
+    },
+    {
+      "name": "history-root-resolution",
+      "input": "cases/history-root-resolution",
+      "expect": "GOOD"
+    },
+    {
+      "name": "incomplete-child-trace",
+      "input": "cases/incomplete-child-trace",
+      "expect": "UNKNOWN"
+    },
+    {
+      "name": "readonly-verify-created-lock",
+      "input": "cases/readonly-verify-created-lock",
+      "expect": "BAD"
+    },
+    {
+      "name": "record-only-management-writes",
+      "input": "cases/record-only-management-writes",
+      "expect": "GOOD"
+    },
+    {
+      "name": "transient-trusted-write",
+      "input": "cases/transient-trusted-write",
+      "expect": "BAD"
+    },
+    {
+      "name": "truncated-path",
+      "input": "cases/truncated-path",
+      "expect": "UNKNOWN"
+    },
+    {
+      "name": "unresolved-directory-fd",
+      "input": "cases/unresolved-directory-fd",
+      "expect": "UNKNOWN"
+    },
+    {
+      "name": "user-prefix-alias-probe",
+      "input": "cases/user-prefix-alias-probe",
+      "expect": "BAD"
+    },
+    {
+      "name": "record-only-package-write",
+      "input": "cases/record-only-package-write",
+      "expect": "BAD"
+    },
+    {
+      "name": "omitted-child-trace",
+      "input": "cases/omitted-child-trace",
+      "expect": "UNKNOWN"
+    },
+    {
+      "name": "python-git-multiplexing",
+      "input": "cases/python-git-multiplexing",
+      "expect": "GOOD"
+    },
+    {
+      "name": "python-git-forbidden-fd",
+      "input": "cases/python-git-forbidden-fd",
+      "expect": "BAD"
+    },
+    {
+      "name": "ancestor-directory-listing",
+      "input": "cases/ancestor-directory-listing",
+      "expect": "BAD"
+    },
+    {
+      "name": "fixture-xdg-near-miss",
+      "input": "cases/fixture-xdg-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "host-runtime-slice",
+      "input": "cases/host-runtime-slice",
+      "expect": "GOOD"
+    },
+    {
+      "name": "interpreter-path-near-miss",
+      "input": "cases/interpreter-path-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "native-library-near-miss",
+      "input": "cases/native-library-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "null-device-not-proven",
+      "input": "cases/null-device-not-proven",
+      "expect": "BAD"
+    },
+    {
+      "name": "null-device-wrong-id",
+      "input": "cases/null-device-wrong-id",
+      "expect": "BAD"
+    },
+    {
+      "name": "real-home-gitconfig-near-miss",
+      "input": "cases/real-home-gitconfig-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "real-home-pi-near-miss",
+      "input": "cases/real-home-pi-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "real-home-ssh-near-miss",
+      "input": "cases/real-home-ssh-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "runtime-locale-near-miss",
+      "input": "cases/runtime-locale-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "runtime-proc-near-miss",
+      "input": "cases/runtime-proc-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "runtime-ssl-near-miss",
+      "input": "cases/runtime-ssl-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "runtime-sys-near-miss",
+      "input": "cases/runtime-sys-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "shared-cache-unproven",
+      "input": "cases/shared-cache-unproven",
+      "expect": "UNKNOWN"
+    },
+    {
+      "name": "shared-cache-write",
+      "input": "cases/shared-cache-write",
+      "expect": "BAD"
+    },
+    {
+      "name": "worktree-main-file-near-miss",
+      "input": "cases/worktree-main-file-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "bootstrap-runtime-paths",
+      "input": "cases/bootstrap-runtime-paths",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bootstrap-near-miss",
+      "input": "cases/bootstrap-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "locale-catalog-near-miss",
+      "input": "cases/locale-catalog-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "ssl-alias-near-miss",
+      "input": "cases/ssl-alias-near-miss",
+      "expect": "BAD"
+    },
+    {
+      "name": "bootstrap-write",
+      "input": "cases/bootstrap-write",
+      "expect": "BAD"
+    },
+    {
+      "name": "runtime-landmark-metadata",
+      "input": "cases/runtime-landmark-metadata",
+      "expect": "GOOD"
+    },
+    {
+      "name": "runtime-landmark-read",
+      "input": "cases/runtime-landmark-read",
+      "expect": "BAD"
+    },
+    {
+      "name": "runtime-landmark-list",
+      "input": "cases/runtime-landmark-list",
+      "expect": "BAD"
+    },
+    {
+      "name": "runtime-landmark-write",
+      "input": "cases/runtime-landmark-write",
+      "expect": "BAD"
+    },
+    {
+      "name": "runtime-timezone-target",
+      "input": "cases/runtime-timezone-target",
+      "expect": "GOOD"
+    },
+    {
+      "name": "runtime-timezone-sibling",
+      "input": "cases/runtime-timezone-sibling",
+      "expect": "BAD"
+    },
+    {
+      "name": "runtime-timezone-write",
+      "input": "cases/runtime-timezone-write",
+      "expect": "BAD"
+    },
+    {
+      "name": "runtime-landmark-nonmember",
+      "input": "cases/runtime-landmark-nonmember",
+      "expect": "BAD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/pi-syscall-audit.py",
+      "path": "anchors/constructed-blind.py",
+      "sha256": "318d563f95e3479be94358c323bfb66b610471ba0b21ec1ed6be00783181b1ac",
+      "why": "Constructed subject retains fixture unexaminable shapes and ignores semantic BAD inputs; agrees on GOOD and UNKNOWN, misses known-bad cases. No historical-regression claim."
+    }
+  ],
+  "good_signal": "PI_SYSCALL: (current|matches)"
+}
