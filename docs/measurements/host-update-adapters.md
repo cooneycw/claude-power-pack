@@ -520,3 +520,17 @@ Logs are f1-readers.log, f1-historical-population.log and f1-bare-controls.log.
 Exact owned roots /tmp/b.9h63c1_z, /tmp/b.yofkutuc and /tmp/b.gzxzp2ab were
 deleted. Disposable CI-shape qualification, formal pass2, fresh receipt and the
 direct supervised finish gate remain pending for this candidate.
+
+The amended disposable CI-shape run at exact0070ebc4 passes212 tests in267.74s
+plus all five actual Make control cases. Three skips explicitly name historical
+objects absent from the depth1 clone: the old5a4d7fcd shipped-byte fixture and
+the actual5204ea06 /40d25173 installers. The small attributed legacy fixture,
+consent/backup/decline and displayed-command cases still run and pass there.
+Full-history tests passed separately above; unavailable history is not counted
+as examined. Checkout mode0666/umask000, HOME=/root with actual UID1000, aliased
+TMPDIR and minimal PATH were asserted again. The stale-legacy control prints
+its named command and frozen decline without changing the original package or
+creating an ownership ledger. Source status is clean after removing the owned
+virtualenv seam. Exact /tmp/c.pb8igty7 was deleted; cleanup-inclusive runtime
+was359.72s. Log: f1-ci-shape.log. Formal pass2, fresh receipt and the directly
+supervised finish gate remain pending; implementation bytes are now frozen.
