@@ -1,0 +1,64 @@
+{
+  "branch": "issue-1888-agy-topic-builder",
+  "counts": {
+    "accepted": 3,
+    "deferred": 1,
+    "rejected": 0
+  },
+  "extra_passes_reason": "pass 3 reviewed the post-pass-2 live-probe runtime fixes and attempt-4 evidence (help on stderr, 180s duration, HOME-only profile) under the owner's one-run keyring exception (#1888 comment 7176568634); product 85dd9397 was already approved in pass 2",
+  "head": "7cf04b3d89a1de26d6a4384431c2df18e012a607",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/25/rollout-2026-11-25T16-21-16-01a21382-e9f4-78b2-8dbd-a63068a99358.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 12996358,
+        "path": "2026/11/25/rollout-2026-11-25T16-21-16-01a21382-e9f4-78b2-8dbd-a63068a99358.jsonl",
+        "sha256": "740d69e3ea22bd45ec2384dda311aecac6001fb623cdf3441bcde6bbc9a000fa"
+      }
+    ],
+    "thread_id": "01a21382-e9f4-78b2-8dbd-a63068a99358"
+  },
+  "issue": "1888",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 3,
+  "recorded_at": "2026-11-25T22:47:49Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 2
+  },
+  "reviewed_artifact": {
+    "base_sha": "adf70c291cf3aa457e56a21cec17983dc761da13",
+    "merge_base": "adf70c291cf3aa457e56a21cec17983dc761da13",
+    "method": "runtime-head",
+    "patch_sha256": "2606c4e7962fbe091d8a330535174f46c15c9d60cf58b3f9a28dc047b0c8fa88",
+    "report_record": 2861,
+    "target_head": "7cf04b3d89a1de26d6a4384431c2df18e012a607"
+  },
+  "reviewer": "claude/claude-opus-5-5",
+  "reviewer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2",
+    "sources": [
+      {
+        "bytes": 6265474,
+        "path": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl",
+        "sha256": "3fc77a38ff45f549ea73ddb9019f0b9c134492a6627f335b2b62bcdffae8b156"
+      }
+    ],
+    "transcript": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}

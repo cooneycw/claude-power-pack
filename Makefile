@@ -167,6 +167,24 @@ test:
 ## verify-coverage: utility test-host-update-core - focused tests of the fixture-only host update core; full suite owns the gate
 .PHONY: test-host-update-core test-host-update-lock-repeat host-update-controls host-update-verify host-update-refresh
 HOST_UPDATE_TESTS ?= tests/test_host_update_core.py tests/test_host_update_transactions.py tests/test_host_update_cli.py
+## verify-coverage: utility test-antigravity-skills - topic builder and same-inputs historical Codex parity tests; full suite owns gate
+.PHONY: test-antigravity-skills antigravity-skills antigravity-skills-check
+## verify-coverage: excluded antigravity-skills-controls - focused subset already run by negative-controls in verify; ci: excluded duplicate-subset
+antigravity-skills-controls:
+	python3 scripts/check-negative-controls.py --control controls/antigravity-skill-build --strict --verify-provenance
+
+AGY_SKILL_TESTS ?= tests/test_antigravity_skill_sync.py tests/test_antigravity_skill_cli.py tests/test_antigravity_codex_parity.py
+test-antigravity-skills:
+	uv run --extra dev pytest -q $(AGY_SKILL_TESTS)
+
+## verify-coverage: utility antigravity-skills - build ignored AGY topic output from one committed source revision
+antigravity-skills:
+	uv run python scripts/antigravity-skill-sync.py --write
+
+## verify-coverage: excluded antigravity-skills-check - needs explicit generated output, not present in clean CI checkout; ci: excluded needs-generated-tree
+antigravity-skills-check:
+	uv run python scripts/antigravity-skill-sync.py --check
+
 test-host-update-core:
 	uv run --extra dev pytest -q $(HOST_UPDATE_TESTS)
 

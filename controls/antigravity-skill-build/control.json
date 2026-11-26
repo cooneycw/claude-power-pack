@@ -1,0 +1,61 @@
+{
+  "gate": "scripts/antigravity-skill-sync.py",
+  "invocation": [
+    "uv",
+    "run",
+    "python",
+    "controls/antigravity-skill-build/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "good_signal": "^AGY_SKILLS: current",
+  "detect_signal": "^AGY_SKILLS: failure",
+  "unknown_signal": "^AGY_SKILLS: unknown",
+  "unavailable_signal": "^AGY_SKILLS: UNAVAILABLE - git missing$",
+  "limits": "Independent nonzero canonical-name fixture with manually materialized expected bytes and ownership. Actual thin CLI consumes real builder/core output. Read-only oracle compares complete file inventory/hashes/modes. No host/runtime acceptance claim; parity mutations separately committed in tests/test_antigravity_codex_parity.py.",
+  "cases": [
+    {
+      "name": "good-fresh",
+      "input": "cases/good-fresh",
+      "expect": "GOOD"
+    },
+    {
+      "name": "good-bounded-closure",
+      "input": "cases/good-bounded-closure",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bad-changed-output",
+      "input": "cases/bad-changed-output",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-removed-package",
+      "input": "cases/bad-removed-package",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-broken-reference",
+      "input": "cases/bad-broken-reference",
+      "expect": "BAD"
+    },
+    {
+      "name": "unknown-source",
+      "input": "cases/unknown-source",
+      "expect": "UNKNOWN",
+      "anchor_expect": "clean",
+      "anchor_expect_reason": "Constructed blind verifier never inspects source and declares current even when source is unavailable."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/antigravity-skill-sync.py",
+      "path": "anchors/constructed-always-current.py",
+      "sha256": "d1702285bbdca924d5cf227e757feba5b495e2b08f92cd727a631d3fd3fa6ae0",
+      "why": "Constructed verifier reports current without inspecting source or output. It misses every BAD and agrees on GOOD; source UNKNOWN explicitly declares its blind clean answer."
+    }
+  ]
+}
