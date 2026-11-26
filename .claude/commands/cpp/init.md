@@ -757,7 +757,7 @@ This will make the following changes:
     (see above; Tiers 2-5 are NOT required for this tier)
 
   [Tier 6 - Local Qwen]
-    - Installs if absent: "$CPP_DIR/scripts/cpp-host-write.sh" (link to the verified checkout helper).
+    - If absent, links ~/.claude/scripts/cpp-host-write.sh to the verified checkout; existing non-links are preserved/refused.
     - Requires: Qwen Code CLI as the agentic harness
       (npm install -g @qwen-code/qwen-code)
       NOTE: no cloud API key is needed - the harness talks straight to Ollama
@@ -787,7 +787,7 @@ This will make the following changes:
     (see above; Tiers 2-6 are NOT required for this tier)
 
   [Tier 7 - Local Gemma]
-    - Installs if absent: "$CPP_DIR/scripts/cpp-host-write.sh" (link to the verified checkout helper).
+    - If absent, links ~/.claude/scripts/cpp-host-write.sh to the verified checkout; existing non-links are preserved/refused.
     - Requires: OpenCode CLI as the agentic harness
       (npm install -g opencode-ai)
       NOTE: no cloud API key is needed - the harness talks straight to Ollama
@@ -1260,7 +1260,7 @@ python3 "$CPP_DIR/scripts/cpp-install-receipt.py" section \
   --capabilities "${CPP_CAPABILITIES_JSON-}" --section scripts || exit $?
 # BOOTSTRAP THE SEAM, AND CREATE ITS DIRECTORY IN ONE CALL (issue #1198).
 #
-# This line used to invoke "$CPP_DIR/scripts/cpp-host-write.sh" to CREATE
+# This line used to invoke ~/.claude/scripts/cpp-host-write.sh to CREATE
 # ~/.claude/scripts - the directory the helper itself gets linked into, two
 # statements below. On a fresh host, which is exactly what /cpp:init is for,
 # that symlink does not exist yet: the call exited 127, Tier 2 installed

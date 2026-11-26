@@ -136,8 +136,8 @@ def test_racing_destination_is_preserved_exclusively(tmp_path, kind):
     real_python = shutil.which("python3")
     assert real_python is not None
     shim = tools / "python3"
-    collision = ('mkdir "$3"; printf personal > "$3/personal"' if kind == "directory"
-                 else 'printf personal > "$3"')
+    collision = ('mkdir "$4"; printf personal > "$4/personal"' if kind == "directory"
+                 else 'printf personal > "$4"')
     shim.write_text("#!/bin/sh\n" + collision + "\nexec " + shlex.quote(real_python) + ' "$@"\n')
     shim.chmod(0o755)
     env = dict(os.environ, HOME=str(home), CPP_DEFER_SURFACES="", PATH=str(tools) + os.pathsep + os.environ["PATH"])

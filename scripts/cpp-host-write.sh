@@ -291,7 +291,7 @@ cmd_link_into() {
     # symlink(2) fails exclusively on ANY existing leaf, including a directory.
     # Plain ln can follow a directory created after the check; ln -f can destroy
     # a regular file created in that interval. No platform-specific ln flags.
-    python3 - "$src" "$dir/$name" <<'PY_LINK' || return 1
+    PYTHONPATH='' python3 -I - "$src" "$dir/$name" <<'PY_LINK' || return 1
 import os
 import sys
 

@@ -39,3 +39,18 @@ Every owned suite/clone temporary root was deleted immediately after its run.
 Small logs remain outside the worktree under `/workspace/.cpp-validation/1913`.
 Exact-head independent review, receipt and supervised finish gate remain required. No release or tag
 authorization is inferred.
+
+
+## Independent review pass1 corrections
+
+At7c4e8637, ch-rev confirmed the code and real controls but requested two text
+fixes: Tier6/7 consent must disclose the installed destination, and the #1198
+history comment must name the old installed-path invocation. Both are corrected;
+remaining changed references were checked as actual invocations. The optional
+Python isolation suggestion is applied as `PYTHONPATH='' python3 -I -`, and the
+two destination-race fixtures preserve the actual interpreter arguments.
+Focused66tests and the real preservation control passed after isolation. An
+initial unquoted empty assignment tripped shellcheckSC1007; explicit empty
+quotes fixed that style finding. Lint, shellcheck, command budgets, actual
+host-write gate and doc-flag checks passed afterward. Pass2/receipt/full gate
+remain pending; accepted required review findings2, rejected0, deferred0.
