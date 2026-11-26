@@ -271,12 +271,14 @@ def inspect_locked(scope: Scope, build: ExpectedBuild, request: Request) -> Snap
     raise _unknown("lock changed during verification")
 
 
-def _ledger_bytes(scope: Scope, build: ExpectedBuild) -> bytes:
+def _ledger_bytes(scope: Scope, build: ExpectedBuild, preserve: frozenset[str] = frozenset()) -> bytes:
     value = _document(scope)
-    value["adapters"][scope.owner] = {
+    retained = {name: record for name, record in value["adapters"].get(scope.owner, {}).items()
+                if name in preserve}
+    value["adapters"][scope.owner] = retained | {
         p.name: {"source": p.canonical_source, "revision": build.revision, "members": {
             name: {"sha256": m.sha256, "mode": m.mode} for name, m in sorted(p.members.items())
-        }} for p in sorted(build.packages, key=lambda p: p.name)
+        }} for p in sorted(build.packages, key=lambda p: p.name) if p.name not in preserve
     }
     return (json.dumps(value, sort_keys=True, indent=2) + "\n").encode()
 
@@ -290,42 +292,49 @@ def publish(scope: Scope, build: ExpectedBuild, before: Snapshot, request: Reque
     for path in adopted:
         parts(path)
     blocking = [c for c in before.inspection.conflicts if c.state in (State.UNMANAGED, State.HAND_EDITED)]
-    if not before.record_only and any(
-        c.package not in adopted and f"{c.package}/{c.relative_path}".rstrip("/") not in adopted for c in blocking
-    ):
+    unreviewed = frozenset(c.package for c in blocking if c.package not in adopted
+                          and f"{c.package}/{c.relative_path}".rstrip("/") not in adopted)
+    blocked = unreviewed if scope.policy.partial_refresh and not before.record_only else frozenset()
+    if not before.record_only and unreviewed and not scope.policy.partial_refresh:
         raise AdapterError("hand-edited or foreign content requires explicit reviewed adoption",
                            state=before.inspection.state)
     if adopted - {c.package for c in blocking} - {
         f"{c.package}/{c.relative_path}".rstrip("/") for c in blocking
     }:
         raise AdapterError("adoption names paths outside this reviewed conflict set", state=State.UNMANAGED)
+    if blocked and not (({p.name for p in build.packages} | before.records.keys()) - blocked):
+        raise AdapterError("package conflicts preserved: " + ", ".join(sorted(blocked)),
+                           state=before.inspection.state, remedy="resolve these package conflicts separately")
+    packages = tuple(p for p in build.packages if p.name not in blocked)
     transaction = scope.policy.work_root / f"transaction-{uuid.uuid4().hex}"
     pending = scope.policy.work_root / "pending.json"
     scope.mkdir(transaction)
     journal = {"schema": 1, "transaction": transaction.name, "revision": build.revision}
     scope.write(pending, (json.dumps(journal) + "\n").encode())
-    expected = {p.name: p for p in build.packages}
+    expected = {p.name: p for p in packages}
     if not before.record_only:
-        for package in build.packages:
+        for package in packages:
             dest = transaction / "staged" / package.name
             scope.mkdir(dest)
             for path, member in package.members.items():
                 scope.write(dest / path, member.content, member.mode)
-        for name in sorted(before.records.keys() | expected.keys()):
+        for name in sorted((before.records.keys() | expected.keys()) - blocked):
             dest = scope.package(name)
             if scope.stat(dest) is not None:
                 scope.rename(dest, transaction / "backup" / name)
             if name in expected:
                 scope.rename(transaction / "staged" / name, dest)
     # Verify actual bytes independently BEFORE publishing their ownership record.
-    for package in build.packages:
+    for package in packages:
         wanted = {p: OwnedMember(m.sha256, m.mode) for p, m in package.members.items()}
         files, dirs = scope.inventory(scope.package(package.name), set(wanted))
         if files != wanted or dirs != _directories(wanted):
             raise _unknown("installed output failed post-copy fidelity verification")
-    scope.write(scope.policy.ledger_path, _ledger_bytes(scope, build))
+    ledger = _ledger_bytes(scope, build, blocked) if blocked else _ledger_bytes(scope, build)
+    scope.write(scope.policy.ledger_path, ledger)
     after = snapshot(scope, build, ignore_pending=True).inspection
-    if after.state != State.CURRENT:
+    if after.state != State.CURRENT and not (blocked and after.conflicts
+                                            and all(c.package in blocked for c in after.conflicts)):
         raise _unknown("published record does not describe verified current output")
     scope.unlink(pending)
     recovery = ""

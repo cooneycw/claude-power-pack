@@ -246,3 +246,353 @@ Reader search positive control found ADR0014 referenced by the authoritative
 host-update spec. Existing rejection clauses at ADR lines35/67/219 were read.
 The amendment states its precedence and limited scope; future backend evidence
 is not asserted to exist now. All earlier approved run history stays intact.
+
+<!-- flow-run n=3 id=cbff69dcdd074f20b794f98166080f42 -->
+## Run 3
+
+- Run-id:            cbff69dcdd074f20b794f98166080f42
+- Run-start:         23fde5b15bfab8ba3c4cf03476fb75357d524c62
+
+- Issue:             #1889, delivery B1; B2 is deferred below; parent #1876
+- Necessity verdict: Needs reframing (the combined issue is staged A/B1/B2)
+- Approval:          granted for B1 Section C only
+- Approver:          ch-orch mailbox40532 approving Section C at87494bf4; owner/stage clarifications40530
+
+### Section A - intent
+
+The neutral updater and AGY builder are merged, but the shared CLI still only
+accepts disposable fixture adapters. B1 adds real Codex and AGY copy adapters
+and Claude TOPIC managed copies to the core. One invocation at a current
+checkout refreshes those managed installations from one full CPP revision,
+preserves a personal sibling skill and reports each result independently.
+A failure at one destination must not stop the other selected installations.
+
+B1 is explicitly PARTIAL, including only Claude topic copies, Codex generated
+skills and AGY topic copies. Claude commands/helpers and maintained cpp/update
+wiring are B2 under the owner's documented link exception below. pi, Qwen and
+Gemma/OpenCode are follow-up adapters. No initial subset establishes all-harness
+or workflow parity. #1889 remains open through B2; the epic cpp/update
+acceptance is not completed by a standalone B1 CLI test.
+
+### Section B evidence
+
+Base main is 12b39ceb146dc89860be036e577ae248e362a19d (#1909), with neutral
+core adf70c29 (#1908), contract 790174a3 (#1906), accepted ADR 0014 and pi
+packaging #1907. The current CLI requires --fixture-root; no real production
+registry is present. Inspected #1889/#1876, approved order comment7168491284,
+contract, existing Claude/Codex helpers, shared core and AGY builder. Scoped
+post-filing history found the core, not production adapters. Related rules,
+MCP, drift/status/planner and runtime receipt work remain #1890/#1891/#1892/
+#1893/#1886. No issue-body edit is proposed; #1888 stays open after merge.
+
+Initial draft d5a16eec was plan-only, not approved. Orchestrator review40522
+approves (2) legacy migration and (3) Codex input attribution, and requires a
+B1/B2 split. The owner then ruled "1889 A" (1889 comment7178523792; relayed40530):
+existing Claude command/helper links stay links as a typed, bounded, verified
+Claude-only exception; topic skills and new harnesses remain copies. The
+required ADR0014 amendment must land FIRST in its own docs-only PR0, before
+B1/B2 merge. Parallel B1 implementation is explicitly allowed by40532. B1 still makes NO link/backend/core-callback change. The three
+stages are PR0 amendment, B1 copy adapters, then B2 maintained invocation and
+Claude links. This revision records that ruling; no earlier interpretation is
+standing authorization to weaken copy-core symlink refusal.
+
+Fresh branch issue-1889-shared-adapters in
+/workspace/claude-power-pack-adapters is based on main12b39ceb. Only this draft
+plan is changed. Other local worktrees hold completed contract/core/builder
+and historical probes; other containers' unpublished work is unexamined. The
+owner host and CPP pin are untouched. Assignment40515; revision request40522.
+
+### PR0 prerequisite - docs-only, lands before B1 code
+
+A separate branch from current main changes only
+`docs/decisions/0014-antigravity-capability.md` plus its own plan/as-read/review
+records. Its short AMENDMENT records the owner ruling, existing Claude command
+and helper scope, targets confined inside the pinned CPP checkout, no new link
+kinds, read-only type/target/content verification and required negative cases.
+It requires reports to call the backend `links`, never `copies`. PR0 lands
+before B1 PR/merge. Its approved Run2 is carried unchanged into this branch;
+B1 is Run3, and no historical approved section is overwritten. Parallel B1
+implementation during PR0 review is authorized by40532.
+
+### Section C - B1 proposed plan for approval
+
+1. `lib/host_update/source.py` - resolve a full commit once, refuse dirty/unavailable source and materialize a private detached source snapshot with Git overrides/hooks/fsmonitor disabled; use its driver/adapters/builders and clean only the owned temporary worktree.
+2. `lib/host_update/claude.py` - actual Claude TOPIC managed-copy adapter only, building pinned canonical packages under the existing metadata.source fidelity contract; no commands/helpers, symlink allowance or configuration enumeration.
+3. `lib/host_update/codex.py` - actual Codex managed-copy adapter using the unchanged pinned generator and existing install lock; GENERATED is discovery evidence, not proof of previous installed bytes.
+4. `lib/host_update/antigravity.py` - actual topic-only AGY adapter consuming the merged builder; descriptor-relative no-follow preflight from approved home through .gemini/config before granting skills/ledger/work and the exact config/.cpp-skill-install.lock scope.
+5. `lib/host_update/host.py` - production registry/selection, same-revision dispatch through the existing core and typed PARTIAL report envelope naming copy components, absent/unknown states, unsupported harnesses and deferred Claude command/helper links/B2 invocation.
+6. `scripts/cpp-host-update.py` - production refresh/verify entry with explicit source/home/selection/defer/adoption boundaries, HOST-SURFACE declarations and real human/JSON summaries; retain backwards-compatible explicit fixture mode.
+7. `tests/test_host_update_adapters.py` - real discovery and pinned builds for all three copy adapters; metadata/GENERATED/receipt versus CLI-only/foreign evidence; legacy exact-match record bootstrap and stale-unproven UNKNOWN; no-follow prefix refusal BEFORE forbidden IO; actual Claude output consumed by the existing skills-check reader.
+8. `tests/test_host_update_integration.py` - actual CLI and real three-adapter refresh from prior A to current B, exact SAME full revision in all selected rows, independent fresh-build/installed bytes/membership/modes and foreign sibling preservation; a different/guessed-revision adapter must fail.
+9. `tests/test_host_update_permissions.py` - prove a destination unwritable by the actual executing identity with failed writes before invocation; remaining real adapters refresh and summary identifies failure; root uses a dropped-identity child rather than chmod-only proof.
+10. `tests/test_host_update_adapter_transactions.py` - A's held-lock/no-lock/prune/interruption and controlled same/different-package schedules through the actual AGY adapter, both lock orders, complete build/record comparison and unlocked mixed-output mutation.
+11. `tests/test_host_update_ci_shape.py` - real production entry from full/shallow/detached fixture-owned histories created under022/000 and root/external cwd; source move/unavailability refusal, stderr diagnostics, no dependency on mutable outer-CI transport/history.
+12. `controls/antigravity-skill-install-fidelity/control.json` - register real production adapter fidelity with GOOD/BAD/UNKNOWN cases and mutation evidence.
+13. `controls/antigravity-skill-install-fidelity/run-case.py` - materialize committed disposable sources/homes, assert negative preconditions and invoke the real production CLI/report/tree; no native model or production host mutation.
+14. `controls/antigravity-skill-install-fidelity/anchors/constructed-always-current.py` - declared blind implementation which misses the BAD fidelity inputs.
+15. `controls/antigravity-skill-install-fidelity/cases/good-current/case.json` - complete nonzero real managed output population.
+16. `controls/antigravity-skill-install-fidelity/cases/good-refresh/case.json` - stale Codex/AGY plus Claude topics, common revision and byte-identical foreign sibling.
+17. `controls/antigravity-skill-install-fidelity/cases/bad-stale/case.json` - proven owned stale bytes detected by verify.
+18. `controls/antigravity-skill-install-fidelity/cases/bad-missing-member/case.json` - missing required bundled guide with nonzero expected floor.
+19. `controls/antigravity-skill-install-fidelity/cases/bad-hand-edited/case.json` - edited bytes/modes preserved, including mixed missing/edited conflicts.
+20. `controls/antigravity-skill-install-fidelity/cases/bad-foreign-content/case.json` - internal foreign member or same-name unowned target preserved/refused.
+21. `controls/antigravity-skill-install-fidelity/cases/bad-revision/case.json` - wrong/guessed adapter revision cannot produce shared current.
+22. `controls/antigravity-skill-install-fidelity/cases/unknown-lock/case.json` - held/unreadable exact lock produces unknown without mutation.
+23. `controls/antigravity-skill-install-fidelity/cases/good-verify-no-lock/case.json` - verification with absent lock leaves full tree unchanged; always-create-lock mutation fails.
+24. `Makefile` - focused adapter/integration/permission/transaction/CI-shape/control targets and shared production refresh/verify targets; retain explicit fixture targets, no independent AGY updater.
+25. `controls/census.md` - real production fidelity claims and evidence limits, retaining fixture core registrations.
+26. `.claude/verify-coverage.json` - shared production CLI/Make/control coverage without exempting changed gate behavior.
+27. `docs/scripts/cpp-host-update.md` - production copy-adapter roots/locks/selection/migration, report/exit contract, exact PARTIAL scope and no live-effectiveness claim.
+28. `docs/scripts.md` - update the existing shared-entry inventory description.
+29. `.specify/specs/antigravity-host-update/spec.md` - restore the B real-adapter same-full-revision acceptance row from Nit7168730806, explicitly identifying B1 topic/copy subset and negative wrong-revision case; maintained invocation remains B2.
+30. `docs/measurements/host-update-adapters.md` - actual B1 acceptance/lane/permission/CI-shape/lock evidence, include nonzero real-adapter population and explicit B2/live gaps.
+31. `changelog.d/1889.md` - append B1 copy-adapter delivery and limitations without erasing A or claiming B2/epic completion.
+
+Scope: B1 only, approximately31 named paths including12 small control paths,
+plus this plan/as-read/demonstrated record and later review receipt. Target
+1500-2200 implementation/test lines by reusing the existing core unchanged.
+NO models.py/driver.py/scope.py public API change, link backend, command-doc
+change, Codex baseline edit, native probe or live model run in B1. Extra paths
+or scope expansion require the existing plan-change procedure. Approval is
+granted by40532; product implementation begins after this record is stamped.
+
+### B2 future list - NOT B1 implementation authority
+
+The exact B2 Section C will be approved in its own run after PR0 and B1; this list records the split rather than pre-approving future code.
+
+1. `.claude/commands/cpp/update.md` - invoke shared production refresh once after source fetch, including zero commits pulled, and preserve actual per-harness failures in summary; replace duplicated refreshes only within the owner-approved component scope; budget offsets/instruction audit.
+2. `lib/host_update/claude.py` - existing command/helper links under the owner-approved narrow exception; topics remain copies and the report preserves component backend labels.
+3. `lib/host_update/models.py` - additive typed lifecycle/backend seam for the owner-approved Claude exception, default copy API unchanged, coordinated with ch-w2 before any change.
+4. `lib/host_update/driver.py` - corresponding bounded shared lifecycle extension for Claude links; never globally weaken copy-core symlink refusal.
+5. `lib/host_update/links.py` - typed bounded Claude-only backend after PR0 lands; verify targets resolve inside the pinned CPP checkout, no new link kinds, preserve/report foreign, dangling and non-link replacements.
+6. `tests/test_host_update_command.py` - maintained Claude and generated Codex command readers consume actual production outputs, including no-op source pull, CLI absent and partial failure; no authored report substitutes.
+7. `tests/test_host_update_links.py` - owner-required committed outside-checkout, dangling-link and regular-file-replacement negatives; preservation, defer/host-write seam, source-content/revision and interruption evidence.
+8. `controls/antigravity-skill-build/codex-baseline.json` - only reviewed source-driven input attribution for cpp/update, historical members and generator/parser pins unchanged.
+9. `tests/test_antigravity_codex_parity.py` - consume the same attributed source delta under both masks, preserve exact independent generator/parser output bytes/modes and reject an unattributed input change.
+10. `docs/measurements/host-update-acceptance.probe.py` - NEW gated optional native probe, separate from immutable historical attempt4: require a recorded governing ruling reference bound to the reviewed run in BOTH authentication lanes, including prescribed dedicated file-token setup; no auth-store reads/copies or automatic login.
+11. `tests/test_host_update_probe_gate.py` - committed missing/stale/wrong-head ruling and absent-auth preconditions refuse BEFORE native callbacks; removed-gate mutation reaches forbidden callback and fails; no claim of real AGY consumer coverage.
+12. `docs/scripts/cpp-host-update.md` - maintained invocation/owner-ruling scope, credential/configuration isolation limits and explicitly unimplemented follow-ups.
+13. `docs/measurements/host-update-adapters.md` - B2/epic real-adapter acceptance and owner-approved live evidence if any; otherwise name missing runtime/command-derived AGY invocation.
+14. `Makefile` - necessary focused B2 tests/controls under the same shared updater, no bespoke per-AGY update workflow.
+15. `changelog.d/1889.md` - describe final approved B2 scope without turning PARTIAL into all-harness parity.
+16. `lib/host_update/host.py` - component/backend report labels: Claude command/helper backend is `links`, NEVER `copies`; Claude topics/Codex/AGY remain copies, including mixed-component summaries.
+
+### B1 decisions and preservation policy
+
+Decision2 is approved by ch-orch40522: legacy markers prove ownership discovery,
+not complete old installed bytes. Existing valid core manifests allow stale
+refresh. A legacy copy that exactly matches the whole fresh build may bootstrap
+a record without changing package bytes. Stale legacy output with no verifiable
+prior manifest stays UNKNOWN and preserved, with explicit reviewed adoption
+and recoverable-backup remedy. Do not snapshot observed hand edits into a
+purported prior-build record. A marker-only spoof or CLI presence cannot enroll
+an installation. Unselected missing roots are never created.
+
+All adapters retain the default regular-file core; symlinks are refused. AGY
+preflight opens user-controlled .gemini and config prefixes no-follow from the
+approved home anchor BEFORE inventory, source build, lock creation or descent.
+Use forbidden-read sentinels for aliases above skills. An allowed system alias
+above the approved home anchor does not authorize config aliases. Claude
+credentials/settings and AGY configuration/auth roots are not enumerated.
+Existing defer-set/manager-owned surface rules remain boundaries, not a reason
+to silently write or claim a skipped destination current.
+
+One desired full commit is resolved once; private detached source material
+supplies that revision's driver/adapters/builders. Every selected real adapter
+receives/reports it, including failed rows. Source failure yields not-attempted
+rows for every selected adapter; no guessed revision or independent adapter
+pull. Codex generator bytes/CLI and historical baseline stay unchanged in B1.
+The B2 source-delta attribution decision is approved in40522, not exercised
+prematurely here. Existing pi/fixture API readers remain compatible without a
+public API extension; notify ch-w2 before proposing any later change.
+
+The #1888 CI clone cause remains UNPROVEN. Tests construct owned source histories
+from committed input instead of cloning a concurrently deepening outer CI
+checkout. Pre-CI checks exercise shallow HEAD-only sources and creation under
+umask000 as well as022. Host uid1000 is not a root emulation. Root-only dropped
+identity cases are conditional on actual privilege and otherwise reported as
+untested, never replaced with chmod-under-root evidence. Capture Git stderr.
+
+Locks protect cooperating CPP operations, not direct native or older
+noncooperating writers. Reuse the Codex install lock to coordinate with the
+legacy installer, but do not claim old writers maintain the new ownership
+ledger. B1 does not run any native model. The old attempt4 probe/ruling are
+historical only; any later probe must enforce the recorded-ruling launch gate
+(Nit7176769364) before a new owner-approved run. The dedicated auth lane must
+also record its governing authorization; no credential reads/migration.
+
+### Evidence and control plan
+
+Actual adapters, not FixtureAdapter, install prior revisionA into a disposable
+home. Change the owned source toB and invoke the actual shared CLI once. Claude
+topic copies, Codex skills and AGY topics must all report the same fullB commit
+and match independently built expected membership/bytes/modes. The committed
+wrong-revision input must fail and assert its discrepancy before the reader.
+A current checkout with stale installations is a required positive case. A
+foreign sibling skill retains its exact membership/hashes/modes. This is B1
+file acceptance, not the maintained cpp/update/epic invocation promised by B2.
+
+For failure isolation, establish the exact CLI identity and a genuinely failed
+write to one selected destination BEFORE refresh, then show other selected
+adapters refreshed and both JSON/human summaries identify the failed one. With
+uid0, drop identity in a dedicated child whose fixture source is readable.
+Readable but unwritable verification must not create a lock/root/record or
+repair metadata. Missing/edited/internal-foreign and orphan cases assert their
+negative preconditions and preserve unexpected content.
+
+Repeat A's bounded lock/no-lock/interruption/prune/same-package schedules
+through actual AGY paths. Different-package changes both survive; same-package
+A/B schedules in both lock orders yield exactly one whole build and matching
+record. Deliberately unlocked mixed output, unsafe pruning, mode/byte blindness
+and always-create-lock mutations must be rejected. Commit GOOD/BAD/UNKNOWN
+inputs and show the declared always-current anchor misses every BAD case.
+
+Run focused Make targets and CI-shape cases before review/PR CI; use direct
+self-supervised finish gate for the required full make verify. Reuse existing
+core/AGY/parity tests rather than rewriting the core. Regression claims run red
+on predecessor code. Normal formal review cap is2, not #1888's scoped cap7.
+PR creation/CI needs ch-orch clearance, one AGY PR in flight and Kyle series
+priority. No native consumer or production host mutation is authorized by this plan.
+
+### Lanes for this change
+
+| Lane | Answer | Note |
+|---|---|---|
+| Checkout | will test | real production CLI from main checkout / linked worktree and private detached source snapshot |
+| Harness | will test | Claude install (TOPIC copies only) / Codex install; also AGY topic copies in disposable homes; commands/helpers deferred |
+| Driver | not covered | maintained cpp/update and its Claude/Codex command routes are B2; B1 actual standalone shared CLI only |
+| Coordination | not applicable | local advisory locks, no Kyle-dependent product branch; heavy validation uses gate supervisor |
+| CI provider | not applicable | no provider-selection change; PR CI Woodpecker only |
+| Project state | will test | a repository that has adopted a feature's file or record / one that has not; managed, selected absent, unselected absent, foreign-only and legacy cases |
+| Toolchain version | not covered | installed host and pinned CI only, no added version matrix |
+| Clone shape | will test | a full clone with all refs / a fresh or shallow main-only clone; also detached fixture history; unavailable source unknown |
+| Run location | will test | invoked from the CPP root / from another directory (an unrelated repository), with same adapters/revision/results |
+| Gate target | not applicable | installation fidelity, not quality-gate interpreter/PATH routing |
+| Wave role state | not applicable | no mailbox registry/role behavior |
+| Reader: real copy adapters/core | tested against real output | actual pinned builds feed actual core; integration inspects installed bytes/membership/modes |
+| Reader: production CLI/report/control decisions | tested against real output | real reports and trees, no independently authored JSON substitutes; blind anchor/mutations |
+| Reader: Claude skills-check | tested against real output | actual managed Claude topic output fed to unchanged existing checker |
+| Reader: fixture and pi API | reader unchanged | core types/default callbacks and fixture schema preserved; rerun actual existing consumers |
+| Reader: cpp/update/generated command routes | not covered | B2 wires actual reports under the recorded owner exception after PR0/B1; no parallel updater claimed |
+| Reader: drift/status/capability planner | not covered | existing readers not switched; #1892/#1893 integrations retain own acceptance |
+| Reader: AGY runtime | not covered | no native model run; recorded-ruling probe gate is mandatory before any later live acceptance |
+| Reader: Kyle/skillc/kyle-candidate | reader unchanged | Codex generator and canonical command inputs unchanged in B1; existing independent parity suite remains required |
+
+Reader search positive control found existing cpp/update:2042 and Makefile
+codex-skill-sync install/build callers; scoped searches found core CLI fixture
+consumers, AGY builder/core, skills-check/install-drift topic readers and
+HOST-SURFACE checks. Cross-repository private consumers were not searched.
+B2 will account explicitly for changed command-doc Codex input; B1 does not
+change it or silently re-pin historical output evidence. An unexpected bundled
+source delta found by the B1 parity test requires explicit attribution and a
+plan-change approval before touching its baseline/delta records.
+
+<!-- flow-run n=4 id=5ee1db43f88c41459157642b8e64db24 -->
+## Run 4
+
+- Run-id:            5ee1db43f88c41459157642b8e64db24
+- Run-start:         875f4a479c9ee551388cf1ee25ed570a9a87c94e
+- Issue: #1889 B1 review amendment; parent #1876
+- Approval: granted for bounded amendment by ch-orch mailbox40696 (also40693)
+- Approver: ch-orch, run140, 2026-11-26
+
+### Section A - intent
+
+Carry B1's approved 31-path copy-adapter delivery from Run3 unchanged in scope,
+except the bounded review amendment below. Preserve historical Run3 and its
+approval. Formal pass1 at875f4a479c9ee551388cf1ee25ed570a9a87c94e found F1
+MEDIUM: one foreign same-name topic prevents every safe package progressing;
+F2 LOW: private Git worktree registration writes the user's source metadata.
+Fix both in one pushed checkpoint, then request formal pass2 (normal cap2).
+
+### Section B - evidence and authorization
+
+Reviewer40692 reproduced real foreign Claude boot plus17 otherwise safe topics.
+The #1887 contract requires per-package refusal. Orchestrator40696 explicitly
+approves adding models.py, driver.py and store.py to the31 approved paths.
+Before core edits, Pi worker notified40700 and replied40703: trailing typed
+Policy flag after member_allowed (Pi passes predicate positionally), default
+false, refusal-before-transaction ordering retained, global integrity failures
+never downgraded to package skips. Paired multi-package Pi-default/CopyAdapter
+opt-in control is required. Pi adapter itself stays unchanged; its remaining
+collision exposure is tracked separately. Owner probe pin is untouched.
+
+F1 foreign, hand-edited and edited-orphan cases run red on reviewed875f4a47
+before core changes. Blocked bytes AND records survive; safe packages refresh
+under existing whole-harness locks; only independently verified safe records
+are published. Full row keeps all population counts/conflict package names,
+exit1/non-current and a preservation remedy, never default adoption of foreign
+content. Explicit reviewed adoption remains available only when requested.
+F2 uses a standalone private clone because existing pinned blob readers require
+Git history; assert source.git bytes unchanged during and after its lifetime.
+No source branch move, source config/checkout write, native run or B2 scope.
+
+### Section C - approved amended B1 file set
+
+1. `lib/host_update/source.py` - resolve a full commit once, refuse dirty/unavailable source and materialize a private standalone detached clone with Git overrides/hooks/fsmonitor disabled; use its driver/adapters/builders and clean only the owned temporary clone, never registering worktrees in the user source.
+2. `lib/host_update/claude.py` - actual Claude TOPIC managed-copy adapter only, building pinned canonical packages under the existing metadata.source fidelity contract; no commands/helpers, symlink allowance or configuration enumeration.
+3. `lib/host_update/codex.py` - actual Codex managed-copy adapter using the unchanged pinned generator and existing install lock; GENERATED is discovery evidence, not proof of previous installed bytes.
+4. `lib/host_update/antigravity.py` - actual topic-only AGY adapter consuming the merged builder; descriptor-relative no-follow preflight from approved home through .gemini/config before granting skills/ledger/work and the exact config/.cpp-skill-install.lock scope.
+5. `lib/host_update/host.py` - production registry/selection, same-revision dispatch through the existing core and typed PARTIAL report envelope naming copy components, absent/unknown states, unsupported harnesses and deferred Claude command/helper links/B2 invocation.
+6. `scripts/cpp-host-update.py` - production refresh/verify entry with explicit source/home/selection/defer/adoption boundaries, HOST-SURFACE declarations and real human/JSON summaries; retain backwards-compatible explicit fixture mode.
+7. `tests/test_host_update_adapters.py` - real discovery and pinned builds for all three copy adapters; metadata/GENERATED/receipt versus CLI-only/foreign evidence; legacy exact-match record bootstrap and stale-unproven UNKNOWN; no-follow prefix refusal BEFORE forbidden IO; actual Claude output consumed by the existing skills-check reader.
+8. `tests/test_host_update_integration.py` - actual CLI and real three-adapter refresh from prior A to current B, exact SAME full revision in all selected rows, independent fresh-build/installed bytes/membership/modes and foreign sibling preservation; a different/guessed-revision adapter must fail.
+9. `tests/test_host_update_permissions.py` - prove a destination unwritable by the actual executing identity with failed writes before invocation; remaining real adapters refresh and summary identifies failure; root uses a dropped-identity child rather than chmod-only proof.
+10. `tests/test_host_update_adapter_transactions.py` - A's held-lock/no-lock/prune/interruption and controlled same/different-package schedules through the actual AGY adapter, both lock orders, complete build/record comparison and unlocked mixed-output mutation.
+11. `tests/test_host_update_ci_shape.py` - real production entry from full/shallow/detached fixture-owned histories created under022/000 and root/external cwd; source move/unavailability refusal, stderr diagnostics, no dependency on mutable outer-CI transport/history.
+12. `controls/antigravity-skill-install-fidelity/control.json` - register real production adapter fidelity with GOOD/BAD/UNKNOWN cases and mutation evidence.
+13. `controls/antigravity-skill-install-fidelity/run-case.py` - materialize committed disposable sources/homes, assert negative preconditions and invoke the real production CLI/report/tree; no native model or production host mutation.
+14. `controls/antigravity-skill-install-fidelity/anchors/constructed-always-current.py` - declared blind implementation which misses the BAD fidelity inputs.
+15. `controls/antigravity-skill-install-fidelity/cases/good-current/case.json` - complete nonzero real managed output population.
+16. `controls/antigravity-skill-install-fidelity/cases/good-refresh/case.json` - stale Codex/AGY plus Claude topics, common revision and byte-identical foreign sibling.
+17. `controls/antigravity-skill-install-fidelity/cases/bad-stale/case.json` - proven owned stale bytes detected by verify.
+18. `controls/antigravity-skill-install-fidelity/cases/bad-missing-member/case.json` - missing required bundled guide with nonzero expected floor.
+19. `controls/antigravity-skill-install-fidelity/cases/bad-hand-edited/case.json` - edited bytes/modes preserved, including mixed missing/edited conflicts.
+20. `controls/antigravity-skill-install-fidelity/cases/bad-foreign-content/case.json` - internal foreign member or same-name unowned target preserved/refused.
+21. `controls/antigravity-skill-install-fidelity/cases/bad-revision/case.json` - wrong/guessed adapter revision cannot produce shared current.
+22. `controls/antigravity-skill-install-fidelity/cases/unknown-lock/case.json` - held/unreadable exact lock produces unknown without mutation.
+23. `controls/antigravity-skill-install-fidelity/cases/good-verify-no-lock/case.json` - verification with absent lock leaves full tree unchanged; always-create-lock mutation fails.
+24. `Makefile` - focused adapter/integration/permission/transaction/CI-shape/control targets and shared production refresh/verify targets; retain explicit fixture targets, no independent AGY updater.
+25. `controls/census.md` - real production fidelity claims and evidence limits, retaining fixture core registrations.
+26. `.claude/verify-coverage.json` - shared production CLI/Make/control coverage without exempting changed gate behavior.
+27. `docs/scripts/cpp-host-update.md` - production copy-adapter roots/locks/selection/migration, report/exit contract, exact PARTIAL scope and no live-effectiveness claim.
+28. `docs/scripts.md` - update the existing shared-entry inventory description.
+29. `.specify/specs/antigravity-host-update/spec.md` - restore the B real-adapter same-full-revision acceptance row from Nit7168730806, explicitly identifying B1 topic/copy subset and negative wrong-revision case; maintained invocation remains B2.
+30. `docs/measurements/host-update-adapters.md` - actual B1 acceptance/lane/permission/CI-shape/lock evidence, include nonzero real-adapter population and explicit B2/live gaps.
+31. `changelog.d/1889.md` - append B1 copy-adapter delivery and limitations without erasing A or claiming B2/epic completion.
+32. `lib/host_update/models.py` - append typed Policy.partial_refresh default false AFTER member_allowed; existing positional and callback consumers remain compatible.
+33. `lib/host_update/driver.py` - additive opt-in dispatch to package-partial publication under existing locks; preserve default behavior; partial row exit1, non-current full conflict/count report and preservation remedy.
+34. `lib/host_update/store.py` - opt-in partition of blocked versus safe packages, preserving blocked bytes/records and other identities; verify safe publication and permit remaining named conflicts without retaining a false incomplete transaction; global policy/source/ledger/integrity errors remain hard stops.
+
+Approximately1900-2400 added lines overall. Extra paths beyond these34 require
+new approval. Legacy core and Pi test files remain unchanged and must pass;
+paired behavior cases live in the already approved adapter test file.
+Risks: partial publication must not erase a blocked owned/orphan record, skip
+an integrity failure, create false current or silently widen adoption. Source
+clone reads are bounded to approved source, temporary clone owns all writes.
+
+### Lanes for this change
+
+
+| Lane | Answer | Note |
+|---|---|---|
+| Checkout | will test | real production CLI from main checkout / linked worktree and private detached source snapshot |
+| Harness | will test | Claude install (TOPIC copies only) / Codex install; also AGY topic copies in disposable homes; commands/helpers deferred |
+| Driver | not covered | maintained cpp/update and its Claude/Codex command routes are B2; B1 actual standalone shared CLI only |
+| Coordination | not applicable | local advisory locks, no Kyle-dependent product branch; heavy validation uses gate supervisor |
+| CI provider | not applicable | no provider-selection change; PR CI Woodpecker only |
+| Project state | will test | a repository that has adopted a feature's file or record / one that has not; managed, selected absent, unselected absent, foreign-only and legacy cases |
+| Toolchain version | not covered | installed host and pinned CI only, no added version matrix |
+| Clone shape | will test | a full clone with all refs / a fresh or shallow main-only clone; also detached fixture history; unavailable source unknown |
+| Run location | will test | invoked from the CPP root / from another directory (an unrelated repository), with same adapters/revision/results |
+| Gate target | not applicable | installation fidelity, not quality-gate interpreter/PATH routing |
+| Wave role state | not applicable | no mailbox registry/role behavior |
+| Reader: real copy adapters/core | tested against real output | actual pinned builds feed actual core; integration inspects installed bytes/membership/modes |
+| Reader: production CLI/report/control decisions | tested against real output | real reports and trees, no independently authored JSON substitutes; blind anchor/mutations |
+| Reader: Claude skills-check | tested against real output | actual managed Claude topic output fed to unchanged existing checker |
+| Reader: fixture and pi API | reader unchanged | core types/default callbacks and fixture schema preserved; rerun actual existing consumers |
+| Reader: cpp/update/generated command routes | not covered | B2 wires actual reports under the recorded owner exception after PR0/B1; no parallel updater claimed |
+| Reader: drift/status/capability planner | not covered | existing readers not switched; #1892/#1893 integrations retain own acceptance |
+| Reader: AGY runtime | not covered | no native model run; recorded-ruling probe gate is mandatory before any later live acceptance |
+| Reader: Kyle/skillc/kyle-candidate | reader unchanged | Codex generator and canonical command inputs unchanged in B1; existing independent parity suite remains required |
+
