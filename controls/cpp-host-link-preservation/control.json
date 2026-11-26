@@ -1,0 +1,44 @@
+{
+  "gate": "scripts/cpp-host-write.sh",
+  "invocation": [
+    "uv",
+    "run",
+    "python",
+    "-c",
+    "from pathlib import Path; import runpy,sys; runpy.run_path(str(Path(sys.argv[2]).parents[1]/'run-case.py'),run_name='__main__')",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "good_signal": "^cpp-host-write: ok",
+  "detect_signal": "^cpp-host-write: PRESERVED ",
+  "unavailable_signal": "^cpp-host-write: UNAVAILABLE - bash missing$",
+  "limits": "Actual helper, owned homes and exact byte/tree preservation. BAD regular and directory cases refuse before mutation. GOOD matrix covers absent installation, existing CPP-link/source advance and untouched foreign link. Native models, arbitrary parent aliases and other helper operations are outside this control; existing deferral controls remain separate.",
+  "cases": [
+    {
+      "name": "bad-regular",
+      "input": "cases/bad-regular",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-directory",
+      "input": "cases/bad-directory",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-links",
+      "input": "cases/good-links",
+      "expect": "GOOD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "b1cd1f1635a920ba4839097ebfff8977a0bf7dda",
+      "origin": "scripts/cpp-host-write.sh",
+      "path": "anchors/b1cd1f16-cpp-host-write.sh",
+      "sha256": "920013cf4ed19c345aee144120378cdada20d51a810995ee9c7cfee1de838052",
+      "why": "Actual main helper overwrites a personal regular leaf or creates a nested link in a personal directory with exit0; agrees on the existing/absent-link positive matrix."
+    }
+  ]
+}
