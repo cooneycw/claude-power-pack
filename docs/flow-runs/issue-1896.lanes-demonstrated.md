@@ -58,7 +58,7 @@ Run 1's historical marker or claim a helper-generated new approval stamp.
 | Syscall reader | local pass | Auth stat, transient write, history descendants, fd-relative escape, no-create verify and record-only package-write opposites; malformed/truncated/omitted child traces unknown |
 | Actual syscall observer | OBSERVED / matches | Rerun 2 at `38041ce1`: 29 normal cases match, auth-stat and transient-write controls find their actual forbidden operations; all 31 expected child exits match, no forced stops, zero aggregate findings/UNKNOWNs and cleanup true |
 | Contextual selection / provider / container | UNKNOWN / not covered | Neither disk fidelity nor offline reader controls establish runtime selection or bearer isolation |
-| CI provider | pending | No A2 PR or CI yet; separate PR clearance required |
+| CI provider | failing / correction pending | PR #1910, pipeline 4030 at `3d3f69cd`: root unreadability control unavailable and staged-Git PATH test failure; see CI correction record below |
 
 Red-first evidence: both initial install/verify acceptance cases failed on the
 unchanged A1 CLI, which had neither operation. During implementation the
@@ -127,3 +127,27 @@ descriptors (21 install, 9 RPC, 49 syscall). Code review pass 4 approved
 [the #1896 ruling](https://github.com/cooneycw/claude-power-pack/issues/1896#issuecomment-7178021233).
 The docs-only evidence delta and A2 receipt are subsequent review steps; the
 direct paired finish gate and PR CI remain pending. No issue closure claimed.
+
+### PR and CI harness correction
+
+The direct self-supervised finish gate at receipt head `953c428e` returned
+paired ok/exit 0: 13,856 tests passed, four skipped, 144 control families PASS.
+Main `12b39ceb` was then merged without rebasing into `3d3f69cd`; the two
+inventory conflicts retained both pi and Antigravity entries. Inventory/census
+and link checks passed, and the reviewer posted an exact-head merge-only
+APPROVE on [PR #1910](https://github.com/cooneycw/claude-power-pack/pull/1910).
+
+Fresh [root CI pipeline 4030](https://woodpecker.essent-ai.com/repos/1/pipeline/4030/1)
+was RED: validate had 13,772 passes, 120 skips and one failure because the PATH
+test discarded staged Git; negative-controls rejected the unreadable case's
+case-specific unavailable result. This is actual root RED evidence at the
+unchanged head, not fakeroot. The approved correction only adjusts the control
+runner's fixture identity and the test's discovered Git directory. The SAME
+unprivileged child proves PermissionError before exec of the real CLI;
+UNKNOWN remains the subject's verdict and preservation oracles stay intact.
+
+Current local checks: 26 install/concurrency passes plus one explicit root-only
+regression skip, 95 observer passes, and all three A2 control families PASS.
+The privileged root regression and fresh PR CI remain pending; no local skip
+is root GREEN. This change needs pass 5 within the owner's cap 7. Product pi
+adapter/core/observer code and the accepted host fixture claims are unchanged.

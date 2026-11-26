@@ -15,6 +15,31 @@ CLI = ROOT / "scripts/pi-skill-sync.py"
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="requires git for source binding")
 
 
+@pytest.mark.skipif(os.geteuid() != 0, reason="requires real root for unreadable-fixture privilege regression")
+def test_root_unreadable_control_executes_real_cli_as_unprivileged_child():
+    assert os.geteuid() == 0
+    answer = subprocess.run(
+        [sys.executable, str(ROOT / "controls/pi-skill-install/run-case.py"), str(CLI),
+         str(ROOT / "controls/pi-skill-install/cases/unreadable-install")],
+        capture_output=True, text=True, timeout=45)
+    assert answer.returncode == 4, (answer.stdout, answer.stderr)
+    assert "PI_INSTALL_CONTROL_PRECONDITION: unreadable uid=65534 gid=65534 groups=[]" in answer.stderr
+    report = json.loads(answer.stdout.split("PI_SKILL_INSTALL: unknown ", 1)[1])
+    assert report["exit_code"] == 4
+    assert report["reason"] == "filesystem unavailable (PermissionError)"
+
+
+def test_unreadable_control_unknown_is_the_actual_ledger_permission_failure():
+    answer = subprocess.run(
+        [sys.executable, str(ROOT / "controls/pi-skill-install/run-case.py"), str(CLI),
+         str(ROOT / "controls/pi-skill-install/cases/unreadable-install")],
+        capture_output=True, text=True, timeout=45)
+    assert answer.returncode == 4, (answer.stdout, answer.stderr)
+    report = json.loads(answer.stdout.split("PI_SKILL_INSTALL: unknown ", 1)[1])
+    assert report["exit_code"] == 4
+    assert report["reason"] == "filesystem unavailable (PermissionError)"
+
+
 class Case:
     def __init__(self, root: Path) -> None:
         self.root = root

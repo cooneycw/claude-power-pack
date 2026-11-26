@@ -39,8 +39,10 @@ def test_timeout_stops_and_reaps_actual_fixture_child(tmp_path):
 @pytest.mark.skipif(shutil.which("git") is None, reason="requires Git for isolated fixture tool selection")
 def test_fixture_path_drops_unselected_home_search_entries(tmp_path, monkeypatch):
     foreign = tmp_path / "foreign-home/bin"
+    selected_git = shutil.which("git")
+    assert selected_git is not None
     assert shutil.which("git", path=str(foreign)) is None
-    monkeypatch.setenv("PATH", str(foreign) + ":/usr/bin:/bin")
+    monkeypatch.setenv("PATH", str(foreign) + ":" + str(Path(selected_git).parent))
     env, git = SUBJECT["fixture_environment"](tmp_path)
     assert str(foreign) not in env["PATH"].split(":")
     assert str(Path(git).parent) in env["PATH"].split(":")

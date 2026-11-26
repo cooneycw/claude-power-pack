@@ -13,6 +13,22 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from lib.pi_skills import SOURCE_PREFIX, build  # noqa: E402
 
+# Prove the permission failure in the subject's own process/identity, then
+# replace this bootstrap with the real gate. No synthetic product verdict.
+UNREADABLE_EXEC = """
+import os, sys
+try:
+    fd = os.open(sys.argv[1], os.O_RDONLY)
+except PermissionError:
+    pass
+else:
+    os.close(fd)
+    raise SystemExit('CONTROL_PRECONDITION_FAILED: ledger remains readable')
+print('PI_INSTALL_CONTROL_PRECONDITION: unreadable uid=%s gid=%s groups=%s' %
+      (os.geteuid(), os.getegid(), os.getgroups()), file=sys.stderr, flush=True)
+os.execv(sys.argv[2], sys.argv[2:])
+"""
+
 
 def main():
     gate, case = map(Path, sys.argv[1:3])
@@ -119,10 +135,6 @@ def main():
         elif scenario == "unreadable-install":
             unreadable = ledger
             unreadable.chmod(0)
-            if os.access(unreadable, os.R_OK):
-                unreadable.chmod(0o644)
-                print("PI_INSTALL_CONTROL: unavailable - cannot establish unreadable evidence")
-                return 3
         elif scenario == "zero-expected-population":
             operation = "--install"
             shutil.rmtree(topic.parent)
@@ -160,13 +172,25 @@ def main():
             neighbor = skills / "personal/SKILL.md"
             assert skills.is_relative_to(cwd / ".pi")
         before = installed_topic.read_bytes() if installed_topic.exists() else None
+        command = [sys.executable, str(gate), operation, "--root", str(source),
+                   "--home", str(home), "--agent-dir", str(agent), "--json", *extra]
+        child_options = {}
         try:
-            answer = subprocess.run([sys.executable, str(gate), operation, "--root", str(source),
-                                     "--home", str(home), "--agent-dir", str(agent), "--json", *extra],
-                                    cwd=cwd, env=env, capture_output=True, text=True, timeout=30)
+            if unreadable:
+                if os.geteuid() == 0:
+                    # Numeric fixture identity only; never consult a real
+                    # credential store or follow symlinks while changing owners.
+                    for path in [root, *root.rglob("*")]:
+                        os.chown(path, 65534, 65534, follow_symlinks=False)
+                    child_options = {"user": 65534, "group": 65534, "extra_groups": []}
+                command = [sys.executable, "-c", UNREADABLE_EXEC, str(unreadable), *command]
+            answer = subprocess.run(command, cwd=cwd, env=env, capture_output=True, text=True,
+                                    timeout=30, **child_options)
         finally:
             if unreadable:
                 unreadable.chmod(0o644)
+        if unreadable:
+            print(answer.stderr, end="", file=sys.stderr)
         try:
             assert neighbor.read_bytes() == b"foreign neighbor\n"
             if scenario in ("hand-edited-before-stale", "dual-identity-refused", "foreign-collision"):

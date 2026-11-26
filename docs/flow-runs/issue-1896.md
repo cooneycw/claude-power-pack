@@ -810,3 +810,51 @@ https://github.com/cooneycw/claude-power-pack/issues/1896#issuecomment-717802123
 The reviewer must check this docs-only delta and write the A2 receipt bound to
 that code by ancestry. Direct paired finish gate and PR clearance/CI remain
 subsequent steps; any PR uses Refs #1896 and names the remaining rows.
+
+### CI root unreadability control correction (mailbox 40538)
+
+PR #1910 at merge head `3d3f69cd` has a real root-CI RED: pipeline 4030's
+negative-controls step reports `unreadable-install` expected UNKNOWN but
+UNAVAILABLE/3, making the family UNRESOLVED. The runner's chmod-000 fixture
+remains readable to root. Other cases executed, so this is not missing Git and
+the checker correctly refuses unavailable-tool substitution. The local direct
+finish gate at `953c428e` passed (13,856 tests, four skips, 144 control families),
+but its nonroot environment did not expose this precondition defect.
+
+The approved correction changes the control runner only, plus its regression
+and these records: `controls/pi-skill-install/run-case.py`,
+`tests/test_pi_skill_install.py`, and existing demonstrated-lanes documentation.
+When euid is zero, chown only the disposable fixture to numeric 65534:65534,
+then use Popen user/group/empty supplementary groups. In that SAME child,
+require a real PermissionError opening the ledger, then exec the actual CLI.
+Keep expected UNKNOWN and every preservation oracle. No real credential lookup,
+no subject adapter/core/observer change, no gate weakening or host pi rerun.
+
+Use the actual root CI step at the unchanged head as RED evidence; this local
+UID-1000 environment has no root-capable execution path. A committed root-only
+integration regression must exercise the real runner, honestly skipping locally
+and running in root CI. Its GREEN remains pending actual privileged execution.
+One push, freeze and review pass 5 under the owner's issue-specific cap 7.
+
+A positive-controlled literal zero-mode scan of 399 live control Python/shell
+files (excluding immutable anchors/reference copies) found this runner only.
+The known `unreadable.chmod(0)` call is its positive control. This is a bounded
+scan for literal chmod-zero forms, not proof about every possible unreadability
+simulation. Preserve the root-CI failure rather than recasting it as accepted
+UNKNOWN evidence.
+
+The same pipeline's validate step is RED on
+`test_fixture_path_drops_unselected_home_search_entries`: its hardcoded
+`/usr/bin:/bin` test PATH discards CI's staged Git executable. The minimal
+test-only correction in `tests/test_pi_host_fixture.py` retains the originally
+discovered Git directory and the fixture-owned foreign-prefix negative.
+Production observer code remains unchanged. Actual CI totals at `3d3f69cd`:
+one failure, 13,772 passed and 120 skipped; negative-controls independently
+failed the root unreadability precondition. These are two separate CI harness
+defects, both retained as RED evidence for pass 5.
+Additional scope documentation is `controls/pi-skill-install/README.md`;
+expected subject UNKNOWN is checked for the real PermissionError class, not
+an unrelated unavailable-source result. Local validation reports 26 install
+passes and one explicit root-regression skip, 95 observer passes, and all three
+A2 control families PASS. Lint/mypy (548 files), binary guards and negative-
+fixture preconditions pass. Root GREEN remains pending actual privileged CI.
