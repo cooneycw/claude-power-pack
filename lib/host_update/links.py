@@ -137,6 +137,8 @@ class ClaudeLinks:
             path = parts(relative)
             if mode == b"120000" and relative.startswith((".claude/commands/", "scripts/")):
                 raise AdapterError("link source contains an alias", exit_code=4)
+            if mode == b"160000" and relative.startswith(".claude/commands/"):
+                raise AdapterError("command family source contains an unsupported gitlink", exit_code=4)
             group = None
             if len(path) >= 4 and path[:2] == (".claude", "commands"):
                 group, name, member = "commands", path[2], "/".join(path[3:])

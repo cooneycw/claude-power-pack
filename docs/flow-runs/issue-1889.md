@@ -758,7 +758,7 @@ or the native probe in B2a. No neutral/Pi API changes. Amend before extra paths.
 ### B2b deferred file list - separate delivery after B2a
 
 - `.claude/commands/cpp/update.md` - one maintained shared refresh after dependency/source steps, including zero-pull path; replace approved link/Codex duplication, retain other operations and actual partial/failure/revision summary; offset command budget by deleting superseded instruction blocks.
-- `tests/test_host_update_command.py` - execute maintained Claude and actual generated Codex update/summary fences against real registry outputs, already-current source/stale installs, actual failed destination, CLI/helper absent, mixed backend labels and source move before final summary; native model instruction-following is not claimed.
+- `tests/test_host_update_command.py` - execute maintained Claude update/summary fences against real registry outputs; the generator currently excludes cpp-update, so any Codex command enrollment requires explicit B2b scope approval. Cover already-current source/stale installs, actual failed destination, CLI/helper absent, mixed backend labels and source move before final summary; native model instruction-following is not claimed.
 - `tests/test_host_update_probe_gate.py` - actual new probe entry with forbidden-launch/setup callbacks: all invalid ruling variants refuse in BOTH auth lanes; positive authorized callback runs; removed-guard mutation must fail; no native commands or credentials.
 - `docs/measurements/host-update-acceptance.probe.py` - new opt-in gated native consumer probe/check-only entry; immutable historical attempt4 untouched; both auth/setup branches gated before callbacks and sanitized evidence only.
 - `controls/host-update-probe-gate/control.json` - register the actual probe entry as a controlled external instrument, explicit uv runtime, no census/coverage exemption.
@@ -815,7 +815,7 @@ inherit B1's consumed review count or #1888's scoped raised cap.
 | Gate target | not applicable | shared updater fidelity and probe authority, no consumer quality-gate interpreter/PATH policy change |
 | Wave role state | not applicable | no fresh/released-role registry change |
 | Reader: maintained Claude cpp/update | not covered | deferred B2b; no change or coverage claimed in B2a |
-| Reader: generated Codex cpp-update | not covered | deferred B2b; no change or coverage claimed in B2a |
+| Reader: generated Codex cpp-update | absent | generator excludes cpp/update; enrollment requires explicit B2b scope approval; no coverage claimed |
 | Reader: shared production report consumers | tested against real output | actual closed schema2/backend/common-revision payloads, missing/zero/mislabelled/wrong-version negatives and actual control decisions |
 | Reader: Claude link/copy surfaces | tested against real output | actual installed link types/targets plus pinned content; independent copy bytes/modes and unchanged Claude topic reader |
 | Reader: fixture/Pi API | reader unchanged | neutral types/callbacks/serialization unchanged; rerun existing core/Pi suites and notify Pi worker before any proposed departure |

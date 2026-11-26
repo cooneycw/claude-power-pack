@@ -430,3 +430,22 @@ def test_tracked_source_alias_is_unknown_before_target_reads(source, tmp_path, r
     row = adapter.operate(request(source), verify_only=True)
     assert row.exit_code == 4 and "alias" in row.reason
     assert tree(home) == before
+
+
+def test_command_family_gitlink_is_unknown_not_retired(source, tmp_path):
+    home = tmp_path / "home"
+    adapter = seed(home, source)
+    commit = git(source, "rev-parse", "HEAD")
+    git(source, "rm", "-qr", ".claude/commands/cpp")
+    git(source, "update-index", "--add", "--cacheinfo",
+        f"160000,{commit},.claude/commands/cpp")
+    (source / ".claude/commands/cpp").mkdir()
+    git(source, "commit", "-qm", "unsupported command family gitlink")
+    assert git(source, "ls-tree", "HEAD", ".claude/commands/cpp").startswith("160000 commit ")
+    assert git(source, "status", "--porcelain") == ""
+    (home / ".claude/.cpp-skill-install.lock").touch()
+    before = tree(home)
+    for verify_only in (True, False):
+        row = adapter.operate(request(source), verify_only=verify_only)
+        assert row.exit_code == 4 and row.after.state == "unknown", row
+        assert tree(home) == before

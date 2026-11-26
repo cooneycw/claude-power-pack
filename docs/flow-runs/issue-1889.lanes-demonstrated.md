@@ -136,3 +136,22 @@ focused suite passed 47 tests; the complete 146-registration control batch
 passed with all 54 historical anchors compared. No application/core/Pi change
 was made for this correction. Third review is recorded with this gate-found
 reason under orchestrator40914; the earlier receipt is not reused.
+
+
+<!-- lanes-demonstrated run=eee1b090f5f641d7ac3150286d52c057 plan=a9d6cfa49669fa8f4317eae360c8c8bcb8f8fffd343e3dc54c34c1f1d4eff6d7 -->
+
+## Run5 B2a existing links and schema2
+
+| Lane | Result | Evidence and limits |
+|---|---|---|
+| Checkout | passed | Actual private pinned snapshot with independently validated persistent checkout; wrong/dirty/moving source and alias preservation cases in the real adapter battery. |
+| Harness | passed | Real Claude link/copy, Codex copy and AGY topic-copy adapters and schema2 consumers; maintained command wiring and native model invocation are not covered. |
+| Project state | passed | Existing-kind farms, absent kinds, foreign replacements, mixed farms, unsafe orphan preservation and independent package progress in owned homes. |
+| Clone shape | passed | Full/depth1 owned source histories, linked worktree and umask000 checkouts; missing prior orphan proof remains preserved and non-current. |
+| Run location | passed | CLI snapshot source and helper stable symlink bootstrap invoked from another directory; predecessor bootstrap failed with ModuleNotFoundError. |
+
+The merged-main adapter battery passed89 tests (210.21s). The additional
+command-family gitlink regression failed before its guard and passed afterward
+(1test,6.04s), preserving both verify and refresh. These are focused results,
+not a paired full-gate receipt. Native launch, actual maintained cpp/update and
+any generated Codex cpp-update enrollment remain outside B2a.

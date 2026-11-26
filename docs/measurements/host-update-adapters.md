@@ -204,3 +204,39 @@ item. Orchestrator41078 directs parking B2a and doing that small priority fix on
 a fresh branch first. B2a does not change that helper or cpp/init/update. No
 formal B2a review, receipt, finish gate, PR or native run is claimed. Both #1889
 and #1876 remain open/PARTIAL.
+
+
+### B2a resumed after priority preservation fix
+
+Orchestrator41309 reports PR1915 merged as c47b5b2b and #1913 closed. B2a
+merged current main without rebasing at a5bf6518; the only conflict was the
+adapter-test dataclasses import, retaining upstream Pi's `replace`. No priority
+helper or maintained command changes are authored in B2a. The merged adapter
+battery passed89 tests (210.21s); logs are outside this worktree at
+`/workspace/.cpp-validation/1889-b2a/resumed-adapters.log`.
+
+A pre-freeze source-kind regression constructed a clean Git command-family
+submodule, asserted its 160000 commit tree entry, and failed on the preceding
+B2a implementation: exit1 instead of required unknown4. The narrow manifest
+guard now refuses unsupported command gitlinks before link pruning. The same
+regression passed verify and refresh with the complete installed tree preserved.
+Its first fixed run correctly returned unknown but the fixture omitted the
+allowed refresh lock; seeding that lock made the preservation oracle exact.
+Lint and 561-file typecheck passed. This adds one case beyond the89-test run;
+final paired verification remains required after formal review.
+
+The standalone Pi opt-in from PR1914 is preserved. The Codex generator excludes
+cpp/update: no generated cpp-update reader exists, and any B2b enrollment needs
+explicit scope approval rather than a claimed reader test. No native probe,
+authentication change, formal B2a review or PR has occurred at this freeze.
+
+
+The resumed complete bare-caller negative-control battery passed148 registered
+controls, with55 historical anchors byte-compared and none uncompared
+(395.83s including wrapper/cleanup). The new confined link GOOD case passes;
+outside, dangling and regular-replacement BAD inputs are detected, and its
+always-current anchor misses all three as required. The unknown-lock input
+remains non-current. Log: `/workspace/.cpp-validation/1889-b2a/resumed-controls.log`.
+The exact owned control temporary root was removed after the run. The scope
+check reports agreement:27 planned product paths,30 touched including own
+records. Formal B2a pass1 and a fresh direct paired finish gate remain pending.

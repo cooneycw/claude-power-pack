@@ -253,8 +253,9 @@ Within a selected copy adapter, a same-name foreign package or hand edit blocks
 only that package. Safe packages still refresh; the row remains non-current
 with exit 1, a named conflict and a preservation remedy. An edited orphan keeps
 its bytes and old ownership record. No default remedy replaces a foreign skill.
-The standalone pi adapter retains the default all-or-nothing policy pending
-[its separately tracked opt-in](https://github.com/cooneycw/claude-power-pack/issues/1896#issuecomment-7180740166).
+The standalone pi adapter independently opted into package-partial refresh in
+[PR1914](https://github.com/cooneycw/claude-power-pack/pull/1914). The neutral
+policy default remains false; pi enrollment in this shared host registry is deferred.
 
 Human and schema-2 production JSON reports carry per-adapter evidence, before/action/after,
 nonzero expected/examined populations, reason/remedy and unknown effectiveness.
