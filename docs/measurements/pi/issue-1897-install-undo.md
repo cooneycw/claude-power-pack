@@ -262,3 +262,10 @@ The [owner-facing Part 1 summary](issue-1897-owner-signoff.md) was sent to the
 orchestrator before further review/gates/PR. Owner Part-1 sign-off is PENDING;
 Refs #1897 remains the closing disposition until explicitly changed. Both #1896
 UNKNOWN measurements remain, and Section 5 is not automatically authorized.
+
+The post-receipt preflight found one missing Git binary guard in the committed
+umask regression. Both disposable-owner test modules now guard required Git and
+Make availability. `make binary-guards-check` changed from one unguarded test to
+ok; all 26 actual fixture cases passed again, with lint/type checks also green.
+The actual owner scripts and executed d013ef49 recovery remain unchanged.
+Basetemp cleanup completed after retaining the focused result.

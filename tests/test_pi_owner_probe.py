@@ -4,10 +4,16 @@ import fcntl
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    shutil.which("git") is None or shutil.which("make") is None,
+    reason="requires git and make for disposable owner fixtures",
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location(

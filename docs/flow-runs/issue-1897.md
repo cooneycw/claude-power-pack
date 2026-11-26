@@ -248,3 +248,13 @@ owner-executed recovery. Preserve the original probe failure and actual red/gree
 fix history. Send the sign-off summary to the orchestrator before review,
 receipt, direct paired gate and PR. Use Refs #1897 unless the owner explicitly
 signs off before merge; no Section-5 integration or #1896 UNKNOWN is waived.
+
+### Binary-availability preflight correction
+
+Before the full gate, `make binary-guards-check` refused the umask regression's
+unguarded direct Git call. The probe and recovery test modules now declare Git
+and Make availability guards for their disposable-source fixtures. This changes
+test availability reporting, not the reviewed or owner-executed probe/recovery
+scripts. The binary guard, lint/type checks and all 26 probe/recovery cases pass;
+the owned basetemp was removed. This correction must receive the additional
+review and updated runtime receipt before the new head is gated or published.
