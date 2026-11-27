@@ -62,3 +62,37 @@ Both refusal assertions must fail with the archived v1 detector; the real v2
 candidate must pass them. Test assets must remain byte-bound to the delivered
 export. Future driver changes get a new source/control binding, not edits that
 erase the old false-positive case.
+
+## Backend/screen count crosscheck export
+
+Master message 42679 supplied xchk.tar, independently matched SHA256
+8eaccfb9cc50947767c095f9a5b4b7d2254bbfc8d87fb731379b2630b4031574.
+The [xcheck](xcheck/VERDICTS.txt) directory preserves all 19 regular members;
+all supplied member hashes were independently checked. Scripts again have a
+`.txt` suffix with unchanged bytes. No host probe or real capture is included.
+
+The accepted count crosscheck is xcheck-v2.py, SHA256
+ad77186ad2ec9e8954b81dabcaeabaa92357a2f677b510c950e748f4af2593d7.
+It selects calls by supplied batch, matrix tag, peer pi and name probe-echo;
+its event schema check requires dictionary rows with string event/batch fields.
+It is a count-consistency check, not the full nonce/process/response verifier,
+a complete event-schema validator, or proof of an API message's contents.
+The caller supplies the correct retained accept file for that row. Preserve
+that binding and use the original verifier and event evidence alongside it.
+AGREE is required for later recordable rows; DISAGREE or REFUSE stops.
+An unrecordable visible-empty row cannot acquire a synthetic accept to pass it.
+
+Eight committed cases cover both mismatch directions, 0=0/1=1 positives,
+missing accept with backend zero/one, malformed JSON and another batch's call.
+Exact v2 replay passes all eight. Running the same assertions with exact v1
+and isolated fixture HOME produces four expected failures: missing accepts
+(two cases), malformed evidence refusal, and wrong-batch counting. The latter
+and missing-accept/backend-zero cases demonstrate false AGREE, not merely a
+different error code. No owner files or model calls are used.
+
+Replay: `make test-pi-capture-driver` (36 cases including capture controls).
+For the predecessor red run set `CPP_PI_XCHECK_ARCHIVE_V1=1` and select
+`PI_CAPTURE_TESTS='tests/test_pi_capture_driver.py -k xcheck_bound_verdicts'`.
+The v1 checks reported on earlier host rows remain historical unbound counts;
+master was asked to recheck retained T2-alpha/T2-beta/T3-beta using v2 without
+new prompts before T4. Those recheck receipts are pending at this commit.

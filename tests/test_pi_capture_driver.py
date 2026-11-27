@@ -133,3 +133,49 @@ def test_actual_record_script_keeps_log_without_accepted_reply(tmp_path):
                             cwd=tmp_path, capture_output=True, text=True)
     assert result.returncode == 1 and 'pane log KEPT' in result.stdout
     assert log.read_bytes() == b'controlled fixture capture retained'
+
+
+XCHECK = EXPORTED.parent / 'xcheck'
+XCASES = {'a-screen1-backend0': 1, 'b-screen0-backend1': 1,
+          'c-0eq0': 0, 'd-1eq1': 0, 'e-missing-accept': 4,
+          'e2-missing-accept-backend0': 4, 'f-malformed-events': 4,
+          'g-other-batch': 1}
+
+
+def xcheck_replay(case, tmp_path, version=2):
+    folder = XCHECK / 'cases' / case
+    if version == 2:
+        return subprocess.run([sys.executable, str(XCHECK / 'xcheck-v2.py.txt'),
+                               str(folder / 'events.jsonl'), str(XCHECK / 'cases/batch.json'),
+                               str(folder / 'accept-T2-alpha.json'), 'T2-alpha'],
+                              capture_output=True, text=True)
+    # Exact v1 script, isolated HOME and only fixture-controlled inputs.
+    script = tmp_path / 'xcheck.sh'
+    script.write_bytes((XCHECK / 'xcheck-v1.sh.txt').read_bytes())
+    accept = folder / 'accept-T2-alpha.json'
+    if accept.exists():
+        shutil.copyfile(accept, tmp_path / accept.name)
+    backend = tmp_path / '.cpp-pi-1899-probe/work/pi-1899-b3'
+    backend.mkdir(parents=True)
+    shutil.copyfile(folder / 'events.jsonl', backend / 'events.jsonl')
+    return subprocess.run([shutil.which('bash'), str(script), 'T2-alpha'],
+                          env={**os.environ, 'HOME': str(tmp_path)},
+                          capture_output=True, text=True)
+
+
+def test_xcheck_export_hashes():
+    for line in (XCHECK / 'SHA256SUMS').read_text().splitlines():
+        digest, name = line.split('  ', 1)
+        path = XCHECK / (name + '.txt' if name.endswith(('.py', '.sh')) else name)
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == digest
+    assert hashlib.sha256((XCHECK / 'xcheck-v2.py.txt').read_bytes()).hexdigest() == (
+        'ad77186ad2ec9e8954b81dabcaeabaa92357a2f677b510c950e748f4af2593d7')
+
+
+@pytest.mark.parametrize('case', sorted(XCASES))
+def test_xcheck_bound_verdicts(case, tmp_path):
+    version = 1 if os.environ.get('CPP_PI_XCHECK_ARCHIVE_V1') == '1' else 2
+    result = xcheck_replay(case, tmp_path, version)
+    assert result.returncode == XCASES[case], result.stdout + result.stderr
+    if version == 2:
+        assert json.loads(result.stdout)['verdict'] == {0: 'AGREE', 1: 'DISAGREE', 4: 'REFUSE'}[XCASES[case]]

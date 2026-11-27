@@ -118,3 +118,29 @@ rounds, giving overall upper bound 29 within the approved 16/32 caps.
 No further model turn, complete B3 result or B4 identity evidence is claimed
 by this note. The recorded HTTP instance stays retained; no restart, reprepare,
 model re-resolution or new owner budget is requested.
+
+## T3-beta and count-crosscheck update
+
+Master 42671/42679 reports T3-beta ran once under the bound session wrapper:
+matching pin/footer, explicit TOOL_UNAVAILABLE accepted after seven seconds,
+zero screen tool events, one observed round, pi exit 0, record-reply exit 0
+(reply hash prefix 5fc4e967), verifier exit 1 NO VERIFIED CALL. The stdio
+child initialized as peer pi, then stopped without tools/call. Capture was
+saved and the pane log deleted only after durable recording. This author did
+not inspect the real capture. Alpha remains visible-empty/unrecordable; beta
+has an explicit reply. Both have the reported no-call fixture outcome. This
+pair does not establish why the visible outputs differed or examine API content.
+Master authorized zero-model control-AFTER, audit and undo; completion receipt
+is pending. No repeat prompt or causal investigation is requested.
+
+The newly supplied crosscheck v1 had unsafe missing-accept and batch behavior.
+Its old AGREE receipts are historical, unbound counts. The frozen v2 and all
+control inputs are retained in the driver directory; safe local tests show
+four refusal/binding assertions fail under v1 and all 36 capture/crosscheck
+cases pass with v2. Lint passes. A zero-model v2 recheck of retained T2-alpha,
+T2-beta and T3-beta was requested before continuing T4. Require AGREE for
+future recordable rows in addition to the original verifier, not instead of it.
+
+Current ledger: six prompts, seven known rounds plus lost T1-beta 0-1,
+actual 7-8 and conservative book eight. Ten prompts remain, at most 20 rounds;
+overall upper bound is 28 within 16/32. B3 remains incomplete.

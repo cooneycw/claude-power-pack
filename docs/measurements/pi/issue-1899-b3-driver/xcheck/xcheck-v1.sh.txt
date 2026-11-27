@@ -1,0 +1,6 @@
+#!/bin/bash
+# xcheck.sh <tag>: backend-vs-screen agreement. pi tools/call count in events.jsonl vs tool_event_lines on screen.
+L=$1; A=$(dirname "$0")/accept-$L.json
+b=$(python3 -c 'import json,sys; print(sum(1 for l in open(sys.argv[1]) if (e:=json.loads(l)).get("event")=="tools/call" and e.get("peer")=="pi" and e.get("tag")==sys.argv[2]))' "$HOME/.cpp-pi-1899-probe/work/pi-1899-b3/events.jsonl" $L)
+s=$( [ -f "$A" ] && python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["tool_event_lines"])' "$A" || echo 0)
+echo "XCHECK($L): backend_pi_calls=$b screen_tool_events=$s $([ "$b" = "$s" ] && echo AGREE || echo DISAGREE)"; [ "$b" = "$s" ]

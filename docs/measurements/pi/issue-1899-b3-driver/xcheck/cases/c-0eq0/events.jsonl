@@ -1,0 +1,2 @@
+{"batch":"0123456789abcdef0123456789abcdef","event":"start","transport":"stdio","instance":"INST","pid":1}
+{"batch":"0123456789abcdef0123456789abcdef","event":"initialize","transport":"stdio","instance":"INST","peer":"pi","pid":1}
