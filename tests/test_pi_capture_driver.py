@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -261,3 +262,41 @@ def test_actual_close_preserves_prefix_neighbor(tmp_path, pi_exists):
             assert call('has-session', '-t', '=pib3').returncode != 0
     finally:
         call('kill-server')
+
+
+PANE_EXACT = EXPORTED.parent / 'exact-pane-target'
+
+
+@pytest.mark.skipif(shutil.which('tmux') is None, reason='requires tmux on an isolated socket')
+@pytest.mark.parametrize('operation', ['send-keys', 'capture-pane', 'pipe-pane'])
+def test_actual_pane_target_from_corrected_scripts(tmp_path, operation):
+    old = os.environ.get('CPP_PI_PANE_TARGET_OLD') == '1'
+    folder = EXACT if old else PANE_EXACT
+    scripts = '\n'.join((folder / (name + '.txt')).read_text()
+                        for name in ['start.sh', 'run.sh', 'run-v3.sh', 'close.sh'])
+    targets = set(re.findall(r'tmux ' + operation + r'[^;\n]*?-t (\S+)', scripts))
+    assert len(targets) == 1
+    target = targets.pop()
+    socket = str(tmp_path / 'tmux.sock')
+
+    def call(*args):
+        return subprocess.run([shutil.which('tmux'), '-S', socket, *args], capture_output=True, text=True)
+
+    assert call('new-session', '-d', '-s', 'pib3http', 'sleep 60').returncode == 0
+    try:
+        # No pi session: never resolve to the prefix neighbor.
+        args = ['-p'] if operation == 'capture-pane' else []
+        assert call(operation, '-t', target, *args).returncode != 0
+        assert call('has-session', '-t', '=pib3http').returncode == 0
+        assert call('new-session', '-d', '-s', 'pib3', 'sleep 60').returncode == 0
+        # With pi present every selected pane operation must actually work.
+        result = call(operation, '-t', target, *args)
+        assert result.returncode == 0, result.stderr
+    finally:
+        call('kill-server')
+
+
+def test_corrected_close_keeps_session_target_and_pane_target_distinct():
+    text = (PANE_EXACT / 'close.sh.txt').read_text()
+    assert 'send-keys -t =pib3:' in text
+    assert 'kill-session -t =pib3 ' in text

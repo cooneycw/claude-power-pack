@@ -161,3 +161,26 @@ kills the dummy pib3http. The fixed script preserves the neighbor both with
 and without pib3, and still closes pib3 when present. All 60 tests pass with
 the correction; lint passes. Temporary servers and basetemps are cleaned up.
 This correction is requested before T6-beta; activation receipt is pending.
+
+## Pane-target correction to exact targeting
+
+Master 42763/42767 identified a defect in the previous correction: exact
+session syntax =pib3 works for session commands, while pane commands require
+=pib3:. The author missed verifying pane operations in the initial close-only
+control. The previous variants fail to select a pane even when pib3 exists;
+master reports those variants were not installed. T6-beta had already launched
+under old prefix scripts before the hold arrived; no corrected-target use is
+claimed for that row.
+
+The [exact-pane-target variants](exact-pane-target/SHA256SUMS) retain the
+previous versions and correct send-keys/capture-pane/pipe-pane targets only;
+kill-session stays =pib3. Actual isolated tmux controls select the target from
+these committed script bytes. With CPP_PI_PANE_TARGET_OLD=1, all three pane
+operations fail the positive operation assertion against the prior variants.
+The new forms succeed when pib3 exists, and refuse without resolving to the
+pib3http neighbor when pib3 is absent. All 64 tests pass; lint passes. Dummy
+servers and basetemps were cleaned up. The real fixture is never accessed.
+
+These variants supersede exact-target for operational installation; the v4
+classifier correction and its final run-wrapper binding remain pending. No
+new model turn is authorized by committing this pane-only correction.
