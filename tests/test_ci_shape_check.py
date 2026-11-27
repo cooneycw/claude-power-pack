@@ -76,6 +76,7 @@ def test_ci_profile_requires_digest_bound_observed_umask(tmp_path):
     # not a patched process uid or evidence that this test ran an image/root.
     record = cases.fixture(physical, "good")
     record["tier"] = "image"
+    record["state"] = "GOOD"
     record["root"] = {"state": "GOOD", "reason": "real uid 0 in pinned validate image"}
     identity = {"uid": 0, "euid": 0, "gid": 0, "egid": 0, "groups": [0]}
     for lane in record["lanes"]:

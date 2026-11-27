@@ -4,6 +4,8 @@
 set -eu
 python3 - "$@" <<'PYHOST'
 import re
+import hashlib
+import json
 import subprocess
 import sys
 import tempfile
@@ -36,5 +38,21 @@ with tempfile.TemporaryDirectory(prefix="cpp-ci-shape-host-") as owned:
         result = subprocess.run([sys.executable, str(root / "scripts/ci-shape-check.py"), "run",
                                  "--tier", "image", "--receipt", str(output / "image.json")],
                                 stdout=log, stderr=subprocess.STDOUT)
+    if result.returncode == 0:
+        raw = (output / "image.json").read_bytes()
+        record = json.loads(raw)
+        observed_mask = int((output / "validate-default-shell.log").read_text().splitlines()[0], 8)
+        identity = record["lanes"][0]["identity"]
+        if (record["state"] != "GOOD" or record["commit"] != checkpoint or record["image"] != image
+                or observed_mask != record["pytest_time_umask"]["umask"]
+                or identity["uid"] != 0 or identity["euid"] != 0
+                or not all(lane["identity"] == identity for lane in record["lanes"])):
+            raise SystemExit("default shell/profile/root receipt mismatch; no profile published")
+        candidate = {"state": "GOOD", "image": image, "umask": observed_mask, "identity": identity,
+                     "root_checkpoint": checkpoint, "receipt_sha256": hashlib.sha256(raw).hexdigest(),
+                     "evidence": "docs/measurements/ci-shape-check/validate-default-shell.txt"}
+        (output / "validate-profile-observed.json").write_text(json.dumps(candidate, indent=2) + "\n")
+        command_file = root / "docs/measurements/ci-shape-check/host-run.sh"
+        (output / "host-command-sha256.txt").write_text(hashlib.sha256(command_file.read_bytes()).hexdigest() + "\n")
     raise SystemExit(result.returncode)
 PYHOST

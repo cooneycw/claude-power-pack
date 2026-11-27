@@ -122,12 +122,21 @@ def ci_profile(root: Path) -> dict:
     try:
         raw = (root / ROOT_RECEIPT).read_bytes()
         observed = json.loads(raw)
+        # This is a historical IMAGE PROFILE, not a requirement that future
+        # selector manifests equal the original run's population. The immutable
+        # receipt digest binds that run; its identity/mask observation persists
+        # only while the validate image digest stays unchanged.
         valid = (hashlib.sha256(raw).hexdigest() == profile["receipt_sha256"]
                  and observed["commit"] == profile["root_checkpoint"]
+                 and observed["state"] == "GOOD" and observed["tier"] == "image"
+                 and observed["root"]["state"] == "GOOD" and observed["image"] == profile["image"]
+                 and observed["pytest_time_umask"]["state"] == "GOOD"
+                 and observed["pytest_time_umask"]["image"] == profile["image"]
                  and observed["pytest_time_umask"]["umask"] == profile["umask"]
-                 and all(lane["identity"] == profile["identity"] for lane in observed["lanes"])
-                 and assess(observed, tier="image", commit=profile["root_checkpoint"],
-                            image=profile["image"])[0] == "GOOD")
+                 and len(observed["lanes"]) == 2
+                 and profile["identity"]["uid"] == profile["identity"]["euid"] == 0
+                 and all(lane["identity"] == profile["identity"] and lane["state"] == "GOOD"
+                         for lane in observed["lanes"]))
     except (OSError, KeyError, TypeError, ValueError) as exc:
         raise Unknown("validate profile root receipt unavailable or malformed") from exc
     if not valid:
@@ -247,7 +256,7 @@ def fresh_environment(home: Path, tmp: Path, path: str) -> dict[str, str]:
     return {"HOME": str(home), "TMPDIR": str(tmp), "PATH": path, "CI": "true",
             "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PYTHONNOUSERSITE": "1",
             "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0",
-            "GIT_NO_LAZY_FETCH": "1", "UV_NO_PROGRESS": "1"}
+            "GIT_NO_LAZY_FETCH": "1", "GIT_OPTIONAL_LOCKS": "0", "UV_NO_PROGRESS": "1"}
 
 
 def minimal_path(work: Path, stage: Path, python: Path) -> str:
@@ -408,6 +417,13 @@ def run(root: Path, tier: str, receipt_path: Path, *, inside_image: str | None =
     record["root"] = {"state": "UNKNOWN", "reason": "not examined: needs real uid 0"}
     record["pytest_time_umask"] = {"state": "UNKNOWN", "reason": "CI default not proven"}
     try:
+        bootstrap_git = shutil.which("git")
+        if bootstrap_git:
+            commit = command([bootstrap_git, "-c", f"safe.directory={root}", "-C", root,
+                              "rev-parse", "HEAD"], env={"PATH": os.environ.get("PATH", ""),
+                                                         "GIT_CONFIG_GLOBAL": os.devnull,
+                                                         "GIT_CONFIG_NOSYSTEM": "1"}).stdout.strip()
+            record["commit"] = commit
         if tier == "image" and (os.getuid() != 0 or os.geteuid() != 0 or inside_image != image):
             raise Unknown("image tier requires real uid 0 and the pinned-image launcher")
         if tier == "local" and (os.getuid() == 0 or os.geteuid() == 0):
@@ -456,6 +472,10 @@ def run(root: Path, tier: str, receipt_path: Path, *, inside_image: str | None =
             command([uv, "sync", "--project", root, "--extra", "dev", "--frozen"],
                     env={**env, "UV_PROJECT_ENVIRONMENT": str(python_env)})
             python = python_env / "bin/python"
+            record["tools"].update({
+                "python": {"path": str(python), "version": command([python, "--version"]).stdout.strip()},
+                "uv": {"path": uv, "version": command([uv, "--version"]).stdout.strip()},
+            })
             seed, witness = donor(root, work, str(stage / "git"), commit, env)
             for partial in (False, True):
                 row = run_lane(root, seed, witness, work / LANES[int(partial)],
