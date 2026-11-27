@@ -48,7 +48,8 @@ def source_template(tmp_path_factory):
     # Test the actual implementation being authored, committed into owned
     # history; never label dirty working-tree code as a source revision.
     names = ["links", "source", "host", "claude", "codex", "antigravity", "models", "driver", "store"]
-    for name in [*(f"lib/host_update/{n}.py" for n in names), "scripts/cpp-host-update.py"]:
+    for name in [*(f"lib/host_update/{n}.py" for n in names), "lib/antigravity_skills.py",
+                 "scripts/cpp-host-update.py", ".claude/commands/cpp/update.md"]:
         (source / name).write_bytes((ROOT / name).read_bytes())
     git(source, "init", "-q")
     git(source, "config", "user.name", "Fixture")

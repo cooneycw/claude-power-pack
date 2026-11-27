@@ -288,8 +288,11 @@ class ClaudeLinks:
                                 conflicts.append(Conflict(f"{kind.name}/{name}", "", state,
                                                           "expected link absent or replaced; foreign entry preserved"))
                         for name in retired[kind.name]:
-                            conflicts.append(Conflict(f"{kind.name}/{name}", "", State.STALE,
-                                                      "proven retired CPP link remains"))
+                            live = os.path.exists(self.home / ".claude" / kind.name / name)
+                            conflicts.append(Conflict(
+                                f"{kind.name}/{name}", "", State.UNMANAGED if live else State.STALE,
+                                "retired CPP link target still present; preserved for review" if live
+                                else "proven retired CPP link remains"))
                         # Source-shaped but unproven orphan links are observable
                         # uncertainty, not owned entries eligible for deletion.
                         for name in os.listdir(fd):
@@ -325,6 +328,10 @@ class ClaudeLinks:
                             stable_roots()
                             row = self._entry(fd, name)
                             if row and row[-1] == str(self.target(kind, name, request)):
+                                # Retirement proves former membership, not that
+                                # a still-present target is safe to remove.
+                                if os.path.exists(self.home / ".claude" / kind.name / name):
+                                    continue
                                 # Re-inspect the exact identity immediately before
                                 # unlink; cooperating writers hold this same lock.
                                 if self._entry(fd, name) != row:

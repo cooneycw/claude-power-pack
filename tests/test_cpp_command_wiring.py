@@ -11,11 +11,11 @@ actually *reachable* from the command that is supposed to run it. This is the
 same failure class as #591 (a drift script wired to nothing) and #576 (guards
 never run in CI) - a capability exists, and the wiring to it does not.
 
-So: assert that each host-facing tool is invoked from the command markdown that
-owns it. These are deliberately SUBSTRING assertions against the source of
-truth in `.claude/commands/`, not behavioral tests - the goal is to make
-"shipped but unreachable" a red test, cheaply. No network, no git, no HOME
-access, no external binaries, so it is safe in the slim validate container.
+Assert each host-facing operation is reachable from its command source. The
+shared refresh is located in its actual Bash fence; incidental or comment-only
+mentions do not establish that wiring. These static checks make "shipped but
+unreachable" red cheaply; real installation behavior is exercised separately.
+No network, Git, HOME access or external binary is needed here.
 
 When a step is intentionally renamed or moved, update the expectation here in
 the same commit - that edit is the record of the decision.
@@ -23,6 +23,7 @@ the same commit - that edit is the record of the decision.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -49,13 +50,16 @@ def init_text() -> str:
 @pytest.mark.parametrize(
     ("needle", "gap"),
     [
-        ("codex-skill-sync.py --install", "gap 1: codex skills never installed to ~/.codex/skills"),
+        ("# CPP_SHARED_REFRESH", "gap 1: existing Codex skills never reach the shared refresh"),
         ("retired-surface-prune.py", "gaps 2+3: retired host surfaces never torn down"),
         ("install-memory-harness.sh", "gap 4: common-memory harness never wired"),
     ],
 )
 def test_update_invokes_the_host_surface_tools(update_text: str, needle: str, gap: str):
-    assert needle in update_text, f"/cpp:update no longer invokes {needle} - {gap}"
+    if needle == "# CPP_SHARED_REFRESH":
+        _require_shared_refresh_wiring(update_text)
+    else:
+        assert needle in update_text, f"/cpp:update no longer invokes {needle} - {gap}"
 
 
 @pytest.mark.parametrize(
@@ -145,3 +149,26 @@ def test_makefile_exposes_the_host_surface_targets(target: str):
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     assert f"\n{target}:" in makefile, f"Makefile target '{target}' is missing"
     assert target in makefile.split("\n\n", 1)[0], f"'{target}' is missing from .PHONY"
+
+
+def _require_shared_refresh_wiring(document: str):
+    blocks = [body for body in re.findall(r"```bash\n(.*?)```", document, re.S) if "# CPP_SHARED_REFRESH" in body]
+    assert len(blocks) == 1, "shared refresh must be reachable in exactly one actual Bash fence"
+    body = "\n".join(line for line in blocks[0].splitlines() if not line.lstrip().startswith("#"))
+    assert "scripts/cpp-host-update.py" in body, "shared refresh must invoke the production entry"
+    assert "subprocess.run(" in body and '"refresh"' in body, "shared refresh must execute the refresh operation"
+
+
+@pytest.mark.parametrize("fault", ["missing-fence", "comment-only"])
+def test_shared_refresh_wiring_rejects_unreachable_entry(update_text, fault):
+    _require_shared_refresh_wiring(update_text)
+    blocks = re.findall(r"```bash\n(.*?)```", update_text, re.S)
+    block = next(body for body in blocks if "# CPP_SHARED_REFRESH" in body)
+    bad = update_text.replace("```bash\n" + block + "```", "", 1)
+    assert "# CPP_SHARED_REFRESH" not in bad
+    bad += '\nThe production entry is scripts/cpp-host-update.py (refresh).\n'
+    if fault == "comment-only":
+        bad += '```bash\n# CPP_SHARED_REFRESH\n# subprocess.run("scripts/cpp-host-update.py", "refresh")\n```\n'
+    with pytest.raises(AssertionError, match="shared refresh"):
+        _require_shared_refresh_wiring(bad)
+    print(f"wiring {fault}: RED assertion (actual fence passes)")

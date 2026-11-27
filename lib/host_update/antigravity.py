@@ -3,12 +3,22 @@ from __future__ import annotations
 
 import re
 
-import yaml
-
 from lib.antigravity_skills import build
 
 from .host import CopyAdapter
 from .models import AdapterError
+
+
+def yaml_module(harness):
+    """Only a selected YAML reader needs this optional runtime dependency."""
+    try:
+        import yaml
+    except ModuleNotFoundError as error:
+        if error.name != "yaml":
+            raise
+        raise AdapterError(f"UNAVAILABLE: {harness}: missing module yaml (PyYAML)", exit_code=4,
+                           remedy="install PyYAML for this YAML adapter; stdlib components remain usable") from error
+    return yaml
 
 
 class AntigravityAdapter(CopyAdapter):
@@ -16,6 +26,7 @@ class AntigravityAdapter(CopyAdapter):
     prefix = (".gemini", "config")
 
     def legacy_source(self, name, content):
+        yaml = yaml_module(self.harness)
         try:
             sections = re.split(r"(?m)^---[ \t]*$", content.decode(), maxsplit=2)
             if len(sections) != 3 or sections[0]:
@@ -32,5 +43,6 @@ class AntigravityAdapter(CopyAdapter):
 
     def build(self, revision, policy):
         if self._build is None or self._build.revision != revision.commit:
+            yaml_module(self.harness)
             self._build = build(revision)
         return self._build

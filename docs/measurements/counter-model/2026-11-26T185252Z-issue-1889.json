@@ -1,0 +1,64 @@
+{
+  "branch": "issue-1889-b2b-update-wiring",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "extra_passes_reason": "F2 is a real correctness defect that the earlier passes and the test harness both missed (a blind instrument), and the fix is narrow.",
+  "head": "90e9e8a747a5fbedbd6f4ceae821d4fd0f694610",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/25/rollout-2026-11-25T16-21-16-01a21382-e9f4-78b2-8dbd-a63068a99358.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 57077784,
+        "path": "2026/11/25/rollout-2026-11-25T16-21-16-01a21382-e9f4-78b2-8dbd-a63068a99358.jsonl",
+        "sha256": "6b40dca5c0ef78afff311f3cf4d4873b80e69043b2e74392a0860713b0984028"
+      }
+    ],
+    "thread_id": "01a21382-e9f4-78b2-8dbd-a63068a99358"
+  },
+  "issue": "1889",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 3,
+  "recorded_at": "2026-11-26T18:52:52Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 2
+  },
+  "reviewed_artifact": {
+    "base_sha": "8e6efc03d1393a3bafcce8496709d5161154e7cf",
+    "merge_base": "8e6efc03d1393a3bafcce8496709d5161154e7cf",
+    "method": "runtime-head",
+    "patch_sha256": "bc5cf91cde26ecefbe674f3786ae9b92aeecd043c23719165fc7acd88edf4778",
+    "report_record": 7681,
+    "target_head": "90e9e8a747a5fbedbd6f4ceae821d4fd0f694610"
+  },
+  "reviewer": "claude/claude-opus-5-5",
+  "reviewer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2",
+    "sources": [
+      {
+        "bytes": 14765700,
+        "path": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl",
+        "sha256": "e1367012ab4bb3a48f307bc5ded74393b8d54fd0ba72ffe97ac074cd5ac0efa8"
+      }
+    ],
+    "transcript": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}

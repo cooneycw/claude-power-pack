@@ -1,4 +1,4 @@
-"""The prune half of `/cpp:update` Step 5b (issue #1263).
+"""Historical Step5b/public-seam regressions and the current shared-writer boundary.
 
 Step 5b linked every executable in `scripts/` into `~/.claude/scripts/` and
 removed nothing, so a helper deleted upstream left a dangling link at the stable
@@ -21,12 +21,13 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
+
+from tests.test_host_update_command import LEGACY_STEP5B, maintained_block
 
 ROOT = Path(__file__).resolve().parents[1]
 SEAM = ROOT / "scripts" / "cpp-host-write.sh"
@@ -177,25 +178,19 @@ def test_a_name_with_a_path_separator_is_refused(tmp_path: Path) -> None:
     assert result.returncode == 1
 
 
-def test_update_step_5b_wires_the_prune_to_install_drifts_orphan_list() -> None:
-    """The seam is only half the fix; the command must call it.
-
-    Red on the pre-fix document, whose Step 5b only ever called `link-into`.
-    """
-    text = UPDATE_DOC.read_text(encoding="utf-8")
-    start = text.index("## Step 5b: Script Symlink Refresh")
-    end = text.index("## Step 5b.1:")
-    step = text[start:end]
-    assert "orphaned_helpers" in step
-    assert '"$CPP_DIR/scripts/cpp-host-write.sh" unlink-orphan' in step
+def test_update_uses_shared_writer_instead_of_legacy_prune_loop() -> None:
+    """B2b replaces the confirmed legacy loop with one shared refresh writer."""
+    step = maintained_block("# CPP_SHARED_REFRESH")
+    assert '"refresh"' in step and '"--revision", revision' in step
+    assert '"--json"' in step and "valid_report" in step
+    text = UPDATE_DOC.read_text()
+    assert '"$CPP_DIR/scripts/cpp-host-write.sh" unlink-orphan' not in text
 
 
 def _listing_block() -> str:
-    text = UPDATE_DOC.read_text(encoding="utf-8")
-    step = text[text.index("## Step 5b: Script Symlink Refresh") : text.index("## Step 5b.1:")]
-    blocks = [b for b in re.findall(r"```bash\n(.*?)```", step, re.S) if "ORPHAN_SCAN" in b]
-    assert len(blocks) == 1, "Step 5b must carry exactly one orphan-listing block"
-    return blocks[0]
+    """Frozen legacy reader; current command behavior lives in test_host_update_command."""
+    return LEGACY_STEP5B[LEGACY_STEP5B.index('if [ -d ~/.claude/scripts ]; then\n  HELPER_ORPHANS='):
+                        LEGACY_STEP5B.index('\nif [ "${PRUNE_CONFIRMED')]
 
 
 def _run_listing(checkout: Path, home: Path) -> str:
@@ -240,11 +235,8 @@ def test_a_scan_that_did_not_run_is_not_reported_clean(tmp_path: Path) -> None:
 
 
 def _prune_block() -> str:
-    text = UPDATE_DOC.read_text(encoding="utf-8")
-    step = text[text.index("## Step 5b: Script Symlink Refresh") : text.index("## Step 5b.1:")]
-    blocks = [b for b in re.findall(r"```bash\n(.*?)```", step, re.S) if "PRUNE_CONFIRMED" in b]
-    assert len(blocks) == 1, "Step 5b must carry exactly one prune block"
-    return blocks[0]
+    """Retain public seam and historical tally regressions on exact pinned input."""
+    return LEGACY_STEP5B[LEGACY_STEP5B.index('if [ "${PRUNE_CONFIRMED'):]
 
 
 def _prune_fixture(tmp_path: Path) -> tuple[Path, Path, str]:

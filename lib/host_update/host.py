@@ -14,6 +14,7 @@ from .models import (
     Action,
     AdapterError,
     AdapterResult,
+    Conflict,
     Discovery,
     ExpectedBuild,
     Inspection,
@@ -28,12 +29,33 @@ from .store import _directories, _document, locked, read_ledger, validate_build
 
 INCLUDED = ("claude-topics", "codex", "antigravity", "claude-links")
 BACKENDS = {n: "links" if n == "claude-links" else "copies" for n in INCLUDED}
-DEFERRED = ("maintained cpp/update wiring (B2b)", "pi shared-updater enrollment", "qwen", "gemma/opencode",
+DEFERRED = ("pi shared-updater enrollment", "qwen", "gemma/opencode",
             "command-derived AGY cpp-update invocation")
 
 
 class BootstrapFailure(AdapterError):
     """Legacy metadata publication was attempted; inspect remaining state."""
+
+
+class LegacyMigrationRequired(AdapterError):
+    """Named unverified legacy output; no ownership or adoption is inferred."""
+
+    def __init__(self, harness, stale, unexpected, built):
+        flags = " ".join(f"--adopt {harness}:{name}" for name in sorted(stale))
+        remedy = "review the named packages; scoped adoption retains recoverable backups"
+        if flags:
+            remedy += "; " + flags
+        if unexpected:
+            remedy += "; unexpected legacy packages are preserved and require separate review first"
+        super().__init__("legacy packages require explicit reviewed migration", exit_code=4, remedy=remedy)
+        conflicts = tuple(Conflict(name, "", State.UNKNOWN,
+                                   "unverified legacy bytes differ from the current build; review before adoption")
+                          for name in sorted(stale)) + tuple(
+            Conflict(name, "", State.UNMANAGED,
+                     "legacy package is outside the current build or has another owner; preserved for separate review")
+            for name in sorted(unexpected))
+        self.inspection = Inspection(State.UNKNOWN, len(built.packages),
+                                     sum(len(p.members) for p in built.packages), 0, conflicts, str(self))
 
 
 @dataclass(frozen=True)
@@ -164,19 +186,23 @@ class CopyAdapter:
             names = self.legacy(scope, set(records)) - set(request.adopt_paths)
             document = _document(scope)
             additions = {}
-            for name in names:
+            stale, unexpected = set(), set()
+            for name in sorted(names):
                 if name not in expected or any(name in rows for owner, rows in document["adapters"].items()
                                                 if owner != self.harness):
-                    raise AdapterError("legacy ownership requires explicit migration", exit_code=4)
+                    unexpected.add(name)
+                    continue
                 package = expected[name]
                 actual, directories = scope.inventory(scope.package(name), set(package.members))
                 wanted = {p: OwnedMember(m.sha256, m.mode) for p, m in package.members.items()}
                 if actual != wanted or directories != _directories(wanted):
-                    raise AdapterError("stale legacy bytes have no verified prior manifest", exit_code=4,
-                                       remedy="review explicit adoption with a recoverable backup")
+                    stale.add(name)
+                    continue
                 additions[name] = {"source": package.canonical_source, "revision": built.revision,
                                    "members": {p: {"sha256": m.sha256, "mode": m.mode}
                                                for p, m in package.members.items()}}
+            if stale or unexpected:
+                raise LegacyMigrationRequired(self.harness, stale, unexpected, built)
             own = document["adapters"].setdefault(self.harness, {})
             own.update(additions)
             if additions:
@@ -236,6 +262,9 @@ def run_host(adapters: list[CopyAdapter | ClaudeLinks], request: Request, *, ver
             failure = error if isinstance(error, AdapterError) else AdapterError(
                 f"adapter unavailable ({type(error).__name__})", exit_code=4)
             row = _error_result(adapter.harness, request, failure)
+            if isinstance(error, LegacyMigrationRequired):
+                row = replace(row, before=error.inspection, after=error.inspection,
+                              selected=discovery.selected, selection_evidence=discovery.evidence)
             if isinstance(error, BootstrapFailure):
                 observed = inspect(adapter, local)
                 row = replace(row, action=Action.FAILED, after=observed.after,

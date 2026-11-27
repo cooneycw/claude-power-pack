@@ -186,6 +186,29 @@ def assert_parity(pinned, candidate, output):
     return right
 
 
+def assert_attribution(data, actual, mask):
+    # Canonical inputs have Git's 0644/0755 modes. The independent generators
+    # above still compare exact output modes. Only this comparison to the
+    # historical 022 measurement removes the extra group-write bit from a
+    # 002-created file; it never normalizes the generator-to-generator oracle.
+    assert mask in (0o022, 0o002)
+    comparable = {p: [row[0], row[1] & ~0o020 if mask == 0o002 else row[1]]
+                  for p, row in actual.items()}
+    delta = {p: comparable.get(p) for p in comparable.keys() | data["members"].keys()
+             if comparable.get(p) != data["members"].get(p)}
+    attributed = data["attributed_input_delta"]
+    assert delta == {p: row["candidate"] for p, row in attributed.items()}, json.dumps(delta, sort_keys=True)
+    for path, row in attributed.items():
+        assert row.get("baseline") == data["members"].get(path), "attribution must retain the historical before value"
+        assert row["reason"].strip() and len(row["source_commit"]) in (40, 64)
+        assert all(c in "0123456789abcdef" for c in row["source_commit"])
+        candidate = row["candidate"]
+        assert candidate != data["members"].get(path), "attribution must represent a real input delta"
+        if candidate is not None:
+            assert len(candidate[0]) == 64 and all(c in "0123456789abcdef" for c in candidate[0])
+            assert type(candidate[1]) is int and candidate[1] in (0o644, 0o755)
+
+
 @pytest.mark.parametrize("mask", [0o022, 0o002])
 def test_two_generators_use_independent_parsers_and_identical_inputs(tmp_path, mask):
     data = baseline()
@@ -197,20 +220,79 @@ def test_two_generators_use_independent_parsers_and_identical_inputs(tmp_path, m
         actual = assert_parity(pinned, candidate, tmp_path)
         assert pinned._LINK_PARSER_CACHE and candidate._LINK_PARSER_CACHE
         assert set(pinned._LINK_PARSER_CACHE).isdisjoint(candidate._LINK_PARSER_CACHE)
-        # Historical manifest was measured under 022. Both generators still
-        # compare exact modes under either mask; only the historical byte
-        # comparison is independent of that recorded process input.
-        if mask == 0o022:
-            delta = {p: actual.get(p) for p in actual.keys() | data["members"].keys()
-                     if actual.get(p) != data["members"].get(p)}
-            assert delta == {p: row["candidate"] for p, row in data["attributed_input_delta"].items()}
-        else:
-            assert {p: row[0] for p, row in actual.items()} == {
-                p: row[0] for p, row in data["members"].items()}
-        assert all(row["reason"] and row["source_commit"] for row in data["attributed_input_delta"].values())
+        assert_attribution(data, actual, mask)
     finally:
         os.umask(previous)
 
+
+
+def _assert_self_bundled_input_variation(tmp_path, mask):
+    data = baseline()
+    frozen_path = CONTROL / data["generator_path"]
+    current_path = ROOT / "scripts/codex-skill-sync.py"
+    frozen_bytes, current_bytes = frozen_path.read_bytes(), current_path.read_bytes()
+    assert current_bytes != frozen_bytes, "the approved data deletion must vary the bundled source input"
+    old_source = canonical_source(tmp_path / "old-inputs")
+    new_source = canonical_source(tmp_path / "new-inputs")
+    (old_source / "scripts/codex-skill-sync.py").write_bytes(frozen_bytes)
+    variants = (
+        ("before", frozen_path, old_source),
+        ("after", current_path, new_source),
+        ("frozen-on-after", frozen_path, new_source),
+    )
+    outputs, modules = [], []
+    previous = os.umask(mask)
+    try:
+        for label, code, inputs in variants:
+            module = load(code, f"self_bundle_{label}_{mask}", inputs)
+            output = tmp_path / label
+            assert module.main(["--write", "--output-root", str(output)]) == 0
+            outputs.append(output)
+            modules.append(module)
+    finally:
+        os.umask(previous)
+    before, after, frozen_after = [inventory(output) for output in outputs]
+    assert len(before) == len(after) == len(frozen_after) == len(data["members"]) == 404
+    assert after == frozen_after, "transforms must agree on identical new inputs"
+    assert set(modules[1]._LINK_PARSER_CACHE).isdisjoint(modules[2]._LINK_PARSER_CACHE)
+    # Equal transforms alone cannot prove the input was varied: the old input
+    # makes both agree too. These actual bundled bytes close that blind spot.
+    expected = set()
+    for consumer in ("flow-auto", "flow-finish"):
+        name = f"{consumer}/scripts/codex-skill-sync.py"
+        assert (outputs[0] / name).read_bytes() == frozen_bytes
+        assert (outputs[1] / name).read_bytes() == current_bytes, "bundled generator input was held old"
+        expected.update((name, f"{consumer}/scripts/SHA256SUMS"))
+    changed = {name for name in before.keys() | after.keys() if before.get(name) != after.get(name)}
+    assert changed == expected, "only two self-bundled source copies and their checksums may change"
+    assert all(before[name][1] == after[name][1] for name in changed), "input variation must retain modes"
+    print(f"self-bundle {mask:03o}: four input deltas, zero same-input transform deltas")
+
+
+@pytest.mark.parametrize("mask", [0o022, 0o002])
+def test_bundled_generator_input_variation_is_measured(tmp_path, mask):
+    _assert_self_bundled_input_variation(tmp_path, mask)
+
+
+@pytest.mark.parametrize("mask", [0o022, 0o002])
+def test_bundled_input_variation_rejects_held_old_input(tmp_path, monkeypatch, mask):
+    real_copy = canonical_source
+    current = (ROOT / "scripts/codex-skill-sync.py").read_bytes()
+    frozen = (CONTROL / baseline()["generator_path"]).read_bytes()
+    assert current != frozen
+
+    def hold_old(destination):
+        source = real_copy(destination)
+        member = source / "scripts/codex-skill-sync.py"
+        assert member.read_bytes() == current, "the real copier must start with the changed input"
+        member.write_bytes(frozen)
+        assert member.read_bytes() != current, "the negative fixture must hold the old input"
+        return source
+
+    monkeypatch.setitem(_assert_self_bundled_input_variation.__globals__, "canonical_source", hold_old)
+    with pytest.raises(AssertionError, match="bundled generator input was held old"):
+        _assert_self_bundled_input_variation(tmp_path, mask)
+    print(f"held-old-input {mask:03o}: RED bundled-member assertion despite equal transforms")
 
 def test_changed_transform_is_detected(tmp_path, monkeypatch):
     data = baseline()
@@ -279,3 +361,70 @@ def test_changed_output_mode_is_detected(tmp_path, monkeypatch, mode):
             assert_parity(pinned, candidate, tmp_path)
     finally:
         os.umask(previous)
+
+
+@pytest.mark.parametrize("mask", [0o022, 0o002])
+def test_nonempty_attribution_is_consumed_under_both_masks(mask):
+    data = {"members": {"flow-auto/SKILL.md": ["a" * 64, 0o644]},
+            "attributed_input_delta": {"flow-auto/SKILL.md": {
+                "baseline": ["a" * 64, 0o644], "candidate": ["b" * 64, 0o644],
+                "reason": "controlled source input change",
+                "source_commit": "c" * 40}}}
+    actual = {"flow-auto/SKILL.md": ["b" * 64, 0o644 if mask == 0o022 else 0o664]}
+    assert data["attributed_input_delta"] and actual["flow-auto/SKILL.md"][0] != "a" * 64
+    assert_attribution(data, actual, mask)
+
+
+@pytest.mark.parametrize("mask", [0o022, 0o002])
+@pytest.mark.parametrize("fault", ["hash", "mode", "unexpected-world-write", "missing-delta",
+                                   "reason", "source-commit", "baseline-hash", "baseline-mode"])
+def test_wrong_attribution_is_detected_under_both_masks(mask, fault):
+    row = {"baseline": ["a" * 64, 0o644], "candidate": ["b" * 64, 0o644],
+           "reason": "controlled source input change",
+           "source_commit": "c" * 40}
+    data = {"members": {"flow-auto/SKILL.md": ["a" * 64, 0o644]},
+            "attributed_input_delta": {"flow-auto/SKILL.md": row}}
+    actual = {"flow-auto/SKILL.md": ["b" * 64, 0o644 if mask == 0o022 else 0o664]}
+    assert_attribution(data, actual, mask)
+    if fault == "hash":
+        row["candidate"][0] = "d" * 64
+        assert row["candidate"][0] != actual["flow-auto/SKILL.md"][0]
+    elif fault == "mode":
+        row["candidate"][1] = 0o755
+        assert row["candidate"][1] != actual["flow-auto/SKILL.md"][1]
+    elif fault == "unexpected-world-write":
+        actual["flow-auto/SKILL.md"][1] = 0o666
+        assert actual["flow-auto/SKILL.md"][1] & 0o002
+    elif fault == "missing-delta":
+        data["attributed_input_delta"].clear()
+        assert not data["attributed_input_delta"]
+    elif fault == "baseline-hash":
+        row["baseline"][0] = "d" * 64
+        assert row["baseline"][0] != data["members"]["flow-auto/SKILL.md"][0]
+    elif fault == "baseline-mode":
+        row["baseline"][1] = 0o755
+        assert row["baseline"][1] != data["members"]["flow-auto/SKILL.md"][1]
+    elif fault == "reason":
+        row["reason"] = ""
+        assert not row["reason"]
+    else:
+        row["source_commit"] = "short"
+        assert len(row["source_commit"]) != 40
+    with pytest.raises(AssertionError):
+        assert_attribution(data, actual, mask)
+
+
+@pytest.mark.parametrize("field", ["commit", "generator_sha256", "parser_sha256"])
+def test_historical_pin_replacement_is_detected(tmp_path, monkeypatch, field):
+    data = baseline()
+    for key in ("generator_path", "parser_path"):
+        target = tmp_path / data[key]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(CONTROL / data[key], target)
+    replacement = "f" * (40 if field == "commit" else 64)
+    assert data[field] != replacement
+    data[field] = replacement
+    (tmp_path / "codex-baseline.json").write_text(json.dumps(data))
+    monkeypatch.setitem(baseline.__globals__, "CONTROL", tmp_path)
+    with pytest.raises(AssertionError):
+        baseline()

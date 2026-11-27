@@ -1,0 +1,69 @@
+{
+  "branch": "issue-1889-b2b-update-wiring",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "escalation": {
+    "raised_cap": 5,
+    "reference": "https://github.com/cooneycw/claude-power-pack/issues/1889#issuecomment-7215334904",
+    "ruled_by": "owner"
+  },
+  "extra_passes_reason": "Pass 3: F2 is a real correctness defect that the earlier passes and the test harness both missed (a blind instrument), and the fix is narrow. Pass 4: owner-approved deletion of six retired generator data rows and the four attributed bundled-input deltas, found by the finish gate. Pass 5: owner-approved three-line partial-clone skip after PR CI 4056 crashed in a depth-1 tree:0 clone.",
+  "head": "cd8edea34d6cb7d2089699a51e064fe57710fc08",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/25/rollout-2026-11-25T16-21-16-01a21382-e9f4-78b2-8dbd-a63068a99358.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 64081316,
+        "path": "2026/11/25/rollout-2026-11-25T16-21-16-01a21382-e9f4-78b2-8dbd-a63068a99358.jsonl",
+        "sha256": "ba84a95f616a2633a0e7e62d78d7b5d979df8d7eefcd2d277a35a3deb1537d20"
+      }
+    ],
+    "thread_id": "01a21382-e9f4-78b2-8dbd-a63068a99358"
+  },
+  "issue": "1889",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 5,
+  "recorded_at": "2026-11-27T10:03:38Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 2
+  },
+  "reviewed_artifact": {
+    "base_sha": "8e6efc03d1393a3bafcce8496709d5161154e7cf",
+    "merge_base": "8e6efc03d1393a3bafcce8496709d5161154e7cf",
+    "method": "runtime-head",
+    "patch_sha256": "7fe5f70e457910c521cd713ebb508200a26ff4b77afcbaea567a6e3c6ec6d980",
+    "report_record": 8379,
+    "target_head": "cd8edea34d6cb7d2089699a51e064fe57710fc08"
+  },
+  "reviewer": "claude/claude-opus-5-5",
+  "reviewer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2",
+    "sources": [
+      {
+        "bytes": 15593028,
+        "path": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl",
+        "sha256": "920df54edaedf26d5dc11e99f733e00ac9a8d2c1194277e12edcce27f701dd7a"
+      }
+    ],
+    "transcript": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}

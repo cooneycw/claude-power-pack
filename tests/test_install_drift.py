@@ -17,6 +17,12 @@ from pathlib import Path
 import pytest
 
 from tests.helper_exit_line import without_status
+from tests.test_host_update_adapters import source as source_fixture
+from tests.test_host_update_adapters import source_template as template_fixture
+from tests.test_host_update_command import assert_shared_executable_population
+
+source_template = template_fixture
+source = source_fixture
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "install-drift.sh"
@@ -1512,13 +1518,14 @@ def test_a_real_cpp_checkouts_link_is_still_our_orphan(tmp_path: Path):
 # --------------------------------------------------------------------------- #
 
 
-def test_the_installer_loops_still_read_the_filter_this_axis_assumes() -> None:
-    """COUPLING TEST (issue #1401): `HELPERS_UNLINKED`'s population is "every
-    executable regular file directly under scripts/" because that is the
-    EXACT filter both shipping installers run. If a future change narrows
-    either loop's filter, this axis's own population would silently diverge
-    from what actually gets linked - this test is what a future editor
-    trips over instead of discovering that by hand."""
+@pytest.mark.skipif(not shutil.which("git"), reason="shared executable population requires Git")
+def test_the_installer_loops_still_read_the_filter_this_axis_assumes(source) -> None:
+    """Pin init's executable filter and update's real shared manifest.
+
+    The shared reader must include tracked immediate executable helpers with
+    any extension, and exclude non-executables and directories. Its committed
+    mutation cases retain the distinction the removed textual loop guarded.
+    """
     init_doc = (ROOT / ".claude" / "commands" / "cpp" / "init.md").read_text(encoding="utf-8")
     update_doc = (ROOT / ".claude" / "commands" / "cpp" / "update.md").read_text(encoding="utf-8")
     needle = '[ -f "$script" ] && [ -x "$script" ] || continue'
@@ -1526,10 +1533,8 @@ def test_the_installer_loops_still_read_the_filter_this_axis_assumes() -> None:
         "cpp:init's install loop filter changed shape - update "
         "HELPERS_UNLINKED's population to match"
     )
-    assert needle in update_doc, (
-        "cpp:update's install loop filter changed shape - update "
-        "HELPERS_UNLINKED's population to match"
-    )
+    assert "# CPP_SHARED_REFRESH" in update_doc, "update must enroll the shared manifest reader"
+    assert_shared_executable_population(source)
 
 
 def test_an_executable_added_to_the_checkout_since_the_last_install_is_unlinked(tmp_path: Path):

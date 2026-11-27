@@ -188,11 +188,18 @@ antigravity-skills-check:
 test-host-update-core:
 	uv run --extra dev pytest -q $(HOST_UPDATE_TESTS)
 
-HOST_ADAPTER_TESTS ?= tests/test_host_update_links.py tests/test_host_update_adapters.py tests/test_host_update_integration.py tests/test_host_update_permissions.py tests/test_host_update_adapter_transactions.py tests/test_host_update_ci_shape.py
+HOST_ADAPTER_TESTS ?= tests/test_host_update_command.py tests/test_host_update_links.py tests/test_host_update_adapters.py tests/test_host_update_integration.py tests/test_host_update_permissions.py tests/test_host_update_adapter_transactions.py tests/test_host_update_ci_shape.py
 ## verify-coverage: utility test-host-update-adapters - real production adapters and report readers; full suite owns gate
 .PHONY: test-host-update-adapters test-host-update-ci-shape host-update-adapter-controls
 test-host-update-adapters:
 	uv run --extra dev pytest -q $(HOST_ADAPTER_TESTS)
+
+HOST_UPDATE_COMMAND_CASE ?= controls/cpp-update-host-refresh/cases/good-stale-refresh
+.PHONY: host-update-command-check
+## verify-coverage: excluded host-update-command-check - owned maintained-command fixture; ci: excluded duplicate-subset
+#: NEGATIVE-CONTROL: controls/cpp-update-host-refresh
+host-update-command-check:
+	python3 controls/cpp-update-host-refresh/run-case.py "$(HOST_UPDATE_COMMAND_CASE)"
 
 ## verify-coverage: utility test-host-update-links - typed existing Claude link fidelity; full suite owns gate
 .PHONY: test-host-update-links host-update-link-controls
