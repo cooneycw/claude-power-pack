@@ -103,6 +103,8 @@ def assess(receipt: dict, *, tier: str, commit: str, image: str) -> tuple[str, s
                 or receipt["commit"] != commit or receipt["image"] != image
                 or receipt["selectors"] != list(SELECTORS)):
             return "BAD", "receipt identity, tier or selection mismatch"
+        if receipt.get("state") == "UNKNOWN" and not receipt["lanes"]:
+            return "UNKNOWN", receipt["reason"]
         root = receipt["root"]
         if tier == "local":
             if root != {"state": "UNKNOWN", "reason": "not examined: needs real uid 0"}:

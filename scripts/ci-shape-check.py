@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from lib.ci_shape_check import Unknown, assess, image_pin, run  # noqa: E402
+from lib.ci_shape_check import SELECTORS, Unknown, assess, image_pin, run  # noqa: E402
 
 
 def main():
@@ -51,6 +51,13 @@ def main():
             state, reason = record["state"], record["reason"]
     except (Unknown, OSError, ValueError, subprocess.SubprocessError) as exc:
         state, reason = "UNKNOWN", str(exc)
+        if args.command == "run":
+            args.receipt.parent.mkdir(parents=True, exist_ok=True)
+            args.receipt.write_text(json.dumps({
+                "schema": 1, "tier": args.tier, "commit": "unresolved", "image": image_pin(ROOT),
+                "selectors": list(SELECTORS), "lanes": [], "state": state, "reason": reason,
+                "root": {"state": "UNKNOWN", "reason": "image/root execution not examined"},
+            }, indent=2) + "\n")
     print(f"CI_SHAPE: {state}: {reason}")
     return {"GOOD": 0, "BAD": 1, "UNKNOWN": 2}[state]
 
