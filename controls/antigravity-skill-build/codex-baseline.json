@@ -1764,11 +1764,11 @@
         420
       ],
       "candidate": [
-        "cad30c8b7628899af0a659b921f0dd5de3f8e3fd2104a1a396ee88fe94d58b59",
+        "36a1d3ebccaf2af29737b5943d55bb18b9fabc708832790373220266e4086f3d",
         420
       ],
-      "source_commit": "b5d3f3b27211710140d27973082b1588c39e5fbf",
-      "reason": "R3a #1863 selected-report kind persistence changes the bundled receipt/yield helper inputs; monthly-create declares its canonical sibling dependency. Exact input-byte attribution only; pinned generator, parser and historical members remain unchanged."
+      "source_commit": "14eaf192bd8036dc111203582aa81351a11763ac",
+      "reason": "Compact the literal monthly kind-reader dependency note to stay within the existing command word budget; helper payload and scope remain unchanged."
     },
     "monthly-create/scripts/SHA256SUMS": {
       "baseline": [
