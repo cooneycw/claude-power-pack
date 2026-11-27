@@ -7,6 +7,11 @@ Stop on an extra tool attempt or a response round beyond tool-call plus final
 response. Compatible-client protocol calls spend ZERO provider-model turns.
 Owner go must state both budgets before routing. Reuse pi 1.6.0, the retained
 disposable HOME and github-copilot/gpt-5.3-codex pin. Do not update or sign in again.
+For EVERY tag record ACTUAL user prompts, model-response rounds, MCP attempts
+and exit, then report aggregate actual usage against both caps, including any
+stopped attempt. Count new observed response phases; do not infer actual rounds
+from tool-call counts or report the maximum as usage. If round boundaries are
+unexaminable, stop and route that limit before further turns; never read history.
 Refs #1899; [B2 results](issue-1899-b2-results.md).
 
 ## Bind source and intervention boundaries
@@ -356,7 +361,8 @@ If any process/state is unexaminable, stop and report rather than claiming clean
 Run the retained regular-agent name collector after undo. Master supplies actual
 version/revision/commands/prompts/exits, controlled replies, native call labels,
 raw fixture artifact identifiers/full hashes, nonce-bound request/send records,
-foreign/config hashes, PID/teardown records and the display/isolation lane.
+foreign/config hashes, PID/teardown records, per-tag and aggregate ACTUAL prompt/
+model-round/attempt counts (including stopped attempts), and the display/isolation lane.
 Publish only reviewed sanitized derivatives, not private paths or teardown state.
 No full B4 identity, receipt validity, SSE behavior, production merge behavior
 or all-harness parity is claimed by these fixtures.
