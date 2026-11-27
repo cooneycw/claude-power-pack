@@ -25,7 +25,7 @@ spec.loader.exec_module(cases)
 @pytest.mark.parametrize("fault", ["good", "mode", "symlink", "ci", "git", "make", "filter",
                                  "shallow", "history", "root-claim", "internalerror", "incomplete",
                                  "missing-witness", "below-floor", "umask-mismatch", "umask-unknown",
-                                 "false-root-skip", "unavailable"])
+                                 "false-root-skip", "zero-executed", "unavailable"])
 def test_physical_canary_and_real_collector(tmp_path, fault):
     receipt = cases.fixture(tmp_path, fault)
     state, reason = shape.assess(receipt, tier=receipt["tier"], commit=receipt["commit"],
@@ -65,6 +65,15 @@ def test_removing_any_required_witness_refuses_manifest_and_collection(tmp_path)
                                                            "skips": {}, "errors": [], "exit": 0}])
 def test_exit_zero_without_completion_is_bad(payload):
     assert shape.completion(payload, 0, "", "local")[0] == "BAD"
+
+
+def test_internalerror_output_refuses_otherwise_healthy_results_at_any_exit(tmp_path):
+    record = cases.fixture(tmp_path, "good")
+    results = record["lanes"][0]["results"]
+    assert shape.completion(results, 0, "", record["tier"])[0] == "GOOD"
+    for status in (0, 1, 2, 5, 7):
+        state, reason = shape.completion(results, status, "INTERNALERROR> worker failed", record["tier"])
+        assert state == "BAD" and "INTERNALERROR" in reason
 
 
 def test_ci_profile_requires_digest_bound_observed_umask(tmp_path):

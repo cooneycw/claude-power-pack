@@ -116,10 +116,17 @@ def fixture(work, fault):
         results = json.loads(results_path.read_text())
         diagnostic = ""
         if fault == "internalerror":
-            fake = subprocess.run([sys.executable, "-c", "print('INTERNALERROR: child failed')"],
+            fake = subprocess.run([sys.executable, "-c", "print('INTERNALERROR> worker failed')"],
                                   capture_output=True, text=True, check=True)
-            assert fake.returncode == 0 and "INTERNALERROR" in fake.stdout
+            assert fake.returncode == 0 and "INTERNALERROR>" in fake.stdout
+            assert results["selected"] and all(value == "passed" for value in results["outcomes"].values())
+            diagnostic = fake.stdout
+        elif fault == "zero-executed":
+            fake = subprocess.run([sys.executable, "-c", "print('no tests ran')"],
+                                  capture_output=True, text=True, check=True)
+            assert fake.returncode == 0 and "INTERNALERROR" not in fake.stdout
             results = {"selected": [], "outcomes": {}, "skips": {}, "errors": [], "exit": 0}
+            assert not results["outcomes"]
             diagnostic = fake.stdout
         elif fault == "incomplete":
             assert results["selected"]

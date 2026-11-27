@@ -120,6 +120,11 @@
       "name": "false-root-skip",
       "input": "cases/false-root-skip",
       "expect": "BAD"
+    },
+    {
+      "name": "zero-executed",
+      "input": "cases/zero-executed",
+      "expect": "BAD"
     }
   ],
   "anchors": [

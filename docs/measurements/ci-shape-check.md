@@ -12,7 +12,8 @@ or full acceptance is claimed by this draft record.
 | #1916 PATH | Unchanged owner helper excludes staged Git/Make; focused fixed fixtures supply explicitly selected tools | Pinned-image failure witness and focused owner positives |
 | #1922 / 4056 | Actual filtered clone has commit but not historical file contents; old test attempts the missing checkout; fixed helper names the partial-clone exclusion | Actual filtered witness and named skip; no lazy fetch |
 | #1922 / 4058 | Unchanged 79f2edf byte assertion enters rich diff under CI=true; same input with explicit raise completes | Four-second child bound, one-second traceback, RED/GREEN |
-| #1923 | Actual child prints INTERNALERROR and exits 0; incomplete or empty outcome evidence | Gate BAD despite zero child exit; blind verifier misses |
+| #1923 zero execution | `controls/ci-shape-check/cases/zero-executed/case.json`: actual child prints `no tests ran` and exits 0, no terminal outcomes and no INTERNALERROR marker | Gate BAD (`zero executed tests`); blind verifier misses |
+| #1923 internal error | `controls/ci-shape-check/cases/internalerror/case.json`: actual child prints `INTERNALERROR>` and exits 0, with otherwise complete healthy collection/outcome evidence | Gate BAD from output marker alone; blind verifier misses. Unit cases also reject exit 1, 2, 5 and 7 |
 | UNKNOWN | Backend, tool or requested shape cannot be examined | Nonzero UNKNOWN, never GOOD |
 | Cross-tier BAD | A local GOOD receipt labels the root column GOOD | Verifier BAD; blind anchor misses |
 
@@ -62,3 +63,16 @@ The Nit Store record
 [7216998783](https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7216998783)
 now explicitly points to #1927 as its superseding disposition, so it is not a
 second finding.
+
+## #1923 guard scope
+
+The [owner-shared adjustment](https://github.com/cooneycw/claude-power-pack/issues/1923#issuecomment-7220507104)
+folds the ci-shape guard requirements into PR-A. The named `zero-executed` and
+`internalerror` BAD inputs are independent: the first has no error marker;
+the second retains healthy nonzero results. Both use an actual exit-zero child.
+The latter guard rejects `INTERNALERROR>` regardless of exit status.
+
+This check does not fix pytest-xdist's underlying exit-status path or add a
+new guard to standalone Make invocations outside ci-shape. Keep `Refs #1923`
+until the remaining caller/runner scope is explicitly disposed; any remaining
+guard is a separate follow-up, as the adjusted issue requests.
