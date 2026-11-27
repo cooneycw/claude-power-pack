@@ -1,0 +1,81 @@
+{
+  "gate": "scripts/codex-review-run.sh",
+  "invocation": [
+    "uv",
+    "run",
+    "--extra",
+    "dev",
+    "--frozen",
+    "python",
+    "controls/ci-shape-review-entry/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "good_signal": "CI_SHAPE_REVIEW_CONTROL: admitted -",
+  "detect_signal": "CI_SHAPE_REVIEW_CONTROL: refused -",
+  "unavailable_signal": "CI_SHAPE_REVIEW_CONTROL: unavailable -",
+  "cases": [
+    {
+      "name": "bad",
+      "input": "cases/bad",
+      "expect": "BAD"
+    },
+    {
+      "name": "duplicate",
+      "input": "cases/duplicate",
+      "expect": "BAD"
+    },
+    {
+      "name": "false-good",
+      "input": "cases/false-good",
+      "expect": "BAD"
+    },
+    {
+      "name": "good",
+      "input": "cases/good",
+      "expect": "GOOD"
+    },
+    {
+      "name": "missing-identity",
+      "input": "cases/missing-identity",
+      "expect": "BAD"
+    },
+    {
+      "name": "neighbor",
+      "input": "cases/neighbor",
+      "expect": "GOOD"
+    },
+    {
+      "name": "neighbor-lookalike",
+      "input": "cases/neighbor-lookalike",
+      "expect": "GOOD"
+    },
+    {
+      "name": "silent-zero",
+      "input": "cases/silent-zero",
+      "expect": "BAD"
+    },
+    {
+      "name": "unknown",
+      "input": "cases/unknown",
+      "expect": "BAD"
+    },
+    {
+      "name": "zero-unknown",
+      "input": "cases/zero-unknown",
+      "expect": "BAD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "historical",
+      "sha": "7878db6f47690b5d5a2f1cfcff547e4726c9dda4",
+      "origin": "scripts/codex-review-run.sh",
+      "path": "anchors/pre-required-entry.sh",
+      "sha256": "4cd91384529101e511ad31df0ac752387256580b4b8d74245b3bb872f216e81d",
+      "why": "Actual pre-gate helper invokes the reviewer for BAD, UNKNOWN and malformed CPP qualification inputs."
+    }
+  ],
+  "limits": "Consumer admission on controlled producer results; no model call, model identity claim, actual suite/image run or complete shell analysis. CPP GOOD exact invocation count is also pinned by the public-entry tests; every ordinary-neighbor control requires zero qualification calls."
+}
