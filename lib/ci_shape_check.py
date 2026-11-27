@@ -67,6 +67,14 @@ REQUIRED_WITNESSES = {
     "1923": _WITNESS_MODULE + "test_physical_canary_and_real_collector[internalerror]",
     "1927": "tests/test_pi_skill_install.py::test_unreadable_control_unknown_is_the_actual_ledger_permission_failure",
 }
+ROOT_ONLY_NODES = frozenset({
+    "tests/test_pi_skill_install.py::test_root_unreadable_control_executes_real_cli_as_unprivileged_child",
+    REQUIRED_WITNESSES["1910-root"], REQUIRED_WITNESSES["1910-path"], REQUIRED_WITNESSES["1916-path"],
+})
+OPTIONAL_HISTORY_NODES = frozenset(
+    "tests/test_host_update_command.py::test_real_historical_installer_population[" + name + "]"
+    for name in ("real-pre-e32-install", "real-v13-install")
+)
 HISTORICAL_PIN = "40d25173c8c09987fac851cffa565efdc0f11c72"
 # A small runtime surface. In particular Git/Make are ONLY in the staged dir.
 SYSTEM_TOOLS = (
@@ -176,9 +184,8 @@ def completion(result: dict, returncode: int, log: str, tier: str) -> tuple[str,
             return "BAD", "pytest failures or invalid terminal outcomes"
         # A non-root run may skip only tests explicitly requiring real uid 0.
         for nodeid, reason in skips.items():
-            root_skip = tier == "local" and "requires real root" in reason
-            history_prefix = "tests/test_host_update_command.py::test_real_historical_installer_population["
-            history_skip = (nodeid.startswith(history_prefix)
+            root_skip = tier == "local" and nodeid in ROOT_ONLY_NODES and "requires real root" in reason
+            history_skip = (nodeid in OPTIONAL_HISTORY_NODES
                             and ("historical installer" in reason or "partial clone:" in reason))
             if not root_skip and not history_skip:
                 return "BAD", "unexpected skip: " + reason[:200]
@@ -390,6 +397,11 @@ def run_lane(root: Path, seed: Path, witness: str, work: Path, stage: Path,
                     except subprocess.TimeoutExpired:
                         os.killpg(proc.pid, signal.SIGKILL)
                         proc.wait()
+                    # The group can still have children after its leader exits.
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
                 raise
         log = (logs / (name + ".log")).read_text()
         payload = json.loads(results.read_text()) if results.exists() else {}

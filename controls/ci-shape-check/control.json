@@ -115,6 +115,11 @@
       "name": "bootstrap-code",
       "input": "cases/bootstrap-code",
       "expect": "BAD"
+    },
+    {
+      "name": "false-root-skip",
+      "input": "cases/false-root-skip",
+      "expect": "BAD"
     }
   ],
   "anchors": [
@@ -123,7 +128,7 @@
       "sha": "n/a",
       "origin": "scripts/ci-shape-check.py",
       "path": "anchors/blind-ci-shape-check.py",
-      "sha256": "b7a4a4c8eb91bd925feeef656f275d2e4febad10bc6df597501d0d0ced0445da",
+      "sha256": "4788194ebb5a0088f4d5147f69de377b1a28dadf6cd5b6a86f655d4eba6c18b4",
       "why": "Availability-only verifier agrees on genuine GOOD/UNKNOWN and misses shape, incomplete-result and cross-tier BAD cases."
     }
   ]

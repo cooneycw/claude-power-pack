@@ -24,7 +24,8 @@ spec.loader.exec_module(cases)
 @pytest.mark.skipif(not shutil.which("git") or not shutil.which("make"), reason="Git and Make required")
 @pytest.mark.parametrize("fault", ["good", "mode", "symlink", "ci", "git", "make", "filter",
                                  "shallow", "history", "root-claim", "internalerror", "incomplete",
-                                 "missing-witness", "below-floor", "umask-mismatch", "umask-unknown", "unavailable"])
+                                 "missing-witness", "below-floor", "umask-mismatch", "umask-unknown",
+                                 "false-root-skip", "unavailable"])
 def test_physical_canary_and_real_collector(tmp_path, fault):
     receipt = cases.fixture(tmp_path, fault)
     state, reason = shape.assess(receipt, tier=receipt["tier"], commit=receipt["commit"],

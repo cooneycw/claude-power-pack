@@ -125,6 +125,11 @@ def fixture(work, fault):
             assert results["selected"]
             del results["outcomes"][results["selected"][0]]
             assert set(results["selected"]) != set(results["outcomes"])
+        elif fault == "false-root-skip":
+            node = shape.REQUIRED_WITNESSES["1909-modes"]
+            assert results["outcomes"][node] == "passed"
+            results["outcomes"][node] = "skipped"
+            results["skips"][node] = "requires real root (deliberately false label on non-root witness)"
         elif fault == "missing-witness":
             missing_node = shape.REQUIRED_WITNESSES["1923"]
             assert missing_node in results["selected"]
