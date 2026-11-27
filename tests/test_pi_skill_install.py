@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -31,11 +32,24 @@ def test_root_unreadable_control_executes_real_cli_as_unprivileged_child():
     assert report["reason"] == "filesystem unavailable (PermissionError)"
 
 
-def test_unreadable_control_unknown_is_the_actual_ledger_permission_failure():
-    answer = subprocess.run(
-        [sys.executable, str(ROOT / "controls/pi-skill-install/run-case.py"), str(CLI),
-         str(ROOT / "controls/pi-skill-install/cases/unreadable-install")],
-        capture_output=True, text=True, timeout=45)
+@pytest.mark.parametrize("symlink_tmpdir", [False, True], ids=["direct", "symlink"])
+@pytest.mark.parametrize("child_umask", [0o022, 0o000], ids=["umask022", "umask000"])
+def test_unreadable_control_unknown_is_the_actual_ledger_permission_failure(symlink_tmpdir, child_umask):
+    # Keep root's dropped child able to traverse the fixture parent. Pytest's
+    # own basetemp ancestors can be private to root.
+    with tempfile.TemporaryDirectory(prefix="pi-control-tmpdir-") as temporary:
+        root = Path(temporary).resolve()
+        root.chmod(0o755)
+        direct = root / "direct"
+        direct.mkdir(mode=0o755)
+        alias = root / "alias"
+        alias.symlink_to(direct, target_is_directory=True)
+        assert alias.is_symlink() and alias.resolve() == direct
+        env = {**os.environ, "TMPDIR": str(alias if symlink_tmpdir else direct)}
+        answer = subprocess.run(
+            [sys.executable, str(ROOT / "controls/pi-skill-install/run-case.py"), str(CLI),
+             str(ROOT / "controls/pi-skill-install/cases/unreadable-install")],
+            env=env, umask=child_umask, capture_output=True, text=True, timeout=45)
     assert answer.returncode == 4, (answer.stdout, answer.stderr)
     report = json.loads(answer.stdout.split("PI_SKILL_INSTALL: unknown ", 1)[1])
     assert report["exit_code"] == 4
