@@ -701,3 +701,28 @@ The independent current-source byte-identical legacy control still asks no
 migration question. Both real historical installs and that current identical
 control pass (3passed/58.92s), preserving the underlying distinction rather
 than treating the historical v13 label as an eternal currency claim.
+
+
+### Pre-fourth-review verification checkpoint
+
+At ddd02ae06eea844cc161c862941ef5166c8c8f94, normal-HOME supervised
+`make verify` returned0:14110passed,5skipped in1010.04s. All subsequent
+checks passed, including149 registered controls,0unavailable and55/55 historical
+anchors byte-compared, with none uncompared or off-main. The owned short TMP
+/tmp/v.3kja6fyv was deleted; wrapper elapsed including cleanup1601.89s.
+
+The separately invoked bare `make negative-controls` then returned0 at the same
+clean head:149registered PASS,0unavailable,55/55 historical anchors compared,
+0uncompared/off-main/unknown. Its driver used the Make target's global Python
+caller, not a project-uv wrapper; individual declared controls own their runtime.
+Normal HOME was /home/claude, UID1000. Native supervisor requests1835/1837 owned
+the leases; no manual active flag or nested finish supervisor was used. The exact
+/tmp/n.00u6d9o9 was deleted,422.48s including cleanup. Logs are
+owner-b-full-verify.log and owner-b-negative-controls.log in the external
+1889-b2b-1 validation directory.
+
+The following checkpoint changes only documentation: this evidence and the
+active v13 explanation, distinguishing historical equality from the four newly
+approved input changes. Product/test/baseline content remains ddd02ae0. The
+owner-authorized fourth review, its independent receipt and paired finish gate
+remain pending. No fifth pass, PR or native/auth acceptance is claimed.

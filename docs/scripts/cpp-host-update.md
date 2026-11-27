@@ -403,7 +403,9 @@ Bootstrap now names every differing expected package in existing UNKNOWN
 conflicts and separately names retired/unexpected packages as UNMANAGED.
 No ownership is inferred from a generated marker and no package is adopted
 automatically. Byte-identical legacy output initializes its record without a
-migration question, including the actual v13.0.0 control.
+migration question. Actual v13.0.0 output was identical before the owner-approved
+generator-input change below; it now names the two affected packages for
+migration. The current-source identical legacy control still asks no question.
 
 For stale expected Codex packages with no unexpected legacy entries, update
 shows the named list and one executable command with repeated, scoped
