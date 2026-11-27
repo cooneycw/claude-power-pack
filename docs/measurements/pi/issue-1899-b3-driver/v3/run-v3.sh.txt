@@ -1,0 +1,15 @@
+#!/bin/bash
+# run.sh <alpha|beta> <tag>: start, prompt once, wait until classify.py ACCEPTS (max 180 s). pi stays OPEN. Pane log kept.
+T5=$(dirname "$0"); r=$1; L=$2; C=$T5/capture-$L.txt; A=$T5/accept-$L.json
+rm -f -- "$A"
+"$T5/start.sh" $r $L || exit 9
+cd "$T5/cpp"
+TEXT=$(python3 docs/measurements/pi/issue-1899-b3-probe.py prompt --tag $L --root "$HOME/.cpp-pi-1899-probe" | python3 -c 'import json,sys; print(json.load(sys.stdin)["prompt"])') || { echo STOP-prompt; exit 8; }
+tmux send-keys -t pib3 -l "$TEXT"; sleep 1; tmux send-keys -t pib3 Enter
+ok=0; prev=""
+for i in $(seq 1 180); do sleep 1
+  tmux capture-pane -p -e -J -t pib3 -S -300 > "$C"
+  if out=$(python3 "$T5/v3/classify-v3.py" "$C"); then [ "$out" = "$prev" ] && ok=$((ok+1)) || ok=1; prev="$out"; else ok=0; prev=""; fi
+  [ $ok -ge 4 ] && break; done
+if [ $ok -ge 4 ]; then echo "$prev" > "$A"; echo "ACCEPTED($L) after ${i}s: $prev" | cut -c1-400
+else echo "REFUSED($L): $(python3 "$T5/v3/classify-v3.py" "$C")"; echo "pi LEFT OPEN for review; pane log kept"; exit 7; fi

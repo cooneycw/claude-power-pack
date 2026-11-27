@@ -1,0 +1,23 @@
+classify v3 (sha 14bb36fb327c2862a837d81111ab93f41179c0ba65b92afa3d56c25dd296befe) vs v2 (bdf986dc). Boundary source: pi 1.6.0 dist/modes/interactive/components/assistant-message.js renders thinking via Markdown(..., {italic: true}) in the thinkingText colour, then a Spacer before the next visible block. v3 needs styled captures (run-v3.sh: capture-pane -e). Unstyled captures with >1 non-tool content block -> REFUSE (ambiguous).
+CASE | v2 | v3
+1-accept.txt | ACCEPT | ACCEPT final-only='{"nonce": "0123456789abcdef0123456789abc'
+10-two-tool-headers-then-final.txt | ACCEPT | ACCEPT final-only='{"nonce":"NONCE_PLACEHOLDER_B_32_HEX_000'
+1b-accept-after-tool.txt | REFUSE | REFUSE: tool-call phase: no final answer after the tool result
+2-empty.txt | REFUSE | REFUSE: empty capture
+3-stale-footer.txt | REFUSE | REFUSE: stale footer: no token counter, no new reply since the prompt
+4a-tool-running.txt | REFUSE | REFUSE: busy indicator present: unfinished
+4b-tool-phase-no-final.txt | REFUSE | REFUSE: tool-call phase: tool header without its result
+5-real-layout-tool-phase.txt | REFUSE | REFUSE: tool-call phase: no final answer after the tool result
+6-real-header-only.txt | REFUSE | REFUSE: tool-call phase: tool header without its result
+7-real-layout-final.txt | ACCEPT | ACCEPT final-only='{"nonce":"0123456789abcdef0123456789abcd'
+9-sanitized-real-layout-tool-phase.txt | REFUSE | REFUSE: tool-call phase: no final answer after the tool result
+S1-styled-commentary-then-final.txt | ACCEPT (OVER-CAPTURE: reply contains commentary/escape bytes) | ACCEPT final-only='TOOL_UNAVAILABLE'
+S2-styled-commentary-only-with-TOOL_UNAVAILABLE.txt | ACCEPT (OVER-CAPTURE: reply contains commentary/escape bytes) | REFUSE: commentary only: no final answer after the displayed commentary
+S3-styled-commentary-only-with-nonce-json.txt | ACCEPT (OVER-CAPTURE: reply contains commentary/escape bytes) | REFUSE: commentary only: no final answer after the displayed commentary
+S4-mixed-italic-normal-one-line.txt | ACCEPT (OVER-CAPTURE: reply contains commentary/escape bytes) | REFUSE: ambiguous block boundary: mixed italic/normal inside one block
+S5-no-spacer-between-commentary-and-final.txt | ACCEPT (OVER-CAPTURE: reply contains commentary/escape bytes) | REFUSE: ambiguous block boundary: mixed italic/normal inside one block
+S6-unstyled-commentary-then-final.txt | ACCEPT (OVER-CAPTURE: reply contains commentary/escape bytes) | REFUSE: ambiguous block boundary: unstyled capture with several content blocks
+S7-styled-tool-result-no-final.txt | ACCEPT (OVER-CAPTURE: reply contains commentary/escape bytes) | REFUSE: tool-call phase: no final answer after the tool result
+S8-styled-tool-result-commentary-final.txt | ACCEPT (OVER-CAPTURE: reply contains commentary/escape bytes) | ACCEPT final-only='{"nonce":"NONCE_PLACEHOLDER_32_HEX_00000'
+case 10 (two tool headers): ACCEPT in both classifiers; the one-call cap stays in session.sh (tool_event_lines>1 -> STOP exit 6), unchanged.
+Real captures, run locally and NOT included: T2-alpha, T2-beta, T3-beta, T4-alpha, T4-beta -> v3 ACCEPT (same verdict as v2); T5-beta (unstyled, over-captured under v2) -> v3 REFUSE ambiguous. v3 was NOT used for any historical row.

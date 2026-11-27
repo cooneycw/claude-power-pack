@@ -76,13 +76,13 @@ def session_replay(tmp_path, control, version):
     folder = tmp_path / 'driver'
     folder.mkdir()
     script = folder / 'session.sh'
-    script.write_bytes(stored('session.sh').read_bytes())
+    script.write_bytes((V3 / 'session-v3.sh.txt' if version == 3 else stored('session.sh')).read_bytes())
     script.chmod(0o700)
-    classifier = stored(f'classify-v{version}.py')
+    classifier = V3 / 'classify-v3.py.txt' if version == 3 else stored(f'classify-v{version}.py')
     capture = EXPORTED / 'controls' / control
     run = (f'#!/bin/sh\n{shlex.quote(sys.executable)} {shlex.quote(str(classifier))} '
            f'{shlex.quote(str(capture))} > "$(dirname "$0")/accept-$2.json"\n')
-    for name, body in [('run.sh', run),
+    for name, body in [('run-v3.sh' if version == 3 else 'run.sh', run),
                        ('close.sh', '#!/bin/sh\nprintf "close\\n" >> "$CAPTURE_TEST_TRACE"\n'),
                        ('record.sh', '#!/bin/sh\nprintf "record\\n" >> "$CAPTURE_TEST_TRACE"\n')]:
         path = folder / name
@@ -179,3 +179,42 @@ def test_xcheck_bound_verdicts(case, tmp_path):
     assert result.returncode == XCASES[case], result.stdout + result.stderr
     if version == 2:
         assert json.loads(result.stdout)['verdict'] == {0: 'AGREE', 1: 'DISAGREE', 4: 'REFUSE'}[XCASES[case]]
+
+
+V3 = EXPORTED.parent / 'v3'
+
+
+def test_v3_delivered_hashes_and_selected_wrapper():
+    for line in (V3 / 'SHA256SUMS').read_text().splitlines():
+        digest, name = line.split('  ', 1)
+        path = V3 / (name + '.txt' if name.endswith(('.py', '.sh')) else name)
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == digest
+    base = stored('session.sh').read_bytes()
+    assert (V3 / 'session-v3.sh.txt').read_bytes() == base.replace(b'"$T5/run.sh"', b'"$T5/run-v3.sh"')
+    assert 'capture-pane -p -e -J' in (V3 / 'run-v3.sh.txt').read_text()
+
+
+@pytest.mark.parametrize('control', sorted(p.name for p in (V3 / 'cases').glob('*.txt')))
+def test_v3_final_only_controls(control):
+    version = 2 if os.environ.get('CPP_PI_CAPTURE_ARCHIVE_V2') == '1' else 3
+    result = subprocess.run([sys.executable, str(V3 / f'classify-v{version}.py.txt'),
+                             str(V3 / 'cases' / control)], capture_output=True, text=True)
+    expected = 0 if control.startswith(('S1-', 'S8-')) else 1 if control.startswith('S') else VERDICTS[control][1]
+    assert result.returncode == expected, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    if control.startswith('S1-'):
+        assert data['reply'] == 'TOOL_UNAVAILABLE'
+    if control.startswith('S8-'):
+        assert data['reply'].startswith('{') and '\x1b' not in data['reply']
+        assert data['reply'].count('\n') == 0
+
+
+def test_v3_actual_session_cap_and_positive(tmp_path):
+    two = tmp_path / 'two'
+    two.mkdir()
+    result, trace = session_replay(two, '10-two-tool-headers-then-final.txt', 3)
+    assert result.returncode == 6 and not trace.exists()
+    one = tmp_path / 'one'
+    one.mkdir()
+    result, trace = session_replay(one, '7-real-layout-final.txt', 3)
+    assert result.returncode == 0 and trace.read_text().splitlines() == ['close', 'record']

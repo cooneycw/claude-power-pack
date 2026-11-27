@@ -144,3 +144,41 @@ future recordable rows in addition to the original verifier, not instead of it.
 Current ledger: six prompts, seven known rounds plus lost T1-beta 0-1,
 actual 7-8 and conservative book eight. Ten prompts remain, at most 20 rounds;
 overall upper bound is 28 within 16/32. B3 remains incomplete.
+
+## T4/T5 receipts and v3 extraction correction
+
+Master 42704 reports HTTP-direct T4 verified in both repositories: each two
+rounds/one tool event, record exit 0, verifier exit 0, v2 count AGREE 1=1 and
+pi exit 0. Alpha nonce prefix 02e3f189, reply-hash prefix aef1bddb; beta nonce
+prefix 23ac6e80, reply-hash prefix 778e9314. The retained HTTP PID is 3943054.
+Control BEFORE/AFTER, audit and undo all exit 0; foreign entry preserved.
+
+Default-exposure T5-alpha produced one observed round with no visible reply,
+HTTP initialization from peer pi and no tools/call. Full current scrollback
+SHA256 ffe48431cb4114bc36f35c1b91221f918bb96e3590ac22e03912585698c7691f
+was reportedly saved before close, pi exit 0. No reply record, verifier pass or
+count-crosscheck pass is fabricated; it remains unrecordable.
+
+Master 42711/42723 reports T5-beta one round, no backend tools/call, pi exit 0,
+v2 count AGREE 0=0 and verifier exit 1 NO VERIFIED CALL. Its final visible line
+was TOOL_UNAVAILABLE, preceded by a displayed commentary block. The automatic
+v2 recorder overcaptured that block with the final line. The exclusive reply
+file remains unchanged, 372 bytes, SHA256
+e4d927328e4ed60a187503ca87ddb1dbceda3cfc3394a6fc34e9609e664195ad;
+full controlled capture SHA256
+ac160da8c23d19d45f388fb45cfd3ff673825085e224f7cb715d6c8cb9c36bae.
+This artifact is NOT a clean final-only reply record. Its commentary prose is
+not reproduced or committed. Model commentary does not establish an actual API
+tool invocation or explain the earlier visible-empty observations. T5 AFTER,
+audit and undo reportedly exited 0, preserving the foreign entry.
+
+The third capture correction is the frozen v3 styled-boundary classifier and
+separate session-v3 wrapper documented in the driver README. Its eight new
+structural assertions fail under v2; all 57 local capture/crosscheck cases pass
+with v3, including actual wrapper cap replay. No historical row used v3.
+The author may now clear T6 under the new bound scripts; activation receipt is
+pending. No historical file is rewritten and no prompt is retried.
+
+Ledger at T5 completion: ten prompts, 13 known rounds plus lost T1-beta 0-1,
+actual 13-14 and conservative book 14. Six prompts remain, at most 12 rounds,
+overall upper bound 26 within 16/32. B3 remains incomplete.

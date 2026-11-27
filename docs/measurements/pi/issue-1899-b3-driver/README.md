@@ -96,3 +96,44 @@ For the predecessor red run set `CPP_PI_XCHECK_ARCHIVE_V1=1` and select
 The v1 checks reported on earlier host rows remain historical unbound counts;
 master was asked to recheck retained T2-alpha/T2-beta/T3-beta using v2 without
 new prompts before T4. Those recheck receipts are pending at this commit.
+
+## Styled capture correction v3
+
+Master 42723 supplied v3.tar, independently matched SHA256
+f677bc68b48e4012ff82b369364e35bd1da8702f77f22f49344758c319ef7d2f.
+All 24 regular members and supplied member hashes were independently checked
+and preserved under [v3](v3/VERDICTS.txt), again with script `.txt` suffixes.
+The 19 controls include the previous 11 and eight neutral structural cases;
+no real displayed commentary prose or host capture is included.
+
+Master attributes the italic/spacer render boundary to pi 1.6.0's installed
+dist/modes/interactive/components/assistant-message.js. This author has not
+independently inspected that installed source. v3 separates italic blocks
+from subsequent normal blocks using SGR styling and spacer boundaries; mixed
+blocks, commentary-only, unstyled multiple blocks and incomplete tool phases
+refuse. Styling is a display boundary, not API role or provenance proof.
+Require styled tmux capture-pane -e for future turns. Unsupported layouts stop.
+
+Accepted classifier SHA256:
+14bb36fb327c2862a837d81111ab93f41179c0ba65b92afa3d56c25dd296befe.
+Supplied run-v3.sh SHA256:
+4cac2ad9e1214270e0c2dffc81b58f91c8bd554a7c7ec4c9693ad70af56fcae9.
+The selected session-v3.sh is locally derived from the frozen session.sh by
+changing ONLY its run.sh collaborator to run-v3.sh, preserving the cap:
+SHA256 80495a5ab7b812d0e93425fe695e938b52bbb26b1ad987056da1d67cf2d0813a.
+Use it as a separate wrapper; retain original scripts and historical hashes.
+The run script expects the helper's existing v3/classify-v3.py location.
+The committed scripts are evidence; their operational paths remain host-owned.
+
+Actual safe replay: all 57 capture/crosscheck cases pass. Setting
+CPP_PI_CAPTURE_ARCHIVE_V2=1 and selecting v3_final_only_controls produces eight
+expected failures against exact v2: overcapture or false acceptance in all new
+S1-S8 cases. v3 final extraction and refusal assertions pass, and the actual
+selected session-v3 cap refuses two tools before close/record while permitting
+one completed call. Local replay executes no tmux/pi or real run script.
+Temporary fixture HOMEs and basetemps are removed after each verdict.
+
+v3 was used for no historical host row. Master reports zero-model replay of
+retained T2/T3-beta/T4 captures accepts, while unstyled T5-beta refuses; those
+are attributed, not independent real-capture inspection. The author requests
+v3 application from T6 onward; exact activation time/hash receipt is pending.
