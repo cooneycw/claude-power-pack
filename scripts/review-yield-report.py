@@ -88,7 +88,8 @@ def archive_receipts(content, entries):
                 if stream is None:
                     raise ReadError(f"pinned receipt unreadable: {entry['path']}")
                 blob = stream.read()
-                oid = hashlib.sha1(b"blob " + str(len(blob)).encode() + b"\0" + blob).hexdigest()
+                oid = hashlib.sha1(b"blob " + str(len(blob)).encode() + b"\0" + blob,
+                                   usedforsecurity=False).hexdigest()
                 if oid != entry["sha"]:
                     raise ReadError(f"pinned receipt blob mismatch: {entry['path']}")
                 blobs.append(blob)
