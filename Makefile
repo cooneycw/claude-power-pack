@@ -1296,7 +1296,7 @@ ci-shape-check:
 	uv run python scripts/ci-shape-check.py run --tier "$(CI_SHAPE_TIER)" --receipt "$(CI_SHAPE_RECEIPT)"
 ## verify-coverage: excluded ci-shape-canary - subset of negative-controls; ci: excluded duplicate-subset
 ci-shape-canary:
-	uv run python scripts/check-negative-controls.py --control controls/ci-shape-check --strict --verify-provenance
+	python3 scripts/check-negative-controls.py --control controls/ci-shape-check --strict --verify-provenance
 ## verify-coverage: utility test-ci-shape - focused shape probes/collector; full suite owns verdict
 test-ci-shape:
 	uv run --extra dev --frozen python scripts/ci-shape-check.py tests
