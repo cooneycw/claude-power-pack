@@ -1,7 +1,17 @@
 {
-  "state": "UNKNOWN",
+  "state": "GOOD",
   "image": "ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36",
-  "umask": null,
-  "evidence": null,
-  "reason": "Awaiting an actual pinned validate-image/default-shell umask probe; do not infer 022 from the worker."
+  "umask": 18,
+  "identity": {
+    "egid": 0,
+    "euid": 0,
+    "gid": 0,
+    "groups": [
+      0
+    ],
+    "uid": 0
+  },
+  "root_checkpoint": "1c989eeefac0074290d326c0f43dc72fdbc7c0b7",
+  "receipt_sha256": "a836c2c1a1a63b53a5fb8f6b9cfceb55842b1e14de2d51202276b80980d5e2ad",
+  "evidence": "docs/measurements/ci-shape-check/validate-default-shell.txt"
 }

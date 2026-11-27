@@ -1,0 +1,2 @@
+CI_SHAPE_DEFAULT_UMASK=0022
+uid=0(root) gid=0(root) groups=0(root)

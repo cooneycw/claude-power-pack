@@ -1,7 +1,7 @@
 # Opt-in CI shape qualification (#1917 PR-A)
 
-Status: implementation and qualification in progress. No root/image success
-or full acceptance is claimed by this draft record.
+Status: image/root qualification is GOOD at `1c989eee`. Final-head local
+qualification, review, the direct finish gate and PR CI remain pending.
 
 | Witness | Committed input and expected distinction | Evidence required |
 |---|---|---|
@@ -118,3 +118,34 @@ source's Git directory and passes only its working-tree and Git-directory
 spellings to this fetch's upload-pack command. That witness is pinned in the
 required collection. The host command file is unchanged; executable code is
 re-frozen at the retry checkpoint after verification.
+
+## Successful image/root qualification
+
+The single authorized retry ran `1c989eeefac0074290d326c0f43dc72fdbc7c0b7`
+on 2026-11-27 at 15:01:43-15:09:35 UTC and exited 0. The committed host command
+file matched SHA256 `605a37100e03a5a250c031134386ee719224972eb33c23fc8f0e356b95be173a`.
+The pinned image's shell and Python entry process both observed umask 0022;
+both lanes observed real uid/euid/gid/egid 0 and supplementary groups `[0]`.
+
+Both depth-1 and depth-1/tree:0 lanes selected 256 tests, executed 254 and
+skipped two named historical installer comparisons. The shallow lane reported
+absent historical commits; the partial lane reported the explicit partial-clone
+exclusion. Their independent historical-file witness and all required root,
+PATH, mode, CI=true, INTERNALERROR and zero-execution cases executed. The root
+permission child proved uid/gid 65534 with no supplementary groups before the
+actual CLI returned its expected PermissionError result. No root-only skip was
+accepted in this tier. Lane times were 245.23 and 195.53 seconds.
+
+The [raw root receipt](ci-shape-check/root-receipt.json) is committed unchanged:
+SHA256 `a836c2c1a1a63b53a5fb8f6b9cfceb55842b1e14de2d51202276b80980d5e2ad`,
+119,798 bytes. Eleven original delivery files were hashed before copying and
+verified under `/workspace/.work/cpp-1917-evidence/host-1c989eee/`. The image and
+[default-shell observation](ci-shape-check/validate-default-shell.txt) are
+published beside the receipt. The digest-bound profile copies the observed
+mask, full identity and exact receipt hash; tests check their agreement.
+
+Only the approved profile/docs/measurement paths change after the frozen root
+checkpoint. The bootstrap checker must qualify the final pre-review profile
+head, which must also receive its own local-tier GOOD. Root evidence stays
+bound to the exact ancestor above; the later review receipt follows the
+independently checked receipt-only path.
