@@ -190,7 +190,7 @@ test-host-update-core:
 
 ## verify-coverage: utility test-pi-rules-probe - isolated B2 handoff guards and blind-anchor controls; full suite owns gate
 .PHONY: test-pi-rules-probe
-PI_RULE_PROBE_TESTS ?= tests/test_pi_rules_probe.py
+PI_RULE_PROBE_TESTS ?= tests/test_pi_rules_probe.py tests/test_pi_model_pin.py
 test-pi-rules-probe:
 	uv run --extra dev pytest -q $(PI_RULE_PROBE_TESTS)
 

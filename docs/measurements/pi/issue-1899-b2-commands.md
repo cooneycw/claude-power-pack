@@ -3,6 +3,7 @@
 Status: READY FOR ORCHESTRATOR/MASTER REVIEW; no B2 host execution claimed.
 MAX MODEL TURNS: 32 (16 transitions x 2 scratch repositories); NO RETRIES.
 First model-turn batch on the owner's disposable sign-in; requires owner's go.
+Owner amendment: pin codex 5.3 using one exact, provider-qualified CLI-listed ID.
 Refs #1899. B0's [attributed completion](issue-1899-b0-results.md) establishes
 the retained disposable root and owner sign-in. One HOME and fresh pi processes
 per comparison; no further sign-in is planned. No owner-pane questions.
@@ -19,8 +20,8 @@ must contain the reviewed helper and all fixtures; the historical B0 checkout
 alone does not contain them. Never pull or switch the owner's working checkout
 implicitly; master chooses the reviewed source path.
 
-Intervention pi-1899-B2 touches only the two named global rule paths in the
-existing disposable agent and its work/pi-1899-b2-state.json journal. Fixtures
+Intervention pi-1899-B2's rule helper touches only the two named global rule
+paths in the existing disposable agent and its work/pi-1899-b2-state.json journal. Fixtures
 are read from the reviewed CPP checkout. The helper never starts pi, lists the
 agent, reads settings/session history, or probes credential files. It checks
 only named rule paths, its own journal/fixtures, and the bounded context paths
@@ -33,6 +34,54 @@ pairing. Matching names do not establish unchanged bytes or no transient writes.
 Use the retained amended collector, not the original names-printing B0 block.
 Run it before B2, after its rule matrix, after size samples and after final undo.
 No credential file contents or metadata are inspected.
+
+## 0. Resolve the owner's model choice with zero model turns
+
+B2 was paused before its first turn for the owner's ruling to pin codex 5.3.
+Before resuming, master records whether the paused job created a B2 journal or
+rule files. Existing preparation is not automatically retried or adopted; a
+preexisting-journal refusal goes to master for a scoped resume disposition.
+The published 1.6.0 CLI supports --offline --list-models with optional search,
+and --model provider/id. Exact syntax and list-table structure are bound in the
+[source note](issue-1899-pi-1.6.0-source.md). Do not guess an ID from the informal
+name or read any settings, auth or model-store file.
+
+```bash
+python3 docs/measurements/pi/issue-1899-b2-model.py resolve --root "$HOME/.cpp-pi-1899-probe"
+```
+
+The [model helper](issue-1899-b2-model.py) runs only pi's offline listing, with
+env -i-equivalent explicit environment construction, probe HOME/agent, no stdin
+or prompt, and all tools/MCP/extensions/skills/context discovery disabled. It
+prints matching provider-qualified IDs from pi's available-model table. Only
+one matching row may proceed; none, multiple, duplicate, malformed output,
+diagnostics, nonzero exit or timeout stops before ANY model turn. Offline
+listing may lack current cached availability; do not retry online or choose a
+different provider implicitly. Route an unresolved exact ID to master/owner.
+Record the listing as intervention pi-1899-B2-model-pin: its helper writes only
+the pin evidence under work; pi may perform its normal disposable-root store
+initialization. Keep that evidence until final retention/whole-root cleanup.
+
+The match requires both codex and version 5.3 in the MODEL ID, not a guessed
+display name; different variants such as a second codex 5.3 row remain ambiguous.
+Availability is pi's CLI report under its configured provider, not independent
+proof of authentication or runtime identity. No helper inspects store contents.
+Only pi itself uses its normal isolated internal authentication machinery.
+--offline disables startup network operations by documented intent; this is
+not a network-confinement or zero-auth-access claim about pi.
+
+The helper creates work/pi-1899-b2-model-pin.json exclusively. It records the
+unique provider/id and a digest of the CLI listing. Failed resolution leaves
+an invalid reservation for manual review; no retry or automatic replacement.
+Record the first printed ID and pin-file hash as the one batch selection. Every
+launch below rereads this probe-owned evidence, adds --model with that exact
+ID, and prints it before starting pi. Compare it with the original selection
+and record pi's on-screen selected provider/model ID BEFORE entering the prompt.
+A changed pin or screen mismatch stops the batch. A shortened/friendly label
+that cannot establish the exact selected provider/id stays unresolved: stop and
+ask master, using only pi's UI/CLI, never settings or stores. No model cycling.
+The same model must be used for every one of the maximum 32 turns. These are
+configuration/display observations, not B4 resolved runtime-model evidence.
 
 ## 1. Prepare and refuse contamination
 
@@ -145,6 +194,8 @@ Alpha:
 ```bash
 (
 set -eu
+model_pin=$(python3 docs/measurements/pi/issue-1899-b2-model.py read --root "$HOME/.cpp-pi-1899-probe")
+printf 'Pinned model: %s\n' "$model_pin"
 cd -- "$HOME/.cpp-pi-1899-probe/work/repo-alpha"
 env -i PATH="$PATH" TERM="${TERM:-xterm-256color}" LANG=C.UTF-8 \
   HOME="$HOME/.cpp-pi-1899-probe/home" \
@@ -153,7 +204,7 @@ env -i PATH="$PATH" TERM="${TERM:-xterm-256color}" LANG=C.UTF-8 \
   XDG_DATA_HOME="$HOME/.cpp-pi-1899-probe/data" \
   XDG_CACHE_HOME="$HOME/.cpp-pi-1899-probe/cache" \
   TMPDIR="$HOME/.cpp-pi-1899-probe/tmp" \
-  pi --no-session --no-tools --no-mcp --no-extensions --no-skills
+  pi --no-session --no-tools --no-mcp --no-extensions --no-skills --model "$model_pin"
 )
 ```
 
@@ -162,6 +213,8 @@ Beta:
 ```bash
 (
 set -eu
+model_pin=$(python3 docs/measurements/pi/issue-1899-b2-model.py read --root "$HOME/.cpp-pi-1899-probe")
+printf 'Pinned model: %s\n' "$model_pin"
 cd -- "$HOME/.cpp-pi-1899-probe/work/repo-beta"
 env -i PATH="$PATH" TERM="${TERM:-xterm-256color}" LANG=C.UTF-8 \
   HOME="$HOME/.cpp-pi-1899-probe/home" \
@@ -170,7 +223,7 @@ env -i PATH="$PATH" TERM="${TERM:-xterm-256color}" LANG=C.UTF-8 \
   XDG_DATA_HOME="$HOME/.cpp-pi-1899-probe/data" \
   XDG_CACHE_HOME="$HOME/.cpp-pi-1899-probe/cache" \
   TMPDIR="$HOME/.cpp-pi-1899-probe/tmp" \
-  pi --no-session --no-tools --no-mcp --no-extensions --no-skills
+  pi --no-session --no-tools --no-mcp --no-extensions --no-skills --model "$model_pin"
 )
 ```
 
@@ -261,7 +314,8 @@ published. B2 supplies no B4 transcript-access authorization.
 
 ## Local handoff verification (not host B2 evidence)
 
-The final focused fixture suite passed 12 cases; lint passed. The edited-rule
+The rule-guard fixture suite passed 12 cases; the model-pin amendment brings
+the combined focused suite to 21 passing cases; lint passed. The edited-rule
 refusal case ran red with the committed blind guard (DID NOT RAISE ValueError)
 and green with the real guard. An unavailable-ancestor-metadata case ran red on
 the original draft's lexists implementation (DID NOT RAISE PermissionError),
@@ -279,3 +333,17 @@ CPP_PI_RULE_PROBE_BLIND_CONTROL=1 make test-pi-rules-probe 'PI_RULE_PROBE_TESTS=
 Expected: test failure, because the blind guard deletes an edited synthetic
 rule instead of refusing. Do not enable that test-only control during a normal
 test run; the production mutation helper has no environment bypass.
+
+The model parser uses committed synthetic one/two/none/malformed CLI tables
+under tests/fixtures/pi-model-list. Its ambiguity-refusal case ran red with
+the committed blind selector (DID NOT RAISE ValueError) and passed with the real
+selector. Tests stub pi execution and check explicit probe environment, no
+prompt, exclusive pin creation, diagnostics/exit refusal and symlink refusal.
+The production model helper has no test-control environment bypass. The
+synthetic provider/model IDs are fixtures, not a host availability claim.
+
+Reproduce the model selector's deliberate red ONLY in local synthetic fixtures:
+
+```bash
+CPP_PI_MODEL_PIN_BLIND_CONTROL=1 make test-pi-rules-probe 'PI_RULE_PROBE_TESTS=tests/test_pi_model_pin.py::test_ambiguous_listing_refused'
+```
