@@ -625,7 +625,10 @@ def test_displayed_legacy_command_is_usable_after_review(source, tmp_path):
     ("40d25173c8c09987fac851cffa565efdc0f11c72", True),
 ], ids=["real-pre-e32-install", "real-v13-install"])
 def test_real_historical_installer_population(source, tmp_path, revision, v13_baseline):
+    from tests.conftest import skip_in_partial_clone
+
     root = CLI.parents[1]
+    skip_in_partial_clone(root)
     available = subprocess.run(["git", "-C", str(root), "cat-file", "-e", revision + "^{commit}"],
                                capture_output=True, text=True)
     if available.returncode:
