@@ -33,7 +33,7 @@ def until(predicate, seconds=15):
 
 
 def cancellation_probe(owned, *, ignore_term=False, driver_signal=signal.SIGTERM,
-                       blind_owner=False, supervisor=(), readiness_seconds=15, observe_group=None):
+                       blind_owner=False, supervisor=(), readiness_seconds=15, observe_group=None, force_unconfirmed=False):
     """Cancel actual run_lane after its real pytest and grandchild are ready.
 
     Checkout/probe preparation is controlled to keep this a tiny process-owner
@@ -76,6 +76,10 @@ def cancellation_probe(owned, *, ignore_term=False, driver_signal=signal.SIGTERM
     if blind_owner:
         blind = ("import runpy\n"
                  f"shape._owned_pytest = runpy.run_path({str(BLIND_OWNER)!r})['owned_pytest']\n")
+    forced = "shape._pytest_group_live = lambda pgid: True\n" if force_unconfirmed else ""
+    next_lane = ("(owned / 'next-lane-started').write_text('attempted after cancellation')\n"
+                 "shape.run_lane(owned, owned, 'controlled', owned / 'next-lane', owned / 'stage', "
+                 "Path(sys.executable), 'local', False, owned / 'logs', 0o022)\n") if force_unconfirmed else ""
     driver.write_text(
         "import sys; from pathlib import Path\n"
         f"sys.path.insert(0, {str(ROOT)!r})\n"
@@ -84,9 +88,9 @@ def cancellation_probe(owned, *, ignore_term=False, driver_signal=signal.SIGTERM
         "shape.SELECTORS = ('test_hold.py',)\n"
         "shape.checkout = lambda *args: owned / 'checkout'\n"
         "shape.observe = lambda *args: ({'controlled_input': True}, {})\n"
-        + blind + "row = shape.run_lane(owned, owned, 'controlled', owned / 'lane', "
+        + blind + forced + "row = shape.run_lane(owned, owned, 'controlled', owned / 'lane', "
         "owned / 'stage', Path(sys.executable), 'local', False, owned / 'logs', 0o022)\n"
-        "raise SystemExit('unexpected qualification completion: ' + repr(row))\n"
+        + next_lane + "raise SystemExit('unexpected qualification completion: ' + repr(row))\n"
     )
     pids = {}
     starts = {}
@@ -114,7 +118,9 @@ def cancellation_probe(owned, *, ignore_term=False, driver_signal=signal.SIGTERM
             survivors = [name for name, pid in pids.items() if live(pid, started=starts[name])]
             if observe_group is not None:
                 assert not observe_group(pids["pytest"]), "production probe retained a stopped group"
-            return dict(outer_exit=outer_exit, survivors=survivors, pids=pids, timing=timing)
+            return dict(outer_exit=outer_exit, survivors=survivors, pids=pids, timing=timing,
+                        next_lane_started=(owned / "next-lane-started").exists(),
+                        diagnostic=(owned / "driver.log").read_text())
         finally:
             if producer.poll() is None:
                 producer.terminate()
@@ -168,3 +174,15 @@ def test_group_probe_distinguishes_actual_live_and_stopped_pytest(tmp_path):
     observed = cancellation_probe(tmp_path, ignore_term=True, observe_group=shape._pytest_group_live)
     assert observed['survivors'] == []
     assert observed['outer_exit'] == 128 + signal.SIGTERM
+
+
+@pytest.mark.skipif(not Path('/proc').is_dir() or not shutil.which('git') or not shutil.which('make'),
+                    reason='Linux process state, Git and Make required')
+def test_cancel_wins_when_group_stop_is_unconfirmed(tmp_path):
+    observed = cancellation_probe(tmp_path, force_unconfirmed=True)
+    assert observed['outer_exit'] == 143, observed
+    assert not observed['next_lane_started'], observed
+    assert observed['survivors'] == [], observed
+    assert 'CI_SHAPE_CANCEL: UNKNOWN:' in observed['diagnostic']
+    assert 'owned pytest group did not stop after SIGKILL' in observed['diagnostic']
+    assert 'CI_SHAPE: GOOD' not in observed['diagnostic']
