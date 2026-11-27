@@ -1,4 +1,5 @@
 """Exercise real checkout probes and terminal-result collection (#1917)."""
+import ast
 import copy
 import hashlib
 import importlib.util
@@ -323,48 +324,66 @@ def test_1916_unchanged_owner_helper_loses_staged_tools(tmp_path):
     assert not Path(args.journal).exists()
 
 
-def test_1922_ci_true_rewritten_assertion_is_bounded_after_fix(tmp_path):
-    # Extracted unchanged 79f2edf helper; its frozen 138KB input is already
-    # vendored by #1909. Only the assertion syntax differs in the green child.
+def _rich_assertion_witness(tmp_path, observer, current=None):
+    # Extract exact helper bodies, so this witness follows the maintained fix.
+    # The old path must enter pytest's rich-comparison hook; the fixed path
+    # must reject the same real bytes without entering it. No timed verdict.
     reference = ROOT / "controls/antigravity-skill-build/reference/codex-skill-sync-40d25173.py"
     assert reference.stat().st_size > 100_000
     old = (HISTORY / "1922-ci-assert.txt").read_text()
-    text = '''import faulthandler, hashlib, pytest
+    if current is None:
+        source = (ROOT / "tests/test_codex_skill_sync.py").read_text()
+        tree = ast.parse(source)
+        current = "\n\n".join(ast.get_source_segment(source, node) for node in tree.body
+                              if isinstance(node, ast.FunctionDef) and node.name in {
+                                  "_retired_cpp_generator_fixture", "_assert_only_retired_cpp_data_changed"})
+    prefix = '''import hashlib, pytest
 from pathlib import Path
 ROOT = Path(ROOT_VALUE)
 _RETIRED_CPP_HELPERS = ("friction-log.sh", "commands-mirror-sync.sh", "codex-skill-sync.py",
                         "install-memory-harness.sh", "retired-surface-prune.py", "install-drift.sh")
 _FROZEN_GENERATOR_SHA = "395696707af11e0bd181741879534fbe02807fe56f659c189b44e3e45bc5d7ea"
-'''.replace("ROOT_VALUE", repr(str(ROOT))) + old + '''
+'''.replace("ROOT_VALUE", repr(str(ROOT)))
+    exercise = '''
 def test_expected_guard_failure():
     _, expected, _, _ = _retired_cpp_generator_fixture()
     bad = expected.replace(b"def is_cpp_checkout_ref(", b"def blind_cpp_checkout_ref(", 1)
     assert bad != expected
-    faulthandler.dump_traceback_later(1)
-    try:
-        with pytest.raises(AssertionError, match="six approved retired CPP exception rows"):
-            _assert_only_retired_cpp_data_changed(bad)
-    finally:
-        faulthandler.cancel_dump_traceback_later()
+    Path("candidate.bin").write_bytes(bad)
+    Path("expected.bin").write_bytes(expected)
+    with pytest.raises(AssertionError, match="six approved retired CPP exception rows"):
+        _assert_only_retired_cpp_data_changed(bad)
 '''
     env = dict(os.environ, CI="true", PYTEST_DISABLE_PLUGIN_AUTOLOAD="1")
-    results = []
-    for name, source in (("old", text), ("fixed", text.replace(
-            '    assert candidate == expected, "only the six approved retired CPP exception rows may differ"',
-            '    if candidate != expected:\n'
-            '        raise AssertionError("only the six approved retired CPP exception rows may differ")'))):
+    observations = []
+    for name, helper in (("old", old), ("fixed", current)):
         directory = tmp_path / name
         directory.mkdir()
         target = directory / "test_guard.py"
-        target.write_text(source)
-        try:
-            child = subprocess.run([sys.executable, "-m", "pytest", "-q", "-s", str(target),
-                                    "-o", "addopts="], cwd=directory, env=env,
-                                   capture_output=True, text=True, timeout=4)
-            results.append((name, "completed", child.returncode, child.stdout + child.stderr))
-        except subprocess.TimeoutExpired as exc:
-            output = (exc.stdout or b"") + (exc.stderr or b"")
-            results.append((name, "timeout", None, output.decode(errors="replace")))
-    assert results[0][1] == "timeout", "4058 predecessor must reproduce the expensive rich assertion"
-    assert "difflib" in results[0][3] or "_pytest/assertion" in results[0][3]
-    assert results[1][1:3] == ("completed", 0), results[1][3][-2000:]
+        target.write_text(prefix + helper + exercise)
+        (directory / "conftest.py").write_text(observer.read_text())
+        child = subprocess.run([sys.executable, "-m", "pytest", "-q", str(target),
+                                "--confcutdir", str(directory), "--rootdir", str(directory),
+                                "-o", "addopts="], cwd=directory, env=env,
+                               capture_output=True, text=True, timeout=60)
+        assert child.returncode == 0, child.stdout + child.stderr
+        record = directory / "rich-comparisons.txt"
+        observations.append(record.read_text().splitlines() if record.exists() else [])
+    assert observations[0] == ["candidate == expected"], "observer missed historical rich assertion"
+    assert observations[1] == [], "maintained helper entered rich assertion for large invalid bytes"
+
+
+def test_1922_ci_true_rewritten_assertion_is_bounded_after_fix(tmp_path):
+    _rich_assertion_witness(tmp_path, HISTORY / "rich-assert-observer.py")
+
+
+def test_1922_witness_rejects_blind_observer(tmp_path):
+    # Committed blind control still bounds output but drops the observation.
+    with pytest.raises(AssertionError, match="observer missed historical rich assertion"):
+        _rich_assertion_witness(tmp_path, HISTORY / "blind-rich-assert-observer.py")
+
+
+def test_1922_witness_rejects_actual_historical_helper_as_current(tmp_path):
+    old = (HISTORY / "1922-ci-assert.txt").read_text()
+    with pytest.raises(AssertionError, match="maintained helper entered rich assertion"):
+        _rich_assertion_witness(tmp_path, HISTORY / "rich-assert-observer.py", current=old)
