@@ -33,7 +33,8 @@ def until(predicate, seconds=15):
 
 
 def cancellation_probe(owned, *, ignore_term=False, driver_signal=signal.SIGTERM,
-                       blind_owner=False, supervisor=(), readiness_seconds=15, observe_group=None, force_unconfirmed=False):
+                       blind_owner=False, supervisor=(), readiness_seconds=15, observe_group=None,
+                       force_unconfirmed=False):
     """Cancel actual run_lane after its real pytest and grandchild are ready.
 
     Checkout/probe preparation is controlled to keep this a tiny process-owner
@@ -180,8 +181,10 @@ def test_group_probe_distinguishes_actual_live_and_stopped_pytest(tmp_path):
                     reason='Linux process state, Git and Make required')
 def test_cancel_wins_when_group_stop_is_unconfirmed(tmp_path):
     observed = cancellation_probe(tmp_path, force_unconfirmed=True)
+    assert not observed['next_lane_started'], (
+        f"cancel swallowed: outer_exit={observed['outer_exit']}; next_lane_started={observed['next_lane_started']}"
+    )
     assert observed['outer_exit'] == 143, observed
-    assert not observed['next_lane_started'], observed
     assert observed['survivors'] == [], observed
     assert 'CI_SHAPE_CANCEL: UNKNOWN:' in observed['diagnostic']
     assert 'owned pytest group did not stop after SIGKILL' in observed['diagnostic']
