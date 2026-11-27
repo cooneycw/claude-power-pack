@@ -55,3 +55,42 @@ precondition check pass together under a deliberately long/xdist-shaped root:
 root failures above are the red runs; no synthetic blind implementation is
 substituted for this regression proof. Independent pass 2, post-merge CI-shape
 qualification, a refreshed finish gate and PR CI remain pending at this note.
+
+
+## Subsequent full gate: frozen-shell packaging
+
+After clean main fc0624e7 merge, exact head 6774a476 completed 14,316 tests with
+12 named skips and no failures in 1190.16 seconds. Typecheck passed 582 files;
+lint and security passed. The aggregate finish verdict was nevertheless FAIL
+at ShellCheck, which content-sniffed 22 frozen .sh.txt inputs as shell programs.
+Their intentionally preserved historical quoting/style findings must not be
+repaired in the evidence originals. Exact make shellcheck on detached main
+fc0624e7 passed 123 files/style/source git; the branch population was 145.
+Thus the new population, not a pre-existing main failure, caused this gate red.
+
+The canonical gate has no general evidence-directory exemption; its only
+fixture exclusions belong to control cases/anchors. Under orchestrator 43051's
+explicit third-pass reason, the 22 shell originals are now losslessly serialized
+as .sh.b64 data, with raw and stored digests and strict test-only decoding.
+No operational helper, ShellCheck rule, severity, whitelist or original source
+byte changed. Python sources and textual event inputs retain their prior form.
+
+Three committed malformed/canonical-format inputs require decoder refusal.
+Replacing the decoder with the exact earlier raw read_bytes operation makes
+all three refusal assertions fail; this is a constructed blind-reader control,
+not a claim that base64 was historically deployed. Every original script hash
+and all existing functional controls still pass. Long caller-path validation
+now passes 143 checks (142 focused cases plus the real-tree precondition check).
+The earlier full-test/typecheck evidence remains valid only for its named head;
+a complete post-packaging finish verdict and third review are still pending.
+
+
+Post-packaging unchanged make shellcheck is GOOD: 123 operative files at style
+severity, zero findings, source git. Its registered negative-control battery
+also passes, including deliberately bad extensionless/option-like/style cases
+and explicit unknown cases; the gate and its population rules are unchanged.
+Every decoded shell source matches its original digest record (including the
+three previously derived-wrapper hashes), not only the new storage-map digest.
+Orchestrator 43056 authorized review pass 3 for this precise data-packaging
+correction. The full finish gate will run once on the final merged head after
+that receipt and the #1960 merge; the earlier 6774 gate is not substituted.

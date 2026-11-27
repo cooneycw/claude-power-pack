@@ -10,15 +10,27 @@ or persisted pi session file was supplied. controls/9 is a sanitized native-layo
 tool-phase derivative, not the original raw screen. Other control provenance is
 described by the supplied MANIFEST.txt; no extra authenticity claim is made.
 
-The exported directory contains the delivered BYTES. Script files have an
-additional .txt suffix: classify-v2.py becomes classify-v2.py.txt, session.sh
-becomes session.sh.txt, and so on. This follows the repository's frozen-source
-fixture convention. These are historical evidence assets, not installed helpers;
-do not format, repair or deploy them. No lint exclusions were added. The original
-names in SHA256SUMS map to those .txt data paths; tests verify every digest and
-membership before replay. Sanitized launch paths contain <HELPER_WORKDIR> and
-control cwd lines contain /PROBE. Launch templates are NOT operational as-is.
-The export manifest separately retains the original unsanitized launch hashes.
+The original decoded bytes are preserved. Python sources retain their .py.txt
+suffix and unchanged file bytes. Frozen shell sources are stored as .sh.b64
+DATA: canonical unwrapped RFC 4648 base64 followed by one LF. This prevents
+historical inputs from being mistaken for live shell scripts by the unchanged
+content-aware ShellCheck gate. No gate exemption or disabled check was added.
+
+[SHELL-STORAGE.tsv](SHELL-STORAGE.tsv) maps each previous .sh.txt path to its
+stored .sh.b64 path, original decoded SHA256 and encoded-file SHA256. Original
+SHA256SUMS files retain their original member identifiers and decoded digests;
+they are not encoded-file manifests. Tests strictly decode before verifying
+those digests and replaying the same controlled code paths. Malformed encoding,
+missing LF and noncanonical padding bits have committed refusal inputs. The
+historical handoff sections below may describe the earlier .txt representation;
+this packaging rule supersedes that suffix, not their original byte hashes.
+
+These are historical evidence assets, not installed helpers; do not format,
+repair or deploy the decoded sources. Sanitized launch paths contain
+<HELPER_WORKDIR> and control cwd lines contain /PROBE. Launch templates are NOT
+operational as-is. The export manifest separately retains original unsanitized
+launch hashes. The original Nit Store row-v4.sh.txt line reference identifies
+line 10 of the decoded source; the storage map preserves that correspondence.
 
 ## Instrument and proof roles
 

@@ -27,17 +27,20 @@ its six files are exact constructed inputs, not captured host responses.
 All tar digests below were recomputed by the author. Member paths/types and
 bytes were examined before retention; supplied member digests were checked.
 These are sanitized helper/control exports, not raw session or capture exports.
-No raw credential or persisted session file was opened. Script .txt suffixes
-preserve bytes and prevent historical inputs becoming operational entry points.
+No raw credential or persisted session file was opened. Python .py.txt files
+are byte copies; shell .sh.b64 files are serialized data whose strict decoding
+reproduces the originals. [SHELL-STORAGE.tsv](issue-1899-b3-driver/SHELL-STORAGE.tsv)
+maps previous paths and both encoded/decoded hashes. No ShellCheck exclusion or
+source-byte repair is used. Original member digests below name decoded bytes.
 
 | Original export identifier | SHA256 | Reviewed repository derivative and mapping |
 |---|---|---|
-| drv2.tar | 0f89803dcfb8f6a9a36f52b14a3c0c38f06350761a8dde6c464e14fa0df2d040 | [exported/SHA256SUMS](issue-1899-b3-driver/exported/SHA256SUMS); all 22 regular members copied byte-identically, .py/.sh gain .txt suffix; account paths already replaced by exporter |
-| xchk.tar | 8eaccfb9cc50947767c095f9a5b4b7d2254bbfc8d87fb731379b2630b4031574 | [xcheck/SHA256SUMS](issue-1899-b3-driver/xcheck/SHA256SUMS); all 19 regular members copied byte-identically, scripts gain .txt |
-| v3.tar | f677bc68b48e4012ff82b369364e35bd1da8702f77f22f49344758c319ef7d2f | [v3/SHA256SUMS](issue-1899-b3-driver/v3/SHA256SUMS); all 24 regular members copied byte-identically, scripts gain .txt; neutral structural controls replace displayed commentary prose |
-| v4.tar | 1d439f86729c9e81259e943fc8306a47f73f50c22745c240fd145510869d46fc | [v4/SHA256SUMS](issue-1899-b3-driver/v4/SHA256SUMS); all 34 regular members copied byte-identically, scripts gain .txt |
-| v4-wrappers.tar | 54f552e964efc2f46424fef6df221b664d41de198cc90f9c259e833f7e21059c | Both supplied wrapper bytes compared equal to locally derived v4 run/session .txt files; no duplicate archive committed |
-| final.tar | f3e1dde8baae9688698acaa8dcea137d5be102aa1fede05a061b45404ef12dc2 | [source digest list](issue-1899-b3-driver/final/SOURCE-SHA256SUMS.txt); all five source member hashes verified; manifest/ledger/two wrapper files retained, scripts gain .txt; raw cleanup deliberately omitted |
+| drv2.tar | 0f89803dcfb8f6a9a36f52b14a3c0c38f06350761a8dde6c464e14fa0df2d040 | [exported/SHA256SUMS](issue-1899-b3-driver/exported/SHA256SUMS); all 22 original members retained, Python as .py.txt and shell as .sh.b64 data with original decoded hashes; account paths already replaced by exporter |
+| xchk.tar | 8eaccfb9cc50947767c095f9a5b4b7d2254bbfc8d87fb731379b2630b4031574 | [xcheck/SHA256SUMS](issue-1899-b3-driver/xcheck/SHA256SUMS); all 19 original members retained with the decoded-byte mapping above |
+| v3.tar | f677bc68b48e4012ff82b369364e35bd1da8702f77f22f49344758c319ef7d2f | [v3/SHA256SUMS](issue-1899-b3-driver/v3/SHA256SUMS); all 24 original members retained with the decoded-byte mapping above; neutral structural controls replace displayed commentary prose |
+| v4.tar | 1d439f86729c9e81259e943fc8306a47f73f50c22745c240fd145510869d46fc | [v4/SHA256SUMS](issue-1899-b3-driver/v4/SHA256SUMS); all 34 original members retained with the decoded-byte mapping above |
+| v4-wrappers.tar | 54f552e964efc2f46424fef6df221b664d41de198cc90f9c259e833f7e21059c | Both supplied wrapper bytes compared equal to locally derived decoded v4 run/session originals; no duplicate archive committed |
+| final.tar | f3e1dde8baae9688698acaa8dcea137d5be102aa1fede05a061b45404ef12dc2 | [source digest list](issue-1899-b3-driver/final/SOURCE-SHA256SUMS.txt); all five source member hashes verified; manifest/ledger/two wrapper files retained, shell sources use .sh.b64 data; raw cleanup deliberately omitted |
 
 The raw final cleanup source SHA256 is
 582680bbfd31d2ca3e0f71389063e28043ec314085c28512d3b7b31b5b6e3d4c.

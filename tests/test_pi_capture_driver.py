@@ -1,4 +1,6 @@
-"""Frozen host driver controls; no tmux, pi, provider calls or owner files."""
+"""Frozen fixture replay; private tmux only, no pi/provider calls or owner files."""
+import base64
+import csv
 import hashlib
 import json
 import os
@@ -28,8 +30,78 @@ VERDICTS = {
 }
 
 
+def archive_path(folder, name):
+    if name.endswith('.sh.txt'):
+        name = name[:-4] + '.b64'
+    elif name.endswith('.sh'):
+        name += '.b64'
+    elif name.endswith('.py'):
+        name += '.txt'
+    return folder / name
+
+
+def fixture_bytes(path):
+    raw = path.read_bytes()
+    if path.suffix != '.b64':
+        return raw
+    if not raw.endswith(b'\n'):
+        raise ValueError('frozen base64 must have one terminating newline')
+    decoded = base64.b64decode(raw[:-1], validate=True)
+    if base64.b64encode(decoded) + b'\n' != raw:
+        raise ValueError('noncanonical frozen base64')
+    return decoded
+
+
+def fixture_text(path):
+    return fixture_bytes(path).decode('utf-8')
+
+
 def stored(name):
-    return EXPORTED / (name + '.txt' if name.endswith(('.py', '.sh')) else name)
+    return archive_path(EXPORTED, name)
+
+
+def test_serialized_shell_population_and_both_digests():
+    root = EXPORTED.parent
+    recorded = {}
+    for name in ['exported', 'xcheck', 'v3', 'v4', 'exact-target', 'exact-pane-target', 'final']:
+        folder = root / name
+        manifest = folder / ('SOURCE-SHA256SUMS.txt' if name == 'final' else 'SHA256SUMS')
+        for line in manifest.read_text().splitlines():
+            digest, member = line.split('  ', 1)
+            path = archive_path(folder, member)
+            if path.suffix == '.b64':
+                recorded[path.relative_to(root).as_posix()] = digest
+    # These derived collaborators were not members of the supplied tarballs;
+    # their complete hashes were recorded in the pre-packaging driver README.
+    recorded.update({
+        'v3/session-v3.sh.b64': '80495a5ab7b812d0e93425fe695e938b52bbb26b1ad987056da1d67cf2d0813a',
+        'v4/run-v4.sh.b64': '8d054e350928b6afa582ab0370d483516e83ccece16d54dcf68d54e6b3993a2b',
+        'v4/session-v4.sh.b64': 'b44ada9545bf4c3a559ee12a7a2167b4de8c304efcee81e8a053d54e09970afb',
+    })
+    with (root / 'SHELL-STORAGE.tsv').open() as source:
+        rows = list(csv.DictReader(source, delimiter='\t'))
+    assert rows
+    assert {p.relative_to(root).as_posix() for p in root.rglob('*.sh.b64')} == {
+        row['stored_path'] for row in rows}
+    assert set(recorded) == {row['stored_path'] for row in rows}
+    for row in rows:
+        path = root / row['stored_path']
+        assert row['stored_path'] == row['previous_path'][:-4] + '.b64'
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == row['stored_sha256']
+        decoded = fixture_bytes(path)
+        assert decoded.startswith(b'#!')
+        assert row['decoded_sha256'] == recorded[row['stored_path']]
+        assert hashlib.sha256(decoded).hexdigest() == row['decoded_sha256']
+
+
+@pytest.mark.parametrize('name,expected', [
+    ('invalid', b'not base64!\n'), ('no-newline', b'YQ=='), ('noncanonical', b'YR==\n'),
+])
+def test_serialized_shell_reader_refuses_corrupt_input(name, expected):
+    path = ROOT / 'tests/fixtures' / f'pi-driver-{name}.b64'
+    assert path.read_bytes() == expected, 'negative input precondition changed'
+    with pytest.raises(ValueError):
+        fixture_bytes(path)
 
 
 def classify(version, control):
@@ -48,7 +120,7 @@ def test_exported_members_match_delivered_digests():
     for line in (EXPORTED / 'SHA256SUMS').read_text().splitlines():
         digest, name = line.split('  ', 1)
         path = stored(name)
-        assert hashlib.sha256(path.read_bytes()).hexdigest() == digest, name
+        assert hashlib.sha256(fixture_bytes(path)).hexdigest() == digest, name
         names.add(path.relative_to(EXPORTED).as_posix())
     actual = {p.relative_to(EXPORTED).as_posix() for p in EXPORTED.rglob('*') if p.is_file()}
     assert actual == names | {'SHA256SUMS'}
@@ -78,9 +150,9 @@ def session_replay(tmp_path, control, version):
     folder = tmp_path / 'driver'
     folder.mkdir()
     script = folder / 'session.sh'
-    wrapper = (V4 / 'session-v4.sh.txt' if version == 4
-               else V3 / 'session-v3.sh.txt' if version == 3 else stored('session.sh'))
-    script.write_bytes(wrapper.read_bytes())
+    wrapper = (V4 / 'session-v4.sh.b64' if version == 4
+               else V3 / 'session-v3.sh.b64' if version == 3 else stored('session.sh'))
+    script.write_bytes(fixture_bytes(wrapper))
     script.chmod(0o700)
     classifier = ((V4 if version == 4 else V3) / f'classify-v{version}.py.txt'
                   if version >= 3 else stored(f'classify-v{version}.py'))
@@ -131,7 +203,7 @@ def test_actual_record_script_keeps_log_without_accepted_reply(tmp_path):
     (folder / 'accept-T2-alpha.json').unlink()
     assert not (folder / 'accept-T2-alpha.json').exists()
     record = folder / 'record.sh'
-    record.write_bytes(stored('record.sh').read_bytes())
+    record.write_bytes(fixture_bytes(stored('record.sh')))
     log = folder / 'pipe-T2-alpha.log'
     log.write_bytes(b'controlled fixture capture retained')
     assert shutil.which('tmux', path=str(tmp_path / 'tools')) is None, 'fixture must lack live tmux'
@@ -158,7 +230,7 @@ def xcheck_replay(case, tmp_path, version=2):
                               capture_output=True, text=True)
     # Exact v1 script, isolated HOME and only fixture-controlled inputs.
     script = tmp_path / 'xcheck.sh'
-    script.write_bytes((XCHECK / 'xcheck-v1.sh.txt').read_bytes())
+    script.write_bytes(fixture_bytes(XCHECK / 'xcheck-v1.sh.b64'))
     accept = folder / 'accept-T2-alpha.json'
     if accept.exists():
         shutil.copyfile(accept, tmp_path / accept.name)
@@ -173,8 +245,8 @@ def xcheck_replay(case, tmp_path, version=2):
 def test_xcheck_export_hashes():
     for line in (XCHECK / 'SHA256SUMS').read_text().splitlines():
         digest, name = line.split('  ', 1)
-        path = XCHECK / (name + '.txt' if name.endswith(('.py', '.sh')) else name)
-        assert hashlib.sha256(path.read_bytes()).hexdigest() == digest
+        path = archive_path(XCHECK, name)
+        assert hashlib.sha256(fixture_bytes(path)).hexdigest() == digest
     assert hashlib.sha256((XCHECK / 'xcheck-v2.py.txt').read_bytes()).hexdigest() == (
         'ad77186ad2ec9e8954b81dabcaeabaa92357a2f677b510c950e748f4af2593d7')
 
@@ -194,11 +266,11 @@ V3 = EXPORTED.parent / 'v3'
 def test_v3_delivered_hashes_and_selected_wrapper():
     for line in (V3 / 'SHA256SUMS').read_text().splitlines():
         digest, name = line.split('  ', 1)
-        path = V3 / (name + '.txt' if name.endswith(('.py', '.sh')) else name)
-        assert hashlib.sha256(path.read_bytes()).hexdigest() == digest
-    base = stored('session.sh').read_bytes()
-    assert (V3 / 'session-v3.sh.txt').read_bytes() == base.replace(b'"$T5/run.sh"', b'"$T5/run-v3.sh"')
-    assert 'capture-pane -p -e -J' in (V3 / 'run-v3.sh.txt').read_text()
+        path = archive_path(V3, name)
+        assert hashlib.sha256(fixture_bytes(path)).hexdigest() == digest
+    base = fixture_bytes(stored('session.sh'))
+    assert fixture_bytes(V3 / 'session-v3.sh.b64') == base.replace(b'"$T5/run.sh"', b'"$T5/run-v3.sh"')
+    assert 'capture-pane -p -e -J' in fixture_text(V3 / 'run-v3.sh.b64')
 
 
 @pytest.mark.parametrize('control', sorted(p.name for p in (V3 / 'cases').glob('*.txt')))
@@ -242,8 +314,8 @@ def tmux_case(tmp_path):
 
 def test_exact_target_variants_change_only_target_selection():
     for name in ['start.sh', 'run.sh', 'run-v3.sh', 'close.sh']:
-        original = V3 / (name + '.txt') if name == 'run-v3.sh' else stored(name)
-        assert (EXACT / (name + '.txt')).read_bytes() == original.read_bytes().replace(b'-t pib3', b'-t =pib3')
+        original = archive_path(V3, name) if name == 'run-v3.sh' else stored(name)
+        assert fixture_bytes(archive_path(EXACT, name)) == fixture_bytes(original).replace(b'-t pib3', b'-t =pib3')
 
 
 @pytest.mark.skipif(shutil.which('tmux') is None, reason='requires tmux on an isolated socket')
@@ -269,7 +341,7 @@ def test_actual_close_preserves_prefix_neighbor(tmux_case, pi_exists):
         (tmp_path / 'exit-T6-beta').write_text('0\n')
         script = tmp_path / 'close.sh'
         original = os.environ.get('CPP_PI_TMUX_PREFIX_OLD') == '1'
-        script.write_bytes((stored('close.sh') if original else EXACT / 'close.sh.txt').read_bytes())
+        script.write_bytes(fixture_bytes(stored('close.sh') if original else EXACT / 'close.sh.b64'))
         subprocess.run([shutil.which('bash'), str(script), 'T6-beta'],
                        env={**os.environ, 'HOME': str(tmp_path), 'PATH': str(tools) + os.pathsep + os.environ['PATH']},
                        capture_output=True, text=True, timeout=5)
@@ -288,7 +360,7 @@ PANE_EXACT = EXPORTED.parent / 'exact-pane-target'
 def test_actual_pane_target_from_corrected_scripts(tmux_case, operation):
     old = os.environ.get('CPP_PI_PANE_TARGET_OLD') == '1'
     folder = EXACT if old else PANE_EXACT
-    scripts = '\n'.join((folder / (name + '.txt')).read_text()
+    scripts = '\n'.join(fixture_text(archive_path(folder, name))
                         for name in ['start.sh', 'run.sh', 'run-v3.sh', 'close.sh'])
     targets = set(re.findall(r'tmux ' + operation + r'[^;\n]*?-t (\S+)', scripts))
     assert len(targets) == 1
@@ -313,7 +385,7 @@ def test_actual_pane_target_from_corrected_scripts(tmux_case, operation):
 
 
 def test_corrected_close_keeps_session_target_and_pane_target_distinct():
-    text = (PANE_EXACT / 'close.sh.txt').read_text()
+    text = fixture_text(PANE_EXACT / 'close.sh.b64')
     assert 'send-keys -t =pib3:' in text
     assert 'kill-session -t =pib3 ' in text
 
@@ -324,11 +396,11 @@ V4 = EXPORTED.parent / 'v4'
 def test_v4_export_and_wrapper_bindings():
     for line in (V4 / 'SHA256SUMS').read_text().splitlines():
         digest, name = line.split('  ', 1)
-        path = V4 / (name + '.txt' if name.endswith('.py') else name)
-        assert hashlib.sha256(path.read_bytes()).hexdigest() == digest
-    assert (V4 / 'run-v4.sh.txt').read_bytes() == (PANE_EXACT / 'run-v3.sh.txt').read_bytes().replace(
+        path = archive_path(V4, name)
+        assert hashlib.sha256(fixture_bytes(path)).hexdigest() == digest
+    assert fixture_bytes(V4 / 'run-v4.sh.b64') == fixture_bytes(PANE_EXACT / 'run-v3.sh.b64').replace(
         b'v3/classify-v3.py', b'v4/classify-v4.py')
-    assert (V4 / 'session-v4.sh.txt').read_bytes() == (V3 / 'session-v3.sh.txt').read_bytes().replace(
+    assert fixture_bytes(V4 / 'session-v4.sh.b64') == fixture_bytes(V3 / 'session-v3.sh.b64').replace(
         b'run-v3.sh', b'run-v4.sh')
 
 
