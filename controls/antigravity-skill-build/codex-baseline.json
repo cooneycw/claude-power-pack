@@ -1776,11 +1776,11 @@
         420
       ],
       "candidate": [
-        "8982ead792b3f85e4b0e30f69fbfd3f79474d3fb980a05dc4e522af6f985550c",
+        "34294b8aa24411b3f4b95115512f340ca0ae4f58b8c6ba15d0d77094696048ca",
         420
       ],
-      "source_commit": "b5d3f3b27211710140d27973082b1588c39e5fbf",
-      "reason": "R3a #1863 selected-report kind persistence changes the bundled receipt/yield helper inputs; monthly-create declares its canonical sibling dependency. Exact input-byte attribution only; pinned generator, parser and historical members remain unchanged."
+      "source_commit": "38a7b5355264bf67864d83130dd471f491dcdd7c",
+      "reason": "R3b #1925 reads review receipts from an exact-commit archive instead of serial blob requests. Exact input-byte attribution only; pinned generator, parser, historical members and attribution row set remain unchanged."
     },
     "monthly-create/scripts/counter-model-receipt.py": {
       "baseline": null,
@@ -1797,11 +1797,11 @@
         493
       ],
       "candidate": [
-        "b0c9ab5eb29c1fc82dda0a9c3203a98e821bc9efa1c11b1eefcd157b4215d701",
+        "b4f9d7a7fc248876b4ae16121b041697f20deba48f7e2e74956f1c8d2b4fe89d",
         493
       ],
-      "source_commit": "b5d3f3b27211710140d27973082b1588c39e5fbf",
-      "reason": "R3a #1863 selected-report kind persistence changes the bundled receipt/yield helper inputs; monthly-create declares its canonical sibling dependency. Exact input-byte attribution only; pinned generator, parser and historical members remain unchanged."
+      "source_commit": "38a7b5355264bf67864d83130dd471f491dcdd7c",
+      "reason": "R3b #1925 reads review receipts from an exact-commit archive instead of serial blob requests. Exact input-byte attribution only; pinned generator, parser, historical members and attribution row set remain unchanged."
     }
   }
 }
