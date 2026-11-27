@@ -1,0 +1,69 @@
+{
+  "branch": "issue-1889-b2b-update-wiring",
+  "counts": {
+    "accepted": 2,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "escalation": {
+    "raised_cap": 4,
+    "reference": "https://github.com/cooneycw/claude-power-pack/issues/1889#issuecomment-7204721638",
+    "ruled_by": "owner"
+  },
+  "extra_passes_reason": "Pass 3: F2 is a real correctness defect that the earlier passes and the test harness both missed (a blind instrument), and the fix is narrow. Pass 4: owner-approved deletion of six retired generator data rows and the four attributed bundled-input deltas, found by the finish gate.",
+  "head": "5fa6c46a4af52bb7ee6a7836636f9091b02afcb0",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/25/rollout-2026-11-25T16-21-16-01a21382-e9f4-78b2-8dbd-a63068a99358.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 62603253,
+        "path": "2026/11/25/rollout-2026-11-25T16-21-16-01a21382-e9f4-78b2-8dbd-a63068a99358.jsonl",
+        "sha256": "ad5a0d372f895be842d20fe956f1fd2a4a24807ef58083b3c4760021ccd24607"
+      }
+    ],
+    "thread_id": "01a21382-e9f4-78b2-8dbd-a63068a99358"
+  },
+  "issue": "1889",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 4,
+  "recorded_at": "2026-11-27T00:29:49Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 2
+  },
+  "reviewed_artifact": {
+    "base_sha": "8e6efc03d1393a3bafcce8496709d5161154e7cf",
+    "merge_base": "8e6efc03d1393a3bafcce8496709d5161154e7cf",
+    "method": "runtime-head",
+    "patch_sha256": "e973735172faf16e1a3958eb729335c41955e15bc2ea2fbdff92df5d527805c9",
+    "report_record": 7985,
+    "target_head": "5fa6c46a4af52bb7ee6a7836636f9091b02afcb0"
+  },
+  "reviewer": "claude/claude-opus-5-5",
+  "reviewer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2",
+    "sources": [
+      {
+        "bytes": 15158028,
+        "path": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl",
+        "sha256": "bcfc152a88a2553720294216b17477d212f48a00c36e77692b8d57392cdf101b"
+      }
+    ],
+    "transcript": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}
