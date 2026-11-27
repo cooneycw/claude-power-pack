@@ -66,7 +66,18 @@ REQUIRED_WITNESSES = {
     "1922-4058": _WITNESS_MODULE + "test_1922_ci_true_rewritten_assertion_is_bounded_after_fix",
     "1923": _WITNESS_MODULE + "test_physical_canary_and_real_collector[internalerror]",
     "1923-zero-executed": _WITNESS_MODULE + "test_physical_canary_and_real_collector[zero-executed]",
-    "1927": "tests/test_pi_skill_install.py::test_unreadable_control_unknown_is_the_actual_ledger_permission_failure",
+    "1927": (
+        "tests/test_pi_skill_install.py::test_unreadable_control_unknown_is_the_actual_ledger_permission_failure"
+        "[umask022-symlink]"),
+    "1927-direct022": (
+        "tests/test_pi_skill_install.py::test_unreadable_control_unknown_is_the_actual_ledger_permission_failure"
+        "[umask022-direct]"),
+    "1927-direct000": (
+        "tests/test_pi_skill_install.py::test_unreadable_control_unknown_is_the_actual_ledger_permission_failure"
+        "[umask000-direct]"),
+    "1927-symlink000": (
+        "tests/test_pi_skill_install.py::test_unreadable_control_unknown_is_the_actual_ledger_permission_failure"
+        "[umask000-symlink]"),
 }
 ROOT_ONLY_NODES = frozenset({
     "tests/test_pi_skill_install.py::test_root_unreadable_control_executes_real_cli_as_unprivileged_child",

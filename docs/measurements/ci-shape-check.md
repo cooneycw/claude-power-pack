@@ -64,6 +64,20 @@ The Nit Store record
 now explicitly points to #1927 as its superseding disposition, so it is not a
 second finding.
 
+## #1927 fixed witness
+
+Main `f966fbf5052dca7c5eb6c005b1b7dd24ff8d42e9` (#1928) was merged without
+rebasing. The same maintained pi-install Make smoke with an outer symlinked
+TMPDIR now passes all four direct/symlink and umask-022/000 cases. The prior
+unmodified control failed with `PolicyError: symlink path refused`, as recorded
+above; source policy remains unchanged. This is local uid-1000 evidence, not a
+real-root result.
+
+The fixture's new parameterized names are pinned individually in the manifest.
+Actual pytest collection finds 255 tests and every required named witness,
+above the floor of 200. The full local-tier verdict remains UNKNOWN until the
+frozen host checkpoint supplies the actual validate-image umask profile.
+
 ## #1923 guard scope
 
 The [owner-shared adjustment](https://github.com/cooneycw/claude-power-pack/issues/1923#issuecomment-7220507104)

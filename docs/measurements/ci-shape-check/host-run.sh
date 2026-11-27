@@ -33,7 +33,8 @@ with tempfile.TemporaryDirectory(prefix="cpp-ci-shape-host-") as owned:
     (output / "validate-image.txt").write_text(image + "\n")
     with (output / "validate-default-shell.log").open("w") as log:
         subprocess.run(["docker", "run", "--rm", "--user", "0:0", "--entrypoint", "/bin/sh",
-                        image, "-c", "umask; id"], stdout=log, stderr=subprocess.STDOUT, check=True)
+                        image, "-c", 'printf "CI_SHAPE_DEFAULT_UMASK="; umask; id'],
+                       stdout=log, stderr=subprocess.STDOUT, check=True)
     with (output / "image-launch.log").open("w") as log:
         result = subprocess.run([sys.executable, str(root / "scripts/ci-shape-check.py"), "run",
                                  "--tier", "image", "--receipt", str(output / "image.json")],
@@ -41,7 +42,11 @@ with tempfile.TemporaryDirectory(prefix="cpp-ci-shape-host-") as owned:
     if result.returncode == 0:
         raw = (output / "image.json").read_bytes()
         record = json.loads(raw)
-        observed_mask = int((output / "validate-default-shell.log").read_text().splitlines()[0], 8)
+        shell_log = (output / "validate-default-shell.log").read_text()
+        masks = re.findall(r"^CI_SHAPE_DEFAULT_UMASK=([0-7]{3,4})$", shell_log, re.MULTILINE)
+        if len(masks) != 1:
+            raise SystemExit("default shell umask observation missing or ambiguous; no profile published")
+        observed_mask = int(masks[0], 8)
         identity = record["lanes"][0]["identity"]
         if (record["state"] != "GOOD" or record["commit"] != checkpoint or record["image"] != image
                 or observed_mask != record["pytest_time_umask"]["umask"]
