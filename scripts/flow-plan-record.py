@@ -22,6 +22,11 @@ dispatching from COMPOSITE_VERBS; each inner verdict line is still printed:
                                         begin-run, append FILE, approve
     finish     ISSUE [--base] [--head]  Step 5: drift, compliance, head-check; worst-of exit
 
+`finish --provenance-file FILE` additionally validates the two provenance lines
+in exact closing/PR text. Answers are loaded from
+docs/agents/closing-report-contract.md, never a second list in this helper.
+Without the flag, no provenance is read or checked and all old output is kept.
+
 Run every subcommand from inside the run's worktree. `--body-file`,
 `--live-file` and `--head` replace the `gh` call so the decision can be
 controlled with real local inputs instead of a stubbed `gh`.
@@ -41,6 +46,7 @@ line written, on stderr (issue #1031).
 #: NEGATIVE-CONTROL: controls/delegated-codex-plan-lanes
 #: NEGATIVE-CONTROL: controls/delegated-qwen-plan-lanes
 #: NEGATIVE-CONTROL: controls/delegated-gemma-plan-lanes
+#: NEGATIVE-CONTROL: controls/flow-plan-provenance
 
 from __future__ import annotations
 
@@ -2200,9 +2206,55 @@ def cmd_approve_plan(issue: str, plan_file: str) -> int:
     return worst([int(c.split("=")[1]) for c in codes if c.split("=")[1].isdigit()])
 
 
-def cmd_finish(issue: str, base: str | None, head: str | None) -> int:
+def cmd_provenance(filename: str) -> int:
+    """Validate only the supplied closing text, not the truth of its account."""
+    contract = pathlib.Path(__file__).resolve().parents[1] / "docs/agents/closing-report-contract.md"
+    try:
+        source = contract.read_text(encoding="utf-8")
+        lists: list[list[str]] = []
+        for marker in ("defect-origin-answers", "defect-missed-answers"):
+            opening, closing = f"<!-- {marker} -->", f"<!-- /{marker} -->"
+            if (source.count(opening) != 1 or source.count(closing) != 1
+                    or source.index(opening) >= source.index(closing)):
+                raise ValueError("canonical answer-list markers missing or ambiguous")
+            block = source.split(opening, 1)[1].split(closing, 1)[0]
+            answers = re.findall(r"^- `([^`]+)`", block, re.M)
+            if not answers:
+                raise ValueError("canonical answer list is empty")
+            lists.append(answers)
+    except (OSError, UnicodeError, ValueError):
+        print("FLOW_PROVENANCE: unknown - canonical contract unreadable or malformed")
+        return UNKNOWN
+    try:
+        text = pathlib.Path(filename).read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        print("FLOW_PROVENANCE: unknown - supplied closing text is unreadable")
+        return UNKNOWN
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    problems: list[str] = []
+    for label, answers in zip(("Origin", "Missed because"), lists):
+        values = set(re.findall(rf"^{label}:[ \t]*([^\n]*)", text, re.M))
+        if len(values) != 1 or not next(iter(values)):
+            problems.append(f"{label}: missing, blank or conflicting values")
+            continue
+        value = next(iter(values))
+        patterns = [re.escape(answer).replace(re.escape("<number>"), r"[1-9][0-9]*")
+                    .replace(re.escape("<what was tried>"), r"\S.*") for answer in answers]
+        if not any(re.fullmatch(pattern, value) for pattern in patterns):
+            problems.append(f"{label}: value is outside the canonical list")
+    if problems:
+        print("FLOW_PROVENANCE: invalid - " + "; ".join(problems))
+        return ERROR
+    print("FLOW_PROVENANCE: valid - 2 canonical lines in the supplied closing text")
+    return OK
+
+
+def cmd_finish(issue: str, base: str | None, head: str | None,
+               provenance_file: str | None = None) -> int:
     """Every `finish` verb runs, whatever the others said; each line stays visible."""
     results = [(verb, inner(verb, issue, base, head)) for verb in COMPOSITE_VERBS["finish"]]
+    if provenance_file is not None:
+        results.append(("provenance", run_inner("provenance", lambda: cmd_provenance(provenance_file))))
     print("FLOW_PLAN_FINISH: " + " ".join(f"{verb}={rc}" for verb, rc in results)
           + " (each line above is its own verdict; this exit is only the worst of them)")
     return worst([rc for _verb, rc in results])
@@ -2222,6 +2274,7 @@ def main(argv: list[str]) -> int:
     p.add_argument("issue")
     p.add_argument("--base")
     p.add_argument("--head")
+    p.add_argument("--provenance-file", help="validate canonical provenance in exact closing/PR text")
     p = sub.add_parser("read-issue")
     p.add_argument("issue")
     p.add_argument("--body-file")
@@ -2257,7 +2310,7 @@ def main(argv: list[str]) -> int:
         if args.cmd == "start":
             return cmd_start(args.issue)
         if args.cmd == "finish":
-            return cmd_finish(args.issue, args.base, args.head)
+            return cmd_finish(args.issue, args.base, args.head, args.provenance_file)
         if args.cmd == "approve":
             if args.plan is not None:
                 return cmd_approve_plan(args.issue, args.plan)

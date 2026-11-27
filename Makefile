@@ -167,6 +167,15 @@ test:
 ## verify-coverage: utility test-host-update-core - focused tests of the fixture-only host update core; full suite owns the gate
 .PHONY: test-host-update-core test-host-update-lock-repeat host-update-controls host-update-verify host-update-refresh
 HOST_UPDATE_TESTS ?= tests/test_host_update_core.py tests/test_host_update_transactions.py tests/test_host_update_cli.py
+
+.PHONY: flow-provenance-test flow-provenance-controls
+## verify-coverage: excluded flow-provenance-test - focused optional provenance and finish-wrapper tests; full test includes them
+flow-provenance-test:
+	uv run --extra dev pytest -q tests/test_flow_plan_record_provenance.py tests/test_flow_plan_record_wrappers.py $(PYTEST_ARGS)
+
+## verify-coverage: excluded flow-provenance-controls - focused subset of the registered negative-control battery
+flow-provenance-controls:
+	python3 scripts/check-negative-controls.py --control controls/flow-plan-provenance --strict --verify-provenance
 ## verify-coverage: utility test-antigravity-skills - topic builder and same-inputs historical Codex parity tests; full suite owns gate
 .PHONY: test-antigravity-skills antigravity-skills antigravity-skills-check
 ## verify-coverage: excluded antigravity-skills-controls - focused subset already run by negative-controls in verify; ci: excluded duplicate-subset
