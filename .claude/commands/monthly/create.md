@@ -44,6 +44,9 @@ Also show the previous calendar month's review yield and fix provenance:
 ~/.claude/scripts/review-yield-report.py --since YYYY-MM-01 --until YYYY-MM-DD
 ```
 
+The report reads kind-field shape through its sibling
+`scripts/counter-model-receipt.py`; keep both helpers together.
+
 Use that month's first and last dates. On exit 127 use the CPP checkout copy.
 Keep UNKNOWN visible; this observation never blocks creation.
 Answers come from the [canonical contract](../../../docs/agents/closing-report-contract.md).

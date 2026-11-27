@@ -2045,24 +2045,25 @@ def _review_commands(records: list[dict], runtime: str) -> list[tuple[str, str]]
     return commands
 
 
+def _review_report_text(record: dict, runtime: str) -> str:
+    if runtime == "codex":
+        message = record.get("payload", {}) if record.get("type") == "response_item" else {}
+        content = message.get("content", []) if message.get("role") == "assistant" else []
+    elif runtime == "opencode":
+        content = [record.get("part", {})] if record.get("type") == "text" else []
+    else:
+        message = record.get("message", {}) if record.get("type") == "assistant" else {}
+        content = message.get("parts", []) if runtime == "qwen-code" else message.get("content", [])
+    return "".join(part["text"] for part in content if isinstance(part, dict)
+                   and isinstance(part.get("text"), str)
+                   and (runtime in ("qwen-code", "opencode") or part.get("type") in ("text", "output_text"))) \
+        if isinstance(content, list) else ""
+
+
 def _review_report_window(records: list[dict], runtime: str) -> tuple[int, int]:
     """A new report needs its own evidence, after any preceding report."""
-    reports = []
-    for index, r in enumerate(records):
-        if runtime == "codex":
-            message = r.get("payload", {}) if r.get("type") == "response_item" else {}
-            content = message.get("content", []) if message.get("role") == "assistant" else []
-        elif runtime == "opencode":
-            content = [r.get("part", {})] if r.get("type") == "text" else []
-        else:
-            message = r.get("message", {}) if r.get("type") == "assistant" else {}
-            content = message.get("parts", []) if runtime == "qwen-code" else message.get("content", [])
-        text = "".join(part["text"] for part in content if isinstance(part, dict)
-                       and isinstance(part.get("text"), str)
-                       and (runtime in ("qwen-code", "opencode") or part.get("type") in ("text", "output_text"))) \
-            if isinstance(content, list) else ""
-        if re.search(r"^## Findings[ \t]*$", _mask_fences(text), re.M):
-            reports.append(index)
+    reports = [index for index, record in enumerate(records)
+               if re.search(r"^## Findings[ \t]*$", _mask_fences(_review_report_text(record, runtime)), re.M)]
     if not reports:
         raise EvidenceUnknown("missing runtime review report: retain the reviewer's '## Findings' assistant output")
     return (reports[-2] + 1 if len(reports) > 1 else 0), reports[-1]
@@ -2338,6 +2339,8 @@ def build(args: argparse.Namespace) -> dict:
         receipt["schema"] = SCHEMA_ADAPTERS
         receipt.pop("direction", None)
         receipt["reviewed_artifact"] = args.reviewed_artifact
+        if getattr(args, "counts_by_kind", None) is not None:
+            receipt["counts_by_kind"] = args.counts_by_kind
     return receipt
 
 
@@ -2470,6 +2473,36 @@ def _validate_adapters(receipt: dict, source: str, implementers: list[str], revi
     return bad
 
 
+def kind_count_problems(receipt: dict) -> list[str]:
+    """Optional historical field; present fields must state their report scope."""
+    if "counts_by_kind" not in receipt:
+        return []
+    value = receipt["counts_by_kind"]
+    if (type(receipt.get("schema")) is not int or receipt["schema"] != SCHEMA_ADAPTERS
+            or receipt.get("status") != "ran"
+            or not isinstance(value, dict) or value.get("scope") != "selected_report"):
+        return ["counts_by_kind requires a schema-5 ran receipt and selected_report scope"]
+    record = value.get("report_record")
+    artifact = receipt.get("reviewed_artifact")
+    if (type(record) is not int or record < 1 or not isinstance(artifact, dict)
+            or type(artifact.get("report_record")) is not int or record != artifact["report_record"]):
+        return ["counts_by_kind.report_record must match reviewed_artifact.report_record"]
+    kinds = value.get("kinds")
+    if "kinds" not in value or (kinds is not None and (
+            not isinstance(kinds, dict) or set(kinds) != {*FINDING_KINDS, "unstated"}
+            or any(type(count) is not int or count < 0 for count in kinds.values()))):
+        return ["counts_by_kind.kinds must be null (UNKNOWN) or complete non-negative integer counts"]
+    return []
+
+
+def selected_report_kind_counts(receipt: dict) -> dict[str, int] | None:
+    """Missing, malformed or unparseable observations are UNKNOWN, never zeros."""
+    if "counts_by_kind" not in receipt or kind_count_problems(receipt):
+        return None
+    kinds = receipt["counts_by_kind"]["kinds"]
+    return dict(kinds) if isinstance(kinds, dict) else None
+
+
 def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
     """SHAPE only. Returns a list of problems; empty means well-formed."""
     bad: list[str] = []
@@ -2487,6 +2520,7 @@ def validate(receipt: dict, source: str = "<receipt>") -> list[str]:
         return [f"{source}: receipt must be an object"]
     if type(receipt.get("schema")) is not int:
         return [f"{source}: schema must be an integer version"]
+    bad.extend(f"{source}: {problem}" for problem in kind_count_problems(receipt))
     legacy = receipt.get("schema") == SCHEMA
     adapters = receipt.get("schema") == SCHEMA_ADAPTERS
     has_extra_reason = "extra_passes_reason" in receipt
@@ -3325,6 +3359,13 @@ def cmd_write(args: argparse.Namespace) -> int:
     if adapters:
         try:
             args.reviewed_artifact = _artifact_binding(args, args.reviewer_evidence, review_records)
+            report_record = args.reviewed_artifact["report_record"]
+            report_text = _review_report_text(review_records[report_record - 1], args.reviewer_evidence["runtime"])
+            verdict, findings = parse_review(report_text)
+            kinds = {kind: sum(f["kind"] == kind for f in findings)
+                     for kind in (*FINDING_KINDS, "unstated")} \
+                if verdict in (PARSE_CLEAN, PARSE_FINDINGS) else None
+            args.counts_by_kind = {"scope": "selected_report", "report_record": report_record, "kinds": kinds}
         except (EvidenceUnknown, OSError, UnicodeError, ValueError, TypeError, KeyError,
                 AttributeError, subprocess.SubprocessError) as exc:
             _evidence_error(exc)
