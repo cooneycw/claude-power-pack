@@ -90,3 +90,31 @@ This check does not fix pytest-xdist's underlying exit-status path or add a
 new guard to standalone Make invocations outside ci-shape. Keep `Refs #1923`
 until the remaining caller/runner scope is explicitly disposed; any remaining
 guard is a separate follow-up, as the adjusted issue requests.
+
+## First host attempt: source ownership UNKNOWN
+
+K753 ran frozen `9646c0e0` on 2026-11-27 at 14:37:01-14:37:10 UTC.
+The exact pinned image's default shell reported umask 0022 and uid/gid 0.
+Git 2.39.5 and Make 4.3 staged successfully. The donor fetch then returned 128:
+file transport opened the uid-1000 read-only mount as `/source/.git`, which the
+working-tree-only `/source` trust did not cover. The run exited 2 with UNKNOWN,
+zero executed lanes and no published profile. This was a checkpoint defect,
+not root acceptance.
+
+Raw `image.json` SHA256:
+`c16bdab708ef190dfe9a81e68a7b62449dc8043f41f5cd821d426ee1ed5ac354`.
+All seven original delivery files were hashed before copying and verified under
+`/workspace/.work/cpp-1917-evidence/host-9646c0e0/`; the inventory and failed
+receipt remain there unchanged. The image default mask is now directly
+observed, while full image/root qualification and profile publication remain
+pending the authorized retry.
+
+`test_donor_fetch_trusts_only_its_selected_different_owner_source` uses Git's
+ownership-check hook and reproduces the unchanged predecessor's exact dubious
+ownership failure. It passes with the correction, including pinned Git 2.39.5.
+The source and a separate neighbor both remain refused by plain Git afterward;
+no global configuration is written. The correction resolves the selected
+source's Git directory and passes only its working-tree and Git-directory
+spellings to this fetch's upload-pack command. That witness is pinned in the
+required collection. The host command file is unchanged; executable code is
+re-frozen at the retry checkpoint after verification.

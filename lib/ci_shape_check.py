@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -66,6 +67,7 @@ REQUIRED_WITNESSES = {
     "1922-4058": _WITNESS_MODULE + "test_1922_ci_true_rewritten_assertion_is_bounded_after_fix",
     "1923": _WITNESS_MODULE + "test_physical_canary_and_real_collector[internalerror]",
     "1923-zero-executed": _WITNESS_MODULE + "test_physical_canary_and_real_collector[zero-executed]",
+    "host-source-owner": _WITNESS_MODULE + "test_donor_fetch_trusts_only_its_selected_different_owner_source",
     "1927": (
         "tests/test_pi_skill_install.py::test_unreadable_control_unknown_is_the_actual_ledger_permission_failure"
         "[umask022-symlink]"),
@@ -299,7 +301,15 @@ def donor(root: Path, work: Path, git: str, commit: str, env: dict) -> tuple[Pat
     path = work / "donor.git"
     command([git, "init", "--bare", "-q", path], env=env)
     command([git, "-C", path, "config", "uploadpack.allowFilter", "true"], env=env)
-    command([git, "-C", path, "fetch", "--depth=1", root.as_uri(), commit], env=env)
+    source_gitdir = command([git, "-c", f"safe.directory={root}", "-C", root,
+                             "rev-parse", "--absolute-git-dir"], env=env).stdout.strip()
+    # File transport opens the source as its Git directory, unlike `git -C
+    # ROOT`. Trust only these two spellings in THIS upload-pack process. The
+    # read-only host mount may have a different uid from the image's root.
+    upload_pack = shlex.join([git, "-c", f"safe.directory={root}",
+                             "-c", f"safe.directory={source_gitdir}", "upload-pack"])
+    command([git, "-C", path, "fetch", "--depth=1", "--upload-pack=" + upload_pack,
+             root.as_uri(), commit], env=env)
     command([git, "-C", path, "update-ref", "refs/heads/checkpoint", "FETCH_HEAD"], env=env)
     # An unreferenced historical file with a present commit but absent tree/blob
     # distinguishes actual filtering from a remote that merely advertises it.

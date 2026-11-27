@@ -67,6 +67,35 @@ def test_exit_zero_without_completion_is_bad(payload):
     assert shape.completion(payload, 0, "", "local")[0] == "BAD"
 
 
+def test_donor_fetch_trusts_only_its_selected_different_owner_source(tmp_path):
+    git = shutil.which("git")
+    source, work, neighbor = tmp_path / "source", tmp_path / "run", tmp_path / "neighbor"
+    source.mkdir()
+    work.mkdir()
+    (source / "input").write_text("owned fixture input\n")
+    shape.command([git, "init", "-q", source])
+    shape.command([git, "-C", source, "add", "."])
+    shape.command([git, "-C", source, "-c", "user.name=Fixture", "-c",
+                   "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false",
+                   "commit", "-qm", "source"])
+    shape.command([git, "init", "-q", neighbor])
+    revision = shape.command([git, "-C", source, "rev-parse", "HEAD"]).stdout.strip()
+    unsafe = shape.fresh_environment(work, work, os.environ["PATH"])
+    # Git's own ownership-check test hook, not a simulated process uid.
+    unsafe["GIT_TEST_ASSUME_DIFFERENT_OWNER"] = "1"
+    refused = shape.command([git, "-C", source, "ls-files"], env=unsafe, check=False)
+    assert refused.returncode == 128 and "dubious ownership" in refused.stderr
+    env = {**unsafe, "GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "safe.directory",
+           "GIT_CONFIG_VALUE_0": str(source), "GIT_CONFIG_KEY_1": "safe.directory",
+           "GIT_CONFIG_VALUE_1": str(work / "donor.git")}
+    fetched, _ = shape.donor(source, work, git, revision, env)
+    assert shape.command([git, "-C", fetched, "rev-parse", "refs/heads/checkpoint"], env=env).stdout.strip() == revision
+    for repository in (source, neighbor):
+        still_refused = shape.command([git, "-C", repository, "ls-files"], env=unsafe, check=False)
+        assert still_refused.returncode == 128 and "dubious ownership" in still_refused.stderr
+    assert not (work / ".gitconfig").exists()
+
+
 def test_internalerror_output_refuses_otherwise_healthy_results_at_any_exit(tmp_path):
     record = cases.fixture(tmp_path, "good")
     results = record["lanes"][0]["results"]
