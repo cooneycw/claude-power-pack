@@ -33,7 +33,7 @@ def until(predicate, seconds=15):
 
 
 def cancellation_probe(owned, *, ignore_term=False, driver_signal=signal.SIGTERM,
-                       blind_owner=False, supervisor=(), readiness_seconds=15):
+                       blind_owner=False, supervisor=(), readiness_seconds=15, observe_group=None):
     """Cancel actual run_lane after its real pytest and grandchild are ready.
 
     Checkout/probe preparation is controlled to keep this a tiny process-owner
@@ -104,12 +104,16 @@ def cancellation_probe(owned, *, ignore_term=False, driver_signal=signal.SIGTERM
             assert producer.poll() is None and all(live(pid, started=starts[name]) for name, pid in pids.items())
             assert os.getpgid(pids["pytest"]) == pids["pytest"] != producer.pid
             assert os.getpgid(pids["grandchild"]) == pids["pytest"]
+            if observe_group is not None:
+                assert observe_group(pids["pytest"]), "production probe missed a live owned group"
             timing = dict(ready_published=ready.stat().st_mtime, cancel_sent=time.time())
             producer.send_signal(driver_signal)
             outer_exit = producer.wait(timeout=15)
             timing["outer_completed"] = time.time()
             # Record before fixture cleanup; a lingering process must be visible.
             survivors = [name for name, pid in pids.items() if live(pid, started=starts[name])]
+            if observe_group is not None:
+                assert not observe_group(pids["pytest"]), "production probe retained a stopped group"
             return dict(outer_exit=outer_exit, survivors=survivors, pids=pids, timing=timing)
         finally:
             if producer.poll() is None:
@@ -155,3 +159,12 @@ def test_owned_pytest_preserves_exit_and_prior_signal_handlers(tmp_path):
                                   env={'PATH': os.environ.get('PATH', '')}, output=output)
     assert code == 7
     assert {sig: signal.getsignal(sig) for sig in before} == before
+
+
+@pytest.mark.skipif(not Path('/proc').is_dir() or not shutil.which('git') or not shutil.which('make'),
+                    reason='Linux process state, Git and Make required')
+def test_group_probe_distinguishes_actual_live_and_stopped_pytest(tmp_path):
+    from lib import ci_shape_check as shape
+    observed = cancellation_probe(tmp_path, ignore_term=True, observe_group=shape._pytest_group_live)
+    assert observed['survivors'] == []
+    assert observed['outer_exit'] == 128 + signal.SIGTERM
