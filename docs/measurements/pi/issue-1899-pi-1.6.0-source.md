@@ -85,3 +85,45 @@ pi avoids internal authentication machinery. No worker-side pi run occurred.
 The model pin comes only from CLI output, and selected-model comparisons only
 from the flag and pi UI. No direct settings/model-store/credential read is part
 of B2. A pin or UI label is not B4's resolved runtime identity.
+
+## B3 MCP source premises
+
+| Same coding-agent tarball member | SHA256 |
+|---|---|
+| package/docs/mcp.md | c353a4cb49cfff85e5bf1839a7e702f58bfed9df2afcbeeb29cae2b5574cbe3b |
+| package/docs/cli.md | d3b719dafaa11c93841059eb02d0167403e26a19d8845ca54aad3443c58952fc |
+| package/dist/extensions/mcp/runtime.js | 1ed03790749c1c494f6ff3891652a4ad895cb25bf2ad4ed61202837c5e3055fb |
+
+The MCP docs specify user mcp.json with an mcpServers object, command/args for
+stdio and url for Streamable HTTP, plus an optional enabled flag. Tools are
+mcp__server__tool with non-alphanumeric/underscore characters normalized to
+underscores. B3 tests hyphenated server names and probe-echo, retaining actual
+call labels if exposed rather than treating the documented transform as a
+fresh runtime observation.
+
+Omitted exposure is codemode, not direct. Direct exposure declares a tool to
+the model; codemode and tool_search can reach non-direct tools indirectly.
+B3's restricted direct-call lane disables automatic codemode and selects only
+the probe MCP prefix. An omitted/direct comparison in that lane cannot support
+a global claim that direct exposure is required for every MCP use.
+
+cli.md documents --no-extensions with explicit -e builtin:mcp to retain only
+the native MCP extension. --tools with an mcp__ pattern filters MCP as well;
+--no-tools would disable MCP entirely and is deliberately not used for B3.
+The native runtime constructs McpClient with name pi and VERSION; its client
+name is a fixture correlation label, not authenticated process identity.
+
+The package pins @earendil-works/pi-mcp 1.6.0. Its public tarball SHA256 is
+c8729b82c28ba2161fd8880284161244e1024914f9a702c1e36db0185d6fbf55;
+package/dist/client.js has SHA256
+f39e0dccc7823995c22ea7936f3f32cac64d818599efdb217b5e0cf0ff070216.
+That client sends its configured name/version in initialize.clientInfo.
+The local compatible client deliberately uses cpp-pi1899-control, never pi,
+and its calls cannot satisfy the B3 pi-call verifier.
+
+The docs describe stdio and Streamable HTTP and reject legacy SSE. B3 does not
+run a legacy SSE experiment and leaves that statement as a documentation
+premise. Any failed pi stdio/HTTP attempt requires working compatible-client
+controls before and after, without turning one fixture refusal into a universal
+transport verdict. No model or credential-store access was needed for this
+read-only public-source inspection.
