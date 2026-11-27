@@ -252,7 +252,14 @@ def _assert_self_bundled_input_variation(tmp_path, mask):
     finally:
         os.umask(previous)
     before, after, frozen_after = [inventory(output) for output in outputs]
-    assert len(before) == len(after) == len(frozen_after) == len(data["members"]) == 404
+    assert len(data["members"]) == 404, "the historical population stays immutable"
+    expected_members = set(data["members"])
+    for name, row in data["attributed_input_delta"].items():
+        if row["candidate"] is None:
+            expected_members.discard(name)
+        else:
+            expected_members.add(name)
+    assert set(before) == set(after) == set(frozen_after) == expected_members
     assert after == frozen_after, "transforms must agree on identical new inputs"
     assert set(modules[1]._LINK_PARSER_CACHE).isdisjoint(modules[2]._LINK_PARSER_CACHE)
     # Equal transforms alone cannot prove the input was varied: the old input

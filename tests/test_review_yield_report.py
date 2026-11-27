@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = Path(os.environ.get("CPP_REVIEW_YIELD_TEST_SCRIPT", ROOT / "scripts/review-yield-report.py"))
+SCRIPT = Path(os.environ.get("CPP_REVIEW_YIELD_TEST_SCRIPT", ROOT / "scripts" / "review-yield-report.py"))
 CONTRACT = ROOT / "docs/agents/closing-report-contract.md"
 FIXTURES = ROOT / "tests/fixtures/review-yield-report"
 SINCE, UNTIL = "2026-11-11", "2026-11-20"
