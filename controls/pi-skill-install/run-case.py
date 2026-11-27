@@ -38,7 +38,8 @@ def main():
         print("PI_INSTALL_CONTROL: unavailable - git missing")
         return 3
     with tempfile.TemporaryDirectory(prefix="pi-install-control-") as temporary:
-        root = Path(temporary)
+        # Canonicalize our own root; scenario-created symlinks remain untrusted.
+        root = Path(temporary).resolve()
         source, agent, home, cwd = (root / name for name in ("source", "agent", "home", "work"))
         for p in (source, agent, home, cwd):
             p.mkdir()
