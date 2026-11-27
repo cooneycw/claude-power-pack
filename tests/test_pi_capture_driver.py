@@ -218,3 +218,46 @@ def test_v3_actual_session_cap_and_positive(tmp_path):
     one.mkdir()
     result, trace = session_replay(one, '7-real-layout-final.txt', 3)
     assert result.returncode == 0 and trace.read_text().splitlines() == ['close', 'record']
+
+
+EXACT = EXPORTED.parent / 'exact-target'
+
+
+def test_exact_target_variants_change_only_target_selection():
+    for name in ['start.sh', 'run.sh', 'run-v3.sh', 'close.sh']:
+        original = V3 / (name + '.txt') if name == 'run-v3.sh' else stored(name)
+        assert (EXACT / (name + '.txt')).read_bytes() == original.read_bytes().replace(b'-t pib3', b'-t =pib3')
+
+
+@pytest.mark.skipif(shutil.which('tmux') is None, reason='requires tmux on an isolated socket')
+@pytest.mark.parametrize('pi_exists', [False, True])
+def test_actual_close_preserves_prefix_neighbor(tmp_path, pi_exists):
+    # A separate server, disposable sessions, no provider or real fixture.
+    socket = str(tmp_path / 'tmux.sock')
+    tmux = shutil.which('tmux')
+
+    def call(*args):
+        return subprocess.run([tmux, '-S', socket, *args], capture_output=True, text=True)
+
+    assert call('new-session', '-d', '-s', 'pib3http', 'sleep 60').returncode == 0
+    try:
+        if pi_exists:
+            assert call('new-session', '-d', '-s', 'pib3', 'sleep 60').returncode == 0
+        tools = tmp_path / 'tools'
+        tools.mkdir()
+        shim = tools / 'tmux'
+        shim.write_text(f'#!/bin/sh\nexec {shlex.quote(tmux)} -S {shlex.quote(socket)} "$@"\n')
+        shim.chmod(0o700)
+        # Prevent the close script's wait; these are controlled exit receipts.
+        (tmp_path / 'exit-T6-beta').write_text('0\n')
+        script = tmp_path / 'close.sh'
+        original = os.environ.get('CPP_PI_TMUX_PREFIX_OLD') == '1'
+        script.write_bytes((stored('close.sh') if original else EXACT / 'close.sh.txt').read_bytes())
+        subprocess.run([shutil.which('bash'), str(script), 'T6-beta'],
+                       env={**os.environ, 'HOME': str(tmp_path), 'PATH': str(tools) + os.pathsep + os.environ['PATH']},
+                       capture_output=True, text=True, timeout=5)
+        assert call('has-session', '-t', '=pib3http').returncode == 0, 'close killed prefix-neighbor session'
+        if pi_exists:
+            assert call('has-session', '-t', '=pib3').returncode != 0
+    finally:
+        call('kill-server')

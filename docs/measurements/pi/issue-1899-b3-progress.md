@@ -182,3 +182,31 @@ pending. No historical file is rewritten and no prompt is retried.
 Ledger at T5 completion: ten prompts, 13 known rounds plus lost T1-beta 0-1,
 actual 13-14 and conservative book 14. Six prompts remain, at most 12 rounds,
 overall upper bound 26 within 16/32. B3 remains incomplete.
+
+## T6-alpha and exact-target hazard
+
+Master 42738/42750 reports styled v3 activation at 2026-11-27T16:28:19Z
+for T6; operational session-v3/run-v3/original session were later byte-compared
+against full commit 2844fff0 and matched. T6 dead-stdio compatible control
+exited 1 as expected before initialization; set stdio-dead exited 0.
+
+T6-alpha used one prompt/one observed round, then v3 refused no visible reply.
+The startup display warned that the MCP server needed attention because its
+connection closed. Two dead-child start/stop pairs (PIDs 1506652/1506952), no
+initialize and no tools/call were reported. This does not establish a retry
+mechanism or RPC stderr behavior. Full current scrollback SHA256
+8ebe0a484fc2855ed1794885b3d1af2de6f9f426211e4b8e31f09362d0c28e22
+was saved; pi exit 0. Reply stays unrecordable; no model-reply verifier outcome
+is invented. This provides attributed interactive MCP startup-diagnostic
+information for #1902 and narrows that part of #1896's unknowns only.
+
+Before T6-beta master reported a tmux prefix-target hazard. The helper held
+without altering the bound scripts; it reports retained HTTP PID 3943054 was
+still running and no actual loss occurred. Exact-target collaborators are now
+committed with an actual isolated-tmux predecessor red/fixed green control;
+see the driver README. They preserve all earlier source bytes. No model turn
+is added by those controls. Row-wrapper provenance remains requested.
+
+Current ledger: 11 prompts, 14 known rounds plus lost T1-beta 0-1,
+actual 14-15/book 15. Five prompts remain, at most ten rounds, upper bound 25.
+B3 is incomplete; continuing T6-beta requires the new exact-target bindings.

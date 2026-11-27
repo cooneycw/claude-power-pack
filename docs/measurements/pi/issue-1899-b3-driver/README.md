@@ -137,3 +137,27 @@ v3 was used for no historical host row. Master reports zero-model replay of
 retained T2/T3-beta/T4 captures accepts, while unstyled T5-beta refuses; those
 are attributed, not independent real-capture inspection. The author requests
 v3 application from T6 onward; exact activation time/hash receipt is pending.
+
+## Exact tmux target correction
+
+Master 42753 reported a driver hazard: tmux target pib3 may resolve by prefix
+to pib3http if the pi session is absent. The helper reports no actual HTTP
+fixture loss; prior closes had the pi session present. This is a primary B3
+driver defect, not a runtime behavior finding or a supplemental Nit Store item.
+
+The [exact-target variants](exact-target/SHA256SUMS) preserve the frozen source
+and change ONLY `-t pib3` to `-t =pib3` in start.sh, historical run.sh, run-v3.sh
+and close.sh. Session-v3 and the classifier stay unchanged. Install these
+operational collaborators under their existing names only after full-hash
+comparison; preserve the earlier bytes for provenance. New-session still uses
+`-s pib3`, since that creates a named session rather than selecting a target.
+
+The committed actual-close control runs on a private tmux socket/server with
+throwaway pib3/pib3http sessions and fixture-only exit receipt/HOME. It uses a
+tmux shim solely to bind the exact frozen close script to that private socket.
+No pi, real fixture, provider, owner files or default tmux server is accessed.
+With CPP_PI_TMUX_PREFIX_OLD=1, the missing-pib3 control FAILS: original close.sh
+kills the dummy pib3http. The fixed script preserves the neighbor both with
+and without pib3, and still closes pib3 when present. All 60 tests pass with
+the correction; lint passes. Temporary servers and basetemps are cleaned up.
+This correction is requested before T6-beta; activation receipt is pending.
