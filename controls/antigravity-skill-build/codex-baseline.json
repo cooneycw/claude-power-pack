@@ -1630,11 +1630,11 @@
         420
       ],
       "candidate": [
-        "9556cbc96c91c6530f434bd2a8f124d5d46c99f25a177b56bbc988044f8475e1",
+        "54d44e9c13f750949dda094df89f6de9ea8fd184c76771f39909df84c432b3ca",
         420
       ],
-      "source_commit": "b5d3f3b27211710140d27973082b1588c39e5fbf",
-      "reason": "R3a #1863 selected-report kind persistence changes the bundled receipt/yield helper inputs; monthly-create declares its canonical sibling dependency. Exact input-byte attribution only; pinned generator, parser and historical members remain unchanged."
+      "source_commit": "315b7ca427c21ffd12a3825c26e37876384e5678",
+      "reason": "R3e #1877 optional closing-text provenance validation changes the bundled flow-plan-record helper and its manifest. Exact input-byte attribution only; the historical member population, pins, generator and parser remain unchanged."
     },
     "flow-auto/scripts/codex-skill-sync.py": {
       "baseline": [
@@ -1802,6 +1802,18 @@
       ],
       "source_commit": "dfb6909a02bf61c5330f30adb4c6901d07f0ffdc",
       "reason": "R3b #1925 reads review receipts from an exact-commit archive instead of serial blob requests; the Git blob SHA-1 is explicitly non-security. Exact input-byte attribution only; pinned generator, parser, historical members and attribution row set remain unchanged."
+    },
+    "flow-auto/scripts/flow-plan-record.py": {
+      "baseline": [
+        "6b61b8f5e3dee44d3e5bc9c7347505da93f2cc2a41dcee8a502a658771f5bdc3",
+        493
+      ],
+      "candidate": [
+        "905c4b6c4359104f1cd45e87458d4e80d1bdcffc0ca07cfe5469d61e8295611a",
+        493
+      ],
+      "source_commit": "315b7ca427c21ffd12a3825c26e37876384e5678",
+      "reason": "R3e #1877 optional closing-text provenance validation changes the bundled flow-plan-record helper and its manifest. Exact input-byte attribution only; the historical member population, pins, generator and parser remain unchanged."
     }
   }
 }
