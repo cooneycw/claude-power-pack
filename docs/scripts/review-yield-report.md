@@ -12,8 +12,9 @@ python3 scripts/review-yield-report.py --since 2026-11-11 --until 2026-11-20 \
 Dates are inclusive. Live mode defaults to cooneycw/kyle, cooneycw/skillc and
 cooneycw/claude-power-pack; repeat `--repo owner/name` to choose others. GitHub
 CLI authentication is required only for live mode. Output is Markdown, with
-source failures labelled UNKNOWN. Even an unreadable source exits zero: this
-is an observation, never a gate. Invalid CLI arguments exit 2.
+source failures labelled UNKNOWN. A missing or unreadable pinned receipt tree
+exits 1; other partial observations remain informational and exit zero.
+Invalid CLI arguments exit 2. Monthly creation remains an independent decision.
 
 Merged `fix(scope):` and `fix(scope)!:` pull requests are listed. The report
 follows GitHub's closing-issue references, including references across repos,
@@ -31,8 +32,16 @@ count. Tallies count linked issue records, so a PR closing multiple issues
 can contribute multiple records and two fixes closing the same issue can
 repeat an observation. The report does not deduplicate underlying defects.
 
-Review yield reads the JSON receipt blobs from one pinned main commit per
-repository. It uses `recorded_at` dates, preserving independent branches and
+Review yield resolves one main commit and its complete tree per repository,
+then downloads one archive at that exact commit rather than making a GitHub
+blob request for every receipt. It reads regular receipt members in memory,
+without extracting archive paths, and verifies their Git blob IDs against the
+pinned tree. Unsafe paths, duplicate members, missing or linked receipt members,
+archive failures and blob mismatches produce UNKNOWN with exit 1. Unrelated
+repository symlinks are never followed. Malformed JSON retains the existing
+partial-observation accounting. No receipt filename-date filter is applied.
+
+It uses `recorded_at` dates, preserving independent branches and
 implementer sessions. Cumulative snapshots are reduced to the latest only
 when branch and runtime session identity match. Repeated receipts without
 enough identity evidence are excluded from the known totals and explicitly
@@ -72,6 +81,11 @@ carry `repo`, `number`, `body` and string `comments`. Receipt objects retain
 committed fields (`issue`, `status`, `recorded_at`, `counts`, `passes`).
 Fixture mode never invokes GitHub. `make review-yield-test` exercises the
 committed missing/present negative pair and the unreadable case.
+The small committed `pinned-tree` fixture includes a frozen pre-change report;
+its archive-backed result must match byte for byte, including cumulative and
+independent runs, misleading filenames, kind coverage and malformed input.
+Committed unsafe member names and pinned-source failure cases exercise the
+UNKNOWN/nonzero distinction.
 
 The instrument census's existing reporter exclusion applies: this report
 provides observations for a human, not a decision that lets work through.
