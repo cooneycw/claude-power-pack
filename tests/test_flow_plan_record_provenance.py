@@ -12,7 +12,8 @@ from tests import test_flow_plan_record_wrappers as wrappers
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / 'tests/fixtures/flow-provenance'
 SCRIPT = Path(os.environ.get('CPP_FLOW_PLAN_TEST_SCRIPT', ROOT / 'scripts/flow-plan-record.py'))
-pytestmark = pytest.mark.skipif(shutil.which('git') is None, reason='requires git')
+pytestmark = [pytest.mark.skipif(shutil.which('git') is None, reason='requires git'),
+              pytest.mark.skipif(shutil.which('python3') is None, reason='requires python3')]
 repo = wrappers.repo
 fake_gh = wrappers.fake_gh
 
