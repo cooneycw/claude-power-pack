@@ -96,7 +96,10 @@ def test_prompt_binds_tag_to_configured_case(probe, root):
 
 def test_actual_cli_external_cwd_and_missing_evidence_exit(root):
     script = str(HERE / 'issue-1899-b3-probe.py')
-    env = {'PATH': os.defpath, 'HOME': str(root / 'home'), 'LANG': 'C.UTF-8'}
+    isolated_bin = root / 'empty-bin'
+    isolated_bin.mkdir()
+    assert shutil.which('pi', path=str(isolated_bin)) is None, 'fixture must lack pi'
+    env = {'PATH': str(isolated_bin), 'HOME': str(root / 'home'), 'LANG': 'C.UTF-8'}
     prefix = [sys.executable, script]
     prepared = subprocess.run(prefix + ['prepare', '--root', str(root)], cwd=root / 'work/repo-alpha',
                               env=env, capture_output=True, text=True, check=True)
@@ -131,9 +134,12 @@ def test_http_control_shutdown_dead_and_scoped_undo(probe, root):
         pytest.skip('requires fixture-only loopback sockets')
     probe.prepare(root)
     folder = probe.directory(root)
+    isolated_bin = root / 'empty-bin'
+    isolated_bin.mkdir()
+    assert shutil.which('pi', path=str(isolated_bin)) is None, 'fixture must lack pi'
     process = subprocess.Popen([sys.executable, str(probe.SERVER), 'http', '--directory', str(folder)],
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                               env={'PATH': os.defpath, 'HOME': str(root / 'home'), 'LANG': 'C.UTF-8'})
+                               env={'PATH': str(isolated_bin), 'HOME': str(root / 'home'), 'LANG': 'C.UTF-8'})
     try:
         for _ in range(100):
             if process.poll() is not None:

@@ -7,6 +7,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -100,6 +101,7 @@ def session_replay(tmp_path, control, version):
     dirname.write_text('#!/usr/bin/env python3\nimport os,sys\nprint(os.path.dirname(sys.argv[1]))\n')
     dirname.chmod(0o700)
     trace = tmp_path / 'trace'
+    assert shutil.which('tmux', path=str(tools)) is None, 'fixture must lack live tmux'
     env = {'PATH': str(tools), 'HOME': str(tmp_path), 'CAPTURE_TEST_TRACE': str(trace)}
     result = subprocess.run([shutil.which('bash'), str(script), 'alpha', 'T2-alpha', 'stdio'],
                             env=env, cwd=tmp_path, capture_output=True, text=True)
@@ -132,6 +134,7 @@ def test_actual_record_script_keeps_log_without_accepted_reply(tmp_path):
     record.write_bytes(stored('record.sh').read_bytes())
     log = folder / 'pipe-T2-alpha.log'
     log.write_bytes(b'controlled fixture capture retained')
+    assert shutil.which('tmux', path=str(tmp_path / 'tools')) is None, 'fixture must lack live tmux'
     result = subprocess.run([shutil.which('bash'), str(record), 'T2-alpha', 'stdio'],
                             env={'PATH': str(tmp_path / 'tools'), 'HOME': str(tmp_path)},
                             cwd=tmp_path, capture_output=True, text=True)
@@ -227,6 +230,16 @@ def test_v3_actual_session_cap_and_positive(tmp_path):
 EXACT = EXPORTED.parent / 'exact-target'
 
 
+@pytest.fixture
+def tmux_case(tmp_path):
+    # Caller files deliberately exceed an AF_UNIX socket path's length budget.
+    # Only the private socket needs a short path, independent of TMPDIR/xdist.
+    caller = tmp_path / ('long-caller-' * 10)
+    caller.mkdir()
+    with tempfile.TemporaryDirectory(prefix='pi1899-tmux-', dir='/tmp') as folder:
+        yield caller, str(Path(folder) / 's')
+
+
 def test_exact_target_variants_change_only_target_selection():
     for name in ['start.sh', 'run.sh', 'run-v3.sh', 'close.sh']:
         original = V3 / (name + '.txt') if name == 'run-v3.sh' else stored(name)
@@ -235,9 +248,9 @@ def test_exact_target_variants_change_only_target_selection():
 
 @pytest.mark.skipif(shutil.which('tmux') is None, reason='requires tmux on an isolated socket')
 @pytest.mark.parametrize('pi_exists', [False, True])
-def test_actual_close_preserves_prefix_neighbor(tmp_path, pi_exists):
+def test_actual_close_preserves_prefix_neighbor(tmux_case, pi_exists):
     # A separate server, disposable sessions, no provider or real fixture.
-    socket = str(tmp_path / 'tmux.sock')
+    tmp_path, socket = tmux_case
     tmux = shutil.which('tmux')
 
     def call(*args):
@@ -272,7 +285,7 @@ PANE_EXACT = EXPORTED.parent / 'exact-pane-target'
 
 @pytest.mark.skipif(shutil.which('tmux') is None, reason='requires tmux on an isolated socket')
 @pytest.mark.parametrize('operation', ['send-keys', 'capture-pane', 'pipe-pane'])
-def test_actual_pane_target_from_corrected_scripts(tmp_path, operation):
+def test_actual_pane_target_from_corrected_scripts(tmux_case, operation):
     old = os.environ.get('CPP_PI_PANE_TARGET_OLD') == '1'
     folder = EXACT if old else PANE_EXACT
     scripts = '\n'.join((folder / (name + '.txt')).read_text()
@@ -280,7 +293,7 @@ def test_actual_pane_target_from_corrected_scripts(tmp_path, operation):
     targets = set(re.findall(r'tmux ' + operation + r'[^;\n]*?-t (\S+)', scripts))
     assert len(targets) == 1
     target = targets.pop()
-    socket = str(tmp_path / 'tmux.sock')
+    _caller, socket = tmux_case
 
     def call(*args):
         return subprocess.run([shutil.which('tmux'), '-S', socket, *args], capture_output=True, text=True)
