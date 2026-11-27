@@ -1,6 +1,8 @@
 # Pi #1899 B2 rules host commands
 
 Status: READY FOR ORCHESTRATOR/MASTER REVIEW; no B2 host execution claimed.
+MAX MODEL TURNS: 32 (16 transitions x 2 scratch repositories); NO RETRIES.
+First model-turn batch on the owner's disposable sign-in; requires owner's go.
 Refs #1899. B0's [attributed completion](issue-1899-b0-results.md) establishes
 the retained disposable root and owner sign-in. One HOME and fresh pi processes
 per comparison; no further sign-in is planned. No owner-pane questions.
