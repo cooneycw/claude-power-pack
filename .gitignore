@@ -398,3 +398,9 @@ antigravity/skills/*
 
 # Sanitized committed count-crosscheck inputs for the pi #1899 measurement.
 !docs/measurements/pi/issue-1899-b3-driver/xcheck/cases/**/*.json
+
+# Opt-in CI-shape receipts/logs (#1917).
+.ci-shape/
+!controls/ci-shape-check/history/provenance.json
+!controls/ci-shape-check/validate-profile.json
+!docs/measurements/ci-shape-check/root-receipt.json
