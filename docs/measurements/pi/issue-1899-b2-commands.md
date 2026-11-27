@@ -87,10 +87,15 @@ an invalid reservation for manual review; no retry or automatic replacement.
 Record the first printed ID and pin-file hash as the one batch selection. Every
 launch below rereads this probe-owned evidence, adds --model with that exact
 ID, and prints it before starting pi. Compare it with the original selection
-and record pi's on-screen selected provider/model ID BEFORE entering the prompt.
-A changed pin or screen mismatch stops the batch. A shortened/friendly label
-that cannot establish the exact selected provider/id stays unresolved: stop and
-ask master, using only pi's UI/CLI, never settings or stores. No model cycling.
+and record pi's on-screen model footer BEFORE entering the prompt. Master's
+[scoped display ruling](issue-1899-b2-model-selection.md) accepts the exact
+model-only footer gpt-5.3-codex under the unique github-copilot/gpt-5.3-codex
+offline listing and matching --model pin. For EVERY launch record
+"provider not displayed"; the provider is a CLI/listing configuration binding,
+not a footer observation. Do not open the model selector. A changed pin,
+different/missing model footer or any model cycling stops the batch. No settings
+or store inspection. This amendment is master's explicit disposition of the
+original provider-display STOP, not a claim that the UI exposes the provider.
 The same model must be used for every one of the maximum 32 turns. These are
 configuration/display observations, not B4 resolved runtime-model evidence.
 
