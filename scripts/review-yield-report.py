@@ -7,14 +7,16 @@ Canonical answer spellings are loaded from the closing-report contract.
 from __future__ import annotations
 
 import argparse
-import base64
+import hashlib
+import io
 import json
 import re
 import runpy
 import subprocess
+import tarfile
 from collections import Counter, defaultdict
 from datetime import date, datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,6 +49,54 @@ def pages(api, endpoint):
     raise ReadError(f"pagination bound reached: {endpoint}")
 
 
+def gh_archive(repo, commit):
+    """Fetch one immutable archive, never one request per receipt."""
+    try:
+        done = subprocess.run(["gh", "api", f"repos/{repo}/tarball/{commit}"],
+                              capture_output=True, timeout=120, check=False)
+        if done.returncode:
+            raise ReadError(f"pinned archive unavailable: {commit}")
+        return done.stdout
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ReadError(f"pinned archive unreadable: {commit}") from exc
+
+
+def archive_receipts(content, entries):
+    """Read regular receipt members in memory; never extract archive paths."""
+    try:
+        with tarfile.open(fileobj=io.BytesIO(content), mode="r:gz") as archive:
+            members = {}
+            prefix = None
+            for member in archive:
+                path = PurePosixPath(member.name)
+                if path.is_absolute() or ".." in path.parts or not path.parts:
+                    raise ReadError("unsafe pinned archive member name")
+                if prefix is None:
+                    prefix = path.parts[0]
+                if path.parts[0] != prefix:
+                    raise ReadError("pinned archive has multiple roots")
+                relative = "/".join(path.parts[1:])
+                if relative in members:
+                    raise ReadError("duplicate pinned archive member")
+                members[relative] = member
+            blobs = []
+            for entry in entries:
+                member = members.get(entry["path"])
+                if member is None or not member.isfile():
+                    raise ReadError(f"pinned receipt missing or not regular: {entry['path']}")
+                stream = archive.extractfile(member)
+                if stream is None:
+                    raise ReadError(f"pinned receipt unreadable: {entry['path']}")
+                blob = stream.read()
+                oid = hashlib.sha1(b"blob " + str(len(blob)).encode() + b"\0" + blob).hexdigest()
+                if oid != entry["sha"]:
+                    raise ReadError(f"pinned receipt blob mismatch: {entry['path']}")
+                blobs.append(blob)
+            return blobs
+    except (OSError, EOFError, tarfile.TarError, ValueError, TypeError) as exc:
+        raise ReadError("pinned archive unreadable") from exc
+
+
 def closed_issues(api, repo, number):
     owner, name = repo.split("/")
     cursor = None
@@ -77,7 +127,7 @@ def closed_issues(api, repo, number):
     raise ReadError("closing issue pagination bound reached")
 
 
-def collect_repo(api, repo, since, until):
+def collect_repo(api, repo, since, until, *, archive_reader=None):
     result = {"prs": None, "receipts": None, "errors": []}
     try:
         query = quote(f"repo:{repo} is:pr is:merged merged:{since}..{until}", safe="")
@@ -131,19 +181,18 @@ def collect_repo(api, repo, since, until):
                    and row["path"].endswith(".json") and row["type"] == "blob"]
         if not entries:
             raise ReadError("no committed counter-model receipt files")
+        blobs = archive_receipts((archive_reader or gh_archive)(repo, commit['sha']), entries)
         result["receipts"] = []
-        for entry in entries:
+        for entry, blob in zip(entries, blobs):
             try:
-                blob = api([f"repos/{repo}/git/blobs/{entry['sha']}"])
-                if blob.get("encoding") != "base64":
-                    raise ReadError("unsupported blob encoding")
-                receipt = json.loads(base64.b64decode(blob["content"]).decode("utf-8"))
+                receipt = json.loads(blob.decode("utf-8"))
                 result["receipts"].append(receipt)
             except (ReadError, ValueError, KeyError, UnicodeError) as exc:
                 result["receipts"].append(None)
                 result["errors"].append(f"receipt {entry['path']}: {exc}")
         result["receipt_head"] = commit["sha"]
     except (ReadError, KeyError, TypeError) as exc:
+        result["receipt_source_failed"] = True
         result["errors"].append(f"Receipt listing: {exc}")
     return result
 
@@ -398,9 +447,12 @@ def main(argv=None):
         else:
             data = {"repos": {repo: collect_repo(gh_api, repo, since, until) for repo in (args.repo or REPOS)}}
         print(render(data, since, until, contract))
+        if any(repo.get("receipt_source_failed") for repo in data.get("repos", {}).values()
+               if isinstance(repo, dict)):
+            return 1
     except (OSError, ValueError) as exc:
         print(f"UNKNOWN: report input unreadable ({type(exc).__name__})")
-    return 0  # Observation, not a gate; UNKNOWN never prevents monthly creation.
+    return 0  # Other partial observations remain informational.
 
 
 if __name__ == "__main__":

@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -167,9 +169,11 @@ def test_malformed_fixture_shape_is_unknown_not_traceback():
 
 
 def test_collector_success_reads_pinned_receipts_and_closed_issue_comments():
-    import base64
+    import hashlib
     mod = helper()
     fixture = data()["repos"]["cooneycw/example"]
+    content = json.dumps(fixture["receipts"][1]).encode()
+    oid = hashlib.sha1(b'blob ' + str(len(content)).encode() + b'\0' + content).hexdigest()
     calls = []
     def api(args):
         calls.append(args)
@@ -191,12 +195,15 @@ def test_collector_success_reads_pinned_receipts_and_closed_issue_comments():
             return {"sha": "pinned-main"}
         if path == "repos/cooneycw/example/git/trees/pinned-main?recursive=1":
             return {"truncated": False, "tree": [{"path": "docs/measurements/counter-model/a.json",
-                                                  "sha": "receipt-blob", "type": "blob"}]}
-        if path == "repos/cooneycw/example/git/blobs/receipt-blob":
-            return {"encoding": "base64", "content": base64.b64encode(
-                json.dumps(fixture["receipts"][1]).encode()).decode()}
+                                                  "sha": oid, "type": "blob"}]}
         raise AssertionError(f"unhandled API request: {args}")
-    collected = mod.collect_repo(api, "cooneycw/example", SINCE, UNTIL)
+    stream = io.BytesIO()
+    with tarfile.open(fileobj=stream, mode='w:gz') as archive:
+        member = tarfile.TarInfo('root/docs/measurements/counter-model/a.json')
+        member.size = len(content)
+        archive.addfile(member, io.BytesIO(content))
+    collected = mod.collect_repo(api, "cooneycw/example", SINCE, UNTIL,
+                                 archive_reader=lambda *_: stream.getvalue())
     assert collected["errors"] == []
     out = report({"repos": {"cooneycw/example": collected}})
     assert "#102: recorded (cooneycw/other#2)" in out
@@ -485,3 +492,225 @@ def test_generated_monthly_bundle_reads_selected_kinds(tmp_path):
     assert result.returncode == 0, result.stderr
     assert "selected-report kinds: correctness: 1;" in result.stdout
     assert "Selected-report kinds coverage: 1/1 measured; 1/1 carry counts_by_kind" in result.stdout
+
+
+PINNED = FIXTURES / 'pinned-tree'
+PIN = 'a' * 40
+
+
+def pinned_api(args):
+    path = args[0]
+    if path.startswith('search/issues?'):
+        return {'total_count': 0, 'incomplete_results': False, 'items': []}
+    if path.endswith('/commits/main'):
+        return {'sha': PIN}
+    if path == f'repos/cooneycw/example/git/trees/{PIN}?recursive=1':
+        return json.loads((PINNED / 'tree.json').read_text())
+    raise AssertionError(f'unexpected API call (including serial blobs): {args}')
+
+
+def pinned_archive(extra=None, omit=None, change=None):
+    stream = io.BytesIO()
+    with tarfile.open(fileobj=stream, mode='w:gz') as archive:
+        for entry in json.loads((PINNED / 'tree.json').read_text())['tree']:
+            name = entry['path']
+            if name == omit:
+                continue
+            content = (PINNED / name).read_bytes()
+            if name == change:
+                content += b' '
+            member = tarfile.TarInfo('fixture-root/' + name)
+            member.size = len(content)
+            archive.addfile(member, io.BytesIO(content))
+        if extra:
+            name, kind = extra
+            member = tarfile.TarInfo(name)
+            if kind == 'symlink':
+                member.type = tarfile.SYMTYPE
+                member.linkname = '../../outside'
+            archive.addfile(member, io.BytesIO(b''))
+    return stream.getvalue()
+
+
+def test_pinned_archive_output_matches_committed_prechange_bytes():
+    calls = []
+    def reader(repo, commit):
+        calls.append((repo, commit))
+        return pinned_archive()
+    collected = helper().collect_repo(pinned_api, 'cooneycw/example', SINCE, UNTIL,
+                                     archive_reader=reader)
+    assert calls == [('cooneycw/example', PIN)]
+    assert (report({'repos': {'cooneycw/example': collected}}) + '\n').encode() == (PINNED / 'expected.md').read_bytes()
+    assert len(collected['receipts']) == 6  # Includes malformed and out-of-period records.
+
+
+@pytest.mark.parametrize('name', json.loads((PINNED / 'unsafe-names.json').read_text()))
+def test_pinned_archive_refuses_committed_malicious_member_names(name):
+    assert name.startswith('/') or '..' in name.split('/')
+    value = helper().collect_repo(pinned_api, 'cooneycw/example', SINCE, UNTIL,
+                                 archive_reader=lambda *_: pinned_archive(extra=(name, 'file')))
+    assert value['receipts'] is None
+    assert value['receipt_source_failed'] is True
+    assert 'UNKNOWN' in report({'repos': {'cooneycw/example': value}})
+
+
+@pytest.mark.parametrize('fault', ['missing', 'unreadable', 'mismatch', 'symlink'])
+def test_pinned_archive_failures_are_unknown_and_nonzero(fault, monkeypatch, capsys):
+    first = json.loads((PINNED / 'tree.json').read_text())['tree'][0]['path']
+    assert (PINNED / first).is_file()
+    def reader(*_):
+        if fault == 'unreadable':
+            raise helper().ReadError('archive unavailable')
+        if fault == 'missing':
+            return pinned_archive(omit=first)
+        if fault == 'mismatch':
+            return pinned_archive(change=first)
+        return pinned_archive(omit=first, extra=('fixture-root/' + first, 'symlink'))
+    mod = helper()
+    # Use the same module's exception class for the unreadable transport.
+    if fault == 'unreadable':
+        def reader(*_):
+            raise mod.ReadError('archive unavailable')
+    monkeypatch.setattr(mod, 'gh_api', pinned_api)
+    monkeypatch.setattr(mod, 'gh_archive', reader)
+    assert mod.main(['--since', SINCE, '--until', UNTIL, '--repo', 'cooneycw/example']) != 0
+    assert 'UNKNOWN' in capsys.readouterr().out
+
+
+def test_archive_transport_requests_exact_commit_once(monkeypatch):
+    mod = helper()
+    calls = []
+    def run(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(command, 0, stdout=b'archive-bytes')
+    monkeypatch.setattr(mod.subprocess, 'run', run)
+    assert mod.gh_archive('cooneycw/example', PIN) == b'archive-bytes'
+    assert len(calls) == 1
+    assert calls[0][0] == ['gh', 'api', f'repos/cooneycw/example/tarball/{PIN}']
+    assert calls[0][1].get('text', False) is False
+
+
+@pytest.mark.parametrize('fault', ['exit', 'timeout', 'oserror'])
+def test_archive_transport_failure_is_readerror(fault, monkeypatch):
+    mod = helper()
+    def run(command, **kwargs):
+        if fault == 'timeout':
+            raise subprocess.TimeoutExpired(command, 120)
+        if fault == 'oserror':
+            raise OSError('transport unavailable')
+        return subprocess.CompletedProcess(command, 1, stdout=b'')
+    monkeypatch.setattr(mod.subprocess, 'run', run)
+    with pytest.raises(mod.ReadError, match='archive (unavailable|unreadable)'):
+        mod.gh_archive('cooneycw/example', PIN)
+
+
+@pytest.mark.parametrize('fault', ['invalid-tar', 'duplicate', 'multiple-roots'])
+def test_archive_container_failures_are_unknown(fault):
+    if fault == 'invalid-tar':
+        content = b'not a gzip archive'
+        assert not content.startswith(b'\x1f\x8b')
+    else:
+        first = json.loads((PINNED / 'tree.json').read_text())['tree'][0]['path']
+        name = ('fixture-root/' if fault == 'duplicate' else 'other-root/') + first
+        content = pinned_archive(extra=(name, 'file'))
+    value = helper().collect_repo(pinned_api, 'cooneycw/example', SINCE, UNTIL,
+                                 archive_reader=lambda *_: content)
+    assert value['receipt_source_failed'] is True
+    assert value['receipts'] is None
+
+
+def test_archive_ignores_unrelated_symlink_without_extraction(monkeypatch):
+    mod = helper()
+    def forbidden(*args, **kwargs):
+        raise AssertionError('archive extraction must never occur')
+    monkeypatch.setattr(tarfile.TarFile, 'extract', forbidden)
+    monkeypatch.setattr(tarfile.TarFile, 'extractall', forbidden)
+    value = mod.collect_repo(pinned_api, 'cooneycw/example', SINCE, UNTIL,
+                            archive_reader=lambda *_: pinned_archive(extra=('fixture-root/unrelated/link', 'symlink')))
+    assert not value.get('receipt_source_failed')
+    assert (report({'repos': {'cooneycw/example': value}}) + '\n').encode() == (PINNED / 'expected.md').read_bytes()
+
+
+def test_archive_keeps_original_pin_when_main_moves():
+    calls = []
+    def api(args):
+        calls.append(args[0])
+        assert calls.count('repos/cooneycw/example/commits/main') <= 1
+        return pinned_api(args)
+    def archive(repo, commit):
+        assert commit == PIN
+        # A second main read would observe a different snapshot. Never request it.
+        return pinned_archive()
+    value = helper().collect_repo(api, 'cooneycw/example', SINCE, UNTIL, archive_reader=archive)
+    assert value['receipt_head'] == PIN
+    assert (report({'repos': {'cooneycw/example': value}}) + '\n').encode() == (PINNED / 'expected.md').read_bytes()
+
+
+def test_missing_pinned_tree_cli_is_unknown_nonzero(monkeypatch, capsys):
+    mod = helper()
+    def api(args):
+        if '/git/trees/' in args[0]:
+            raise mod.ReadError('pinned tree is missing')
+        return pinned_api(args)
+    monkeypatch.setattr(mod, 'gh_api', api)
+    assert mod.main(['--since', SINCE, '--until', UNTIL, '--repo', 'cooneycw/example']) == 1
+    out = capsys.readouterr().out
+    assert 'UNKNOWN' in out and 'pinned tree is missing' in out
+    assert 'Receipts readable: 0/unknown' in out
+
+
+@pytest.mark.skipif(shutil.which('python3') is None, reason='requires python3')
+@pytest.mark.parametrize('generated', [False, True])
+@pytest.mark.parametrize('unavailable', [False, True])
+def test_pinned_archive_real_cli_and_generated_reader(tmp_path, monkeypatch, generated, unavailable):
+    script = SCRIPT
+    if generated:
+        spec = importlib.util.spec_from_file_location('archive_bundle', ROOT / 'scripts/codex-skill-sync.py')
+        sync = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sync)
+        for name, content in sync.generate_skill(ROOT / '.claude/commands/monthly/create.md', 'monthly',
+                                                sync.generated_names(['monthly'])).items():
+            target = tmp_path / 'bundle' / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content)
+        script = tmp_path / 'bundle/scripts/review-yield-report.py'
+    archive = tmp_path / 'snapshot.tar.gz'
+    archive.write_bytes(pinned_archive())
+    bindir = tmp_path / 'bin'
+    bindir.mkdir()
+    calls = tmp_path / 'calls.jsonl'
+    fake = bindir / 'gh'
+    fake.write_text(f'''#!{sys.executable}
+import json,sys
+from pathlib import Path
+endpoint=sys.argv[2]
+with Path({str(calls)!r}).open('a') as stream:
+    stream.write(json.dumps(endpoint)+'\\n')
+if endpoint.startswith('search/issues?'):
+    print(json.dumps({{'total_count':0,'incomplete_results':False,'items':[]}}))
+elif endpoint.endswith('/commits/main'):
+    print(json.dumps({{'sha':{PIN!r}}}))
+elif '/git/trees/' in endpoint:
+    print(Path({str(PINNED / 'tree.json')!r}).read_text())
+elif endpoint == 'repos/cooneycw/example/tarball/{PIN}':
+    if {unavailable!r}:
+        sys.exit(1)
+    sys.stdout.buffer.write(Path({str(archive)!r}).read_bytes())
+else:
+    sys.exit(9)
+''')
+    fake.chmod(0o755)
+    monkeypatch.setenv('PATH', str(bindir) + os.pathsep + os.environ['PATH'])
+    result = subprocess.run(  # binary-guard: allow fixture-owned gh transport, no network or real gh/git
+        [sys.executable, str(script), '--since', SINCE, '--until', UNTIL, '--repo', 'cooneycw/example'],
+        capture_output=True, cwd=tmp_path)
+    observed = [json.loads(row) for row in calls.read_text().splitlines()]
+    assert len(observed) == 4
+    assert observed[-1] == f'repos/cooneycw/example/tarball/{PIN}'
+    assert not any('/git/blobs/' in call for call in observed)
+    if unavailable:
+        assert result.returncode == 1
+        assert b'UNKNOWN' in result.stdout and b'Receipts readable: 0/unknown' in result.stdout
+    else:
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == (PINNED / 'expected.md').read_bytes()

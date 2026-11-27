@@ -1,0 +1,16 @@
+{
+  "issue": "1",
+  "status": "ran",
+  "recorded_at": "2026-11-12T12:00:00Z",
+  "passes": 1,
+  "counts": {
+    "accepted": 2,
+    "rejected": 1,
+    "deferred": 0
+  },
+  "branch": "fixture-issue-1",
+  "implementer_evidence": {
+    "runtime": "codex",
+    "thread_id": "fixture-session"
+  }
+}
