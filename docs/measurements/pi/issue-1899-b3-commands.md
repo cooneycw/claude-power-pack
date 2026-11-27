@@ -1,6 +1,7 @@
 # Pi #1899 B3 local MCP handoff
 
-Status: DRAFT FOR ORCHESTRATOR/MASTER REVIEW; no host B3 execution claimed.
+Status: K769 ran d9c511c1 and stopped after T1-beta. See the scoped disposition
+below; later documentation amendments are not silently claimed as executed code.
 MAX MODEL TURNS: 32 response rounds; MAX USER PROMPTS: 16 (8 states x 2 repos).
 One user prompt and at most one MCP call per session; no retries or follow-ups.
 Stop on an extra tool attempt or a response round beyond tool-call plus final
@@ -13,6 +14,12 @@ stopped attempt. Count new observed response phases; do not infer actual rounds
 from tool-call counts or report the maximum as usage. If round boundaries are
 unexaminable, stop and route that limit before further turns; never read history.
 Refs #1899; [B2 results](issue-1899-b2-results.md).
+
+Live scoped disposition: [T1-beta capture was lost](issue-1899-b3-capture-stop.md).
+It remains UNEXAMINABLE, not an absence pass. No retry. Continuation A starts at
+T2 only after zero-model capture controls; two prompts and an actual round
+interval 1-2 are already spent. Book upper bound 2 for admission, not as actual
+usage. This named exception does not waive any future unexaminable-row STOP.
 
 ## Bind source and intervention boundaries
 
@@ -298,6 +305,11 @@ an unavailable call-identifier display leaves that part unresolved.
 Exit pi after its one answer; record actual process exit and loader/connection
 diagnostics that were exposed. Capture only the controlled new reply. Use the
 literal row tag to create its exclusive reply file; T2-alpha example:
+
+Wait for final/settled idle, not just any token-footer change. Preserve the
+controlled per-launch capture until durable record-reply, verifier outcome and
+artifact hashes exist; never delete it first. Empty, stale or unfinished capture
+is unexaminable, not a model response or a successful absence observation.
 
 ```bash
 python3 docs/measurements/pi/issue-1899-b3-probe.py record-reply --tag T2-alpha --root "$HOME/.cpp-pi-1899-probe"
