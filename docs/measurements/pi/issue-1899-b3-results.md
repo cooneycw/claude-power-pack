@@ -1,7 +1,9 @@
 # Pi #1899 B3: transport evidence, stopped with gaps
 
-Status: STOPPED / INCOMPLETE after provider quota error, 2026-11-27. Cleanup
-is reported complete; owner stop/wait disposition remains pending. This report
+Status: STOPPED / INCOMPLETE after provider quota error, 2026-11-27. Owner
+ruling "b3 stop" was relayed by master 42805 at 17:16:57Z. Cleanup
+is reported complete. Both unused T8 prompt slots are released; T8 will not
+run and no further B3 model turns are authorized. This report
 closes the current evidence handoff, not all planned acceptance rows. There
 were 14 user prompts; 16 known rounds plus two bounded unknown intervals,
 actual 16-18 and conservative book 18, within approved maxima 16/32. T8-alpha
@@ -144,9 +146,11 @@ verified the owned PID, HTTP exit 0 and no listener on its recorded loopback
 port. The post-stop control failed as expected. These are attributed cleanup
 receipts, not independent host inspection or T8 model acceptance.
 
-The probe root, owner login and model pin remain retained. No credential or
+The probe root, owner login and model pin remain retained for a possible B4,
+which remains draft-only and requires separate owner go and provider quota.
+No credential or
 stored-session contents were read, no re-login or retry was reported. No more
-model prompts proceed while provider quota blocks the probe. B4 authenticated
+model prompts proceed under the closed B3 authorization. B4 authenticated
 runtime identity and any #1903 receipt round trip remain unmeasured. Downstream
 #1902 may use the bounded transport/config/display evidence and its gaps;
 #1899 as a whole is not declared complete by this report.

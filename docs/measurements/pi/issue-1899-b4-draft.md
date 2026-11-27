@@ -1,7 +1,8 @@
 # Pi #1899 B4 runtime-identity metadata: DRAFT ONLY
 
-Execution: NOT AUTHORIZED. Provider quota is exhausted and the owner has not
-chosen wait/stop. This file is a design handoff, not an executable collector,
+Execution: NOT AUTHORIZED. Provider quota is exhausted. The owner stopped B3
+(master 42805, 2026-11-27); B4 still requires separate owner go and available
+provider quota. This file is a design handoff, not an executable collector,
 a runnable command authorization, or a completed measurement. No pi process,
 RPC command, hook, model prompt or host metadata inspection ran for this draft.
 Public-package source inspection and authoring checks are its only new work.
