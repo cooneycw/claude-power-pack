@@ -3459,7 +3459,8 @@ def _retired_cpp_generator_fixture():
 
 def _assert_only_retired_cpp_data_changed(candidate: bytes):
     frozen, expected, anchor, rows = _retired_cpp_generator_fixture()
-    assert candidate == expected, "only the six approved retired CPP exception rows may differ"
+    if candidate != expected:
+        raise AssertionError("only the six approved retired CPP exception rows may differ")
     assert candidate.count(anchor) == 1
     rebuilt = candidate.replace(anchor, anchor + rows, 1)
     assert rebuilt == frozen, "re-adding six rows must rebuild the exact frozen generator"
