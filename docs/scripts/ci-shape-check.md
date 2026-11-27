@@ -91,3 +91,8 @@ The committed cancellation witness runs tiny real pytest inputs, including a
 blind old owner, and is part of the focused selector manifest. Its controlled
 checkout/probe setup is not physical shape or root qualification; live lease
 release is measured separately from the normal test suite.
+
+If cancellation coincides with an unconfirmed group stop, the cleanup failure
+is reported as `CI_SHAPE_CANCEL: UNKNOWN` and chained to the interruption.
+The signal exit still wins, so the caller cannot start another lane or turn
+the interruption into a returned UNKNOWN lane.

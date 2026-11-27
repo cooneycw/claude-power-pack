@@ -446,14 +446,22 @@ def _owned_pytest(argv, *, cwd, env, output, timeout=1200) -> int:
         return proc.wait(timeout=timeout)
     finally:
         stopping = True
+        cleanup_error = None
         try:
             if proc is not None:
                 _stop_pytest_group(proc)
+        except BaseException as exc:
+            cleanup_error = exc
+            raise
         finally:
             for signum, handler in reversed(previous):
                 signal.signal(signum, handler)
-        if interrupted is not None:
-            raise SystemExit(128 + interrupted)
+            if interrupted is not None:
+                # A cleanup failure must remain visible without turning a
+                # stop request into a returned UNKNOWN lane and more work.
+                if cleanup_error is not None:
+                    print(f"CI_SHAPE_CANCEL: UNKNOWN: {cleanup_error}", file=sys.stderr, flush=True)
+                raise SystemExit(128 + interrupted) from cleanup_error
 
 
 def run_lane(root: Path, seed: Path, witness: str, work: Path, stage: Path,

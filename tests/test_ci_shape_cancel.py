@@ -189,3 +189,20 @@ def test_cancel_wins_when_group_stop_is_unconfirmed(tmp_path):
     assert 'CI_SHAPE_CANCEL: UNKNOWN:' in observed['diagnostic']
     assert 'owned pytest group did not stop after SIGKILL' in observed['diagnostic']
     assert 'CI_SHAPE: GOOD' not in observed['diagnostic']
+
+
+def test_cleanup_failure_without_cancel_stays_unknown_and_restores_handlers(tmp_path, monkeypatch):
+    from lib import ci_shape_check as shape
+    original = shape._stop_pytest_group
+    before = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)}
+
+    def fail_after_stop(proc):
+        original(proc)
+        raise shape.Unknown('forced cleanup failure without cancellation')
+
+    monkeypatch.setattr(shape, '_stop_pytest_group', fail_after_stop)
+    with (tmp_path / 'cleanup.log').open('w') as output:
+        with pytest.raises(shape.Unknown, match='forced cleanup failure without cancellation'):
+            shape._owned_pytest([sys.executable, '-c', 'raise SystemExit(7)'], cwd=tmp_path,
+                                env={'PATH': os.environ.get('PATH', '')}, output=output)
+    assert {sig: signal.getsignal(sig) for sig in before} == before
