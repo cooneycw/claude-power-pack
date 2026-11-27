@@ -1,0 +1,135 @@
+"""Frozen host driver controls; no tmux, pi, provider calls or owner files."""
+import hashlib
+import json
+import os
+import shlex
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+EXPORTED = ROOT / 'docs/measurements/pi/issue-1899-b3-driver/exported'
+pytestmark = pytest.mark.skipif(
+    shutil.which('python3') is None or shutil.which('bash') is None,
+    reason='requires Python and bash for frozen classifier/cap replay',
+)
+VERDICTS = {
+    '1-accept.txt': (0, 0), '1b-accept-after-tool.txt': (0, 1),
+    '2-empty.txt': (1, 1), '3-stale-footer.txt': (1, 1),
+    '4a-tool-running.txt': (1, 1), '4b-tool-phase-no-final.txt': (1, 1),
+    '5-real-layout-tool-phase.txt': (0, 1), '6-real-header-only.txt': (0, 1),
+    '7-real-layout-final.txt': (0, 0), '9-sanitized-real-layout-tool-phase.txt': (0, 1),
+    '10-two-tool-headers-then-final.txt': (0, 0),
+}
+
+
+def stored(name):
+    return EXPORTED / (name + '.txt' if name.endswith(('.py', '.sh')) else name)
+
+
+def classify(version, control):
+    return subprocess.run([sys.executable, str(stored(f'classify-v{version}.py')),
+                           str(EXPORTED / 'controls' / control)], capture_output=True, text=True)
+
+
+def candidate_version():
+    return 1 if os.environ.get('CPP_PI_CAPTURE_ARCHIVE_V1') == '1' else 2
+
+
+def test_exported_members_match_delivered_digests():
+    assert hashlib.sha256((EXPORTED / 'SHA256SUMS').read_bytes()).hexdigest() == (
+        '1a7585845015da109cfd806746865d36b0193821a26188e6edad0c8a54ece924')
+    names = set()
+    for line in (EXPORTED / 'SHA256SUMS').read_text().splitlines():
+        digest, name = line.split('  ', 1)
+        path = stored(name)
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == digest, name
+        names.add(path.relative_to(EXPORTED).as_posix())
+    actual = {p.relative_to(EXPORTED).as_posix() for p in EXPORTED.rglob('*') if p.is_file()}
+    assert actual == names | {'SHA256SUMS'}
+
+
+@pytest.mark.parametrize('control', sorted(VERDICTS))
+@pytest.mark.parametrize('version', [1, 2])
+def test_actual_archived_classifier_matrix(version, control):
+    result = classify(version, control)
+    expected = VERDICTS[control][version - 1]
+    assert result.returncode == expected, result.stderr
+    assert json.loads(result.stdout)['accept'] is (expected == 0)
+
+
+def test_real_tool_phase_must_not_be_final():
+    control = '9-sanitized-real-layout-tool-phase.txt'
+    text = (EXPORTED / 'controls' / control).read_text()
+    assert 'cpp-pi1899-stdio/probe-echo' in text
+    assert text.count('NONCE_PLACEHOLDER_32_HEX_0000000') == 1
+    result = classify(candidate_version(), control)
+    assert result.returncode == 1, 'tool result without final was accepted'
+
+
+def session_replay(tmp_path, control, version):
+    # Exact session.sh bytes, with only its external run/close/record collaborators
+    # replaced by fixture stubs. The real wrapper cap itself is not copied/rederived.
+    folder = tmp_path / 'driver'
+    folder.mkdir()
+    script = folder / 'session.sh'
+    script.write_bytes(stored('session.sh').read_bytes())
+    script.chmod(0o700)
+    classifier = stored(f'classify-v{version}.py')
+    capture = EXPORTED / 'controls' / control
+    run = (f'#!/bin/sh\n{shlex.quote(sys.executable)} {shlex.quote(str(classifier))} '
+           f'{shlex.quote(str(capture))} > "$(dirname "$0")/accept-$2.json"\n')
+    for name, body in [('run.sh', run),
+                       ('close.sh', '#!/bin/sh\nprintf "close\\n" >> "$CAPTURE_TEST_TRACE"\n'),
+                       ('record.sh', '#!/bin/sh\nprintf "record\\n" >> "$CAPTURE_TEST_TRACE"\n')]:
+        path = folder / name
+        path.write_text(body)
+        path.chmod(0o700)
+    tools = tmp_path / 'tools'
+    tools.mkdir()
+    (tools / 'python3').symlink_to(sys.executable)
+    # dirname is the only other external command used by the wrapper/stubs.
+    dirname = tools / 'dirname'
+    dirname.write_text('#!/usr/bin/env python3\nimport os,sys\nprint(os.path.dirname(sys.argv[1]))\n')
+    dirname.chmod(0o700)
+    trace = tmp_path / 'trace'
+    env = {'PATH': str(tools), 'HOME': str(tmp_path), 'CAPTURE_TEST_TRACE': str(trace)}
+    result = subprocess.run([shutil.which('bash'), str(script), 'alpha', 'T2-alpha', 'stdio'],
+                            env=env, cwd=tmp_path, capture_output=True, text=True)
+    return result, trace
+
+
+def test_session_cap_refuses_two_tools_before_close_record(tmp_path):
+    control = '10-two-tool-headers-then-final.txt'
+    text = (EXPORTED / 'controls' / control).read_text()
+    assert text.count('cpp-pi1899-stdio/probe-echo tag=') == 2
+    result, trace = session_replay(tmp_path, control, candidate_version())
+    assert result.returncode == 6, result.stdout + result.stderr
+    assert 'extra tool attempt' in result.stdout and 'pi LEFT OPEN' in result.stdout
+    assert not trace.exists(), 'close or record ran after the extra-attempt STOP'
+
+
+def test_session_cap_allows_one_completed_tool(tmp_path):
+    result, trace = session_replay(tmp_path, '7-real-layout-final.txt', 2)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert trace.read_text().splitlines() == ['close', 'record']
+
+
+def test_actual_record_script_keeps_log_without_accepted_reply(tmp_path):
+    setup, _trace = session_replay(tmp_path, '7-real-layout-final.txt', 2)
+    assert setup.returncode == 0
+    folder = tmp_path / 'driver'
+    (folder / 'accept-T2-alpha.json').unlink()
+    assert not (folder / 'accept-T2-alpha.json').exists()
+    record = folder / 'record.sh'
+    record.write_bytes(stored('record.sh').read_bytes())
+    log = folder / 'pipe-T2-alpha.log'
+    log.write_bytes(b'controlled fixture capture retained')
+    result = subprocess.run([shutil.which('bash'), str(record), 'T2-alpha', 'stdio'],
+                            env={'PATH': str(tmp_path / 'tools'), 'HOME': str(tmp_path)},
+                            cwd=tmp_path, capture_output=True, text=True)
+    assert result.returncode == 1 and 'pane log KEPT' in result.stdout
+    assert log.read_bytes() == b'controlled fixture capture retained'

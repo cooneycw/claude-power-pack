@@ -1,10 +1,9 @@
 # Pi #1899 B3 capture-driver controls and native-layout stop
 
-Status: v1 synthetic controls reported passing; native T2-alpha exposed an
-unsupported tool layout. Master authorized v2 controls and saved-capture
-recovery. The v2 hash, rerun results, commit bindings and final verification
-are not supplied yet. Refs #1899. No additional model prompt is authorized
-by this evidence note.
+Status: historical native-layout stop and conditional v2 disposition. The later
+[driver export/T2 verification/T3 observation](issue-1899-b3-progress.md)
+supplies v2's full hash, committed replay inputs and verified pair. Refs #1899.
+No additional model prompt is authorized by this evidence note.
 
 Sources: orchestrator message 42546; master messages 42552, 42555 and 42563;
 protocol-author replies 42575, 42579 and 42581. All observations are attributed;

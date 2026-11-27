@@ -1,0 +1,9 @@
+#!/bin/bash
+# session.sh <alpha|beta> <tag> <transport>: run (v2 accept), STOP on >1 tool event, close, durable record, verify
+T5=$(dirname "$0"); r=$1; L=$2; TR=$3
+"$T5/run.sh" $r $L; rc=$?; [ $rc -eq 0 ] || { echo "SESSION STOP ($L): run exit $rc"; exit $rc; }
+n=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["tool_event_lines"])' "$T5/accept-$L.json")
+echo "ROUNDS($L)=$([ "$n" -ge 1 ] && echo 2 || echo 1) tool_events=$n"
+if [ "$n" -gt 1 ]; then echo "SESSION STOP ($L): extra tool attempt; pi LEFT OPEN"; exit 6; fi
+"$T5/close.sh" $L
+"$T5/record.sh" $L $TR

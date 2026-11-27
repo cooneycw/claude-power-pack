@@ -1,0 +1,5 @@
+#!/bin/bash
+# close.sh <tag>: exit pi after review; keep pipe log until reply is recorded
+T5=$(dirname "$0"); L=$1; X=$T5/exit-$L
+tmux send-keys -t pib3 C-d; for i in $(seq 1 20); do [ -f "$X" ] && break; sleep 1; done
+echo "PI_EXIT=$(cat "$X" 2>/dev/null || echo none)"; tmux kill-session -t pib3 2>/dev/null

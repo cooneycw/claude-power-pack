@@ -25,6 +25,10 @@ records T2-alpha and conditional v2 recovery. NEXT after saved-alpha recording/
 verification is T2-beta, then T3-T8 paired. Earlier T2-T16 mailbox shorthand was
 wrong; B3 never adds T9-T16. Record native UI server/tool display separately
 from the source-premise mcp__ identifier; do not infer normalization from a prompt.
+The [current T2/T3 and driver receipt](issue-1899-b3-progress.md) records both
+stdio-direct verifications, the actual wrapper cap and T3-alpha's no-visible-
+reply observation. Current routing resumes T3-beta only after driver commit/
+controls and T3-alpha scrollback retention/close; do not replay an earlier state.
 
 ## Bind source and intervention boundaries
 
