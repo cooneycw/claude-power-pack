@@ -1,5 +1,8 @@
 # Pi #1899 B0 attributed host observations
 
+Historical batch receipt; see the [partial provenance](issue-1899-provenance.md)
+and [owner-stopped B3 results](issue-1899-b3-results.md) for current status.
+
 Status: B0 reported complete by master on 2026-11-27. B2-B4 remain PENDING.
 Refs #1899 and #1876. This author received the host relay, not the original
 execution artifacts, and did not independently run pi or inspect credentials.

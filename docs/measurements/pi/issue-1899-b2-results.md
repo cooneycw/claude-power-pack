@@ -1,5 +1,8 @@
 # Pi #1899 B2 attributed rule-loading observations
 
+Historical batch receipt; see the [partial provenance](issue-1899-provenance.md)
+and [owner-stopped B3 results](issue-1899-b3-results.md) for current status.
+
 Status: B2 reported complete by master on 2026-11-27; B3/B4 remain PENDING.
 Refs #1899 and #1876. Source: master's mailbox message 42465, relaying the
 host helper's completion for K751 job B / K753 item 1 at 14:35:48Z. This author

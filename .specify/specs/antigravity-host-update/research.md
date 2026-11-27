@@ -159,3 +159,38 @@ This draft does not yet justify closing #1887. The manifest improves provenance
 but leaves the gaps above. Resolve material gaps or obtain an explicit acceptance
 revision from the existing decision authority; document completion is not that
 revision.
+
+## Pi #1899 partial B0-B3 observations (2026-11-27)
+
+This section adds the pi track under #1876; the AGY observations above retain
+their own evidence and limits. The pi author inspected sanitized driver/control
+exports and public source, not real host captures or transcripts. Host results
+remain attributed to master's authorized fresh-HOME helper. See the
+[pi provenance](../../../docs/measurements/pi/issue-1899-provenance.md) and
+[B3 stopped report](../../../docs/measurements/pi/issue-1899-b3-results.md).
+The owner ruled B3 stop; #1899 is PARTIAL, not complete. B4 is draft-only.
+
+| Batch | Reported paired observations | Limits and implementation implication |
+|---|---|---|
+| B0 isolation | Marker present in the retained disposable root, removed by scoped undo; never-created marker absent; regular names-only summary stable | Configuration separation only; no filesystem/network or unchanged-file-byte proof; login/pin retained |
+| B2 global rules | Base/override markers loaded in two unrelated repos; removal removed markers; override won with both present; an existing empty override suppressed base, removal restored base | Supports #1901's measured base/override behavior; user-owned override must not be treated as absent because it is empty; no installer/adoption acceptance |
+| B2 sampled sizes | Head/middle/tail markers retained at 8192/32768/65536 bytes in both rule filenames and both repos | Exact ceiling, every-byte retention and aggregate budget UNKNOWN; no borrowed AGY cap or unlimited claim |
+| B3 direct MCP | Four reported nonce/process/request-bound native calls: stdio and loopback HTTP in both repos; compatible before/after controls and bound screen/backend counts agree | Supports tested native transport evidence for #1902; CLI exit alone is not health and no CPP managed-merge adapter is delivered |
+| B3 omitted exposure | Initialized servers but no calls in the restricted direct-tools namespace lane; visible-empty or explicit unavailable reply, one overcapture disclosed | Default is documented codemode; this lane excludes indirect mechanisms, so no global codemode failure/direct-required claim; actual model-facing normalized identifier remains unmeasured |
+| B3 dead fixtures | Expected compatible-client failures; interactive MCP startup connection-closed/fetch-failed warnings; no logged calls | MCP-specific interactive diagnostic evidence only, not RPC stderr or generic loader coverage; process counts do not prove retry mechanism |
+| B3 preservation/undo | Synthetic foreign entry preserved; guarded final undo reported config absent, journal undone and fixtures stopped, regular name summary stable | Config cleanup only; not final native tool absence, arbitrary user-config merge safety or whole-host isolation |
+
+B3 used 14 prompts, 16 known rounds plus two bounded unknown intervals,
+actual 16-18/book 18. T1-beta capture is lost; T7-beta was provider-blocked by
+429, not a valid negative runtime result; T8-alpha/beta were never run and the
+owner released both slots. Initial T1-alpha does not replace either final row.
+B2 used its separately approved 32-turn matrix. Exact runtime identity is not
+proved by the CLI pin or model-only footer; B4 needs separate owner go, quota
+and a reviewed metadata-only collector before any execution.
+
+The result/provenance notes disclose capture-driver corrections, overcapture,
+empty-stdin refusal, HTTP-stop ordering, a limited probe settings projection,
+and incidental auth-like metadata from a cleanup listing. Credential/session
+contents remain unread; raw commentary, auth modes and regular count/digest
+pair are not committed. Synthetic controls are not host measurements. These
+observations inform #1901/#1902 without closing them or #1899/#1876.
