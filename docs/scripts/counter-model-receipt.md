@@ -23,8 +23,15 @@ Per-script history, indexed from [the scripts inventory](../scripts.md).
   consumed by the review prompt. `parse` classifies each recognized finding's
   own unfenced `- Kind:` field, using `unstated` for missing, unknown or repeated
   fields, and prints `COUNTER_MODEL_KIND: <kind> <count>` for every bucket.
-  Clean reports print zeros. Existing output lines and receipt schema 5 remain
-  unchanged; kind counts are not stored in receipts. Committed mixed, missing
+  Clean reports print zeros. Schema-5 writes also persist `counts_by_kind`
+  from the same runtime Findings report selected by `reviewed_artifact.report_record`.
+  Its object declares `scope: "selected_report"`, the matching `report_record`,
+  and `kinds` (every canonical bucket plus `unstated`). Counts describe that
+  report only, even when `passes` is greater than one; dispositions remain
+  cumulative. Unparseable or off-shape reports store `kinds: null` (UNKNOWN).
+  Historical receipts without the optional field still validate and read as
+  UNKNOWN for kinds. Present fields are shape-checked; no corpus is backfilled.
+  Committed mixed, missing
   and clean transcripts under `tests/fixtures/counter_model/kinds-*.review.md`
   exercise both recognition and absence through the real parse CLI.
 

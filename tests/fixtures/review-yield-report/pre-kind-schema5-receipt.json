@@ -1,0 +1,63 @@
+{
+  "branch": "issue-1927-pi-skill-install-control-fails-under-symlinked-tmp",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "921b87f06f597d76b99af2998e82bbc5facc6faa",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/27/rollout-2026-11-27T11-25-03-01a21cc0-71f5-74b3-9b86-8393176ccaf8.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 1613792,
+        "path": "2026/11/27/rollout-2026-11-27T11-25-03-01a21cc0-71f5-74b3-9b86-8393176ccaf8.jsonl",
+        "sha256": "6e956f7cefa3f8af4e9fee2e7036e0cc7d98fc74e62df50354f445d8ffbfd809"
+      }
+    ],
+    "thread_id": "01a21cc0-71f5-74b3-9b86-8393176ccaf8"
+  },
+  "issue": "1927",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 1,
+  "recorded_at": "2026-11-27T13:31:58Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewed_artifact": {
+    "base_sha": "d3484def269781f86d2aeb8ab72de33cd68586ac",
+    "merge_base": "d3484def269781f86d2aeb8ab72de33cd68586ac",
+    "method": "runtime-head",
+    "patch_sha256": "c4609e005b54adb9debc3f0d69bbce871d186bf83d47ceac2d94a2e1cb7b427e",
+    "report_record": 8770,
+    "target_head": "921b87f06f597d76b99af2998e82bbc5facc6faa"
+  },
+  "reviewer": "claude/claude-opus-5-5",
+  "reviewer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2",
+    "sources": [
+      {
+        "bytes": 16206376,
+        "path": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl",
+        "sha256": "d2cccd77944cd73a25f65c3b484cbfbaa2961f5ca827361594d5804ddb1c8689"
+      }
+    ],
+    "transcript": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}

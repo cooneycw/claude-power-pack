@@ -675,7 +675,7 @@ def test_real_historical_installer_population(source, tmp_path, revision, v13_ba
                    if old_members.get(name) != new_members.get(name)}
         assert changed == {name: row["candidate"] for name, row in data["attributed_input_delta"].items()}, (
             "only owner-attributed input changes may make the historical v13 install stale")
-        assert all(row["baseline"] == old_members[name] for name, row in data["attributed_input_delta"].items())
+        assert all(row["baseline"] == old_members.get(name) for name, row in data["attributed_input_delta"].items())
     if before == wanted:
         result = run_maintained(source, home)
         assert "CPP_REFRESH_EXIT=0" in result.stdout and "Codex migration packages:" not in result.stdout
@@ -694,7 +694,7 @@ def test_real_historical_installer_population(source, tmp_path, revision, v13_ba
                      for line in declined.stdout.splitlines() if line.startswith("Codex migration packages: "))
         assert set(names) >= stale and inventory(skills) == before
         if v13_baseline:
-            assert set(names) == stale, "the two attributed packages alone need reviewed adoption"
+            assert set(names) == stale, "the attributed packages alone need reviewed adoption"
         assert not (skills / ".cpp-managed/ownership.json").exists()
         accepted = run_maintained(source, home, migration="yes", finish=True)
         assert "CPP_REFRESH_EXIT=0" in accepted.stdout, accepted.stdout

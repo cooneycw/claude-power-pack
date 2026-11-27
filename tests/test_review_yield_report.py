@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -11,7 +12,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts" / "review-yield-report.py"
+SCRIPT = Path(os.environ.get("CPP_REVIEW_YIELD_TEST_SCRIPT", ROOT / "scripts" / "review-yield-report.py"))
 CONTRACT = ROOT / "docs/agents/closing-report-contract.md"
 FIXTURES = ROOT / "tests/fixtures/review-yield-report"
 SINCE, UNTIL = "2026-11-11", "2026-11-20"
@@ -390,3 +391,97 @@ def test_repeated_branch_without_session_identity_is_ambiguous():
     out = report(value)
     assert "UNKNOWN: ambiguous run identity for issue #1, branch fixture-issue-1" in out
     assert "accepted: 3;" not in out
+
+
+def kind_fixture_report(name):
+    receipt = json.loads((FIXTURES / name).read_text())
+    value = {"repos": {"fixture/repo": {"prs": [], "receipts": [receipt], "errors": []}}}
+    return receipt, helper().render(value, "2026-11-27", "2026-11-27", CONTRACT.read_text())
+
+
+def test_historical_kind_counts_are_unknown_not_zero():
+    receipt, out = kind_fixture_report("pre-kind-schema5-receipt.json")
+    assert "counts_by_kind" not in receipt and receipt["schema"] == 5
+    assert "selected-report kinds: UNKNOWN" in out
+    assert "Selected-report kinds coverage: 0/1 measured; 0/1 carry counts_by_kind" in out
+    for kind in ("correctness", "security", "edge-case", "test-adequacy",
+                 "plan-bookkeeping", "simplification", "unstated"):
+        assert f"{kind}: 0" not in out
+
+
+def test_three_pass_selected_report_is_not_cumulative():
+    receipt, out = kind_fixture_report("three-pass-selected-report.json")
+    assert receipt["passes"] == 3 and sum(receipt["counts_by_kind"]["kinds"].values()) == 1
+    assert "selected-report kinds: correctness: 1;" in out
+    assert "correctness: 3" not in out
+    assert "Selected-report kinds coverage: 1/1 measured; 1/1 carry counts_by_kind" in out
+    assert "Cumulative kinds: UNKNOWN" in out
+
+
+@pytest.mark.parametrize("change", [
+    "negative", "bool", "missing-kind", "unknown-kind", "wrong-scope", "wrong-record",
+    "bool-artifact-record", "float-schema", "missing-kinds", "null-kinds",
+])
+def test_malformed_selected_report_kinds_are_unknown(change):
+    receipt = json.loads((FIXTURES / "three-pass-selected-report.json").read_text())
+    value = receipt["counts_by_kind"]
+    assert value["scope"] == "selected_report" and value["kinds"]["correctness"] == 1
+    if change == "negative":
+        value["kinds"]["correctness"] = -1
+    elif change == "bool":
+        value["kinds"]["correctness"] = True
+    elif change == "missing-kind":
+        del value["kinds"]["correctness"]
+    elif change == "unknown-kind":
+        value["kinds"]["invented"] = 1
+    elif change == "wrong-scope":
+        value["scope"] = "cumulative"
+    elif change == "wrong-record":
+        value["report_record"] += 1
+    elif change == "bool-artifact-record":
+        value["report_record"] = 1
+        receipt["reviewed_artifact"]["report_record"] = True
+    elif change == "float-schema":
+        receipt["schema"] = 5.0
+    elif change == "missing-kinds":
+        del value["kinds"]
+    else:
+        value["kinds"] = None
+    record = {"repos": {"fixture/repo": {"prs": [], "receipts": [receipt], "errors": []}}}
+    out = helper().render(record, "2026-11-27", "2026-11-27", CONTRACT.read_text())
+    assert "selected-report kinds: UNKNOWN" in out
+    assert "Selected-report kinds coverage: 0/1 measured; 1/1 carry counts_by_kind" in out
+    assert "correctness: 0" not in out
+
+
+def test_selected_kind_reader_unavailable_is_unknown(tmp_path, monkeypatch):
+    mod = helper()
+    monkeypatch.setattr(mod, "__file__", str(tmp_path / "report.py"))
+    assert not (tmp_path / "counter-model-receipt.py").exists()
+    receipt = json.loads((FIXTURES / "three-pass-selected-report.json").read_text())
+    rows = "\n".join(mod.selected_kind_rows([receipt]))
+    assert "selected-report kinds: UNKNOWN" in rows
+    assert "0/1 measured; 1/1 carry counts_by_kind" in rows
+
+
+def test_generated_monthly_bundle_reads_selected_kinds(tmp_path):
+    spec = importlib.util.spec_from_file_location("kind_bundle_sync", ROOT / "scripts/codex-skill-sync.py")
+    sync = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sync)
+    files = sync.generate_skill(ROOT / ".claude/commands/monthly/create.md", "monthly",
+                                sync.generated_names(["monthly"]))
+    bundle = tmp_path / "monthly-create"
+    for name, content in files.items():
+        dest = bundle / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(content)
+    receipt = json.loads((FIXTURES / "three-pass-selected-report.json").read_text())
+    fixture = tmp_path / "input.json"
+    fixture.write_text(json.dumps({"repos": {"fixture/repo": {"prs": [], "receipts": [receipt], "errors": []}}}))
+    result = subprocess.run(  # binary-guard: allow fixture-only report never calls gh/git
+        [sys.executable, str(bundle / "scripts/review-yield-report.py"), "--since", "2026-11-27",
+         "--until", "2026-11-27", "--fixture", str(fixture)],
+        capture_output=True, text=True, cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "selected-report kinds: correctness: 1;" in result.stdout
+    assert "Selected-report kinds coverage: 1/1 measured; 1/1 carry counts_by_kind" in result.stdout

@@ -10,6 +10,7 @@ import argparse
 import base64
 import json
 import re
+import runpy
 import subprocess
 from collections import Counter, defaultdict
 from datetime import date, datetime, timezone
@@ -240,6 +241,31 @@ def select_runs(receipts):
     return selected, omitted, ambiguous
 
 
+def selected_kind_rows(receipts):
+    """Read the canonical optional field without interpreting it as cumulative."""
+    try:
+        reader = runpy.run_path(str(Path(__file__).with_name("counter-model-receipt.py")))[
+            "selected_report_kind_counts"]
+    except (OSError, ImportError, KeyError):
+        reader = None
+    measured, carried, rows = 0, 0, []
+    for receipt in receipts:
+        carried += "counts_by_kind" in receipt
+        kinds = reader(receipt) if reader is not None else None
+        label = (f"- Receipt {receipt['recorded_at']} issue #{receipt['issue']} "
+                 f"({receipt.get('branch', 'unknown branch')})")
+        if kinds is None:
+            rows.append(f"{label}: selected-report kinds: UNKNOWN")
+        else:
+            measured += 1
+            values = "; ".join(f"{kind}: {count}" for kind, count in kinds.items())
+            record = receipt["counts_by_kind"]["report_record"]
+            rows.append(f"{label}, report_record {record}: selected-report kinds: {values}")
+    return [f"Selected-report kinds coverage: {measured}/{len(receipts)} measured; "
+            f"{carried}/{len(receipts)} carry counts_by_kind",
+            *rows, "Cumulative kinds: UNKNOWN (selected reports do not measure all passes)"]
+
+
 def render(data, since, until, contract):
     lines = [f"# Review yield and fix provenance: {since}..{until}", "",
              "Observation only; missing provenance is not proof of an escaped defect.",
@@ -336,6 +362,7 @@ def render(data, since, until, contract):
             for receipt in selected:
                 sums.update(receipt["counts"])
                 pass_counts[str(receipt["issue"])] += receipt["passes"]
+            lines.extend(selected_kind_rows(selected))
             for issue, passes in sorted(pass_counts.items()):
                 lines.append(f"- Issue #{issue}: {passes} passes")
             yield_line = "; ".join(f"{key}: {sums[key]}" for key in ("accepted", "rejected", "deferred"))

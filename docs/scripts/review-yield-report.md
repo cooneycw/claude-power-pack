@@ -45,7 +45,17 @@ runs. Older snapshots and skipped receipts are counted separately. Receipts
 outside the period do not contribute yield. These are recording dates, not
 merge dates; the two populations are shown separately. Historical schema shapes
 are read without claiming fresh validation or authenticated identities. The
-report does not reinterpret accepted limitations or infer optional finding kinds.
+report does not reinterpret accepted limitations.
+
+Finding kinds are shown per selected receipt, labelled as the selected report
+with its `report_record`; they are never summed into cumulative dispositions,
+multiplied by passes, or presented as per-issue totals. Coverage states how
+many selected receipts have measured counts and how many carry the optional
+`counts_by_kind` field. A genuine clean report has measured zeros. Historical,
+malformed and unparseable kind observations are UNKNOWN. Cumulative kinds stay
+UNKNOWN because the selected report does not measure all passes. The reader
+uses the sibling `counter-model-receipt.py` helper's canonical vocabulary and
+field validator; if that helper is unavailable, kinds remain UNKNOWN.
 
 PR and receipt readable/total denominators expose incomplete observations.
 A failed listing has an unknown denominator; partial individual reads retain
