@@ -20,6 +20,11 @@ It remains UNEXAMINABLE, not an absence pass. No retry. Continuation A starts at
 T2 only after zero-model capture controls; two prompts and an actual round
 interval 1-2 are already spent. Book upper bound 2 for admission, not as actual
 usage. This named exception does not waive any future unexaminable-row STOP.
+The [subsequent driver/native-layout receipt](issue-1899-b3-capture-driver.md)
+records T2-alpha and conditional v2 recovery. NEXT after saved-alpha recording/
+verification is T2-beta, then T3-T8 paired. Earlier T2-T16 mailbox shorthand was
+wrong; B3 never adds T9-T16. Record native UI server/tool display separately
+from the source-premise mcp__ identifier; do not infer normalization from a prompt.
 
 ## Bind source and intervention boundaries
 

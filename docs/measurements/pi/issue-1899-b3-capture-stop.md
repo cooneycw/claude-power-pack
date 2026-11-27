@@ -1,7 +1,8 @@
 # Pi #1899 B3 T1-beta capture loss and scoped disposition
 
-Status: stopped after T1-beta; scoped continuation A is conditional on capture
-controls. No T2 execution or completed B3 result is claimed. Refs #1899.
+Status: historical T1-beta stop; scoped continuation A required capture controls.
+The subsequent [driver-control and T2-alpha receipt](issue-1899-b3-capture-driver.md)
+records the next native-layout stop. No completed B3 result is claimed. Refs #1899.
 Source: master's mailbox message 42542, with the protocol author's reply 42550.
 These are attributed reports; the author did not inspect host artifacts or run pi.
 
