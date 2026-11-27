@@ -19,6 +19,8 @@ legitimately about something other than one script is declared on the marker bel
 
 ## Scripts
 
+- `ci-shape-check` - opt-in local and pinned-image clone/environment checks with separate root evidence (#1917). [reference](scripts/ci-shape-check.md)
+
 - `pi-skill-sync` - portable pi topic builds, snapshots and explicit core-backed installation/verification (#1896). [reference](scripts/pi-skill-sync.md)
 - `pi-host-fixture` - disposable offline pi RPC/copier trace observations and bounded RPC-pair reader; host evidence stays explicit. [reference](scripts/pi-host-fixture.md)
 - `pi-syscall-audit` - classify supplied child traces against an explicit fixture allowance with findings/unknowns. [reference](scripts/pi-syscall-audit.md)

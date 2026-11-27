@@ -1,0 +1,12 @@
+@pytest.mark.skipif(shutil.which("git") is None, reason="requires Git for isolated fixture tool selection")
+def test_fixture_path_drops_unselected_home_search_entries(tmp_path, monkeypatch):
+    foreign = tmp_path / "foreign-home/bin"
+    assert shutil.which("git", path=str(foreign)) is None
+    monkeypatch.setenv("PATH", str(foreign) + ":/usr/bin:/bin")
+    env, git = SUBJECT["fixture_environment"](tmp_path)
+    assert str(foreign) not in env["PATH"].split(":")
+    assert str(Path(git).parent) in env["PATH"].split(":")
+    assert env["HOME"] == str(tmp_path / "home") and env["PYTHONNOUSERSITE"] == "1"
+    assert env["PI_CODING_AGENT_DIR"] == str(tmp_path / "agent")
+
+
