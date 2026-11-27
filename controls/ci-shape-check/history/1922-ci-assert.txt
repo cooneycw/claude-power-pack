@@ -1,0 +1,24 @@
+def _retired_cpp_generator_fixture():
+    reference = ROOT / "controls/antigravity-skill-build/reference/codex-skill-sync-40d25173.py"
+    frozen = reference.read_bytes()
+    assert hashlib.sha256(frozen).hexdigest() == _FROZEN_GENERATOR_SHA
+    rows = [line for line in frozen.splitlines(keepends=True)
+            if any(line.startswith(f'    ("cpp/update.md", "{name}",'.encode()) for name in _RETIRED_CPP_HELPERS)]
+    assert len(rows) == 6
+    expected = frozen
+    for row in rows:
+        expected = expected.replace(row, b"", 1)
+    anchor = next(line for line in frozen.splitlines(keepends=True)
+                  if line.startswith(b'    ("cpp/update.md", "mcp-drift.py",'))
+    return frozen, expected, anchor, b"".join(rows)
+
+
+def _assert_only_retired_cpp_data_changed(candidate: bytes):
+    frozen, expected, anchor, rows = _retired_cpp_generator_fixture()
+    assert candidate == expected, "only the six approved retired CPP exception rows may differ"
+    assert candidate.count(anchor) == 1
+    rebuilt = candidate.replace(anchor, anchor + rows, 1)
+    assert rebuilt == frozen, "re-adding six rows must rebuild the exact frozen generator"
+    assert hashlib.sha256(rebuilt).hexdigest() == _FROZEN_GENERATOR_SHA
+
+

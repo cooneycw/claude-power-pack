@@ -1,0 +1,140 @@
+{
+  "gate": "scripts/ci-shape-check.py",
+  "invocation": [
+    "uv",
+    "run",
+    "--extra",
+    "dev",
+    "--frozen",
+    "python",
+    "controls/ci-shape-check/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "CI_SHAPE: BAD:",
+  "unknown_signal": "CI_SHAPE: UNKNOWN:",
+  "unavailable_signal": "CI_SHAPE_CONTROL: unavailable -",
+  "cases": [
+    {
+      "name": "good",
+      "input": "cases/good",
+      "expect": "GOOD"
+    },
+    {
+      "name": "mode",
+      "input": "cases/mode",
+      "expect": "BAD"
+    },
+    {
+      "name": "symlink",
+      "input": "cases/symlink",
+      "expect": "BAD"
+    },
+    {
+      "name": "ci",
+      "input": "cases/ci",
+      "expect": "BAD"
+    },
+    {
+      "name": "git",
+      "input": "cases/git",
+      "expect": "BAD"
+    },
+    {
+      "name": "make",
+      "input": "cases/make",
+      "expect": "BAD"
+    },
+    {
+      "name": "filter",
+      "input": "cases/filter",
+      "expect": "BAD"
+    },
+    {
+      "name": "shallow",
+      "input": "cases/shallow",
+      "expect": "BAD"
+    },
+    {
+      "name": "history",
+      "input": "cases/history",
+      "expect": "BAD"
+    },
+    {
+      "name": "root-claim",
+      "input": "cases/root-claim",
+      "expect": "BAD"
+    },
+    {
+      "name": "internalerror",
+      "input": "cases/internalerror",
+      "expect": "BAD"
+    },
+    {
+      "name": "incomplete",
+      "input": "cases/incomplete",
+      "expect": "BAD"
+    },
+    {
+      "name": "unavailable",
+      "input": "cases/unavailable",
+      "expect": "UNKNOWN"
+    },
+    {
+      "name": "backend",
+      "input": "cases/backend",
+      "expect": "UNKNOWN"
+    },
+    {
+      "name": "missing-witness",
+      "input": "cases/missing-witness",
+      "expect": "BAD"
+    },
+    {
+      "name": "below-floor",
+      "input": "cases/below-floor",
+      "expect": "BAD"
+    },
+    {
+      "name": "umask-mismatch",
+      "input": "cases/umask-mismatch",
+      "expect": "BAD"
+    },
+    {
+      "name": "umask-unknown",
+      "input": "cases/umask-unknown",
+      "expect": "UNKNOWN"
+    },
+    {
+      "name": "bootstrap-good",
+      "input": "cases/bootstrap-good",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bootstrap-code",
+      "input": "cases/bootstrap-code",
+      "expect": "BAD"
+    },
+    {
+      "name": "false-root-skip",
+      "input": "cases/false-root-skip",
+      "expect": "BAD"
+    },
+    {
+      "name": "zero-executed",
+      "input": "cases/zero-executed",
+      "expect": "BAD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/ci-shape-check.py",
+      "path": "anchors/blind-ci-shape-check.py",
+      "sha256": "4788194ebb5a0088f4d5147f69de377b1a28dadf6cd5b6a86f655d4eba6c18b4",
+      "why": "Availability-only verifier agrees on genuine GOOD/UNKNOWN and misses shape, incomplete-result and cross-tier BAD cases."
+    }
+  ]
+}

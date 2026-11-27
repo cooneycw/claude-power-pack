@@ -1,0 +1,48 @@
+[
+  {
+    "path": "1909-modes.txt",
+    "commit": "40357fded0c229acc2b26f40ec6d5344aec991aa",
+    "origin": "tests/test_antigravity_codex_parity.py",
+    "functions": [
+      "inventory"
+    ],
+    "sha256": "955e9447c16fc4f8e83c13f121b962f681c8c72ffeda3fa0bc8ee52f2b0ff0e5"
+  },
+  {
+    "path": "1910-path.txt",
+    "commit": "3d3f69cd296cae050219c6844211ddc72094124c",
+    "origin": "tests/test_pi_host_fixture.py",
+    "functions": [
+      "test_fixture_path_drops_unselected_home_search_entries"
+    ],
+    "sha256": "3457996e9d09afed14a0430d520cd13921c46db978eddbfcd7a965f6e114e4a3"
+  },
+  {
+    "path": "1916-history.txt",
+    "commit": "8d3c38bf344569621bda23ab13a95e99cf169555",
+    "origin": "tests/test_pi_owner_probe.py",
+    "functions": [
+      "source"
+    ],
+    "sha256": "53bca14fe96050a0e55e261f4e8cb10a7c18ba561f92f10eb95073a9e1fb6e51"
+  },
+  {
+    "path": "1922-ci-assert.txt",
+    "commit": "79f2edf170babbd0ffa4eee10a5e165c1ad00ddd",
+    "origin": "tests/test_codex_skill_sync.py",
+    "functions": [
+      "_retired_cpp_generator_fixture",
+      "_assert_only_retired_cpp_data_changed"
+    ],
+    "sha256": "450a6b949aae6f428b9671ca3ef5f600f4a03cd614532771a1976d33355a8df7"
+  },
+  {
+    "path": "1922-partial.txt",
+    "commit": "856dc235c5e7a0cfbf8b76f24de53703f066f56b",
+    "origin": "tests/test_host_update_command.py",
+    "functions": [
+      "test_real_historical_installer_population"
+    ],
+    "sha256": "bf1d5ca01ed43cd0132f6b77b0fb6962685135b2bdefab8bd648813d4273ec38"
+  }
+]

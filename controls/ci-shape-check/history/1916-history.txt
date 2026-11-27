@@ -1,0 +1,8 @@
+@pytest.fixture(scope="module")
+def source(tmp_path_factory):
+    path = tmp_path_factory.mktemp("pi-owner-source") / "repo"
+    subprocess.run(["git", "clone", "--quiet", "--no-hardlinks", str(ROOT), str(path)], check=True)
+    subprocess.run(["git", "-C", str(path), "checkout", "--quiet", "--detach", PROBE.REVISION], check=True)
+    return path
+
+
