@@ -122,6 +122,17 @@ def prepare(root: Path) -> dict:
     return result
 
 
+def check_t1(root: Path) -> dict:
+    """Read-only resumption of the master's reported zero-turn, prepared T1 state."""
+    agent, state = paths(root)
+    verify_context_ancestors(root)
+    observed = json.loads(regular_bytes(state))
+    if observed != {"phase": "stable", "rules": {}}:
+        raise ValueError("not the approved stable/empty T1 state; stop for review")
+    verify_rules(agent, {})
+    return observed
+
+
 def apply_case(root: Path, case: str) -> dict:
     agent, state = paths(root)
     verify_context_ancestors(root)
@@ -149,14 +160,19 @@ def apply_case(root: Path, case: str) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=["prepare", "set"])
+    parser.add_argument("operation", choices=["prepare", "set", "check-t1"])
     parser.add_argument("case", nargs="?", choices=sorted(CASES))
     parser.add_argument("--root", type=Path, required=True)
     args = parser.parse_args()
     if (args.operation == "set") != (args.case is not None):
-        parser.error("set requires a case; prepare takes no case")
+        parser.error("set requires a case; prepare/check-t1 take no case")
     try:
-        result = prepare(args.root) if args.operation == "prepare" else apply_case(args.root, args.case)
+        if args.operation == "prepare":
+            result = prepare(args.root)
+        elif args.operation == "check-t1":
+            result = check_t1(args.root)
+        else:
+            result = apply_case(args.root, args.case)
     except (OSError, ValueError, KeyError) as error:
         parser.exit(1, f"STOP: {error}\n")
     print(json.dumps(result, sort_keys=True))

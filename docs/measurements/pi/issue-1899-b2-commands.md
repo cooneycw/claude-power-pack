@@ -4,6 +4,8 @@ Status: READY FOR ORCHESTRATOR/MASTER REVIEW; no B2 host execution claimed.
 MAX MODEL TURNS: 32 (16 transitions x 2 scratch repositories); NO RETRIES.
 First model-turn batch on the owner's disposable sign-in; requires owner's go.
 Owner amendment: pin codex 5.3 using one exact, provider-qualified CLI-listed ID.
+RESUME: prepared transition 1, stable journal/rules {}, ZERO model turns used.
+Skip prepare and the already-applied T1 mutation. Stay on pi 1.6.0; no update.
 Refs #1899. B0's [attributed completion](issue-1899-b0-results.md) establishes
 the retained disposable root and owner sign-in. One HOME and fresh pi processes
 per comparison; no further sign-in is planned. No owner-pane questions.
@@ -38,9 +40,18 @@ No credential file contents or metadata are inspected.
 ## 0. Resolve the owner's model choice with zero model turns
 
 B2 was paused before its first turn for the owner's ruling to pin codex 5.3.
-Before resuming, master records whether the paused job created a B2 journal or
-rule files. Existing preparation is not automatically retried or adopted; a
-preexisting-journal refusal goes to master for a scoped resume disposition.
+Master has now reported preparation and T1 complete, stable journal/rules {},
+one alpha startup with no prompt, exit 0. See the
+[pause evidence and disclosed deviation](issue-1899-b2-pause.md).
+First validate that specific retained state without writing it:
+
+```bash
+python3 docs/measurements/pi/issue-1899-b2-files.py check-t1 --root "$HOME/.cpp-pi-1899-probe"
+```
+
+Only stable journal/rules {} with BOTH rule paths actually absent may resume.
+A blocked/different journal, unexpected rule, missing journal or unreadable
+inspection stops for master review. Do not re-run prepare or T1's mutation.
 The published 1.6.0 CLI supports --offline --list-models with optional search,
 and --model provider/id. Exact syntax and list-table structure are bound in the
 [source note](issue-1899-pi-1.6.0-source.md). Do not guess an ID from the informal
@@ -83,7 +94,7 @@ ask master, using only pi's UI/CLI, never settings or stores. No model cycling.
 The same model must be used for every one of the maximum 32 turns. These are
 configuration/display observations, not B4 resolved runtime-model evidence.
 
-## 1. Prepare and refuse contamination
+## 1. Existing preparation: do not repeat
 
 Pi 1.6.0 discovers context from cwd ancestors independently of HOME/trust. The
 helper checks ONLY the five documented context names in each known scratch cwd
@@ -93,20 +104,18 @@ adopt it. This includes possible real-HOME ancestor rules; fresh HOME alone does
 not exclude them. A missing/unreadable directory or other inspection error stops
 the command. No arbitrary project scan is performed.
 
-```bash
-python3 docs/measurements/pi/issue-1899-b2-files.py prepare --root "$HOME/.cpp-pi-1899-probe"
-```
-
-This refuses preexisting probe AGENTS.md/AGENTS.override.md and an existing B2
-journal. It validates every source fixture against its manifest before creating
-the journal. Initial state is both rules absent. Preparation is not retried
-following partial failure; report the stopped step and preserve state.
+Master reports the previous prepare and T1 set-absent commands both exited 0.
+That prepared journal is intentional retained evidence, not an adoption target.
+The read-only check-t1 above rechecks ancestor context and actual rule absence.
+Fixture hashes stay bound to the manifest before each later transition.
+Any deviation from the reported retained state stops; no automatic reprepare.
 
 ## 2. Exact rule transitions and fresh-session matrix
 
-Run the following transitions IN ORDER. After each command, launch alpha then
-beta using section 3, enter the neutral prompt once, record the response and
-exit the process. All outcomes start PENDING. There are 16 transitions and at
+Resume with the T1 baseline turns after the read-only check, then run transitions
+2-16 IN ORDER. For each row, launch alpha then beta using section 3, enter the
+neutral prompt once, record the response and exit the process. All model-turn
+outcomes start PENDING. There are 16 transition states and at
 most 32 model turns, with no automatic retries or additional size search.
 Unexpected baseline marker, failed guard, authentication prompt, unsupported
 flag or ambiguous state stops the batch and goes to the orchestrator.
@@ -120,11 +129,8 @@ interruption requires manual review, never an automatic retry/adoption. New
 files use exclusive no-follow creation. Journal publication is atomic; the
 multi-file rule transition is not claimed to be atomic.
 
-1. Baseline, no marker expected:
-
-```bash
-python3 docs/measurements/pi/issue-1899-b2-files.py set absent --root "$HOME/.cpp-pi-1899-probe"
-```
+1. Baseline, no marker expected. Its mutation is ALREADY APPLIED. After check-t1
+and exact model resolution, run only the two pinned-model baseline sessions.
 
 2. Base alone; test BASE loading independently:
 
@@ -314,8 +320,11 @@ published. B2 supplies no B4 transcript-access authorization.
 
 ## Local handoff verification (not host B2 evidence)
 
-The rule-guard fixture suite passed 12 cases; the model-pin amendment brings
-the combined focused suite to 21 passing cases; lint passed. The edited-rule
+The original rule-guard fixture suite passed 12 cases; the model-pin amendment
+brought the combined focused suite to 21. Read-only T1 resume controls bring
+the final combined suite to 25 passing cases; lint passed. The T1 unexpected-rule
+refusal ran red with the committed blind guard and green with the real guard.
+The edited-rule
 refusal case ran red with the committed blind guard (DID NOT RAISE ValueError)
 and green with the real guard. An unavailable-ancestor-metadata case ran red on
 the original draft's lexists implementation (DID NOT RAISE PermissionError),

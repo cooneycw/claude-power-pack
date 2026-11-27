@@ -114,6 +114,36 @@ def test_existing_rule_refuses_preparation(probe, root):
     assert not (root / 'work/pi-1899-b2-state.json').exists()
 
 
+def test_t1_resume_is_read_only(probe, root):
+    probe.prepare(root)
+    probe.apply_case(root, 'absent')
+    journal = root / 'work/pi-1899-b2-state.json'
+    before = journal.read_bytes()
+    assert probe.check_t1(root) == {'phase': 'stable', 'rules': {}}
+    assert journal.read_bytes() == before
+    assert not journal.with_suffix('.pending').exists()
+    assert not any((root / 'agent' / name).exists() for name in probe.RULES)
+
+
+@pytest.mark.parametrize('bad_state', ['blocked', 'different-rules', 'unexpected-file'])
+def test_t1_resume_refuses_other_states(probe, root, bad_state):
+    probe.prepare(root)
+    journal = root / 'work/pi-1899-b2-state.json'
+    if bad_state == 'blocked':
+        journal.write_text(json.dumps({'phase': 'blocked', 'rules': {}}))
+        assert json.loads(journal.read_text())['phase'] == 'blocked'
+    elif bad_state == 'different-rules':
+        probe.apply_case(root, 'base')
+        assert json.loads(journal.read_text())['rules']
+    else:
+        (root / 'agent/AGENTS.override.md').write_bytes(b'foreign rule')
+        assert (root / 'agent/AGENTS.override.md').exists()
+    before = journal.read_bytes()
+    with pytest.raises(ValueError):
+        probe.check_t1(root)
+    assert journal.read_bytes() == before
+
+
 def test_ancestor_context_refuses_before_mutation(probe, root):
     context = root / 'work/AGENTS.override.md'
     context.write_bytes(b'synthetic ancestor rules')
