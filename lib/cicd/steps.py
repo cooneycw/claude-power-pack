@@ -690,9 +690,20 @@ def _test_step_timeout() -> int:
     default can raise it for one run - the alternative is editing this file,
     which nobody does mid-incident and which does not survive an update.
     """
-    raw = os.environ.get("CPP_GATE_TEST_TIMEOUT", "").strip()
-    if raw.isdigit() and int(raw) > 0:
-        return int(raw)
+    raw = os.environ.get("CPP_GATE_TEST_TIMEOUT")
+    if raw is None:
+        return DEFAULT_TEST_STEP_TIMEOUT
+    raw = raw.strip()
+    if raw.isascii() and raw.isdecimal():
+        try:
+            budget = int(raw)
+        except ValueError:
+            pass
+        else:
+            if budget > 0:
+                return budget
+    print(f"CPP_GATE_TEST_TIMEOUT: invalid positive-seconds budget; using {DEFAULT_TEST_STEP_TIMEOUT}s default",
+          file=sys.stderr)
     return DEFAULT_TEST_STEP_TIMEOUT
 
 
@@ -832,7 +843,7 @@ BUILTIN_PLANS: dict[str, list[StepDef]] = {
             gate=True,
             command="make verify",
             description="Run the repository's full verification pipeline (make verify)",
-            timeout_seconds=1800,
+            timeout_seconds=_test_step_timeout(),
             max_attempts=1,
             skip_if='! grep -q "^verify:" Makefile 2>/dev/null',
         ),

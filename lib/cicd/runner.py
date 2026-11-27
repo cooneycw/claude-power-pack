@@ -1319,8 +1319,10 @@ class DeterministicRunner:
                         f"{TIMEOUT_EXIT_CODE}) - the step did not finish, so "
                         f"this says NOTHING about whether it would have "
                         f"passed. Raise the budget with "
-                        f"CPP_GATE_TEST_TIMEOUT=<seconds> if the suite has "
-                        f"simply outgrown it."
+                        f"CPP_GATE_TEST_TIMEOUT=<seconds> for built-in or "
+                        f"manifest token budgets. For a numeric manifest "
+                        f"timeout, edit steps.{step.id}.timeout or opt in with "
+                        f"timeout: CPP_GATE_TEST_TIMEOUT."
                     )
                 else:
                     self._log(
