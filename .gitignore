@@ -394,3 +394,6 @@ antigravity/skills/*
 !antigravity/skills/README.md
 !controls/antigravity-skill-build/cases.json
 !controls/antigravity-skill-build/codex-baseline.json
+
+# Opt-in CI-shape receipts/logs (#1917).
+.ci-shape/

@@ -1,0 +1,97 @@
+{
+  "gate": "scripts/ci-shape-check.py",
+  "invocation": [
+    "uv",
+    "run",
+    "python",
+    "controls/ci-shape-check/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "CI_SHAPE: BAD:",
+  "unknown_signal": "CI_SHAPE: UNKNOWN:",
+  "unavailable_signal": "CI_SHAPE_CONTROL: unavailable -",
+  "cases": [
+    {
+      "name": "good",
+      "input": "cases/good",
+      "expect": "GOOD"
+    },
+    {
+      "name": "mode",
+      "input": "cases/mode",
+      "expect": "BAD"
+    },
+    {
+      "name": "symlink",
+      "input": "cases/symlink",
+      "expect": "BAD"
+    },
+    {
+      "name": "ci",
+      "input": "cases/ci",
+      "expect": "BAD"
+    },
+    {
+      "name": "git",
+      "input": "cases/git",
+      "expect": "BAD"
+    },
+    {
+      "name": "make",
+      "input": "cases/make",
+      "expect": "BAD"
+    },
+    {
+      "name": "filter",
+      "input": "cases/filter",
+      "expect": "BAD"
+    },
+    {
+      "name": "shallow",
+      "input": "cases/shallow",
+      "expect": "BAD"
+    },
+    {
+      "name": "history",
+      "input": "cases/history",
+      "expect": "BAD"
+    },
+    {
+      "name": "root-claim",
+      "input": "cases/root-claim",
+      "expect": "BAD"
+    },
+    {
+      "name": "internalerror",
+      "input": "cases/internalerror",
+      "expect": "BAD"
+    },
+    {
+      "name": "incomplete",
+      "input": "cases/incomplete",
+      "expect": "BAD"
+    },
+    {
+      "name": "unavailable",
+      "input": "cases/unavailable",
+      "expect": "UNKNOWN"
+    },
+    {
+      "name": "backend",
+      "input": "cases/backend",
+      "expect": "UNKNOWN"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/ci-shape-check.py",
+      "path": "anchors/blind-ci-shape-check.py",
+      "sha256": "7c573da9ca176349bdb597639206fefe4e4c9f75a1914c40ac250ce1dd50081a",
+      "why": "Availability-only verifier agrees on genuine GOOD/UNKNOWN and misses shape, incomplete-result and cross-tier BAD cases."
+    }
+  ]
+}

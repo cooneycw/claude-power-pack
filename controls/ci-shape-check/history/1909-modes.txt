@@ -1,0 +1,6 @@
+def inventory(output):
+    return {p.relative_to(output).as_posix(): [hashlib.sha256(p.read_bytes()).hexdigest(),
+                                             p.stat().st_mode & 0o777]
+            for p in output.rglob("*") if p.is_file() and p.name != "README.md"}
+
+

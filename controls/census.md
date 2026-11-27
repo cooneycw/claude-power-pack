@@ -241,6 +241,7 @@ another repo (the escalation clause); a row can be both.
 | 142 | `pi-host-fixture.py` (`controls/pi-rpc-observer`) | RPC pair matches/finding/unknown with nonzero expected population, diagnostics and attribution | Another session consumes returned host records; controls cover supplied raw pairs and shape-only blind anchor. Live fixture execution and missing tool inventory remain separate unknown evidence | G, X |
 | 143 | `pi-syscall-audit.py` (`controls/pi-syscall-observer`) | Supplied child traces match/finding/unknown; incomplete children, unresolved paths or syntax are unknown | Host boundary acceptance consumes classified actual child operations, including failed credential probes and transient writes. Synthetic classifier controls and framing-only blind anchor do not establish live tracing | G, X |
 | 144 | `antigravity-skill-sync.py` (`controls/antigravity-skill-build`) | Complete topic build/output fidelity: current (0), failure (1), unknown (4) | Real CLI/core readers consume full nonzero package/member bytes and modes. Committed changed-output, removed-package and broken-reference BAD inputs distinguish a blind current verifier; missing source is UNKNOWN. Historical Codex generator/parser parity has committed mutation cases; live AGY selection is separate (#1888) | G, X |
+| 145 | `ci-shape-check.py` (`controls/ci-shape-check`) | Tier-specific GOOD/BAD/UNKNOWN; real physical clone canary and independent pytest completion | Opt-in caller consumes exact-checkpoint receipts; physical BAD inputs and availability-only blind anchor. Image/root and complete historical acceptance are separately measured (#1917) | G, X |
 
 
 > **Rows 66-73 were added by #1060, and how they were found is the point.** None
@@ -304,6 +305,7 @@ another repo (the escalation clause); a row can be both.
 > in the row-63 "N control(s) discriminate" count. The harness therefore
 > understates row 60's control coverage rather than showing it absent; #1036 is
 > the underlying observation that this denominator is not homogeneous.
+
 
 ### Excluded, with the reason
 

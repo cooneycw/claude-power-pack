@@ -1279,3 +1279,21 @@ clean:
 .PHONY: review-yield-test
 review-yield-test:
 	uv run --extra dev pytest -q tests/test_review_yield_report.py $(PYTEST_ARGS)
+
+# #1917 PR-A: opt-in only; review/CI wiring follows qualification in PR-B.
+CI_SHAPE_RECEIPT ?= .ci-shape/local.json
+CI_SHAPE_TIER ?= local
+.PHONY: ci-shape-check ci-shape-canary test-ci-shape ci-shape-acceptance
+## verify-coverage: excluded ci-shape-check - opt-in isolated focused shape run; ci: excluded opt-in
+ci-shape-check:
+	uv run python scripts/ci-shape-check.py run --tier $(CI_SHAPE_TIER) --receipt $(CI_SHAPE_RECEIPT)
+## verify-coverage: excluded ci-shape-canary - subset of negative-controls; ci: excluded duplicate-subset
+ci-shape-canary:
+	uv run python scripts/check-negative-controls.py --control controls/ci-shape-check --strict --verify-provenance
+## verify-coverage: utility test-ci-shape - focused shape probes/collector; full suite owns verdict
+test-ci-shape:
+	@mkdir -p .ci-shape; trap 'rm -rf .ci-shape/unit-tests' EXIT; uv run pytest -q tests/test_ci_shape_check.py --basetemp .ci-shape/unit-tests
+
+## verify-coverage: utility ci-shape-acceptance - committed historical RED/GREEN witnesses; full suite owns verdict
+ci-shape-acceptance:
+	@mkdir -p .ci-shape; trap 'rm -rf .ci-shape/acceptance' EXIT; uv run pytest -q tests/test_ci_shape_check.py -k '1909 or 1910 or 1916 or 1922' --basetemp .ci-shape/acceptance
