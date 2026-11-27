@@ -91,6 +91,10 @@ def _load_check():
 #: present in its script before being recorded here.
 ESCAPES: dict[str, str] = {
     "bash-prep.sh": "sudo",
+    # The Python snapshot child creates/executes a private checkout outside
+    # HOME (lib.host_update.source). This observer has no qualified invocation
+    # for that transitive surface; production declarations stay authored.
+    "cpp-host-update.py": "python3, private snapshot outside HOME (lib.host_update.source)",
     "drift-detect.sh": "systemctl",
     "hook-permission-census.sh": "git push, gh, docker",
     "mcp-drift.py": "docker, sudo",

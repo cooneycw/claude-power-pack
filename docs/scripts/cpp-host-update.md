@@ -1,6 +1,6 @@
 # cpp-host-update: shared managed copies and Claude links (PARTIAL)
 
-Issue #1889 (A core, B1 copy adapters, B2a existing Claude links); implementation source of truth is the
+Issue #1889 (A core, B1 copies, B2a existing links, B2b-1 maintained reader); implementation source of truth is the
 [host update contract](../../.specify/specs/antigravity-host-update/spec.md).
 
 Delivery A implements these types/callbacks through a fixture-only CLI and
@@ -9,7 +9,7 @@ Importing modules performs no configuration reads
 or filesystem writes. Publication and verification require an explicit adapter
 policy and a bound source revision. The callback API and explicit fixture mode
 remain compatible. B2a adds a separate production-only Claude link backend;
-the neutral copier still refuses symlinks. Maintained command wiring is B2b.
+the neutral copier still refuses symlinks. Maintained command wiring is B2b-1 below; native probe work remains B2b-2.
 
 Import value types from `lib.host_update.models` and callbacks/functions from
 `lib.host_update.driver`. `Adapter` has a `harness` identifier and:
@@ -206,7 +206,7 @@ The initial registry is explicitly **PARTIAL**:
 | claude-links (links) | ~/.claude/commands and ~/.claude/scripts | ~/.claude/.cpp-skill-install.lock |
 
 Claude command/helper `links` are the separate B2a component below. Maintained
-`/cpp:update` invocation remains B2b.
+`/cpp:update` uses the B2b-1 shared refresh and guarded report below.
 pi has a standalone core-backed adapter, but shared-registry enrollment remains
 a follow-up, as do Qwen and Gemma/OpenCode. Command-derived AGY invocation and
 runtime identity remain separate work. This CLI does not call native models,
@@ -229,7 +229,7 @@ detached checkout and removes it afterward. It reads shared source objects but
 does not register a worktree or write metadata in the caller's repository. A clean source
 and the requested commit must be available. The pinned driver and builders run
 from that snapshot. Source file modes are normalized from Git before the
-unchanged Codex generator runs, including checkout creation under umask 000.
+Codex generator runs, including checkout creation under umask 000.
 No adapter pulls or resolves a different revision. Every attempted row reports
 the same full commit; a source failure reports not-attempted with no guessed SHA.
 
@@ -315,9 +315,11 @@ that ignore this lock remain outside that guarantee.
 
 Safe missing links progress even when an expected entry has been replaced by
 foreign content. Such files, directories, relative/wrong links and mixed farms
-are preserved, with full conflicts and exit 1. Only proven retired links can be
+are preserved, with full conflicts and exit 1. Only proven retired links whose targets are gone can be
 unlinked: exact name/target, prior tracked kind membership in up to 64 available
-path-history commits, and unchanged link identity immediately before removal.
+path-history commits, a dangling target under the existing lock, and unchanged
+link identity immediately before removal. Retired links with live targets stay
+unmanaged/exit1 with a precise preserved-for-review conflict.
 A source-shaped orphan with insufficient history is preserved as unproven;
 shallow history supplies no guessed deletion authority. No recursive deletion,
 foreign conversion, adoption flag or broad root enumeration is added.
@@ -335,3 +337,105 @@ real CLI and a constructed always-current anchor. This proves installed/source
 fidelity, not live model instruction following. `/cpp:update` readers, epic
 acceptance and the default-refusing native probe are B2b; no native run or auth
 setup is authorized by B2a.
+
+
+## B2b-1 maintained command reader (subset acceptance)
+
+The maintained `.claude/commands/cpp/update.md` performs one shared refresh for
+existing Claude topics/links, Codex and AGY, even when no new source was pulled.
+It captures a full revision, forwards deferrals, and reads the actual exit plus
+the closed production report before naming each row and its expected/examined
+population. No installed personal helper runs as trusted code. There is no
+legacy fallback, separate command-link repair or second Codex installer.
+The final summary invalidates managed currency if the checkout revision moved.
+A no-selection exit5, pre-execution unknown4 or refusal1 can retain its existing
+empty producer revision; the reader accepts that only when every action is
+not-attempted/refused, and still guards the checkout revision. None can claim
+current. A deferred Claude link scope keeps its named refusal and exit1.
+
+Every Bash fence runs in its own process. Required inputs are literal bindings
+in that call, validated before use; no earlier variable, array or function is
+assumed to survive. Migration binds the printed full revision, reviewed package
+list, initial exit and this run's explicit yes/no decision. Missing/malformed
+bindings refuse. The finish fence binds the original revision and reports only
+stable versus moved/unavailable. Stable never turns an earlier unknown/failure
+into current: the summary retains the latest actual Step5a report and exit,
+including frozen/declined migration. A changed revision overrides it with4.
+
+The producer marker advances from2 to3 because removing maintained wiring
+from the closed deferred set would make a B2a caller reject its report AFTER
+writes. Frozen predecessor tests prove the old caller now refuses BEFORE
+execution. A stale marker2 producer is also refused before execution. JSON
+schema2, component rows, neutral core and Pi APIs remain unchanged.
+
+Claude links and Codex run with ordinary stdlib Python. YAML is loaded only
+for selected Claude topics/AGY operations; missing PyYAML is a named per-adapter
+UNAVAILABLE/unknown4, while independent stdlib components can progress.
+Partially updated/conflicting installations retain exit1. Source/entry absence
+is unavailable4; malformed output after execution is failure1 and requires
+inspection. A CLI executable does not enroll an absent install.
+
+`make host-update-command-check` runs owned real command fixtures registered
+under controls/cpp-update-host-refresh, using a fresh Bash process per fence.
+The stale GOOD case proves actual
+writes with no pull. BAD cases prove the unwritable executing identity and
+closed-reader rejection of malformed output. The constructed anchor performs
+the real refresh but forges current/0; it must miss both BAD inputs while
+repairing the GOOD input. `tests/test_host_update_command.py` additionally
+covers revision movement, preservation, no selection, deferrals and plain
+runtime dependencies. Historical confirmed-prune tests retain their frozen
+legacy fences and are not presented as the current command reader. The all49
+fence input audit has committed lost-variable, lost-function and conditional-
+assignment controls. It requires ShellCheck; absence is an explicit unexamined
+skip, not evidence of zero dependencies. The separate-process current/migration
+regressions both failed against cdf04386 before this correction.
+
+This is B2b-1 subset evidence. Command-derived AGY invocation, a guarded native
+probe, fresh authorization for both authentication lanes and native effectiveness
+remain B2b-2 or later. No generated Codex cpp-update reader exists; the generator
+excludes that command. Historical native attempt4 probe bytes remain immutable.
+#1889 and #1876 remain open/PARTIAL.
+
+### Owner 1889 A: reviewed legacy Codex migration
+
+Stale legacy output has no trusted prior ledger, so it still returns unknown4.
+Bootstrap now names every differing expected package in existing UNKNOWN
+conflicts and separately names retired/unexpected packages as UNMANAGED.
+No ownership is inferred from a generated marker and no package is adopted
+automatically. Byte-identical legacy output initializes its record without a
+migration question. Actual v13.0.0 output was identical before the owner-approved
+generator-input change below; it now names the two affected packages for
+migration. The current-source identical legacy control still asks no question.
+
+For stale expected Codex packages with no unexpected legacy entries, update
+shows the named list and one executable command with repeated, scoped
+`--adopt codex:PACKAGE` flags. The command uses the persistent checkout path and
+captured full revision. Ask once for that list; silence and inherited environment
+values do not approve it. The core moves each original package into its retained
+transaction backup before replacing that package, then verifies the published
+bytes and record. The report names the recovery location. On decline, bytes and
+the absent ledger remain unchanged and the final summary says Codex refresh is
+frozen, with the command. Revision movement before migration refuses the retry.
+
+Retired/unexpected legacy entries are preserved, never adopted and require
+separate review before this migration is offered. This keeps the existing
+Decision2 refusal rather than inventing deletion or ownership authority.
+There is no fallback to the legacy installer. An approved migration retries
+through the same shared writer; subsequent ordinary updates need no adoption.
+
+
+### Owner-approved generator data retirement
+
+[Owner ruling B](https://github.com/cooneycw/claude-power-pack/issues/1889#issuecomment-7204721638)
+allows exactly six retired cpp/update records to be deleted from the current
+Codex generator's checkout-reference exception table. Re-adding those rows must
+rebuild the exact frozen v13 generator; any other byte change fails the guard.
+The parser and frozen generator/parser references and pins remain unchanged.
+
+The generator is also bundled source for flow-auto and flow-finish. Its two
+copies and their SHA256SUMS therefore change as input data. The
+[attribution ruling](https://github.com/cooneycw/claude-power-pack/issues/1889#issuecomment-7205593196)
+allows exactly those four measured input deltas with a committed source SHA,
+old/new hashes and reasons. Historical members are not replaced. Frozen and
+current transforms still produce identical bytes and modes on identical new
+inputs at022/002; a separate test must reject holding the old bundled input.

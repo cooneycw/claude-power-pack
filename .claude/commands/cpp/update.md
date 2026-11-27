@@ -7,8 +7,15 @@ allowed-tools: Bash(git:*), Bash(ls:*), Bash(test:*), Bash(readlink:*), Bash(cat
 
 Update CPP to the latest version, detect MCP server and skill drift, and offer guided remediation.
 
----
+Each Bash tool call starts a fresh shell. Bind every required input as a quoted
+LITERAL in the SAME call, using the values printed earlier; do not export or
+source prior shell state. `CPP_DIR` is the absolute checkout path from Step1.
+For local-model lanes, copy the printed `declare -p` values as literal bindings,
+including the status array; never evaluate unreviewed output. Bind each consent
+answer to explicit yes/no from THIS run. Missing/malformed inputs refuse.
+Replace each `REPLACE_WITH_*` token before executing its fence.
 
+---
 ## Step 1: Locate CPP Source
 
 ```bash
@@ -92,17 +99,14 @@ fi
 ```
 
 ---
-
 ## Step 2: Check Current Version and Remote
 
 ```bash
-cd "$CPP_DIR"
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
+cd "$CPP_DIR" || exit 4
 
-# Get current version from CLAUDE.md - the maintained source of truth (issue
-# #544: the CHANGELOG head can be a digit-less "[Unreleased]" block, so a grep
-# for the first bracketed version silently falls through to the PREVIOUS
-# release and reports a stale no-op update). Fall back to the newest bracketed
-# CHANGELOG release only if the CLAUDE.md line is missing.
+# CLAUDE.md owns the current version; fall back only when its line is absent (#544).
 CURRENT_VERSION=$(grep -oPm1 '^Current version: \K[0-9]+\.[0-9]+\.[0-9]+' CLAUDE.md 2>/dev/null)
 if [ -z "$CURRENT_VERSION" ]; then
   CURRENT_VERSION=$(grep -oPm1 '^\#\# \[\K[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md 2>/dev/null)
@@ -145,7 +149,6 @@ esac
 Report the version comparison to the user.
 
 ---
-
 ## Step 3: Pull Updates
 
 **Only if behind remote.** Ask user for confirmation before pulling.
@@ -177,8 +180,18 @@ main-checkout case safe; nothing enforces it for you. See
 `docs/agents/shared-stash-stack.md`.
 
 ```bash
-cd "$CPP_DIR"
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
+cd "$CPP_DIR" || exit 4
 
+CURRENT_BRANCH=$(git branch --show-current)
+[ -n "$CURRENT_BRANCH" ] || exit 4
+CURRENT_COMMIT=$(git rev-parse --short HEAD)
+CURRENT_VERSION=$(grep -oPm1 '^Current version: \K[0-9]+\.[0-9]+\.[0-9]+' CLAUDE.md 2>/dev/null)
+if [ -z "$CURRENT_VERSION" ]; then
+  CURRENT_VERSION=$(grep -oPm1 '^\#\# \[\K[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md 2>/dev/null)
+fi
+CURRENT_VERSION="${CURRENT_VERSION:-unknown}"
 # Set aside only on the user's answer above, and only with an entry we can
 # identify later. $$ disambiguates two /cpp:update runs started in the same
 # second (issue #1056).
@@ -187,15 +200,7 @@ STASH_SHA=""
 if ! git diff --quiet || ! git diff --cached --quiet; then
   echo "Setting uncommitted changes aside as '$STASH_TAG'..."
   if git stash push -m "$STASH_TAG"; then
-    # Capture the SHA IMMEDIATELY. stash@{0} is a moving target - a sibling
-    # session pushing between here and the restore renumbers every entry, and
-    # the SHA is the only handle that stays ours.
-    #
-    # EXACT match, not a substring. git records the message as "On <branch>:
-    # <tag>", so the tag is an exact SUFFIX; `$0 ~ t` would let the tag
-    # cpp-update-20260919-120000-123 select an entry tagged ...-1234 and restore
-    # a different session's work despite using a SHA afterwards. Require exactly
-    # one match, too: two is ambiguous and picking the first is a guess.
+    # Capture only our exact tagged stash SHA; ambiguous matches require manual recovery.
     STASH_MATCHES=$(git stash list --format='%H%x09%gs' \
       | awk -F'\t' -v t=": $STASH_TAG" \
           '{ n=length($2); m=length(t); if (n >= m && substr($2, n-m+1) == t) print $1 }')
@@ -220,14 +225,7 @@ git pull origin $CURRENT_BRANCH
 # Restore by SHA, never `git stash pop` (issue #1056).
 if [ -n "$STASH_SHA" ]; then
   if git stash apply "$STASH_SHA"; then
-    # DO NOT DROP IT AUTOMATICALLY. `git stash drop` takes only a stash@{n}
-    # index, and an index is not a stable handle on a shared stack: between
-    # resolving stash@{n} by tag and running the drop, a sibling session's push
-    # renumbers every entry and the drop deletes THEIRS. There is no SHA form of
-    # drop to close that window with, so this step reports the entry instead of
-    # racing for it - the same reasoning that made the restore above use the SHA.
-    # An entry the user is TOLD about is not the #1056 orphan; an entry nobody
-    # mentions is.
+    # Keep the stash entry: shared-stack indices can change before a safe drop (#1056).
     echo "Restored your uncommitted changes."
     echo "  The stash entry was kept (dropping it safely needs a stable handle the"
     echo "  shared stack does not offer). Clear it when no other session is stashing:"
@@ -263,33 +261,18 @@ fi
 ```
 
 ---
-
 ## Step 3.5: Re-read Self (the pull may have changed this command)
 
-`/cpp:update` is **self-modifying**: the Step 3 pull can change *this very file*
-(`.claude/commands/cpp/update.md`). The copy of these instructions loaded into
-context is the **pre-pull** version, so every step below may now be stale - a
-removed step could run against a deleted script, or a renamed step could act on a
-changed tree (issue #545: a `/cpp:update` run pulled #522, which deleted
-`scripts/skill-drift.py` and stripped a whole step from this command; the pre-pull
-context still contained that step and would have executed it against a now-deleted
-script).
-
-**First, surface any change to this command.** Compare the file ON DISK now
-against the commit this run started on - the `Current: ... (<sha>)` line Step 2
-printed. Pass that SHA as a LITERAL (shell state does not survive between bash
-blocks).
-
-**Not `ORIG_HEAD` (issue #1263).** This used to diff `ORIG_HEAD..HEAD`, trusting
-the pull to have left the pre-pull commit there. `ORIG_HEAD` is per-repository,
-and in a shared checkout another session pulls too: measured on 2026-09-23, two
-foreign `pull --ff-only` entries landed in the reflog while one `/cpp:update`
-was still running, overwriting the ref this check read. Diffing the WORKING TREE
-against the literal start SHA also catches a concurrent pull that changed this
-file after ours - which a commit-range diff could not.
+The pull may have changed this command document. Compare its on-disk version
+to the `Current:` SHA printed in Step2, bound as a LITERAL below. Re-read changed
+instructions before continuing; the pre-pull copy can reference deleted helpers
+(#545). Do not use `ORIG_HEAD`: another session's pull can overwrite it (#1263).
+A missing pre-pull commit leaves the instructions possibly stale, never current.
 
 ```bash
-cd "$CPP_DIR"
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
+cd "$CPP_DIR" || exit 4
 PRE_PULL_COMMIT="<the SHA from Step 2's 'Current:' line>"
 SELF=".claude/commands/cpp/update.md"
 SELF_CHANGED=unknown
@@ -319,7 +302,6 @@ continue with the in-context steps as-is. This is the one point where re-reading
 mandatory; everything below is what you execute *after* confirming it is current.
 
 ---
-
 ## Step 3.6: Bash Floor Report (issue #1628)
 
 CPP's helpers need bash 4.4 or newer, and macOS ships 3.2. Below the floor, later
@@ -328,6 +310,8 @@ in plain words. Call the CHECKOUT copy: the pull may have changed the check, and
 an installed helper from before this version does not have it.
 
 ```bash
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
 BASH_FLOOR_REPORT=$("$CPP_DIR/scripts/flow-preflight.sh" --checks bash 2>/dev/null)
 BASH_FLOOR_RC=$?
 if [ "$BASH_FLOOR_RC" -ne 0 ]; then
@@ -345,7 +329,6 @@ fi
   relay it as met.
 
 ---
-
 ## Step 3.7: Recorded CI Provider Report (issue #1677)
 
 Since 10.2.0 a project with no recorded CI provider cannot merge through flow:
@@ -356,6 +339,8 @@ project directory (the directory this session reports as its cwd), not at
 `$CPP_DIR`:
 
 ```bash
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
 "$CPP_DIR/scripts/ci-provider-advisory.sh" /path/to/session/project
 ```
 
@@ -370,7 +355,6 @@ step. Where a project git-ignores `.claude/`, one record in its main checkout
 covers every linked worktree.
 
 ---
-
 ## Step 4: Update Dependencies
 
 CPP no longer ships in-repo MCP server venvs. The second-opinion server is an
@@ -383,7 +367,6 @@ echo "No in-repo MCP server venvs to update (second-opinion is external, playwri
 ```
 
 ---
-
 ## Step 4.6: Refresh Spec-Kit CLI (Optional)
 
 If the official spec-kit CLI (`specify`) is installed, upgrade it so `/spec:adopt`
@@ -431,11 +414,7 @@ if [ -L "$HOOK_LINK" ] || [ -f "$HOOK_LINK" ]; then
   # On user confirm:  rm -f "$HOOK_LINK" && echo "Removed $HOOK_LINK"
 fi
 
-# 2. Leftover hooks.json in this project (CPP no longer ships one)
-# DETECT THE FILE, NOT THE RETIRED SCRIPT NAME. Keying on
-# hook-validate-command.sh missed every project carrying the hooks.json CPP
-# itself shipped - it holds only SessionStart and masking declarations, so the
-# grep never matched and the offer /cpp:status promises was never made.
+# Detect the retired hooks.json file, not only its former script reference (#1206).
 if [ -f ".claude/hooks.json" ]; then
   echo "This project's .claude/hooks.json is a leftover: CPP no longer ships it (#1206)."
   echo "  Claude Code never loaded that path, so nothing in it ever ran -"
@@ -444,11 +423,7 @@ if [ -f ".claude/hooks.json" ]; then
     echo "  It also still references the PreToolUse hook retired in #439."
   fi
   echo "  Offer to remove the WHOLE FILE (user-confirmed; default N)."
-  # On user confirm, remove the file outright - there is nothing in it to
-  # preserve, since Claude Code loads none of it:
-  #   rm .claude/hooks.json
-  # (The older recipe stripped only the PreToolUse block and KEPT the file,
-  # which is no longer the right outcome - nothing in it is loaded.)
+  # On user confirmation: rm .claude/hooks.json (Claude Code loads none of it).
 fi
 ```
 
@@ -477,7 +452,9 @@ from `/etc/systemd/system/`, `~/.config/systemd/user/`, and systemd's unit
 indexes.
 
 ```bash
-cd "$CPP_DIR"
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
+cd "$CPP_DIR" || exit 4
 
 LEGACY_SYSTEMD_REPORT="$(mktemp)"
 LEGACY_SYSTEMD_FOUND=false
@@ -562,6 +539,7 @@ else
   echo ""
   echo "No legacy systemd MCP units detected."
 fi
+printf "LEGACY_SYSTEMD_FOUND=%s\nLEGACY_SYSTEMD_REPORT=%s\n" "$LEGACY_SYSTEMD_FOUND" "$LEGACY_SYSTEMD_REPORT"
 ```
 
 If legacy units were found, ask the user before teardown:
@@ -579,6 +557,11 @@ Options:
 If the user confirms teardown, run:
 
 ```bash
+: "${LEGACY_SYSTEMD_FOUND:?bind the printed presence literal}"
+: "${LEGACY_SYSTEMD_REPORT:?bind the printed report path}"
+case "$LEGACY_SYSTEMD_FOUND" in true|false) ;; *) exit 4 ;; esac
+[[ "$LEGACY_SYSTEMD_REPORT" = /* && -f "$LEGACY_SYSTEMD_REPORT" && ! -L "$LEGACY_SYSTEMD_REPORT" && -r "$LEGACY_SYSTEMD_REPORT" ]] || exit 4
+SYSTEMD_TEARDOWN_STATUS=none
 if [ "$LEGACY_SYSTEMD_FOUND" = "true" ]; then
   REMOVED_SYSTEMD_UNITS=0
 
@@ -639,164 +622,168 @@ echo "$RUNTIME_STATUS"
 
 ---
 
-## Step 5a: Bootstrap the Host-Write Seam (issue #1198)
+## Step 5a: Shared Managed Host Refresh (PARTIAL, issue #1889)
 
-Every host write uses the trusted checkout helper at
-`$CPP_DIR/scripts/cpp-host-write.sh`. Never execute a personal file or foreign
-link preserved at its installed path. Before #1198, invoking an absent installed
-seam exited127 while update still claimed success.
+Run the shared refresh even when Step3 pulled no commits: source currency does
+not establish installed currency. This replaces the script/command link loops
+and the separate Codex install. The driver discovers existing CPP installs;
+CLI presence alone does not enroll a host, and each Claude link kind enrolls
+independently. It forwards `CPP_DEFER_SURFACES` to the declared managers.
+Never fall back to a legacy writer after a refusal or unavailable result.
 
-The bootstrap goes through the seam too, invoked at its CHECKOUT path - which
-always exists when a checkout does. That keeps it declared and deferrable like
-every other write, rather than a carve-out the `check-cpp-host-writes` gate has
-to be taught to ignore. `link-into` does its own `mkdir -p`, so this one call is
-the whole bootstrap.
-
-**IT MUST NOT CREATE `~/.claude/scripts`.** `link-into` does its own `mkdir -p`,
-so bootstrapping unconditionally would create that directory on a Tier 0/1 host
-- and Step 5b's `[ -d ~/.claude/scripts ]` guard would then pass for the first
-time and install ninety helpers, silently upgrading an install the next step
-explicitly promises never to self-upgrade. So the tier is read BEFORE the
-bootstrap, and decides it (counter-model review).
+The parent and pinned child use the same Python interpreter. Claude links and
+Codex require only the standard library; selected Claude topics and AGY require
+PyYAML and report their own named UNAVAILABLE result if it is absent. Keep the
+full source revision for the final summary guard. Execute the checkout entry,
+never a personal file preserved at an installed helper path.
 
 ```bash
-if [ -d ~/.claude/scripts ]; then
-  "$CPP_DIR/scripts/cpp-host-write.sh" link-into \
-    "$CPP_DIR/scripts/cpp-host-write.sh" ~/.claude/scripts cpp-host-write.sh
-  case $? in
-    0) SEAM_STATUS="available" ;;
-    3) SEAM_STATUS="the seam's own install was deferred by request" ;;
-    *) SEAM_STATUS="UNAVAILABLE - seam install refused or failed; see preserved-collision/error details" ;;
-  esac
-else
-  SEAM_STATUS="not installed (Tier 0/1: no ~/.claude/scripts, and this command will not create one)"
-fi
-echo "Host-write seam: $SEAM_STATUS"
+# CPP_SHARED_REFRESH
+CPP_DIR=REPLACE_WITH_CPP_DIR
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
+HOST_REFRESH_REVISION=$(git -C "$CPP_DIR" rev-parse --verify HEAD 2>/dev/null)
+HOST_REFRESH_STATUS=$(python3 -I -B - "$CPP_DIR" "$HOST_REFRESH_REVISION" <<'CPP_REFRESH_READER'
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+from pathlib import Path
+
+root, revision = Path(sys.argv[1]), sys.argv[2]
+failure_code = 4
+try:
+    if not re.fullmatch(r"[0-9a-f]{40,64}", revision):
+        raise ValueError("full source revision unavailable")
+    if not (root / "scripts/cpp-host-update.py").is_file():
+        raise ValueError("production entry unavailable; no fallback writer")
+    failure_code = 1
+    result = subprocess.run(
+        [sys.executable, "-I", "-B", str(root / "scripts/cpp-host-update.py"), "refresh",
+         "--source-root", str(root), "--home", os.path.expanduser("~"),
+         "--revision", revision, "--json", *sys.argv[3:]],
+        capture_output=True, text=True, timeout=360)
+    print(result.stderr, end="", file=sys.stderr)
+    report = json.loads(result.stdout)
+    sys.path.insert(0, str(root))
+    from lib.host_update.source import valid_report
+    producer_revision = revision
+    if (result.returncode in (1, 4, 5) and report.get("revision") == ""
+            and all(row["action"] in ("not-attempted", "refused") for row in report["results"])):
+        # Discovery/refusal can finish before any source is bound or write attempted.
+        producer_revision = ""
+    if not valid_report(report, result.returncode, producer_revision):
+        raise ValueError("incomplete or inconsistent production report; inspect installed state")
+    finish = subprocess.run(["git", "-C", str(root), "rev-parse", "--verify", "HEAD"],
+                            capture_output=True, text=True, check=True).stdout.strip()
+    if finish != revision:
+        raise ValueError("source revision changed during refresh; inspect installed state")
+    states = {0: "current", 1: "failure", 4: "UNAVAILABLE", 5: "not-applicable"}
+    print(f"Managed refresh: {states[result.returncode]} (coverage=partial; native effectiveness unexamined)")
+    print(f"Revision: {revision}")
+    for row in report["results"]:
+        after = row["after"]
+        print(f"{row['harness']}: {after['state']}; {row['action']}; exit {row['exit_code']}; "
+              f"packages={after['expected_packages']}; "
+              f"members={after['examined_members']}/{after['expected_members']}")
+        for detail in (row["reason"], row["remedy"]):
+            if detail:
+                print("  " + detail.replace("\n", " "))
+        for conflict in after.get("conflicts", []):
+            print(f"  {conflict['package']}: {conflict['state']}; " + conflict['reason'].replace("\n", " "))
+        if row["harness"] == "codex" and row["reason"] == "legacy packages require explicit reviewed migration":
+            from lib.host_update.scope import slug
+            stale = sorted(slug(c["package"]) for c in after["conflicts"] if c["state"] == "unknown")
+            unexpected = sorted(c["package"] for c in after["conflicts"] if c["state"] == "unmanaged")
+            print("Codex refresh frozen: unverified legacy packages require review; no adoption has run.")
+            if unexpected:
+                print("Unexpected legacy packages preserved; separate review required before migration: "
+                      + ", ".join(unexpected))
+            elif stale:
+                flags = [v for name in stale for v in ("--adopt", "codex:" + name)]
+                print("Codex migration packages: " + " ".join(stale))
+                print("Codex migration command: " + shlex.join(
+                    ["python3", "-I", "-B", str(root / "scripts/cpp-host-update.py"), "refresh",
+                     "--source-root", str(root), "--home", os.path.expanduser("~"),
+                     "--revision", revision, "--json", *flags]))
+    print("Deferred coverage: " + "; ".join(report["unimplemented"]))
+except Exception as error:
+    state = "failure" if failure_code == 1 else "UNAVAILABLE"
+    print(f"Managed refresh: {state} - " + str(error).replace("\n", " "))
+    print(f"Revision: {revision or 'unavailable'}")
+    raise SystemExit(failure_code)
+raise SystemExit(result.returncode)
+CPP_REFRESH_READER
+)
+HOST_REFRESH_EXIT=$?
+case "$HOST_REFRESH_EXIT" in
+  0|1|4|5) ;;
+  *) HOST_REFRESH_EXIT=4
+     HOST_REFRESH_STATUS="Managed refresh: UNAVAILABLE - shared reader did not complete; inspect installed state" ;;
+esac
+printf '%s\n' "$HOST_REFRESH_STATUS"
+printf 'Managed refresh exit: %s\n' "$HOST_REFRESH_EXIT"
+exit "$HOST_REFRESH_EXIT"
 ```
 
-Report `SEAM_STATUS` and continue. Anything but `available` is a supported
-state, not a stop: the steps below each read their own call's verdict, so they
-say which of the four things happened rather than claiming the write landed.
-
-**The status says what it measured, and nothing wider.** An earlier draft had
-the deferred branch announce that "every host write below will report deferred"
-- which is not something this call establishes. `--defer ~/.claude/scripts`
-defers the SEAM'S OWN INSTALL; it says nothing about `~/.claude/settings.json`
-or `~/.bashrc`, whose calls each consult their own defer-set entry and report
-their own verdict. Overclaiming from one surface to all of them is this issue's
-defect wearing the fix's clothes.
-
----
-
-## Step 5b: Script Symlink Refresh (Tier 2)
-
-The git pull may have ADDED new helper scripts under `scripts/` (e.g. the flow
-helper family, issue #581). EXISTING symlinks in `~/.claude/scripts/` follow
-the pull automatically, but a NEW script has no symlink yet - and the flow
-allowlist rules delivered by Step 7.5 match the stable `~/.claude/scripts/`
-path, so without this refresh a new rule points at a path that does not exist
-and the zero-prompt lane silently degrades. The loop links every EXECUTABLE
-file in `scripts/` regardless of extension (issue #669: the old `*.sh`-only
-glob skipped `flow-wave-plan.py`, so its shipped allow rule pointed at a
-nonexistent path); non-executable `.py` library files, directories, and
-`__pycache__` are skipped by the executability gate. Re-run the same
-idempotent link loop as `/cpp:init` Tier 2; skip when this install has no
-`~/.claude/scripts/` directory (Tier 0/1 - never self-upgrade the tier here):
+If the refresh prints `Codex migration packages:`, show that exact named list
+and `Codex migration command:`. Ask ONCE with AskUserQuestion whether to adopt
+that list. Only then run the migration fence; otherwise skip it. These bytes may contain edits: there is no verified prior manifest.
+The shared core retains each original package in its transaction backup before
+replacing it; the result names the recovery location. Explain this before asking.
+Bind the printed revision, package names, initial exit1/4 and explicit yes/no
+as literals below. Use `no` on decline; never default an absent answer to yes.
+Never infer consent from CLI presence, a CPP marker, silence or an earlier run.
+Retired/unexpected packages are listed separately, preserved and never adopted;
+when present they require separate review before any migration is offered.
+A byte-identical legacy install bootstraps its record without this question.
 
 ```bash
-if [ -d ~/.claude/scripts ]; then
-  SEAM_OK=0; SEAM_DEFERRED=0; SEAM_FAILED=0
-  for script in "$CPP_DIR"/scripts/*; do
-    [ -f "$script" ] && [ -x "$script" ] || continue
-    name=$(basename "$script")
-    # Through the declaring seam (#1132). The helper carries the already-linked
-    # skip this block had, and honours --defer ~/.claude/scripts by name.
-    "$CPP_DIR/scripts/cpp-host-write.sh" link-into "$script" ~/.claude/scripts "$name"
-    #: COMPOSE A VERDICT, do not just run (issue #1198). This loop made ninety
-    #: calls and drew no conclusion, so a seam that was absent linked nothing and
-    #: the step said so nowhere - measured on 2026-09-22, 25 scripts unlinked
-    #: while the run reported success. The tally is what makes the next step's
-    #: "npm-global-upgrade.sh is not installed" traceable to a cause here.
-    case $? in
-      0) SEAM_OK=$((SEAM_OK + 1)) ;;
-      3) SEAM_DEFERRED=$((SEAM_DEFERRED + 1)) ;;
-      *) SEAM_FAILED=$((SEAM_FAILED + 1)) ;;
-    esac
-  done
-  echo "→ Script refresh: $SEAM_OK linked/skipped, $SEAM_DEFERRED deferred, $SEAM_FAILED failed/preserved conflicts"
-  [ "$SEAM_FAILED" -gt 0 ] && echo "  WARNING: $SEAM_FAILED script(s) failed or were preserved as conflicts; see diagnostics. Do not treat these paths as CPP helpers."
-else
-  echo "→ Script refresh skipped (no ~/.claude/scripts - Tier 0/1 install)"
+# CPP_CODEX_MIGRATION
+CPP_DIR=REPLACE_WITH_CPP_DIR
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
+HOST_REFRESH_REVISION=REPLACE_WITH_REFRESH_REVISION
+HOST_MIGRATION_PACKAGES=(REPLACE_WITH_REVIEWED_PACKAGES)
+CODEX_MIGRATION_CONFIRMED=REPLACE_WITH_DECISION
+HOST_INITIAL_EXIT=REPLACE_WITH_INITIAL_EXIT
+[[ "$HOST_REFRESH_REVISION" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]] || exit 4
+case "$CODEX_MIGRATION_CONFIRMED:$HOST_INITIAL_EXIT" in yes:4|yes:1|no:4|no:1) ;; *) exit 4 ;; esac
+((${#HOST_MIGRATION_PACKAGES[@]})) || exit 4
+HOST_MIGRATION_ARGS=()
+for package in "${HOST_MIGRATION_PACKAGES[@]}"; do
+  [[ "$package" =~ ^[a-z0-9][a-z0-9-]*$ ]] || exit 4
+  HOST_MIGRATION_ARGS+=(--adopt "codex:$package")
+done
+HOST_MIGRATION_COMMAND=(python3 -I -B "$CPP_DIR/scripts/cpp-host-update.py" refresh
+  --source-root "$CPP_DIR" --home "$HOME" --revision "$HOST_REFRESH_REVISION" "${HOST_MIGRATION_ARGS[@]}")
+if [ "$CODEX_MIGRATION_CONFIRMED" = no ]; then
+  printf 'Codex refresh frozen: migration declined; run after review: '
+  printf '%q ' "${HOST_MIGRATION_COMMAND[@]}"; printf '\n'
+  exit "$HOST_INITIAL_EXIT"
 fi
+if [ "$(git -C "$CPP_DIR" rev-parse --verify HEAD 2>/dev/null)" != "$HOST_REFRESH_REVISION" ]; then
+  echo 'Managed refresh: UNAVAILABLE - revision changed before migration; no adoption run'
+  exit 4
+fi
+"${HOST_MIGRATION_COMMAND[@]}"
 ```
 
-**The prune half (issue #1263).** The loop above only ever ADDS. When a helper
-is deleted upstream, its link in `~/.claude/scripts/` survives and dangles -
-measured: `project-next-vendor.py`, dangling from af348f8 (#1144) until it was
-removed by hand - and install-drift names it at every session start while
-nothing acts on it. So list the orphans, driven by install-drift's own orphan
-axis rather than a fresh scan (one definition of "ours", not two):
+Use the latest actual Step5a per-component report and exit in Step10 (migration
+report when approved; original report plus frozen command when declined). Exit0 means all selected components are current at the
+bound revision; exit1 means failure or preserved conflicts; exit4 means
+unexamined/unavailable; exit5 means no applicable existing installation.
+Failures continue the unrelated update steps, but never become a success claim.
+Preserve personal, foreign, hand-edited and deferred entries; offer their named
+remedy separately. Only the named migration above permits reviewed adoption;
+no automatic adoption or tier upgrade is authorized here.
 
-**An empty list is a verdict only when the scan RAN.** A missing scanner, a
-missing `jq`, malformed JSON, or a skipped report with no `orphaned_helpers`
-array all produce no names - and the first cut printed "No orphaned helper
-links" for every one of them (counter-model review). So the read and the answer
-are separate: `ORPHAN_SCAN=read` only when the report parsed and carried the
-array, and anything else says the scan did not run.
-
-```bash
-if [ -d ~/.claude/scripts ]; then
-  HELPER_ORPHANS=""
-  ORPHAN_SCAN=unavailable
-  if DRIFT_JSON=$(CPP_INSTALL_DRIFT_CHECKOUT="$CPP_DIR" "$CPP_DIR/scripts/install-drift.sh" --json) \
-     && printf '%s' "$DRIFT_JSON" | jq -e '.orphaned_helpers | type == "array"' >/dev/null 2>&1; then
-    ORPHAN_SCAN=read
-    HELPER_ORPHANS=$(printf '%s' "$DRIFT_JSON" | jq -r '.orphaned_helpers[]')
-  fi
-  if [ "$ORPHAN_SCAN" != "read" ]; then
-    echo "→ Orphan scan NOT run (install-drift.sh --json gave no orphaned_helpers array) - unchecked, not clean"
-  elif [ -n "$HELPER_ORPHANS" ]; then
-    echo "Orphaned helper links (installed, their checkout source was deleted upstream):"
-    printf '  %s\n' $HELPER_ORPHANS
-  else
-    echo "→ No orphaned helper links"
-  fi
-fi
-```
-
-If any are listed, **ask the user** (AskUserQuestion) whether to remove them,
-naming each one. Set `PRUNE_CONFIRMED=yes` only on an explicit yes, and pass the
-listed names to the block below as literals. Never prune unasked: the list is a
-read, the removal is a write to the user's host.
-
-```bash
-if [ "${PRUNE_CONFIRMED:-no}" = "yes" ]; then
-  PRUNED=0; PRUNE_GONE=0; PRUNE_REFUSED=0
-  for name in <the listed names>; do
-    # The seam RE-PROVES ownership per entry (dangling, install-shaped, into a
-    # CPP checkout) and refuses anything else - a name is a string, and the
-    # entry can change between the listing and this call.
-    #: Exit 0 covers BOTH "removed" and "already absent" (another session got
-    #: there first), so the tally reads the seam's own words: counting every 0
-    #: as a removal claims work this run did not do (counter-model review).
-    if OUT=$("$CPP_DIR/scripts/cpp-host-write.sh" unlink-orphan ~/.claude/scripts "$name"); then
-      case "$OUT" in
-        *"orphan removed"*) PRUNED=$((PRUNED + 1)) ;;
-        *) PRUNE_GONE=$((PRUNE_GONE + 1)) ;;
-      esac
-    else
-      PRUNE_REFUSED=$((PRUNE_REFUSED + 1))
-    fi
-    echo "$OUT"
-  done
-  echo "→ Orphan prune: $PRUNED removed, $PRUNE_GONE already absent, $PRUNE_REFUSED refused or deferred"
-else
-  echo "→ Orphan prune: not run (no orphans, or the user declined)"
-fi
-```
-
-Carry the prune line into the Step 10 summary. A refused entry is reported, not
-retried: the seam refused it because it is not a dangling link of ours.
+For links, only proven retired dangling entries may be removed. A retired
+executable kind whose target still exists stays as an unmanaged conflict with
+exit1. The shared ownership proof also preserves foreign-checkout dangling,
+unproven and relative links that legacy confirmed pruning could delete.
 
 ---
 
@@ -816,6 +803,8 @@ Bare (resolution order per #581/#590; on exit 127 fall back to
 `"$CPP_DIR/scripts/stash-worktree-guard.sh"`):
 
 ```bash
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
 ~/.claude/scripts/stash-worktree-guard.sh --install "$CPP_DIR"
 ```
 
@@ -842,6 +831,8 @@ Act on `STASH_GUARD:`:
 **Turning it off from here** is the same one action that records the choice:
 
 ```bash
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
 ~/.claude/scripts/stash-worktree-guard.sh --uninstall "$CPP_DIR"
 ```
 
@@ -850,57 +841,12 @@ here - never as a recurring prompt. See `docs/agents/shared-stash-stack.md`.
 
 ---
 
-## Step 5c: Command-Surface Symlink Check (issue #663)
+## Step 5c: Command-Surface Result
 
-The user-scope command symlinks (`~/.claude/commands/<family>` -> the
-checkout, installed by `/cpp:init` Tier 1) are the CANONICAL command surface:
-they follow the Step-3 `git pull` atomically, so there is nothing to refresh -
-this step only VERIFIES they exist and still point at this checkout. Call the
-helper BARE (allowlist rule matches the stable path):
-
-```bash
-~/.claude/scripts/cpp-commands-link.sh --check
-```
-
-The drift verdicts are deliberately split (issue #756). A family CPP just
-shipped with no link at all is unambiguous: the symlink tier (issue #663)
-exists so the command surface follows `git pull`, and requiring a prompt here
-means every new family silently fails to reach users who defer the update. A
-link pointing somewhere else is a choice the user may have made, and still
-needs a human.
-
-- `CPP_COMMANDS_LINK: ok` - report `✓ Command symlinks current` and continue.
-  **Report it as a TOPOLOGY result, never as an install-health verdict** (issue
-  #685): quote the helper's own `families:` and `ok:` numbers from its summary
-  line; the `ok:` number means that many family links resolve to this checkout,
-  and says nothing about whether the checkout's CONTENT is correct. A
-  restore-over-clone accident produced a working tree with 106 files reverted
-  and 111 upstream-deleted files resurrected; every link resolved, this step
-  read `ok`, and the Step-3 `git pull` said "Already up to date" - three green
-  signals while every served command was stale. Do not summarise this step as
-  "command surface healthy".
-- A `checkout: N tracked modified, M untracked (-uall) ...` line may precede the
-  verdict. It is an ADVISORY observation, not drift: relay it with its counts
-  and leave the verdict alone. Dirtiness is not staleness - a maintainer
-  mid-edit and a corrupted restore look the same from here, which is why the
-  counts are split (a handful of untracked scratch reads very differently from
-  106 tracked modifications). If the numbers look wrong for the host, the
-  content checks are `git -C "$CPP_DIR" status --porcelain -uall` (expect empty)
-  and `git -C "$CPP_DIR" rev-parse HEAD origin/main` (expect equal).
-- `CPP_COMMANDS_LINK: drift-missing` (exit 3) - new families have no link and
-  no stale link needs a decision. Without prompting, run the install bare
-  (`~/.claude/scripts/cpp-commands-link.sh`). Use its `linked   <fam> -> ...`
-  lines and `changed:` counter as the source for N, then report
-  `✓ linked N new famil(ies)`.
-- `CPP_COMMANDS_LINK: drift` (exit 1) - a link points at ANOTHER checkout, or
-  an owned link is an orphan for a retired family. Ask the user, then run the
-  install (bare, no flags):
-  `~/.claude/scripts/cpp-commands-link.sh`
-- `foreign` lines are the user's own content winning a name collision -
-  surface them, never modify them.
-- Exit 127 (helper not yet linked): Step 5b just linked it on Tier 2+ hosts;
-  fall back to `"$CPP_DIR/scripts/cpp-commands-link.sh" --check` once, or skip
-  with a note on a Tier 0/1 install.
+Read the `claude-links` row from Step5a. Its result covers tracked source bytes,
+executable modes and expected link membership, with personal/foreign conflicts
+preserved. No second command-link installer runs here. A current link row does
+not establish native runtime effectiveness or marketplace-cache currency.
 
 **Marketplace-cache migration (#662 / ADR 0005):** while the retired `/plugin`
 families remain installed, sessions may read the STALE cached copies instead of
@@ -977,6 +923,7 @@ else
     echo "-> Tier 7 Gemma lane not installed - skipped"
   fi
 fi
+declare -p QWEN_LANE_PRESENT OPENCODE_HARNESS_PRESENT GEMMA_CONFIG_PRESENT GEMMA_LANE_PRESENT LOCAL_MODEL_LANE_STATUS_PARTS
 ```
 
 When neither lane is present, skip the lane refresh subsections. Do not prompt
@@ -991,6 +938,9 @@ Codex-harness environment variable so remote consumers do not carry obsolete
 configuration forward.
 
 ```bash
+QWEN_LANE_VERDICT="not examined (lane absent)"
+: "${QWEN_LANE_PRESENT:?bind the printed true/false literal in this call}"
+case "$QWEN_LANE_PRESENT" in true|false) ;; *) exit 4 ;; esac
 if $QWEN_LANE_PRESENT; then
   echo ""
   echo "=== Tier 6: Local Qwen Orchestration ==="
@@ -1012,23 +962,26 @@ if $QWEN_LANE_PRESENT; then
     echo "    issue #745). Remote machines need only QWEN_OLLAMA_URL. Unset it."
   fi
 fi
+declare -p QWEN_LANE_VERDICT
 ```
 
 When `QWEN_LANE_PRESENT=true`, OFFER to upgrade the already-installed harness.
 Ask the user, then upgrade only if the answer is yes. Never offer or run the
 upgrade when `qwen` was absent.
 
-**Do NOT run `npm install -g` directly and read its exit code (issue #1022).**
-That is what this step used to do, and it is why it reported upgrades that never
-happened: on a host running node 20, `npm install -g @qwen-code/qwen-code` exits
-0 and installs the version that was already there, because npm resolves `latest`
-down to the newest ENGINE-COMPATIBLE release and 0.24.0 declares
-`engines.node >=22.0.0`. A real upgrade and a silently-capped one are the same
-bytes on stdout. `scripts/npm-global-upgrade.sh` reads the installed version
-before and after and reports the TRANSITION, with the reason taken from
-`npm view <pkg>@latest engines.node` and `node --version` when there is one:
+Use `npm-global-upgrade.sh` to report the actual version transition, engine
+ceiling or unknown result; npm exit0 alone cannot establish an upgrade (#1022).
+The helper compares installed versions and the latest package's node requirement.
 
 ```bash
+: "${QWEN_LANE_VERDICT:?bind the printed literal in this call}"
+[[ "$QWEN_LANE_VERDICT" != *REPLACE_WITH* && "$QWEN_LANE_VERDICT" != *$'\n'* ]] || exit 4
+: "${QWEN_UPGRADE_CONFIRMED:?bind the explicit yes/no answer from this run}"
+case "$QWEN_UPGRADE_CONFIRMED" in yes|no) ;; *) exit 4 ;; esac
+: "${QWEN_LANE_PRESENT:?bind the printed true/false literal in this call}"
+case "$QWEN_LANE_PRESENT" in true|false) ;; *) exit 4 ;; esac
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
 if $QWEN_LANE_PRESENT && [ "$QWEN_UPGRADE_CONFIRMED" = "yes" ]; then
   # Same resolution order as every other CPP helper: the stable installed path
   # first (Step 5 has already refreshed those symlinks), then the checkout.
@@ -1060,31 +1013,32 @@ if $QWEN_LANE_PRESENT && [ "$QWEN_UPGRADE_CONFIRMED" = "yes" ]; then
     echo "[!] $QWEN_LANE_VERDICT - run /flow:repair or re-run /cpp:update after the pull."
   fi
 fi
+declare -p QWEN_LANE_VERDICT
 ```
 
-Set `QWEN_UPGRADE_CONFIRMED` from the user's answer before this block; leave it
-unset or `no` and the lane keeps its `checked (no upgrade offered)` verdict.
+Bind `QWEN_UPGRADE_CONFIRMED` to this run's explicit yes/no answer in this call;
+`no` retains the printed prior verdict.
 
 Then mirror the Tier 6 Ollama reachability and model checks from `/cpp:init`.
 The environment variable names and defaults must stay identical so serving and
 consumer machines get the same diagnosis from both commands:
 
 ```bash
+[[ "$(declare -p LOCAL_MODEL_LANE_STATUS_PARTS 2>/dev/null)" == 'declare -a '* ]] || exit 4
+for part in "${LOCAL_MODEL_LANE_STATUS_PARTS[@]}"; do
+  [[ -n "$part" && "$part" != *REPLACE_WITH* ]] || exit 4
+done
+: "${QWEN_LANE_VERDICT:?bind the printed literal in this call}"
+[[ "$QWEN_LANE_VERDICT" != *REPLACE_WITH* && "$QWEN_LANE_VERDICT" != *$'\n'* ]] || exit 4
+: "${QWEN_LANE_PRESENT:?bind the printed true/false literal in this call}"
+case "$QWEN_LANE_PRESENT" in true|false) ;; *) exit 4 ;; esac
 if $QWEN_LANE_PRESENT; then
   QWEN_ENDPOINT="${QWEN_OLLAMA_URL:-http://127.0.0.1:11434}"
   QWEN_MODEL="${QWEN_MODEL:-qwen3.8-code:latest}"
 
   if curl -sf --max-time 5 "$QWEN_ENDPOINT/api/version" > /dev/null; then
     echo "[x] Ollama reachable at $QWEN_ENDPOINT"
-    # The model is judged only against an endpoint that answered (issue #1263).
-    # /api/tags fails for the SAME single cause as /api/version, so a "missing"
-    # read off an unreachable host is not an observation - and its rebuild
-    # advice tells the user to recreate a model nothing showed to be absent.
-    # A FAILED tags read is not an empty model list: a version probe that
-    # answered does not prove /api/tags will (HTTP error, timeout, dropped
-    # connection), and a 200 carrying no `models` key (an empty body, `{}`, an HTML
-    # redirect page) is not a model list either - so only a body that IS one
-    # reaches the membership test.
+    # Only judge model presence after a readable endpoint/model list (#1263).
     if TAGS=$(curl -sf --max-time 5 "$QWEN_ENDPOINT/api/tags" 2>/dev/null) \
      && echo "$TAGS" | grep -q '"models"'; then
       if echo "$TAGS" | grep -qF "\"$QWEN_MODEL\""; then
@@ -1106,15 +1060,11 @@ if $QWEN_LANE_PRESENT; then
     echo "[?] Model '$QWEN_MODEL' unknown (endpoint unreachable - not checked)"
   fi
 
-  # The lane verdict CARRIES the harness verdict rather than asserting
-  # "refreshed" over it (issue #1022). `Tier 6 refreshed` was composed from an
-  # exit code, so it said the same thing whether the harness moved, stalled at a
-  # node-engine ceiling, or was never touched at all - and the Step 10 summary is
-  # read by the operator and by later sessions, none of which re-derive the
-  # version.
+  # Carry the measured harness verdict into the lane summary (#1022).
   echo "✓ Tier 6 Qwen lane checked: Ollama/model above; harness $QWEN_LANE_VERDICT"
   LOCAL_MODEL_LANE_STATUS_PARTS+=("Tier 6 harness $QWEN_LANE_VERDICT")
 fi
+declare -p LOCAL_MODEL_LANE_STATUS_PARTS
 ```
 
 #### 5d.3 Refresh Tier 7 (Local Gemma)
@@ -1125,6 +1075,11 @@ is the only presence signal, report the absent harness but do not install it;
 the config re-merge below must still run.
 
 ```bash
+GEMMA_HARNESS_VERDICT="not examined (lane absent)"
+: "${GEMMA_LANE_PRESENT:?bind the printed true/false literal in this call}"
+case "$GEMMA_LANE_PRESENT" in true|false) ;; *) exit 4 ;; esac
+: "${OPENCODE_HARNESS_PRESENT:?bind the printed true/false literal in this call}"
+case "$OPENCODE_HARNESS_PRESENT" in true|false) ;; *) exit 4 ;; esac
 if $GEMMA_LANE_PRESENT; then
   echo ""
   echo "=== Tier 7: Local Gemma Orchestration ==="
@@ -1138,19 +1093,24 @@ if $GEMMA_LANE_PRESENT; then
     echo "[~] OpenCode harness absent - install/upgrade skipped; config refresh only"
   fi
 fi
+declare -p GEMMA_HARNESS_VERDICT
 ```
 
 When `OPENCODE_HARNESS_PRESENT=true`, OFFER to upgrade the already-installed
 harness. Ask the user, then upgrade only if the answer is yes. Never upgrade
 without explicit confirmation.
 
-**Through the same helper, for the same reason (issue #1022).** This offer is
-not exempt because it happens to upgrade cleanly today: `opencode-ai` and
-`@qwen-code/qwen-code` were run back to back on the same host, one moved and one
-silently did not, and their output was indistinguishable. Whichever package hits
-an engine ceiling next, the report has to be able to say so:
+Use the same transition-reporting npm helper as Tier6 (issue #1022).
 
 ```bash
+: "${GEMMA_HARNESS_VERDICT:?bind the printed literal in this call}"
+[[ "$GEMMA_HARNESS_VERDICT" != *REPLACE_WITH* && "$GEMMA_HARNESS_VERDICT" != *$'\n'* ]] || exit 4
+: "${GEMMA_UPGRADE_CONFIRMED:?bind the explicit yes/no answer from this run}"
+case "$GEMMA_UPGRADE_CONFIRMED" in yes|no) ;; *) exit 4 ;; esac
+: "${OPENCODE_HARNESS_PRESENT:?bind the printed true/false literal in this call}"
+case "$OPENCODE_HARNESS_PRESENT" in true|false) ;; *) exit 4 ;; esac
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
 if $OPENCODE_HARNESS_PRESENT && [ "$GEMMA_UPGRADE_CONFIRMED" = "yes" ]; then
   NPM_UPGRADE_SH="$HOME/.claude/scripts/npm-global-upgrade.sh"
   [ -f "$NPM_UPGRADE_SH" ] || NPM_UPGRADE_SH="$CPP_DIR/scripts/npm-global-upgrade.sh"
@@ -1171,29 +1131,24 @@ if $OPENCODE_HARNESS_PRESENT && [ "$GEMMA_UPGRADE_CONFIRMED" = "yes" ]; then
     echo "[!] $GEMMA_HARNESS_VERDICT - run /flow:repair or re-run /cpp:update after the pull."
   fi
 fi
+declare -p GEMMA_HARNESS_VERDICT
 ```
 
-Set `GEMMA_UPGRADE_CONFIRMED` from the user's answer before this block; leave it
-unset or `no` and the harness keeps its `checked (no upgrade offered)` verdict.
+Bind `GEMMA_UPGRADE_CONFIRMED` to this run's explicit yes/no answer in this call;
+`no` retains the printed prior verdict.
 
 Mirror the Tier 7 Ollama checks for either Tier 7 presence signal:
 
 ```bash
+: "${GEMMA_LANE_PRESENT:?bind the printed true/false literal in this call}"
+case "$GEMMA_LANE_PRESENT" in true|false) ;; *) exit 4 ;; esac
 if $GEMMA_LANE_PRESENT; then
   GEMMA_ENDPOINT="${GEMMA_OLLAMA_URL:-http://127.0.0.1:11434}"
   GEMMA_MODEL="${GEMMA_MODEL:-gemma4-code:latest}"
 
   if curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/version" > /dev/null; then
     echo "[x] Ollama reachable at $GEMMA_ENDPOINT"
-    # The model is judged only against an endpoint that answered (issue #1263).
-    # /api/tags fails for the SAME single cause as /api/version, so a "missing"
-    # read off an unreachable host is not an observation - and its rebuild
-    # advice tells the user to recreate a model nothing showed to be absent.
-    # A FAILED tags read is not an empty model list: a version probe that
-    # answered does not prove /api/tags will (HTTP error, timeout, dropped
-    # connection), and a 200 carrying no `models` key (an empty body, `{}`, an HTML
-    # redirect page) is not a model list either - so only a body that IS one
-    # reaches the membership test.
+    # Only judge model presence after a readable endpoint/model list (#1263).
     if TAGS=$(curl -sf --max-time 5 "$GEMMA_ENDPOINT/api/tags" 2>/dev/null) \
      && echo "$TAGS" | grep -q '"models"'; then
       if echo "$TAGS" | grep -qF "\"$GEMMA_MODEL\""; then
@@ -1228,6 +1183,14 @@ compare the two owned blocks so the verdict identifies what changed and what
 was already current.
 
 ```bash
+OC_CONFIG="$HOME/.config/opencode/opencode.json"
+GEMMA_PROFILE_STATUS="not examined (lane absent)"
+: "${GEMMA_CONFIG_PRESENT:?bind the printed true/false literal in this call}"
+case "$GEMMA_CONFIG_PRESENT" in true|false) ;; *) exit 4 ;; esac
+: "${GEMMA_LANE_PRESENT:?bind the printed true/false literal in this call}"
+case "$GEMMA_LANE_PRESENT" in true|false) ;; *) exit 4 ;; esac
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
 if $GEMMA_CONFIG_PRESENT; then
   GEMMA_PROFILE_STATUS=$(PYTHONPATH= python3 - \
     "$CPP_DIR/templates/opencode-gemma.json" "$OC_CONFIG" <<'PYSTATUS'
@@ -1266,30 +1229,47 @@ elif $GEMMA_LANE_PRESENT; then
   GEMMA_PROFILE_STATUS="no gemma-ollama provider selected; mechanical fence skipped"
   echo "-> Tier 7 Gemma profile not installed (no gemma-ollama provider) - skipped"
 fi
+declare -p GEMMA_PROFILE_STATUS
 ```
 
 Finish the Tier 7 report with one lane verdict after the harness, server/model,
 and eligible profile checks have run:
 
 ```bash
+[[ "$(declare -p LOCAL_MODEL_LANE_STATUS_PARTS 2>/dev/null)" == 'declare -a '* ]] || exit 4
+for part in "${LOCAL_MODEL_LANE_STATUS_PARTS[@]}"; do
+  [[ -n "$part" && "$part" != *REPLACE_WITH* ]] || exit 4
+done
+: "${GEMMA_HARNESS_VERDICT:?bind the printed literal in this call}"
+[[ "$GEMMA_HARNESS_VERDICT" != *REPLACE_WITH* && "$GEMMA_HARNESS_VERDICT" != *$'\n'* ]] || exit 4
+: "${GEMMA_PROFILE_STATUS:?bind the printed literal in this call}"
+[[ "$GEMMA_PROFILE_STATUS" != *REPLACE_WITH* && "$GEMMA_PROFILE_STATUS" != *$'\n'* ]] || exit 4
+: "${GEMMA_LANE_PRESENT:?bind the printed true/false literal in this call}"
+case "$GEMMA_LANE_PRESENT" in true|false) ;; *) exit 4 ;; esac
 if $GEMMA_LANE_PRESENT; then
   # Carries the harness verdict for the same reason Tier 6 does (issue #1022):
   # the profile status alone said nothing about whether the harness moved.
   echo "✓ Tier 7 Gemma lane checked: harness $GEMMA_HARNESS_VERDICT; $GEMMA_PROFILE_STATUS"
   LOCAL_MODEL_LANE_STATUS_PARTS+=("Tier 7 harness $GEMMA_HARNESS_VERDICT ($GEMMA_PROFILE_STATUS)")
 fi
+declare -p LOCAL_MODEL_LANE_STATUS_PARTS
 ```
 
 Compose the Step 10 value only after every present lane has contributed its
 outcome. A lane skipped by presence gating contributes nothing:
 
 ```bash
+[[ "$(declare -p LOCAL_MODEL_LANE_STATUS_PARTS 2>/dev/null)" == 'declare -a '* ]] || exit 4
+for part in "${LOCAL_MODEL_LANE_STATUS_PARTS[@]}"; do
+  [[ -n "$part" && "$part" != *REPLACE_WITH* ]] || exit 4
+done
 if ((${#LOCAL_MODEL_LANE_STATUS_PARTS[@]})); then
   printf -v LOCAL_MODEL_LANES_STATUS '%s; ' "${LOCAL_MODEL_LANE_STATUS_PARTS[@]}"
   LOCAL_MODEL_LANES_STATUS="${LOCAL_MODEL_LANES_STATUS%; }"
 else
   LOCAL_MODEL_LANES_STATUS="not installed (Tier 6/7 not selected)"
 fi
+printf "%s\n" "$LOCAL_MODEL_LANES_STATUS"
 ```
 
 ---
@@ -1311,7 +1291,9 @@ then compare.
 **Repo inventory** - what CPP expects for MCP servers now:
 
 ```bash
-cd "$CPP_DIR"
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
+cd "$CPP_DIR" || exit 4
 
 echo "=== Repo MCP Server Inventory ==="
 
@@ -1367,6 +1349,8 @@ fi
 Run the drift helper for its raw inventory if available:
 
 ```bash
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
 if [ -x "$CPP_DIR/scripts/drift-detect.sh" ]; then
   "$CPP_DIR/scripts/drift-detect.sh" --fix || DRIFT_FOUND=true
 fi
@@ -1392,11 +1376,7 @@ entry keeps it untouched, whatever its transport or URL: that is the owner's
 chosen wiring, and now the only one.
 
 ```bash
-# The guard asks USER scope in the active profile, never `claude mcp list`,
-# which also shows local/project entries. It honours CLAUDE_CONFIG_DIR, like init.
-# Three answers, not two: 0 registered, 1 absent (no file, or no such key), 3 the
-# config could not be read or has the wrong shape. Only an ESTABLISHED absence
-# registers - an unreadable config is not evidence that nothing is there.
+# Check user scope in the active profile; register only on established absence.
 USER_JSON="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"
 python3 - "$USER_JSON" <<'PY'
 import json, sys
@@ -1475,7 +1455,9 @@ orphans by Step 6c/7 + `scripts/mcp-drift.py`):
    check, which covers EVERY MCP name, not only CPP's:
 
 ```bash
-cd "$CPP_DIR"
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
+cd "$CPP_DIR" || exit 4
 MCP_SCOPE_STATUS="clean"
 python3 scripts/mcp-drift.py --scope-check
 MCP_SCOPE_RC=$?
@@ -1556,12 +1538,7 @@ not exist in `/cpp:update` at all until now - add it, idempotent exactly like
 `/cpp:init`'s own version:
 
 ```bash
-# /flow:auto's friction capture (scripts/friction-log.sh) writes into this
-# project's own .claude/, same as CPP's own .gitignore (:288-289) - without
-# this, friction capture dirties the consumer project's working tree. Each
-# entry is checked independently so a re-run never duplicates a line already
-# present, and a project with no .gitignore at all is left alone (this step
-# never creates one).
+# Keep project friction artifacts local; add each ignore pattern independently.
 if [ -f ".gitignore" ]; then
   FRICTION_HEADER_WRITTEN=0
   for pattern in ".claude/friction.jsonl" ".claude/friction/"; do
@@ -1591,7 +1568,9 @@ registration not in compose" sweep, which would tear down a user's own custom
 MCP servers).
 
 ```bash
-cd "$CPP_DIR"
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
+cd "$CPP_DIR" || exit 4
 
 MCP_DOCKER_DRIFT_STATUS="clean"
 python3 scripts/mcp-drift.py --check
@@ -1684,7 +1663,9 @@ daemon). Saying "no orphaned Docker MCP" here is the exact false-positive this
 guard exists to prevent.
 
 ```bash
-cd "$CPP_DIR"
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
+cd "$CPP_DIR" || exit 4
 python3 scripts/mcp-drift.py --json > /tmp/mcp-drift.json
 ```
 
@@ -1705,11 +1686,19 @@ Options:
   `mcp-<name>:*` image tags but keep the newest as a restore point, unregister
   from `claude`/`codex mcp`. Runs:
   ```bash
-  python3 scripts/mcp-drift.py --teardown <name>
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
+: "${RETIRED_MCP_NAME:?bind the reviewed server name in this call}"
+[[ "$RETIRED_MCP_NAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || exit 4
+  python3 "$CPP_DIR/scripts/mcp-drift.py" --teardown "$RETIRED_MCP_NAME"
   ```
 - **Tear down (prune all images)** - same, but remove every `mcp-<name>:*` image:
   ```bash
-  python3 scripts/mcp-drift.py --teardown <name> --prune-all-images
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
+: "${RETIRED_MCP_NAME:?bind the reviewed server name in this call}"
+[[ "$RETIRED_MCP_NAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || exit 4
+  python3 "$CPP_DIR/scripts/mcp-drift.py" --teardown "$RETIRED_MCP_NAME" --prune-all-images
   ```
 - **Keep** - leave it in place (re-runs of /cpp:update will keep flagging it).
 
@@ -1720,7 +1709,9 @@ and reports the freed port and image tags. After all confirmed teardowns, re-sca
 and record the outcome for the summary:
 
 ```bash
-cd "$CPP_DIR"
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
+cd "$CPP_DIR" || exit 4
 python3 scripts/mcp-drift.py --check
 RESCAN_RC=$?
 if [ "$RESCAN_RC" -eq 0 ]; then
@@ -1783,7 +1774,9 @@ whether `~/.claude/settings.json` is missing any template rules and offer to
 merge the difference.
 
 ```bash
-cd "$CPP_DIR"
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
+cd "$CPP_DIR" || exit 4
 TEMPLATE="$CPP_DIR/templates/claude-settings-permissions.json"
 TARGET="$HOME/.claude/settings.json"
 
@@ -1815,27 +1808,18 @@ Rationale and caveats: templates/claude-settings-permissions.md)  [y/N]
 If yes, run the same merge as `/cpp:init`:
 
 ```bash
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
+TEMPLATE="$CPP_DIR/templates/claude-settings-permissions.json"
+TARGET="$HOME/.claude/settings.json"
 # Through the declaring seam (#1132), same call /cpp:init makes.
 "$CPP_DIR/scripts/cpp-host-write.sh" settings-merge "$TEMPLATE"
-#: THE MEASURED CASE (issue #1198). This pair printed
-#: "✓ Flow allowlist merged (2 total allow rules)" with the seam absent and
-#: nothing merged, and printed the same line with the surface DEFERRED exactly
-#: as asked. The count made it worse, not better: read after a failed merge it
-#: is the PRE-merge total, so the false claim carried a plausible number and
-#: read as a smaller install rather than an error.
+# A refused or failed merge must never report a successful allowlist refresh (#1198).
 case $? in
   0) echo "✓ Flow allowlist merged ($(jq '.permissions.allow | length' "$TARGET") total allow rules)" ;;
   3) echo "→ Flow allowlist DEFERRED by request - ~/.claude/settings.json was NOT modified" ;;
   127) echo "✗ Flow allowlist NOT merged - the host-write seam is not installed (see Step 5a)" ;;
-#: A FAILURE DOES NOT ESTABLISH THAT THE SURFACE IS UNCHANGED (counter-model
-#: review). The first draft of these handlers said "... is unchanged" on the
-#: failure branch, which asserts a rollback nothing performs. Measured: given a
-#: malformed template and no existing file, `settings-merge` exits 1 AND leaves
-#: a newly created ~/.claude/settings.json containing `{}`. Append and
-#: replace operations can likewise modify a file before an I/O error. So the
-#: failure branch reports the failure and sends the reader to look - claiming
-#: an unverified rollback is the same overclaim as claiming an unperformed
-#: write, pointed the other way.
+# A failed write can modify the surface; report failure and inspect, never assert rollback.
   *) echo "✗ Flow allowlist merge FAILED - check ~/.claude/settings.json - a failed write may have modified it" ;;
 esac
 ```
@@ -1887,6 +1871,9 @@ data. Never blocks or alters a permission decision.  [y/N]
 If yes, run the same idempotent merge as `/cpp:init`:
 
 ```bash
+CENSUS_CMD="~/.claude/scripts/hook-permission-census.sh"
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
 # Through the declaring seam (#1132): the helper owns the write, this
 # document keeps the jq program. --defer ~/.claude/settings.json yields a
 # stated refusal instead of a silent skip.
@@ -1958,6 +1945,9 @@ Silent when there is nothing to report.  [y/N default N]
 If yes, run the same idempotent merge as `/cpp:init`:
 
 ```bash
+RETRO_CMD="~/.claude/scripts/hook-pending-retro.sh"
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
 # Through the declaring seam (#1132): the helper owns the write, this
 # document keeps the jq program. --defer ~/.claude/settings.json yields a
 # stated refusal instead of a silent skip.
@@ -1990,15 +1980,17 @@ maintaining that mirror, so it silently went stale as merges landed (issue #582)
 This step guards it. It is a no-op on hosts without a mirror.
 
 ```bash
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
 MIRROR="${CPP_COMMANDS_MIRROR:-}"
 # Auto-detect the common layout when the env var is unset: a commands dir in a
 # .claude/ directory directly above this checkout.
 if [ -z "$MIRROR" ]; then
-  CAND="$(dirname "$(pwd)")/.claude/commands"
+  CAND="$(dirname "${CPP_DIR}")/.claude/commands"
   [ -d "$CAND" ] && MIRROR="$CAND"
 fi
 if [ -n "$MIRROR" ] && [ -d "$MIRROR" ]; then
-  if ! scripts/commands-mirror-sync.sh --check "$MIRROR"; then
+  if ! "$CPP_DIR/scripts/commands-mirror-sync.sh" --check "$MIRROR"; then
     echo "Commands mirror at $MIRROR has drifted from the repo."
   fi
 fi
@@ -2020,28 +2012,14 @@ installs (#582 follow-through tracked with #575).
 
 ## Step 7.9: Generated Host-Surface Refresh (issue #575)
 
-CPP ships installers and teardowns for the generated surfaces it writes into
-HOME, and until #575 **none of them were invoked here** - so an updated host
-ended up missing current files AND keeping retired ones. Both halves run in
-this step. It is fail-open throughout: any failure warns and continues, never
-aborting the update.
+Managed skills were handled once in Step5a. This step retains the separate
+memory-harness installer and retired-surface review. Failures warn and continue
+with their own verdict; they do not replace the managed-component report.
 
-**7.9a - Install the current Codex skills.** Until #575 nothing installed
-CPP's generated skills to `~/.codex/skills/`, so Codex could not see any CPP
-skill. Since issue #1670 they are not a tracked tree: `--install` builds them
-from the sources this update just pulled, checks the build against those
-sources, and publishes it - so this step is also what brings the host's copies
-back in line after a pull. The installer prunes managed orphans at the
-destination too, so a skill dropped upstream stops loading here. Skip when
-Codex is not installed on this box.
-
-```bash
-if command -v codex >/dev/null 2>&1; then
-  python3 scripts/codex-skill-sync.py --install || echo "WARNING: codex skill install failed (continuing)"
-else
-  echo "→ Codex skills skipped (codex CLI not installed)"
-fi
-```
+**7.9a - Read the shared Codex result.** Step5a already refreshed existing
+managed Codex copies at the bound revision. Use that row's actual state and
+counts; no separate installer runs here. A Codex executable alone does not
+select an absent install. Explicit installation remains `/cpp:init` work.
 
 **7.9b - Wire the common-memory harness.** `scripts/install-memory-harness.sh`
 has always advertised itself as safe to re-run from `/cpp:update`, and nothing
@@ -2049,7 +2027,9 @@ ever ran it - so `cpp-memory` was missing from PATH on hosts that never ran it
 by hand. Idempotent.
 
 ```bash
-bash scripts/install-memory-harness.sh || echo "WARNING: memory harness install failed (continuing)"
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
+bash "$CPP_DIR/scripts/install-memory-harness.sh" || echo "WARNING: memory harness install failed (continuing)"
 ```
 
 **7.9c - Detect retired surfaces still present.** Directories CPP once
@@ -2058,7 +2038,9 @@ generated into and no longer does. Detection is curated
 a skill the user installed themselves is never a finding:
 
 ```bash
-python3 scripts/retired-surface-prune.py --check
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
+python3 "$CPP_DIR/scripts/retired-surface-prune.py" --check
 ```
 
 Exit 0 means nothing on this host is CPP-generated in those directories -
@@ -2094,7 +2076,9 @@ families still installed under `~/.claude/plugins/cache/cpp/` as migration state
 It is read-only, informational, and fail-open.
 
 ```bash
-scripts/install-drift.sh || true
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
+"$CPP_DIR/scripts/install-drift.sh" || true
 ```
 
 - `INSTALL_DRIFT: skipped` with no cache - nothing remains; continue silently.
@@ -2118,7 +2102,9 @@ scripts/install-drift.sh || true
 Determine the user's current tier level so we can offer upgrades:
 
 ```bash
-cd "$CPP_DIR"
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
+cd "$CPP_DIR" || exit 4
 
 # Tier 1 checks
 TIER=0
@@ -2184,8 +2170,21 @@ named a commit two behind the one the host's commands, helpers and Codex skills
 were actually served from). Re-read HEAD now, and say so when it moved:
 
 ```bash
+# CPP_SHARED_FINISH_GUARD
+CPP_DIR=REPLACE_WITH_CPP_DIR
+: "${CPP_DIR:?bind the absolute checkout path from Step1 in this call}"
+[[ "$CPP_DIR" = /* && -d "$CPP_DIR" ]] || exit 4
+HOST_REFRESH_REVISION=REPLACE_WITH_REFRESH_REVISION
+[[ "$HOST_REFRESH_REVISION" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]] || exit 4
 FINISH_COMMIT=$(git -C "$CPP_DIR" rev-parse --short HEAD)
+HOST_FINISH_REVISION=$(git -C "$CPP_DIR" rev-parse --verify HEAD 2>/dev/null)
 echo "Finished on: $FINISH_COMMIT"
+printf 'Revision: %s\n' "$HOST_REFRESH_REVISION"
+if [ "$HOST_FINISH_REVISION" != "$HOST_REFRESH_REVISION" ]; then
+  printf 'Managed refresh: UNAVAILABLE - revision changed after refresh; inspect installed state\nFinished revision: %s\n' "${HOST_FINISH_REVISION:-unavailable}"
+  exit 4
+fi
+echo 'CPP_REVISION_GUARD: stable (use the latest actual Step5a report; no component state inferred here)'
 ```
 
 When `FINISH_COMMIT` differs from `NEW_COMMIT`, the `Commit:` line below reads
@@ -2196,7 +2195,7 @@ in, not the state this run passed through.
 
 ```
 =================================
-CPP Update Complete
+CPP Update Report
 =================================
 
 Version: v{OLD_VERSION} -> v{NEW_VERSION}
@@ -2204,7 +2203,8 @@ Commit:  {OLD_COMMIT} -> {NEW_COMMIT} {(finished on FINISH_COMMIT - moved during
 Branch:  {BRANCH}
 Tier:    {TIER} {(upgraded from X if applicable)}
 {Bash:   Step 3.6 finding with its remedy - only when Step 3.6 reported one}
-Helpers: {Step 5b refresh line}; {Step 5b orphan-prune line}
+Managed refresh (PARTIAL, exit {HOST_REFRESH_EXIT}):
+  {latest actual Step5a per-component report; include any Step10 revision refusal}
 
 Changes pulled:
   {list of new commits, or "Already up to date"}
@@ -2229,9 +2229,7 @@ Docker MCP Drift:
    point unless prune-all)", or "drift remaining (user kept some servers)"}
 
 Host Surfaces:
-  {HOST_SURFACE_STATUS - e.g. "refreshed (73 codex skills installed, memory harness
-   linked, no retired surfaces present)", "partial (user kept a retired surface)",
-   or "clean"}
+  {HOST_SURFACE_STATUS - memory harness / retired-surface result only; Codex is in the managed report above}
 
 Local-Model Lanes:
   {LOCAL_MODEL_LANES_STATUS - carries each harness's OWN verdict, e.g. "Tier 6
@@ -2259,9 +2257,9 @@ Run /cpp:status for full installation details.
 - Legacy systemd units are detected and removed only after user confirmation
 - MCP drift detection compares CPP's expected servers against leftover retired
   containers, legacy systemd remnants, claude mcp registrations, and listening ports
-- Generated host surfaces are refreshed in Step 7.9 (issue #575): the Codex skill
-  install and the common-memory harness both run here, and retired surfaces are
-  detected against the curated `.claude/retired-surfaces.yaml`
+- Managed copies and links use the single shared Step5a refresh. Step7.9 retains
+  the memory harness and retired-surface review against the curated
+  `.claude/retired-surfaces.yaml`
 - Step 5d refreshes already-present Tier 6/7 harnesses and re-merges the Gemma
   provider and agent profile, but never installs an absent tier. The re-merge
   keeps the `gemma-implementer` mechanical fence from going stale (issue #754)

@@ -876,12 +876,6 @@ _BARE_RELATIVE_SCRIPT_REF = re.compile(r"(?<![\w/.~$}{:-])(?:\./)?scripts/([A-Za
 #: an invocation BY this script.
 CPP_CHECKOUT_RELATIVE_REFS: tuple[tuple[str, str, str, str], ...] = (
     ("cpp/update.md", "mcp-drift.py", "{ref}", "the block opens `cd \"$CPP_DIR\"`"),
-    ("cpp/update.md", "friction-log.sh", "{ref}) writes into this", "a comment inside a CPP_DIR block"),
-    ("cpp/update.md", "commands-mirror-sync.sh", "{ref} --check", "/cpp:update operates on the checkout"),
-    ("cpp/update.md", "codex-skill-sync.py", "{ref} --install", "/cpp:update operates on the checkout"),
-    ("cpp/update.md", "install-memory-harness.sh", "{ref} ||", "/cpp:update operates on the checkout"),
-    ("cpp/update.md", "retired-surface-prune.py", "{ref} --check", "/cpp:update operates on the checkout"),
-    ("cpp/update.md", "install-drift.sh", "{ref} || true", "/cpp:update operates on the checkout"),
     ("cpp/init.md", "cpp-commands-link.sh", "{ref}", "init links families from the checkout"),
     ("cpp/init.md", "memories-db-setup.sh", "{ref} (idempotent)", "an echo naming a checkout script"),
     ("flow/auto.md", "codex-skill-resync.sh", "{ref}", "`[ -x ]` KEEPS THIS CPP-ONLY"),

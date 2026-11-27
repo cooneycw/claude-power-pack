@@ -292,3 +292,437 @@ Orchestrator41456 prioritizes the fix-only v13.0.1 release after this correction
 is pushed and frozen for review. B2a receipt, fresh gate, full CI-shape rerun and
 PR are parked until the release tag-candidate report. No B2a PR or native run
 is claimed. Both #1889 and #1876 remain open/PARTIAL.
+
+
+### B2b-1 runtime checkpoint under owner ruling 1889A
+
+The first B2b-1 checkpoint addresses the plain-user runtime regression before
+removing any maintained legacy path. At base8e6efc03, isolated Python3.12.3
+with YAML unavailable runs the legacy stdlib link helper successfully, but the
+production registry returns unknown4 for every row because it imports YAML
+adapters eagerly. Owner1889A selects lazy YAML dependencies and one writer,
+with no legacy fallback.
+
+The committed plain-runtime cases use an owned empty stdlib venv. They assert
+YAML is absent both under the parent's -I/-S setup and under the interpreter
+configuration used by the pinned child. All three cases failed before the fix:
+Claude-link verify and Codex refresh returned4 rather than0; the mixed case
+lacked per-adapter named UNAVAILABLE results and independent stdlib progress.
+The source product bytes were still identical to8e6efc03 at that red run.
+
+After moving YAML imports to the actual YAML operations, all three cases pass
+(33.80s): complete Claude links verify current; Codex refresh publishes its
+nonzero expected population; Claude topics and AGY report their own missing
+yaml/PyYAML with unknown4 while the stdlib components succeed. No caller/core/
+Pi row schema changed. Owned red/green test roots were deleted. No native
+commands or credentials were accessed. The maintained update command is still
+unchanged at this checkpoint; deletion equivalence is the next stop condition.
+
+### B2b-1 conservative retirement checkpoint (ruling41749)
+
+The deletion comparison runs the exact frozen legacy Step5b Bash fences,
+including confirmed orphan pruning, against the shared adapter on two owned
+farms. Each starts with10 logical entries (20 physical initial entries total):
+current CPP, proven retired dangling, retired executable kind with a live
+non-executable target, unproven CPP-shaped orphan, personal file/directory,
+foreign live/dangling, renamed and relative links. The fixture asserts source
+history/modes, clean revision, initial population and preserved personal bytes.
+
+At runtime checkpoint ef3147e1, the comparison failed: the shared adapter
+removed nonexec-fixture.sh even though its target still existed and the legacy
+step preserved it. Legacy deleted4 entries; shared deleted2. Work stopped for
+ruling41749 before changing deletion authority. The additional focused adapter
+case also failed before the fix (7.10s): a live retired target's link vanished.
+Logs are deletion-equivalence.log and retired-live-red.log under
+/workspace/.cpp-validation/1889-b2b-1/; their exact owned test roots were deleted.
+
+The approved narrowing checks target existence through the proven link under
+the existing lock, retaining the immediately-before-unlink identity check.
+Live retired targets are preserved with existing State.UNMANAGED, conflict
+reason "retired CPP link target still present; preserved for review", and
+existing exit1. Proven retired dangling links retain their B2a removal behavior.
+No row, schema, State or exit-code extension is introduced. The fixture names
+three intended safer differences explicitly: foreign-dangling.sh,
+never-recorded-b2b-fixture.sh and relative.sh are legacy deletions preserved by
+the shared adapter because its ownership proof is narrower.
+
+After the narrowing, all66 command/runtime, existing B2a link and CI-shape
+cases pass (397.89s). The comparison now removes only retired-fixture.sh on the
+shared side, a subset of the four legacy deletions; the three safer differences
+above remain explicit assertions. The focused case also proves a second run
+with only the preserved live-retired conflict remains unmanaged/exit1. No
+existing B2a expectation changed. Lint,567-file typecheck, binary guards and
+negative-fixture checks pass. retirement-green.log records the completed run;
+the owned /tmp/b.rlklrbxk test root and interrupted predecessor roots were
+deleted. The first combined attempt exceeded its180s execution timeout and is
+not counted as a verdict; the completed rerun used a sufficient timeout.
+
+### B2b-1 maintained reader implementation checkpoint
+
+The maintained update now invokes one shared refresh even when its source pull
+is a no-op, capturing the full revision and propagating existing deferrals.
+Managed Step5a/5b/5c and7.9a have no second writer or legacy fallback. The actual
+closed report/exit supplies component states, expected/examined counts and
+conflicts. The final guard invalidates managed currency when HEAD moved.
+Unrelated stash, local-model, MCP, memory and retired-surface steps remain.
+The maintained document decreased from2291 lines at8e6efc03 to2179 lines,
+a strict net decrease of112.
+
+The frozen B2a marker2 caller regression was RED before the marker change: it
+executed the still-compatible producer instead of refusing before execution
+(3.80s). Producer marker3 now fences the changed closed deferred set before
+writes. The old marker2 producer and prior marker1 producer are independently
+refused. JSON schema2, component row shapes, neutral core and Pi APIs stay
+unchanged. The first actual-maintained-block regression was also RED against
+the old command (6.80s): no shared writer was present.
+
+All87 real maintained/runtime/preservation/legacy-seam/count-reader and
+compatibility cases pass (196.46s), including stale helper repair and proven
+retired dangling removal with no source pull; preservation of a personal seam
+without executing it; genuinely unwritable UID1000; deferrals; entry absence;
+no-selection exit5; skipped-refresh mutation; and final revision movement.
+An owned empty venv plus a PATH excluding the native Codex CLI proves the
+maintained refresh updates actual Codex reference.md bytes to a separately
+built expected member. With owned YAML installs present, the same fixture
+reports named missing-yaml unknown4 for Claude topics/AGY while Codex progresses.
+
+The reader preserves an existing pre-execution contract: a no-selection5,
+unknown4 or refused1 may have an empty producer revision if every action is
+not-attempted/refused. It validates those non-current envelopes independently
+and keeps the captured checkout revision for the final guard. It never admits
+an unbound current0. A deferred Claude scope retains its named refusal/exit1,
+rather than being mislabeled as malformed output.
+
+Two fixture premises were corrected during development, before formal review.
+Codex procedure bodies live in reference.md, not their stable SKILL.md wrapper;
+the test now asserts that the actual expected member differs before refreshing.
+The seam detector's directly counted update calls go from6 to4: bootstrap and
+the link loop disappear; the former prune consultation was already inside an
+if statement and outside this count. Init stays14. Historical public-seam and
+tally tests use the exact pinned legacy fences and identify them as historical;
+the current reader tests execute the actual new maintained fences.
+
+All28 independent Codex parity/attribution/pin/parser/generator/mode cases pass
+(15.08s). The404-member historical baseline, generator and parser pins remain
+unchanged; measured current output deltas are zero. A nonempty attribution
+fixture reproduced the old002 reader's rejection before the correction. Both
+022/002 now consume the same attributed candidates while exact modes still
+compare between the independent real generators. Only the expected group-write
+bit is adjusted for comparison with the historical022 measurement. The added
+world-write counterexample failed before that adjustment was narrowed and now
+remains detectable, alongside wrong hash/mode/reason/source-commit and pin cases.
+No conditional baseline JSON edit was needed and no generated cpp-update reader
+is claimed.
+
+Lint,567-file typecheck, binary guards, negative-fixture checks, instrument
+census, verify coverage and guarded host-write checks pass. Logs are
+wiring-readers-final.log and parity-and-static-final.log in the B2b-1 evidence
+directory; their exact owned temporary roots were deleted. The first full bare
+control batch rejected the new registration because its files were untracked
+and its Make invocation used a literal goal instead of the required target
+placeholder. Those registration premises are corrected; its rerun, disposable
+CI-shape qualification, fresh formal review/receipt and supervised finish gate
+are still pending at this implementation checkpoint. No native/auth execution
+or whole-epic acceptance is claimed; #1889/#1876 remain open/PARTIAL.
+
+### B2b-1 pre-review qualification at f46f4b34
+
+The corrected whole bare batch passes all149 registrations, including the new
+typed Make target's GOOD, both BAD and UNKNOWN inputs. Its constructed anchor
+still repairs the stale GOOD installation but misses both BAD inputs by masking
+the final report/exit. All55 historical anchors were byte-compared with their
+named commits; none was off main or unknown. The completed log is
+bare-controls-final.log; its exact owned /tmp/b.7a353icj root was deleted.
+
+A disposable depth1 clone of exact f46f4b34 passed205 tests in255.23s and all
+four actual new Make control cases. The one skip is the historical shipped-byte
+case: .claude/commands/cpp/init.md at5a4d7fcd is unavailable in a depth1 clone.
+Its committed synthetic controls still ran; the skipped history lookup is not
+reported as a pass. The runner asserted checkout source mode0666 under
+umask000, used an aliased TMPDIR and minimal PATH, and set HOME=/root while
+running as actual UID1000. The new unwritable control independently printed
+and tested executing UID1000. There is no actual-root execution claim.
+
+The whole source was clean after removing the exact owned virtualenv symlink.
+ci-shape.log records the cases and cleanliness check. The exact owned
+/tmp/c.i8nq8cul clone, temporary roots and caches were deleted; cleanup-inclusive
+runtime was339.12s. Full/shallow/worktree sources, external cwd, copy/link mixes,
+unavailable tool/runtime paths, preservation and ordinary stdlib operation are
+covered by these fixtures. Native consumer behavior, both authentication lanes,
+toolchain-version matrix and delegated workflow changes remain unexamined.
+
+Formal B2b-1 review starts at count0, independently of the prior B2a passes.
+Fresh review/receipt and the directly supervised finish gate remain pending.
+
+### B2b-1 F1: owner-reviewed legacy migration
+
+Formal pass1 at498e2ed8 requested changes for F1: the legacy Codex installer
+kept no shared ledger, so stale installs stopped at an unnamed unknown4 after
+the old writer was removed. Owner ruling1889 A, relayed41841, authorizes one
+reviewed migration through the existing shared per-package adoption/backups.
+Scope41790 was activated, the exact11-file amendment was mailed41847 before
+edits, and Run6 was restamped with path31 before product changes.
+
+Before changing the product, the actual historical installer at
+e32c06ed~1 (5204ea06fa15efa7fec3e1d86fd489c61b85c708) installed80 packages in
+an owned home. Nineteen expected packages differed from the current build;
+there were no unexpected packages. The named-diagnostic regression failed at
+498e2ed8 because its unknown4 row had no conflicts or usable command. The
+paired actual v13.0.0 installer at40d25173 produced byte/mode-identical output
+and passed the no-migration control. Combined result:1fail/1pass,21.62s.
+historical-legacy-red.log records the pre-fix result, and its exact owned
+/tmp/b.o3w04eer root was deleted.
+
+After the diagnostic change, both actual historical cases pass (21.32s): every
+differing expected package is named using existing UNKNOWN conflicts; separate
+UNMANAGED conflicts preserve retired/unexpected legacy packages. The actual
+v13.0.0 install still initializes records without a question. The smallest
+stale historical package, cicd-verify, is vendored as exact attributed bytes
+and modes in the new case.json:2 files,13,130 bytes of JSON, with independent
+test pins for both file hashes and its historical source commit. CI therefore
+does not need the old commit object. historical-legacy-green.log records the
+full80-package proof; exact /tmp/b.67v76pyx was deleted.
+
+The maintained procedure shows one persistent-root, full-revision command with
+repeated scoped flags and asks once for that named list. An inherited yes is
+reset and cannot authorize adoption. Decline keeps the unknown4/frozen status,
+old bytes and absent ledger, with the command in the final summary. Explicit
+acceptance uses the same shared writer and retains each original package in
+its transaction backup before replacement. Retired/unexpected packages block
+this automatic offer pending separate review and are never adopted. A changed
+revision before consent execution refuses the retry. The document remains
+smaller than its2291-line base:2240 lines, a strict net decrease of51.
+
+The first six focused consent/default/decline/backup, unexpected-preservation,
+revision-change and identical-legacy cases pass (51.96s); exact /tmp/b.bzwgtri0
+was deleted. A separate current-command execution case checks that the displayed
+command itself is usable and retains the original backup. Lint,567-file
+typecheck, binary guards, negative-fixture, census, coverage and guarded-write
+checks pass. Full amended reader/control/CI qualification is still pending;
+the next formal review is pass2 of the default cap2. No receipt, finish gate,
+PR or native/auth execution is claimed for this amendment yet.
+
+The amended eleven-module reader/adapter/parity matrix passes213 cases
+(314.78s), including execution of the exact displayed command and recovery of
+its original backup. The two additional committed historical-population cases
+pass separately (42.28s): the actual old installer population accepts the named
+migration, all80 originals remain byte/mode-identical in the retained backup,
+all80 published packages match the independent current build, and the next
+ordinary update is current without adoption. The real v13.0.0 population remains
+identical and creates no adoption backup or question. If either immutable
+historical commit is absent, its test explicitly skips with the missing-history
+reason; the attributed small fixture still exercises shallow CI.
+
+The full amended bare batch passes all149 registrations, including the new
+historical-legacy UNKNOWN input and its named frozen-on-decline command. All55
+historical anchors are byte-verified; the masked-summary anchor remains blind.
+Logs are f1-readers.log, f1-historical-population.log and f1-bare-controls.log.
+Exact owned roots /tmp/b.9h63c1_z, /tmp/b.yofkutuc and /tmp/b.gzxzp2ab were
+deleted. Disposable CI-shape qualification, formal pass2, fresh receipt and the
+direct supervised finish gate remain pending for this candidate.
+
+The amended disposable CI-shape run at exact0070ebc4 passes212 tests in267.74s
+plus all five actual Make control cases. Three skips explicitly name historical
+objects absent from the depth1 clone: the old5a4d7fcd shipped-byte fixture and
+the actual5204ea06 /40d25173 installers. The small attributed legacy fixture,
+consent/backup/decline and displayed-command cases still run and pass there.
+Full-history tests passed separately above; unavailable history is not counted
+as examined. Checkout mode0666/umask000, HOME=/root with actual UID1000, aliased
+TMPDIR and minimal PATH were asserted again. The stale-legacy control prints
+its named command and frozen decline without changing the original package or
+creating an ownership ledger. Source status is clean after removing the owned
+virtualenv seam. Exact /tmp/c.pb8igty7 was deleted; cleanup-inclusive runtime
+was359.72s. Log: f1-ci-shape.log. Formal pass2, fresh receipt and the directly
+supervised finish gate remain pending; implementation bytes are now frozen.
+
+
+### B2b-1 F2: separate Bash tool calls
+
+Pass2 at cdf04386 accepted F2: the migration and finish fences read variables,
+arrays and a function from a prior Bash call; the maintained reader concatenated
+those calls and hid both failures. On unchanged cdf04386, the final fresh-process
+current, accepted-migration and all-fence audit tests were3failed/14.30s
+(f2-final-instrument-red.log). The current case falsely said revision changed;
+the accepted migration left historical bytes unchanged. The all49-fence scan
+reported61 unresolved (fence,name) dependency pairs plus2 illustrative shell
+parse diagnostics. The corrected document has49 scopes,0 unresolved dependencies
+and0 parse diagnostics. Committed scanner cases catch a lost variable, lost
+function and a skipped conditional assignment. ShellCheck absence is explicitly
+unexamined, not a zero result. This static scan does not execute host writers.
+
+Every fence now derives its values locally or validates same-call literal
+bindings. The maintained reader and registered control start a new Bash process
+per call. Migration uses the actual printed revision/names and this run's explicit
+decision; the existing CLI validates the pinned child report before rendering it.
+The finish guard reports revision stability only; it retains the latest actual
+component report/exit and refuses a real move with4. Declined migration remains
+frozen/unknown with its scoped command. Malformed roots, revisions, decisions and
+package names refuse before writes. Source/CLI remain marker-only relative to
+the B2a base; no neutral/Pi or native/auth change is introduced.
+
+The expanded26-module run was732pass/4fail in380.48s. The failures were the
+identical-locator text pin, two obsolete update-loop coupling assertions and
+newly derived cpp-host-update.py classification. Amendment41925 authorized the
+four additional paths before edits. The locator bytes were restored unchanged.
+The two manifest consumers retain init assertions and existing negatives, and
+read real manifests with tracked executable Python/extensionless positives and
+non-executable/directory negatives. Assertion statements in those two functions
+plus their shared population helper increased5->13 (the helper counted once).
+Four committed consumer mutations each produce a RED assertion for a missing
+non-shell executable or wrongly included non-executable, then normal manifests
+pass. No executable distinction was removed to accommodate the shared writer.
+
+The observer explicitly leaves cpp-host-update.py unobserved/authored: its Python
+snapshot child creates/executes a source checkout outside HOME, for which this
+observer has no qualified invocation. The new classification test was RED before
+the table entry (1failed/5passed,11.56s); the committed newly derived unknown-member
+case still refuses and never executes its owned sentinel writer. The combined
+amendment/fresh-process/invalid-binding/audit/locator/self-read subset is now
+129passed/62.26s (f2-amendment-green.log). Final static checks passed: lint,
+typecheck567 files, binary guards, fixture preconditions, Unicode, census,
+verify coverage and host-surface declarations22 reachable helpers. Command
+length2289 remains below the original2291. These are subset results; final
+committed-head CI shape, full controls, third review and full gate follow.
+
+
+### F2 committed-head qualification and local-shape limit
+
+At clean131e5f5f256b1c1d01a9d599edcb7d7f5e95416d the entire bare-caller control
+batch passed149 registrations with55/55 historical anchors byte-compared
+(416.89s including owned cleanup; f2-final-controls.log). The corrected
+26-module CI-shape run passed733 tests with5 explicit missing-history skips
+(386.01s), then all5 actual host-update-command-check fixtures reached their
+expected current/failure/failure/unknown/unknown verdicts. The clone was clean
+after removing its exact owned virtualenv seam. Shape:depth1, umask000/source0666,
+HOME=/root with actual UID1000, alias TMPDIR, minimal PATH plus explicit ShellCheck.
+The historical installer fixtures remain attributed/vendored and run in shallow
+CI; only their extra real-object-history comparisons skip when unavailable.
+
+Exactly four existing tests were deselected from this local shape, NOT counted
+as passed. On unchanged main8e6efc03, the identical shape reproduced all four
+failures (4failed/0.70s; f2-home-baseline.log), and the outer runner returned2
+over the failed inner make/pytest. Three ambient-home assertions cannot stat
+/root as UID1000; the unset-HOME test correctly refuses the child's UID home
+/home/claude but expects REAL HOME to mean the parent's HOME=/root. These are
+pre-existing local HOME=/root+UID1000 shape artifacts; no fixture fix is included:
+
+- tests/test_cpp_tier_detection.py::test_a_fresh_project_reaches_tier_2_on_scripts_alone
+- tests/test_cpp_tier_detection.py::test_an_older_install_that_still_has_hooks_json_is_unaffected
+- tests/test_cpp_tier_detection.py::test_two_scripts_is_NOT_tier_2
+- tests/test_host_surface_observe.py::test_sandbox_verifier_refuses_when_home_is_unset
+
+Orchestrator41933 approved exactly these deselections and recorded the gap in
+[Nit Store1725](https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7200507818).
+The normal-HOME paired gate and actual-root PR CI remain separate required
+checks; no local artifact is presented as their result. The five history skips
+and four explicit deselections are not passes. The first interrupted131 run
+had4fail/339pass/3skip; its actual output is archived as f2-ci-shape-red.log.
+
+Evidence-file limitation: the copied external CI runner retained the old F1
+log basename and overwrote its original raw file. That raw F1 log is unavailable;
+the committed F1 evidence at cdf04386 is retained. The current failed run is
+archived under F2 names, the original path explicitly records the loss, and
+future F2 runs use f2-ci-shape.log. The runner's existing final SystemExit already
+propagates the inner status; the baseline failing-inner run demonstrated outer2.
+No false green was claimed. Final third review/receipt, full gate and PR CI are
+still pending; no native/auth or B2b-2 acceptance is implied.
+
+
+The corrected131 CI runner finally returned0:396.93s through tests and the five
+fixture invocations,484.57s including owned clone/cache/temp cleanup. The exact
+root /tmp/c.b8cc78dd was deleted. f2-ci-shape.log and f2-ci-runner.log retain the
+actual outputs. The following checkpoint changes only this evidence and the
+approved scope summary31->35; implementation remains131e5f5f.
+
+
+### Owner-approved post-gate integration correction
+
+At receipt head279482dc the normal supervised gate returned1:5failed,
+14084passed,5skipped in837.82s,964.19s including owned cleanup. The five nodes
+all pass on unchanged8e (7cases/0.63s), so these were caused by B2b-1. The
+failures were stale generator exception data, the removed separate Codex writer
+and executable-loop assertions, a string-only reader of typed Make metadata,
+and an unregenerated constructed observer anchor. The existing guards were not
+weakened. The fixture-precondition supplemental is separately recorded at
+https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7201480890.
+
+Owner ruling
+https://github.com/cooneycw/claude-power-pack/issues/1889#issuecomment-7204721638
+permits deleting only the six stale data rows and one fourth review (cap4,
+ruled_by=owner; no fifth). The current generator becomes110081fd while adding
+back the exact six rows rebuilds the immutable39569670 v13 generator. The
+current/frozen parser remains e807b3bb. Actual non-table byte and retired-row
+inputs fail the new guard. The original generator and stale-data guards plus
+anchor freshness were RED before deletion/regeneration:3fail/40pass,24.22s.
+The canonical anchor tool inherits only the approved four classification lines;
+its stored patch stays unchanged and its manifest changes only the digest to
+54ecf15e23ca99de0a188aa261d5b1bbd4ab8cd82bc26f00f285dd1cc0c5002a.
+
+The first scratch A/B varied transform code but held the old generator file in
+canonical source inputs. Its zero cross-input baseline-delta claim was therefore
+incomplete. The committed parity matrix caught this after the approved deletion:
+70 focused cases passed and two attribution checks failed. Corrected measurement
+varies both roles: generator code and its self-bundled source input. At022/002,
+80packages/404members remain identical between frozen/current transforms on the
+same NEW inputs, but exactly two bundled script copies and their two checksums
+change across OLD/NEW inputs, with unchanged modes. An actual wrong-byte control
+is detected. Corrected scratch result1pass/7.42s; scratch deleted.
+
+Owner attribution ruling
+https://github.com/cooneycw/claude-power-pack/issues/1889#issuecomment-7205593196
+accepts exactly those four attributed_input_delta rows, with committed B source
+SHA, old/new hashes and reason; no historical member, reference or pin changes.
+The committed variation test also runs the held-old-input counterexample: both
+transforms still agree on that wrong input, but its actual bundled-member bytes
+must fail the new assertion. The source commit precedes its attribution commit
+so provenance names real committed content. Full parity, full verify and149
+controls precede the still-unused fourth review; no PR/native acceptance yet.
+
+
+The committed B source is bfc98e51e7e91639f566125a9ee2d7a69fccd537. The four
+attributed_input_delta records cite that real source commit, preserve the old
+member values, and state the self-bundled source/checksum reasons. Every other
+baseline field is unchanged. The committed held-old-input cases each reach a
+RED actual bundled-member assertion after same-input transform equality passes;
+normal variation passes at022/002 (4passed/19.25s). An incorrect old hash or mode
+in attribution is also a committed negative input, separate from candidate-side
+hash/mode changes. Full verification and review4 are still pending.
+
+
+The full parity matrix is now36passed. Checking the historical installer against
+committed B source exposed one further stale test assumption: actual v13 output
+is no longer byte-identical to the new inputs because exactly the two bundled
+generator copies/checksums changed. That case was RED (1fail/37pass,65.63s).
+It now first requires the actual old installation to equal the immutable v13
+inventory and its desired-state difference to equal ONLY the four approved
+attributions. It then checks the exact two-package named migration, decline
+preservation, retained80-package backup, and next ordinary current refresh.
+The independent current-source byte-identical legacy control still asks no
+migration question. Both real historical installs and that current identical
+control pass (3passed/58.92s), preserving the underlying distinction rather
+than treating the historical v13 label as an eternal currency claim.
+
+
+### Pre-fourth-review verification checkpoint
+
+At ddd02ae06eea844cc161c862941ef5166c8c8f94, normal-HOME supervised
+`make verify` returned0:14110passed,5skipped in1010.04s. All subsequent
+checks passed, including149 registered controls,0unavailable and55/55 historical
+anchors byte-compared, with none uncompared or off-main. The owned short TMP
+/tmp/v.3kja6fyv was deleted; wrapper elapsed including cleanup1601.89s.
+
+The separately invoked bare `make negative-controls` then returned0 at the same
+clean head:149registered PASS,0unavailable,55/55 historical anchors compared,
+0uncompared/off-main/unknown. Its driver used the Make target's global Python
+caller, not a project-uv wrapper; individual declared controls own their runtime.
+Normal HOME was /home/claude, UID1000. Native supervisor requests1835/1837 owned
+the leases; no manual active flag or nested finish supervisor was used. The exact
+/tmp/n.00u6d9o9 was deleted,422.48s including cleanup. Logs are
+owner-b-full-verify.log and owner-b-negative-controls.log in the external
+1889-b2b-1 validation directory.
+
+The following checkpoint changes only documentation: this evidence and the
+active v13 explanation, distinguishing historical equality from the four newly
+approved input changes. Product/test/baseline content remains ddd02ae0. The
+owner-authorized fourth review, its independent receipt and paired finish gate
+remain pending. No fifth pass, PR or native/auth acceptance is claimed.

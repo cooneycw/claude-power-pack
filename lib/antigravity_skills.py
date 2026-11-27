@@ -16,8 +16,6 @@ from functools import cache
 from pathlib import Path, PurePosixPath
 from urllib.parse import quote, unquote, urlsplit
 
-import yaml
-
 from lib.host_update.driver import _source_git
 from lib.host_update.models import (
     AdapterError,
@@ -168,6 +166,8 @@ def _resolve(raw: str, source: str, files: dict[str, tuple[int, str]]) -> str | 
 
 
 def build(revision: Revision, *, expected_topics: frozenset[str] = TOPICS) -> ExpectedBuild:
+    import yaml
+
     snapshot = Snapshot(revision)
     actual = {PurePosixPath(p).parts[2] for p in snapshot.files
               if p.startswith(".claude/skills/") and len(PurePosixPath(p).parts) == 4

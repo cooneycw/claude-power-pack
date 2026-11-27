@@ -1623,5 +1623,58 @@
   },
   "parser_path": "reference/check-md-relative-links.py",
   "parser_sha256": "e807b3bb918ab46fed38e27a979956896fa0f5543221798ad80c75d9c05698cd",
-  "attributed_input_delta": {}
+  "attributed_input_delta": {
+    "flow-auto/scripts/SHA256SUMS": {
+      "baseline": [
+        "41c55633d371d5f394f2f99a1369dc3383f1882602073c25d55b681d1fcd8a48",
+        420
+      ],
+      "candidate": [
+        "85abfd8ac769db46a78f15325c79cc38849b50a4300685e5db641f22e4534644",
+        420
+      ],
+      "source_path": "scripts/codex-skill-sync.py",
+      "source_commit": "bfc98e51e7e91639f566125a9ee2d7a69fccd537",
+      "reason": "Checksum inventory changes only because this skill bundles the generator with the six owner-approved retired CPP exception rows removed. Owner ruling: https://github.com/cooneycw/claude-power-pack/issues/1889#issuecomment-7205593196"
+    },
+    "flow-auto/scripts/codex-skill-sync.py": {
+      "baseline": [
+        "395696707af11e0bd181741879534fbe02807fe56f659c189b44e3e45bc5d7ea",
+        493
+      ],
+      "candidate": [
+        "110081fddc35d176aac3bd87674fc17da12a3adc220dddc5b8b759e25699ad43",
+        493
+      ],
+      "source_path": "scripts/codex-skill-sync.py",
+      "source_commit": "bfc98e51e7e91639f566125a9ee2d7a69fccd537",
+      "reason": "Bundled generator source changes only by the six owner-approved retired CPP checkout exception rows; transform behavior and modes are unchanged. Owner ruling: https://github.com/cooneycw/claude-power-pack/issues/1889#issuecomment-7205593196"
+    },
+    "flow-finish/scripts/SHA256SUMS": {
+      "baseline": [
+        "112ab9c1d63254d729c10589ab29360ef6698e986f6d8d0c4d856bec8e60f07a",
+        420
+      ],
+      "candidate": [
+        "525a78f1c5d0de2b745bad3c3b272eecce5d034016b3386ce65dbf37ac2aeda0",
+        420
+      ],
+      "source_path": "scripts/codex-skill-sync.py",
+      "source_commit": "bfc98e51e7e91639f566125a9ee2d7a69fccd537",
+      "reason": "Checksum inventory changes only because this skill bundles the generator with the six owner-approved retired CPP exception rows removed. Owner ruling: https://github.com/cooneycw/claude-power-pack/issues/1889#issuecomment-7205593196"
+    },
+    "flow-finish/scripts/codex-skill-sync.py": {
+      "baseline": [
+        "395696707af11e0bd181741879534fbe02807fe56f659c189b44e3e45bc5d7ea",
+        493
+      ],
+      "candidate": [
+        "110081fddc35d176aac3bd87674fc17da12a3adc220dddc5b8b759e25699ad43",
+        493
+      ],
+      "source_path": "scripts/codex-skill-sync.py",
+      "source_commit": "bfc98e51e7e91639f566125a9ee2d7a69fccd537",
+      "reason": "Bundled generator source changes only by the six owner-approved retired CPP checkout exception rows; transform behavior and modes are unchanged. Owner ruling: https://github.com/cooneycw/claude-power-pack/issues/1889#issuecomment-7205593196"
+    }
+  }
 }

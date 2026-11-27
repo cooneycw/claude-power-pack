@@ -257,7 +257,7 @@ def test_the_proximity_framing_false_positives_where_the_gate_passes(case: str) 
 
 @pytest.mark.parametrize("rel, expected", [
     (".claude/commands/cpp/init.md", 14),
-    (".claude/commands/cpp/update.md", 6),
+    (".claude/commands/cpp/update.md", 4),
 ])
 def test_the_gate_can_see_the_bootstrap_this_issue_added(rel: str, expected: int) -> None:
     """The blind spot that mattered most, asserted on the REAL documents.
@@ -286,7 +286,9 @@ def test_the_gate_can_see_the_bootstrap_this_issue_added(rel: str, expected: int
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     # #1586 A2b removes exactly one pre-confirmation probe per document.
-    # Both quoted bootstraps remain visible; the exact statement delta is recorded.
+    # B2b removes the two counted bootstrap/link calls; init stays at fourteen.
+    # The retired prune call was already inside a status-reading if statement,
+    # outside this direct-invocation count. Four other update calls remain.
     text = (ROOT / rel).read_text(encoding="utf-8")
     seen = [st for _, st in mod._shell_statements(text)
             if mod.SEAM_INVOKE_RE.search(st)]

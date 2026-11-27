@@ -32,7 +32,8 @@
     "not belong here.",
     "",
     "Shared cpp-host-update production and fixture Make targets are derived automatically;",
-    "actual adapter/link tests run through make test, with core, copy-fidelity and link CLI controls registered."
+    "actual adapter/link tests run through make test, with core, copy-fidelity and link CLI controls registered.",
+    "Maintained cpp/update refresh and guarded summary use the registered make:host-update-command-check fixture target; native probe work remains B2b-2."
   ],
   "scripts": {
     "bash-prep.sh": {

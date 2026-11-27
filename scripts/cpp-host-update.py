@@ -3,7 +3,7 @@
 #: NEGATIVE-CONTROL: controls/claude-host-links
 #: NEGATIVE-CONTROL: controls/host-update-core
 #: NEGATIVE-CONTROL: controls/antigravity-skill-install-fidelity
-#: PRODUCTION-HOST-ENTRY: 2
+#: PRODUCTION-HOST-ENTRY: 3
 #: HOST-SURFACE: ~/.claude/skills/<skill> owner=cpp write=copy certified=authored mode=refresh
 #: HOST-SURFACE: ~/.codex/skills/<skill> owner=cpp write=copy certified=authored mode=refresh
 #: HOST-SURFACE: ~/.gemini/config/skills/<skill> owner=cpp write=copy certified=authored mode=refresh
