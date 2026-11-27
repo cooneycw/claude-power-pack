@@ -82,3 +82,12 @@ receipt and measurement/document paths changed through HEAD. A source-code
 change is BAD. This qualification applies to the initial root-profile carry;
 routine future local checks validate the profile against the committed root
 receipt's image, observed mask, complete identity and digest.
+
+Cancellation owns the active pytest process group through shutdown (#1961).
+TERM, HUP and INT stop its leader and descendants before the producer exits;
+a descendant that ignores TERM is killed. Prior signal handlers are restored
+when the run returns. An interruption exits with `128 + signal`, never GOOD.
+The committed cancellation witness runs tiny real pytest inputs, including a
+blind old owner, and is part of the focused selector manifest. Its controlled
+checkout/probe setup is not physical shape or root qualification; live lease
+release is measured separately from the normal test suite.
