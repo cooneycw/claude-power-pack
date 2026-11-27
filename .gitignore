@@ -52,6 +52,7 @@ desktop.ini
 
 # Project specific
 *.json
+!docs/measurements/pi/issue-1899-b2-fixtures/manifest.json
 # POLICY (issue #1406): every negation below this line that re-includes a
 # fixture under controls/ is NAMED or FILENAME-SCOPED on purpose, never a
 # blanket `!controls/**`. A blanket exemption would also re-include a stray

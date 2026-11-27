@@ -1,76 +1,142 @@
-# Pi #1899 B2 rules command draft
+# Pi #1899 B2 rules host commands
 
-Status: DRAFT, NOT READY FOR HOST EXECUTION. Refs #1899. Prepared while B0
-queues behind R2. No command below has been executed by the author. Review
-this file and finalize the size fixtures before routing any B2 host step.
+Status: READY FOR ORCHESTRATOR/MASTER REVIEW; no B2 host execution claimed.
+Refs #1899. B0's [attributed completion](issue-1899-b0-results.md) establishes
+the retained disposable root and owner sign-in. One HOME and fresh pi processes
+per comparison; no further sign-in is planned. No owner-pane questions.
 
-## Preconditions and intervention
+## Bindings and intervention
 
-Use the single disposable HOME/agent created by the
-[B0 handoff](issue-1899-b0-commands.md), with the owner's one direct sign-in.
-Master must first return B0's actual version, isolation observations and owner
-agreement to reuse that root. Stop if B0 is unresolved pending isolation review.
-If the owner skipped regular-agent name observations, record that lane as
-unexamined; probe markers and env -i do not establish an unchanged regular
-installation. Do not silently lower #1899's acceptance requirement.
+Master verifies the full reviewed commit, this file, the adjacent
+[mutation helper](issue-1899-b2-files.py), and
+[fixture manifest](issue-1899-b2-fixtures/manifest.json) before execution.
+All helper commands below run from THAT CPP checkout; they take no variables
+from another fence. Record full revision, helper/manifest/file hashes, exact
+commands/prompts, cwd label, exits and fixture-only responses. The host checkout
+must contain the reviewed helper and all fixtures; the historical B0 checkout
+alone does not contain them. Never pull or switch the owner's working checkout
+implicitly; master chooses the reviewed source path.
 
-Intervention pi-1899-B2: create only the two named rule files in the disposable
-agent and fixture files under its disposable work area. No regular-install
-mutation. Never read/stat/copy auth.json, mcp-auth.json or any session history.
-Each matrix row gets a new pi process with --no-session and no prior turn.
-No second login or second HOME is planned. Unexpected rules from B0 or any
-changed fixture stop this batch; preserve them and report instead of adopting.
+Intervention pi-1899-B2 touches only the two named global rule paths in the
+existing disposable agent and its work/pi-1899-b2-state.json journal. Fixtures
+are read from the reviewed CPP checkout. The helper never starts pi, lists the
+agent, reads settings/session history, or probes credential files. It checks
+only named rule paths, its own journal/fixtures, and the bounded context paths
+below. No regular-install rules are written. Use an exclusive helper window;
+this is not protection against hostile or concurrent non-cooperating writers.
 
-The commands below assume the version measured by B0 is pi 1.6.0. Master must
-confirm --no-session behavior before routing model turns. Unsupported syntax
-stops the row; no fallback that reads session history is authorized.
+Master's digest-only B0 amendment remains the regular-install comparison lane:
+report only stable/changed/unexamined, never the private regular count/digest
+pairing. Matching names do not establish unchanged bytes or no transient writes.
+Use the retained amended collector, not the original names-printing B0 block.
+Run it before B2, after its rule matrix, after size samples and after final undo.
+No credential file contents or metadata are inspected.
 
-## 1. Baseline and fixture preparation (draft)
+## 1. Prepare and refuse contamination
 
-From the reviewed CPP checkout, record full git revision and command-file hash.
-Run the approved B0 name comparison, with its owner-selected listing lane.
-The following preparation refuses existing rule files (including symlinks)
-and an existing B2 fixture directory. It never inventories agent neighbors.
-The top-level fixture directory is deliberately exclusive; do not retry after
-partial setup without reporting it. File digests are local fixture provenance,
-not proof of runtime loading.
+Pi 1.6.0 discovers context from cwd ancestors independently of HOME/trust. The
+helper checks ONLY the five documented context names in each known scratch cwd
+and its ancestors, using existence metadata without reading content. A present
+file or symlink stops preparation for relocation review. Do not read, remove or
+adopt it. This includes possible real-HOME ancestor rules; fresh HOME alone does
+not exclude them. A missing/unreadable directory or other inspection error stops
+the command. No arbitrary project scan is performed.
 
 ```bash
-python3 - <<'PY'
-import hashlib
-import os
-from pathlib import Path
-
-root = Path.home() / '.cpp-pi-1899-probe'
-agent = root / 'agent'
-for name in ['AGENTS.md', 'AGENTS.override.md']:
-    if os.path.lexists(agent / name):
-        raise SystemExit('STOP: unexpected preexisting probe rule: ' + name)
-fixtures = root / 'work' / 'b2-fixtures'
-fixtures.mkdir(mode=0o700)
-inputs = {
-    'base.md': b'For every response, include the exact token PI1899BASE7KQ.\n',
-    'override.md': b'For every response, include the exact token PI1899OVERRIDE9VX.\n',
-    'empty.md': b'',
-}
-for name, content in inputs.items():
-    with (fixtures / name).open('xb') as output:
-        output.write(content)
-    print(name, len(content), hashlib.sha256(content).hexdigest())
-PY
+python3 docs/measurements/pi/issue-1899-b2-files.py prepare --root "$HOME/.cpp-pi-1899-probe"
 ```
 
-Before first model turn, master records that the two scratch repositories have
-no project rule files, skills or MCP fixtures from another batch. Restrict that
-inspection to known fixture repositories; no arbitrary project scans.
+This refuses preexisting probe AGENTS.md/AGENTS.override.md and an existing B2
+journal. It validates every source fixture against its manifest before creating
+the journal. Initial state is both rules absent. Preparation is not retried
+following partial failure; report the stopped step and preserve state.
 
-## 2. Independent fresh-session launch commands (draft)
+## 2. Exact rule transitions and fresh-session matrix
 
-Launch from the ordinary host shell, not from a shell already using the probe
-HOME. Each command derives the same isolated environment independently.
-Copy only the controlled fixture response for the row and the process exit;
-never capture login, existing conversation, session files or unrelated output.
-Do not use /reload as a substitute for a fresh process in these comparisons.
+Run the following transitions IN ORDER. After each command, launch alpha then
+beta using section 3, enter the neutral prompt once, record the response and
+exit the process. All outcomes start PENDING. There are 16 transitions and at
+most 32 model turns, with no automatic retries or additional size search.
+Unexpected baseline marker, failed guard, authentication prompt, unsupported
+flag or ambiguous state stops the batch and goes to the orchestrator.
+
+The helper preflights BOTH installed rules against its stable journal before
+any mutation. Present rules must be non-symlink regular files, mode 0644, with
+exact previous fixture bytes. Unexpected, missing, edited or mode-changed rules
+are preserved and refused. Unchanged members remain in place, including BASE
+when the override changes. It marks the journal blocked before writing; an
+interruption requires manual review, never an automatic retry/adoption. New
+files use exclusive no-follow creation. Journal publication is atomic; the
+multi-file rule transition is not claimed to be atomic.
+
+1. Baseline, no marker expected:
+
+```bash
+python3 docs/measurements/pi/issue-1899-b2-files.py set absent --root "$HOME/.cpp-pi-1899-probe"
+```
+
+2. Base alone; test BASE loading independently:
+
+```bash
+python3 docs/measurements/pi/issue-1899-b2-files.py set base --root "$HOME/.cpp-pi-1899-probe"
+```
+
+3. Base removed; test disappearance after demonstrated presence:
+
+```bash
+python3 docs/measurements/pi/issue-1899-b2-files.py set absent --root "$HOME/.cpp-pi-1899-probe"
+```
+
+4. Override alone; test OVERRIDE independently:
+
+```bash
+python3 docs/measurements/pi/issue-1899-b2-files.py set override --root "$HOME/.cpp-pi-1899-probe"
+```
+
+5. Override removed; test its disappearance:
+
+```bash
+python3 docs/measurements/pi/issue-1899-b2-files.py set absent --root "$HOME/.cpp-pi-1899-probe"
+```
+
+6. Both; observe which marker(s) appear without assuming precedence:
+
+```bash
+python3 docs/measurements/pi/issue-1899-b2-files.py set both --root "$HOME/.cpp-pi-1899-probe"
+```
+
+7. Zero-byte override, BASE unchanged; test suppression:
+
+```bash
+python3 docs/measurements/pi/issue-1899-b2-files.py set empty --root "$HOME/.cpp-pi-1899-probe"
+```
+
+8. Override removed, BASE unchanged; test BASE reappearance:
+
+```bash
+python3 docs/measurements/pi/issue-1899-b2-files.py set base --root "$HOME/.cpp-pi-1899-probe"
+```
+
+9. Both removed; neither marker expected:
+
+```bash
+python3 docs/measurements/pi/issue-1899-b2-files.py set absent --root "$HOME/.cpp-pi-1899-probe"
+```
+
+Run the retained amended name collector now. The empty-override inference needs
+BASE present before and after; absence without those positives is unresolved.
+The fixture tokens are PI1899BASE7KQ and PI1899OVERRIDE9VX; neither is in the
+neutral prompt. Unexpected output is an observation, not automatically a
+loader diagnostic or evidence of failed byte loading.
+
+## 3. Independent isolated launches
+
+Each launch derives its own environment in the ordinary approved host shell.
+All tools, MCP, extensions and skills are disabled so tool reads cannot supply
+rule markers. Context-file loading stays enabled. Flags are bound to the
+published 1.6.0 args source in the [source note](issue-1899-pi-1.6.0-source.md).
+There is no session reuse or persisted-transcript read. If the owner encounters
+an authentication issue, stop and route it rather than copying credentials.
 
 Alpha:
 
@@ -84,7 +150,8 @@ env -i PATH="$PATH" TERM="${TERM:-xterm-256color}" LANG=C.UTF-8 \
   XDG_CONFIG_HOME="$HOME/.cpp-pi-1899-probe/config" \
   XDG_DATA_HOME="$HOME/.cpp-pi-1899-probe/data" \
   XDG_CACHE_HOME="$HOME/.cpp-pi-1899-probe/cache" \
-  TMPDIR="$HOME/.cpp-pi-1899-probe/tmp" pi --no-session
+  TMPDIR="$HOME/.cpp-pi-1899-probe/tmp" \
+  pi --no-session --no-tools --no-mcp --no-extensions --no-skills
 )
 ```
 
@@ -100,86 +167,113 @@ env -i PATH="$PATH" TERM="${TERM:-xterm-256color}" LANG=C.UTF-8 \
   XDG_CONFIG_HOME="$HOME/.cpp-pi-1899-probe/config" \
   XDG_DATA_HOME="$HOME/.cpp-pi-1899-probe/data" \
   XDG_CACHE_HOME="$HOME/.cpp-pi-1899-probe/cache" \
-  TMPDIR="$HOME/.cpp-pi-1899-probe/tmp" pi --no-session
+  TMPDIR="$HOME/.cpp-pi-1899-probe/tmp" \
+  pi --no-session --no-tools --no-mcp --no-extensions --no-skills
 )
 ```
 
-Type the identical neutral prompt once per process:
+Identical prompt for every turn:
 `Respond with a single-line plain greeting saying hello.`
-Exit that process after its answer. Marker tokens must never be included in
-the prompt or earlier turns. Do not count a model's explanation of rule loading
-as an independent loader diagnostic. Record the exact observed tokens and any
-actual diagnostic separately; unexpected output leaves the row unresolved.
+Exit after the single answer. Copy only the new controlled fixture response,
+actual loader diagnostics if exposed, and process exit; no login capture,
+unrelated output, historical transcript or session files. The model's statement
+that a file loaded is not independent evidence. Do not include tokens, expected
+outputs or fixture paths in prompts. Any tool call invalidates that row's
+startup-loading claim even if tokens appear.
 
-## 3. Rule matrix and mutations to finalize before routing
+## 4. Exact bounded size samples (transitions 10-15)
 
-Every row runs in BOTH alpha and beta, with the launch blocks above. Record
-file byte counts/hashes, exact intervention and undo, prompt, response and exit
-for each. Start and finish each independent sequence without either rule file.
-All observations are PENDING. Expected tokens below are hypotheses under test.
+The published 1.6.0 configuration docs and inspected loader/render functions
+state no numeric per-file cap. Source inspection is not runtime measurement or
+proof that no other limit exists. Use these exact committed samples in EACH
+file independently; do not borrow AGY's limit or call these under/over a known
+boundary. A later threshold search needs a separate reviewed budget.
 
-| Sequence | Probe-agent input | Comparison question |
-|---|---|---|
-| Baseline | Both rule files absent | Neither marker should appear; otherwise find contamination before proceeding |
-| Base present | base.md copied to AGENTS.md; override absent | Does BASE appear in both unrelated repositories? |
-| Base removal | Both absent after scoped undo | Does BASE disappear in fresh processes after demonstrated presence? |
-| Override present | override.md copied to AGENTS.override.md; base absent | Does OVERRIDE load independently? |
-| Override removal | Both absent after scoped undo | Does OVERRIDE disappear after demonstrated presence? |
-| Both present | base.md and override.md at their respective paths | Which marker(s) load? Do not assume override precedence |
-| Empty override | base.md present; override is exactly empty.md (0 bytes) | Does an existing empty override suppress BASE? |
-| Empty override removed | Base unchanged; override absent | Does BASE reappear with the identical prompt? |
-| Final removal | Both absent | Neither marker; regular listing comparison only if that lane was approved |
+After EACH command below, run both section 3 launches and the same prompt.
+For size N, the independent expected markers are PI1899SNHEAD,
+PI1899SNMIDDLE and PI1899SNTAIL, replacing N with the decimal byte size.
 
-Final host command revision must include exact exclusive creation and guarded
-undo commands for these mutations. Never blindly cp over a destination or use
-rm -f. A rule created by this intervention may be removed only after its bytes
-match the recorded fixture and its type remains a regular non-symlink file.
-Changing from nonempty to empty override requires that same guarded removal,
-then exclusive creation. A failed guard preserves the file and stops the batch.
-No mutation commands are routed from this draft.
+```bash
+python3 docs/measurements/pi/issue-1899-b2-files.py set base-8192 --root "$HOME/.cpp-pi-1899-probe"
+```
 
-The empty-override result needs the paired BASE-present observation on either
-side: a baseline that never loads BASE cannot establish suppression. If both
-markers appear, record it; do not reinterpret it as the planned precedence.
-If removal does not remove a marker, stop before further size measurements.
+```bash
+python3 docs/measurements/pi/issue-1899-b2-files.py set base-32768 --root "$HOME/.cpp-pi-1899-probe"
+```
 
-## 4. Size fixtures: deliberately pending
+```bash
+python3 docs/measurements/pi/issue-1899-b2-files.py set base-65536 --root "$HOME/.cpp-pi-1899-probe"
+```
 
-First obtain version-specific non-secret documentation or source identifying
-any pi per-file size boundary. This is not authorization to run help in the
-owner's real HOME or inspect credentials. Do not use AGY's 24,000-byte value.
+```bash
+python3 docs/measurements/pi/issue-1899-b2-files.py set override-8192 --root "$HOME/.cpp-pi-1899-probe"
+```
 
-Before host execution, commit exact UTF-8 fixture bytes with independent head,
-middle and tail tokens, lengths and hashes. Use the measured supported rule
-target, with the other file absent. If a documented boundary exists, test
-below/at/above it with fresh sessions in both repositories. If no boundary is
-documented, propose a bounded byte-size sample and turn budget to the
-orchestrator before routing commands. No unbounded search or unlimited-size
-claim is authorized. Aggregate-token behavior remains separately unmeasured.
+```bash
+python3 docs/measurements/pi/issue-1899-b2-files.py set override-32768 --root "$HOME/.cpp-pi-1899-probe"
+```
 
-The size row's neutral prompt asks for a greeting and must not contain any
-token. All expected markers must appear to support complete fixture loading;
-an absent tail, even with exit 0 and no diagnostic, cannot pass that claim.
-Retain the actual diagnostic or its observed absence separately. Head/tail
-output is bounded behavioral evidence, not proof of every intermediate byte.
-If model behavior cannot distinguish loading from failure to follow a rule,
-leave that distinction unresolved rather than inventing a truncation boundary.
+```bash
+python3 docs/measurements/pi/issue-1899-b2-files.py set override-65536 --root "$HOME/.cpp-pi-1899-probe"
+```
 
-## 5. Undo, controls and evidence handoff
+The manifest binds exact UTF-8 bytes/hashes. Each sample has an instruction at
+its head, halfway byte position and tail, separated by inert padding. Absence
+of a tail cannot establish full loading even if pi exits 0 with no diagnostic.
+All three output tokens support only behavioral marker retention at those
+positions, not proof of every intervening byte. Model instruction-following
+failure cannot alone establish a truncation boundary; record that distinction
+as unresolved unless actual loader metadata settles it. No aggregate-token or
+unlimited-size claim. Run the amended name collector after these samples.
 
-Guarded removal returns both disposable rule paths to the observed absent
-baseline. Retain inputs/results outside the agent, keep the signed-in HOME for
-B3/B4, and perform the approved regular-name comparison if permitted. Record
-actual undo outcome; retained fixture directories are not a whole-root cleanup.
+## 5. Final undo and negative controls
 
-The committed marker cases provide the opposite inputs: absent, present,
-removed, and empty-vs-nonempty override. Before any automated reader or gate is
-introduced, it needs committed good/bad/unexaminable materialized inputs and a
-demonstrated blind-reader failure. No result parser or acceptance gate is shipped
-in this draft. No red/green runtime outcome is claimed.
+Transition 16, return both rule paths to the observed absent baseline:
 
-Master returns sanitized fixture-only observations, full revision and version,
-exact argv/prompts/exits, original artifact identifiers/hashes, intervention/undo
-records and the selected isolation lane. Missing diagnostics or skipped regular
-listing stay unexamined. Do not publish real host names, absolute private paths,
-credentials or session contents. B2 cannot authorize transcript access for B4.
+```bash
+python3 docs/measurements/pi/issue-1899-b2-files.py set absent --root "$HOME/.cpp-pi-1899-probe"
+```
+
+Run both fresh sessions once more, then the amended name collector. If a rule's
+bytes/type/mode changed or recorded output vanished, undo refuses without
+removing either rule. Preserve the blocked state and report. Keep the journal,
+source fixtures, scratch repositories and signed-in root for B3/B4; this undo
+removes only B2 rules. Master arranges whole-root cleanup after final retention.
+
+The helper's committed opposite cases are in tests/test_pi_rules_probe.py:
+foreign, edited, symlink, mode-changed, missing, directory, ancestor context and
+blocked/interrupted state. The real nonzero case matrix installs exact fixture
+bytes/modes and returns to absent while preserving a personal neighbor. A
+committed deliberately blind guard in tests/fixtures/pi-rule-probe-blind.py
+accepts/deletes an edited rule; the actual refusal case must run red with that
+guard and green with the real guard before routing. This is a new helper;
+there is no preexisting implementation or fabricated pre-fix regression claim.
+Run only local fixture tests with make test-pi-rules-probe; never substitute
+those results for actual pi model observations. No runtime B2 result is claimed.
+
+Master returns version/revision, exact commands/prompts/exits, fixture identities,
+actual responses/diagnostics, intervention and observed undo, selected isolation
+lane, and original artifact hashes for the final sanitized manifest. No regular
+count/digest pairing, private host names, credentials, or session contents are
+published. B2 supplies no B4 transcript-access authorization.
+
+## Local handoff verification (not host B2 evidence)
+
+The final focused fixture suite passed 12 cases; lint passed. The edited-rule
+refusal case ran red with the committed blind guard (DID NOT RAISE ValueError)
+and green with the real guard. An unavailable-ancestor-metadata case ran red on
+the original draft's lexists implementation (DID NOT RAISE PermissionError),
+then passed after replacing it with lstat that propagates inspection errors.
+No pi process or owner path was accessed by these local fixtures. Shell blocks
+are syntax-checked only; actual version-specific flag enforcement remains a
+host observation. No full suite or PR CI has been requested for this handoff.
+
+To reproduce the deliberate red ONLY in local synthetic pytest fixtures:
+
+```bash
+CPP_PI_RULE_PROBE_BLIND_CONTROL=1 make test-pi-rules-probe 'PI_RULE_PROBE_TESTS=tests/test_pi_rules_probe.py::test_bad_input_preserved_and_refused[edited]'
+```
+
+Expected: test failure, because the blind guard deletes an edited synthetic
+rule instead of refusing. Do not enable that test-only control during a normal
+test run; the production mutation helper has no environment bypass.

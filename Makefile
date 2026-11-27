@@ -188,6 +188,12 @@ antigravity-skills-check:
 test-host-update-core:
 	uv run --extra dev pytest -q $(HOST_UPDATE_TESTS)
 
+## verify-coverage: utility test-pi-rules-probe - isolated B2 handoff guards and blind-anchor controls; full suite owns gate
+.PHONY: test-pi-rules-probe
+PI_RULE_PROBE_TESTS ?= tests/test_pi_rules_probe.py
+test-pi-rules-probe:
+	uv run --extra dev pytest -q $(PI_RULE_PROBE_TESTS)
+
 HOST_ADAPTER_TESTS ?= tests/test_host_update_command.py tests/test_host_update_links.py tests/test_host_update_adapters.py tests/test_host_update_integration.py tests/test_host_update_permissions.py tests/test_host_update_adapter_transactions.py tests/test_host_update_ci_shape.py
 ## verify-coverage: utility test-host-update-adapters - real production adapters and report readers; full suite owns gate
 .PHONY: test-host-update-adapters test-host-update-ci-shape host-update-adapter-controls
