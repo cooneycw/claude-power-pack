@@ -3,6 +3,9 @@
   "invocation": [
     "uv",
     "run",
+    "--extra",
+    "dev",
+    "--frozen",
     "python",
     "controls/ci-shape-check/run-case.py",
     "{gate}",
@@ -82,6 +85,36 @@
       "name": "backend",
       "input": "cases/backend",
       "expect": "UNKNOWN"
+    },
+    {
+      "name": "missing-witness",
+      "input": "cases/missing-witness",
+      "expect": "BAD"
+    },
+    {
+      "name": "below-floor",
+      "input": "cases/below-floor",
+      "expect": "BAD"
+    },
+    {
+      "name": "umask-mismatch",
+      "input": "cases/umask-mismatch",
+      "expect": "BAD"
+    },
+    {
+      "name": "umask-unknown",
+      "input": "cases/umask-unknown",
+      "expect": "UNKNOWN"
+    },
+    {
+      "name": "bootstrap-good",
+      "input": "cases/bootstrap-good",
+      "expect": "GOOD"
+    },
+    {
+      "name": "bootstrap-code",
+      "input": "cases/bootstrap-code",
+      "expect": "BAD"
     }
   ],
   "anchors": [
@@ -90,7 +123,7 @@
       "sha": "n/a",
       "origin": "scripts/ci-shape-check.py",
       "path": "anchors/blind-ci-shape-check.py",
-      "sha256": "7c573da9ca176349bdb597639206fefe4e4c9f75a1914c40ac250ce1dd50081a",
+      "sha256": "b7a4a4c8eb91bd925feeef656f275d2e4febad10bc6df597501d0d0ced0445da",
       "why": "Availability-only verifier agrees on genuine GOOD/UNKNOWN and misses shape, incomplete-result and cross-tier BAD cases."
     }
   ]

@@ -23,12 +23,13 @@ spec.loader.exec_module(cases)
 
 @pytest.mark.skipif(not shutil.which("git") or not shutil.which("make"), reason="Git and Make required")
 @pytest.mark.parametrize("fault", ["good", "mode", "symlink", "ci", "git", "make", "filter",
-                                 "shallow", "history", "root-claim", "internalerror", "incomplete", "unavailable"])
+                                 "shallow", "history", "root-claim", "internalerror", "incomplete",
+                                 "missing-witness", "below-floor", "umask-mismatch", "umask-unknown", "unavailable"])
 def test_physical_canary_and_real_collector(tmp_path, fault):
     receipt = cases.fixture(tmp_path, fault)
     state, reason = shape.assess(receipt, tier=receipt["tier"], commit=receipt["commit"],
                                 image=shape.image_pin(ROOT))
-    assert state == {"good": "GOOD", "unavailable": "UNKNOWN"}.get(fault, "BAD"), reason
+    assert state == {"good": "GOOD", "unavailable": "UNKNOWN", "umask-unknown": "UNKNOWN"}.get(fault, "BAD"), reason
 
 
 @pytest.mark.skipif(not shutil.which("git") or not shutil.which("make"), reason="Git and Make required")
@@ -43,10 +44,88 @@ def test_receipt_cannot_cross_commit_tier_image_or_population(tmp_path):
                             image=original["image"])[0] == "BAD"
 
 
+@pytest.mark.skipif(not shutil.which("git") or not shutil.which("make"), reason="Git and Make required")
+def test_removing_any_required_witness_refuses_manifest_and_collection(tmp_path):
+    receipt = cases.fixture(tmp_path, "good")
+    results = receipt["lanes"][0]["results"]
+    for witness in shape.REQUIRED_WITNESSES.values():
+        narrowed = tuple(selector for selector in shape.SELECTORS if not shape.selector_matches(witness, selector))
+        assert not any(shape.selector_matches(witness, selector) for selector in narrowed)
+        assert not shape.manifest_complete(narrowed)
+        damaged = copy.deepcopy(results)
+        assert witness in damaged["selected"]
+        damaged["selected"].remove(witness)
+        damaged["outcomes"].pop(witness)
+        damaged["skips"].pop(witness, None)
+        assert shape.completion(damaged, 0, "", receipt["tier"])[0] == "BAD"
+
+
 @pytest.mark.parametrize("payload", [{}, {"selected": []}, {"selected": [], "outcomes": {},
                                                            "skips": {}, "errors": [], "exit": 0}])
 def test_exit_zero_without_completion_is_bad(payload):
     assert shape.completion(payload, 0, "", "local")[0] == "BAD"
+
+
+def test_ci_profile_requires_digest_bound_observed_umask(tmp_path):
+    (tmp_path / ".woodpecker.yml").write_text((ROOT / ".woodpecker.yml").read_text())
+    target = tmp_path / "controls/ci-shape-check/validate-profile.json"
+    target.parent.mkdir(parents=True)
+    physical = tmp_path / "physical"
+    physical.mkdir()
+    # Synthetic RECORD fields exercise only the parser's data binding. This is
+    # not a patched process uid or evidence that this test ran an image/root.
+    record = cases.fixture(physical, "good")
+    record["tier"] = "image"
+    record["root"] = {"state": "GOOD", "reason": "real uid 0 in pinned validate image"}
+    identity = {"uid": 0, "euid": 0, "gid": 0, "egid": 0, "groups": [0]}
+    for lane in record["lanes"]:
+        lane["identity"] = identity
+    observed_path = tmp_path / shape.ROOT_RECEIPT
+    observed_path.parent.mkdir(parents=True)
+    observed_path.write_text(json.dumps(record))
+    good = {"state": "GOOD", "image": shape.image_pin(ROOT),
+            "umask": record["pytest_time_umask"]["umask"], "identity": identity,
+            "root_checkpoint": record["commit"],
+            "receipt_sha256": hashlib.sha256(observed_path.read_bytes()).hexdigest(),
+            "evidence": "controlled parser fixture, not live-image evidence"}
+    target.write_text(json.dumps(good))
+    assert shape.ci_profile(tmp_path) == good
+    for field, value in (("state", "UNKNOWN"), ("image", "other"), ("umask", None),
+                         ("umask", True), ("umask", 0o1000), ("evidence", None)):
+        bad = {**good, field: value}
+        assert bad != good
+        target.write_text(json.dumps(bad))
+        with pytest.raises(shape.Unknown, match="UNKNOWN"):
+            shape.ci_profile(tmp_path)
+    for field, value in (("umask", 0o077), ("identity", {**identity, "uid": 123}),
+                         ("root_checkpoint", "0" * 40), ("receipt_sha256", "0" * 64)):
+        bad = {**good, field: value}
+        assert bad != good
+        target.write_text(json.dumps(bad))
+        with pytest.raises(shape.Unknown, match="match"):
+            shape.ci_profile(tmp_path)
+
+
+def test_committed_profile_equals_the_actual_root_receipt_when_published():
+    path = ROOT / "controls/ci-shape-check/validate-profile.json"
+    profile = json.loads(path.read_text())
+    if profile["state"] == "UNKNOWN":
+        assert profile["umask"] is None and not (ROOT / shape.ROOT_RECEIPT).exists()
+        return
+    assert shape.ci_profile(ROOT) == profile
+    observed = json.loads((ROOT / shape.ROOT_RECEIPT).read_text())
+    assert profile["image"] == observed["image"]
+    assert profile["umask"] == observed["pytest_time_umask"]["umask"]
+    assert all(profile["identity"] == lane["identity"] for lane in observed["lanes"])
+
+
+@pytest.mark.parametrize("case,expected", [("bootstrap-good", 0), ("bootstrap-code", 1)])
+def test_real_git_bootstrap_carry_accepts_only_named_paths(case, expected):
+    result = subprocess.run([sys.executable, str(ROOT / "controls/ci-shape-check/run-case.py"),
+                             str(ROOT / "scripts/ci-shape-check.py"),
+                             str(ROOT / "controls/ci-shape-check/cases" / case)],
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == expected, result.stdout + result.stderr
 
 
 def test_plugin_records_actual_skips_and_internal_errors(tmp_path, pytester, monkeypatch):

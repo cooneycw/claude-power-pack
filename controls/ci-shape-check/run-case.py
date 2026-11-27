@@ -25,10 +25,30 @@ def fixture(work, fault):
     (seed / "CLAUDE.md").write_text("fixture source\n")
     (seed / "scripts/flow-finish-gate.sh").write_text("#!/bin/sh\nexit 0\n")
     (seed / "scripts/flow-finish-gate.sh").chmod(0o755)
+    files: dict[str, dict[str, list[str]]] = {}
     for selector in shape.SELECTORS:
-        path = seed / selector
+        file, _, selected = selector.partition("::")
+        name, _, param = selected.partition("[")
+        files.setdefault(file, {}).setdefault(name or "test_canary", []).extend([param[:-1]] if param else [])
+    for witness in shape.REQUIRED_WITNESSES.values():
+        file, selected = witness.split("::")
+        name, _, param = selected.partition("[")
+        files.setdefault(file, {}).setdefault(name, []).extend([param[:-1]] if param else [])
+    # A real tiny child still has to clear the production population floor;
+    # these are canary cases, not a claim that the full repository suite ran.
+    files["tests/test_antigravity_skill_sync.py"]["test_population_floor"] = [
+        str(index) for index in range(shape.COLLECTION_FLOOR)]
+    for file, functions in files.items():
+        path = seed / file
         path.parent.mkdir(exist_ok=True)
-        path.write_text("def test_canary():\n    assert True\n")
+        text = "import pytest\n"
+        for name, params in functions.items():
+            if params:
+                text += (f"@pytest.mark.parametrize('value', {[None] * len(params)!r}, ids={params!r})\n"
+                         f"def {name}(value):\n    assert True\n")
+            else:
+                text += f"def {name}():\n    assert True\n"
+        path.write_text(text)
     shape.command([git, "init", "-q", seed])
     shape.command([git, "-C", seed, "add", "."])
     shape.command([git, "-C", seed, "-c", "user.name=Fixture", "-c",
@@ -105,6 +125,19 @@ def fixture(work, fault):
             assert results["selected"]
             del results["outcomes"][results["selected"][0]]
             assert set(results["selected"]) != set(results["outcomes"])
+        elif fault == "missing-witness":
+            missing_node = shape.REQUIRED_WITNESSES["1923"]
+            assert missing_node in results["selected"]
+            results["selected"].remove(missing_node)
+            del results["outcomes"][missing_node]
+            assert len(results["selected"]) >= shape.COLLECTION_FLOOR
+        elif fault == "below-floor":
+            retained = list(shape.REQUIRED_WITNESSES.values())
+            retained += [node for node in results["selected"] if node not in retained][
+                :shape.COLLECTION_FLOOR - 1 - len(retained)]
+            results["selected"] = retained
+            results["outcomes"] = {node: results["outcomes"][node] for node in retained}
+            assert len(retained) == shape.COLLECTION_FLOOR - 1
         rows.append({"name": shape.LANES[int(partial)], "state": "GOOD", "reason": "canary",
                      "preconditions": preconditions, **details, "results": results,
                      "exit": child.returncode, "diagnostic": diagnostic,
@@ -112,6 +145,17 @@ def fixture(work, fault):
                                 "executed": len(results["outcomes"]) - len(results["skips"]),
                                 "skipped": len(results["skips"])}})
     tier = "image" if os.getuid() == 0 else "local"
+    actual_umask = os.umask(0)
+    os.umask(actual_umask)
+    for row in rows:
+        row["test_umask"] = f"{actual_umask:03o}"
+    profile = {"state": "GOOD", "image": shape.image_pin(ROOT), "umask": actual_umask,
+               "evidence": "controlled tiny canary process; does not attest a CI image"}
+    if fault == "umask-mismatch":
+        rows[0]["test_umask"] = "777" if actual_umask != 0o777 else "000"
+        assert rows[0]["test_umask"] != f"{actual_umask:03o}"
+    elif fault == "umask-unknown":
+        profile = {"state": "UNKNOWN", "reason": "CI default not proven"}
     root_state = ({"state": "GOOD", "reason": "real uid 0 in pinned validate image"}
                   if tier == "image" else
                   {"state": "UNKNOWN", "reason": "not examined: needs real uid 0"})
@@ -127,14 +171,41 @@ def fixture(work, fault):
         rows[0].update(state="UNKNOWN", reason="required tool unavailable")
         assert rows[0]["state"] == "UNKNOWN"
     return {"schema": 1, "tier": tier, "commit": commit, "image": shape.image_pin(ROOT),
-            "selectors": list(shape.SELECTORS), "root": root_state, "lanes": rows}
+            "selectors": list(shape.SELECTORS), "root": root_state, "lanes": rows,
+            "pytest_time_umask": profile}
 
 
 def main():
     gate, case = Path(sys.argv[1]).resolve(), Path(sys.argv[2])
     fault = json.loads((case / "case.json").read_text())["fault"]
     with tempfile.TemporaryDirectory(prefix="cpp-shape-control-") as temporary:
-        work = Path(temporary)
+        work = Path(temporary).resolve()
+        if fault.startswith("bootstrap-"):
+            git = shutil.which("git")
+            if not git:
+                print("CI_SHAPE_CONTROL: unavailable - Git missing")
+                return 2
+            shape.command([git, "init", "-q", work])
+            (work / "owned.py").write_text("# frozen code\n")
+            shape.command([git, "-C", work, "add", "."])
+            commit_command = [git, "-C", work, "-c", "user.name=Fixture", "-c",
+                              "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false",
+                              "commit", "-qm", "fixture"]
+            shape.command(commit_command)
+            base = shape.command([git, "-C", work, "rev-parse", "HEAD"]).stdout.strip()
+            doc = work / "docs/measurements/ci-shape-check.md"
+            doc.parent.mkdir(parents=True)
+            doc.write_text("observed profile evidence\n")
+            if fault == "bootstrap-code":
+                (work / "owned.py").write_text("# changed code after root checkpoint\n")
+            shape.command([git, "-C", work, "add", "."])
+            shape.command(commit_command)
+            changed = shape.command([git, "-C", work, "diff", "--name-only", base, "HEAD"]).stdout
+            assert ("owned.py" in changed) == (fault == "bootstrap-code")
+            child = subprocess.run([sys.executable, str(gate), "bootstrap", "--root", str(work),
+                                    "--base", base], capture_output=True, text=True, timeout=30)
+            print(child.stdout + child.stderr, end="")
+            return child.returncode
         if fault == "backend":
             empty = work / "empty-path"
             empty.mkdir()

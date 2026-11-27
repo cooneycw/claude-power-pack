@@ -30,3 +30,35 @@ Related: [#1923](https://github.com/cooneycw/claude-power-pack/issues/1923)
 tracks pytest-xdist's possible zero INTERNALERROR status.
 [#1924](https://github.com/cooneycw/claude-power-pack/issues/1924) is the held
 test-only review proposal; no review-budget change is implemented here.
+
+## Initial local evidence
+
+At `4f38eaf095cad996fb01b3d5625957f027dfd041`, the original broad first lane
+completed with 535 passed, 2 failed, 9 named skips in 580 seconds. Its verdict
+was BAD. The failures were the newly filed
+[#1927](https://github.com/cooneycw/claude-power-pack/issues/1927) symlink-TMPDIR
+control fixture and `test_identical_legacy_install_does_not_offer_migration`.
+The second lane was deliberately interrupted after the first lane's complete
+RED evidence; its partial 237 terminal outcomes are BAD/incomplete, not a
+completed filtered-lane result. All owned run scratch and basetemps were removed.
+
+The legacy-copy test was isolated through the maintained Make target: ordinary
+pytest runtime umask passed; runtime umask 000 failed (Make exit 2). This was a
+test-process mask difference, beyond the intended checkout-created-at-000
+shape. Pipelines 4060 and 4056 passed that test (orchestrator report), which is
+indirect evidence CI is not testing at 000; it does not establish 022. The
+checked-in profile therefore remains UNKNOWN pending the actual pinned-image
+shell `umask; id` probe and root receipt. No local GOOD is claimed yet.
+
+The revised committed manifest selects focused named builder/parity and
+host-shape cases, retains the pi observers and owner fixtures, and pins all
+acceptance witnesses by node id. It has a floor of 200; collection before the
+last bootstrap tests was 240. It omits unrelated jq/shellcheck command-audit
+populations rather than declaring their missing-tool skips acceptable. The
+#1927 unreadability test remains selected and must go GREEN after its separate
+fixture fix. PR-A does not change that control or source policy.
+
+The Nit Store record
+[7216998783](https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7216998783)
+now explicitly points to #1927 as its superseding disposition, so it is not a
+second finding.

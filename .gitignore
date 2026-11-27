@@ -398,3 +398,5 @@ antigravity/skills/*
 # Opt-in CI-shape receipts/logs (#1917).
 .ci-shape/
 !controls/ci-shape-check/history/provenance.json
+!controls/ci-shape-check/validate-profile.json
+!docs/measurements/ci-shape-check/root-receipt.json

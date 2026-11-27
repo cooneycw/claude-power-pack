@@ -1299,8 +1299,13 @@ ci-shape-canary:
 	uv run python scripts/check-negative-controls.py --control controls/ci-shape-check --strict --verify-provenance
 ## verify-coverage: utility test-ci-shape - focused shape probes/collector; full suite owns verdict
 test-ci-shape:
-	@mkdir -p .ci-shape; trap 'rm -rf .ci-shape/unit-tests' EXIT; uv run pytest -q tests/test_ci_shape_check.py --basetemp .ci-shape/unit-tests
+	uv run --extra dev --frozen python scripts/ci-shape-check.py tests
 
 ## verify-coverage: utility ci-shape-acceptance - committed historical RED/GREEN witnesses; full suite owns verdict
 ci-shape-acceptance:
-	@mkdir -p .ci-shape; trap 'rm -rf .ci-shape/acceptance' EXIT; uv run pytest -q tests/test_ci_shape_check.py -k '1909 or 1910 or 1916 or 1922' --basetemp .ci-shape/acceptance
+	uv run --extra dev --frozen python scripts/ci-shape-check.py tests --historical-only
+
+.PHONY: ci-shape-bootstrap-check
+## verify-coverage: excluded ci-shape-bootstrap-check - one-time PR-A profile/docs carry qualification; ci: excluded opt-in
+ci-shape-bootstrap-check:
+	uv run python scripts/ci-shape-check.py bootstrap --base $(CI_SHAPE_ROOT_CHECKPOINT)

@@ -29,18 +29,21 @@ pin must be absent too. After HEAD is checked out, lazy fetch is disabled and
 the clone's origin points to an absent private remote, including for Git 2.39
 which predates the no-lazy-fetch environment switch.
 
-Both clones use CI=true, umask 000, verified 0666/0777 tracked inputs, private
+Both clones use CI=true, checkout umask 000, verified 0666/0777 tracked inputs, private
 0700 HOME, a symlink TMPDIR, external cwd and a small executable PATH with Git
 and Make available only through the existing content-pinned stagers. No host
 Git configuration or credentials are copied. Test dependencies are synced from
 the frozen project lock into an owned environment. Nothing changes the caller's
 HOME, PATH, umask or Git configuration. Serial pytest has a per-test timeout and
-a bounded whole-lane timeout. Owned temporary directories and basetemps are
+a bounded whole-lane timeout. The pytest-time umask comes from the digest-bound
+validate profile; absent actual image evidence is UNKNOWN and prevents a run.
+The 000 mask applies to checkout creation. Owned temporary directories and basetemps are
 removed after each run; receipts and logs remain at the requested output path.
 
 `lib/ci_shape_check.py` owns the fixed focused selector population and probes.
 `lib/ci_shape_pytest.py` records collection, terminal outcomes, skips and errors.
-An exit zero cannot pass without complete nonzero terminal results for every
+An exit zero cannot pass without complete terminal results, a population of at least 200 and every named
+acceptance witness. Passing tests are required for every
 selector, and INTERNALERROR is always BAD (#1923). Root-only skips and the two
 named unavailable/partial historical-installer cases are explicitly permitted;
 their reasons remain in the receipt. A passing local run has a GOOD local tier
@@ -67,3 +70,15 @@ Keep the host launch command and backend/image identity alongside its receipt.
 [acceptance measurements](../measurements/ci-shape-check.md) describe the
 negative cases and proof limits. #1924 remains a held proposal; this change
 does not relax review caps or classify test-only changes as harmless.
+
+For PR-A's bootstrap only, the approved data/docs carry is checked explicitly:
+
+```sh
+make ci-shape-bootstrap-check CI_SHAPE_ROOT_CHECKPOINT=ROOT_CHECKPOINT_SHA
+```
+
+It proves the root checkpoint is an ancestor and only the named profile,
+receipt and measurement/document paths changed through HEAD. A source-code
+change is BAD. This qualification applies to the initial root-profile carry;
+routine future local checks validate the profile against the committed root
+receipt's image, observed mask, complete identity and digest.

@@ -26,6 +26,7 @@ class Results:
     def pytest_runtest_logreport(self, report):
         if report.failed:
             self.outcomes[report.nodeid] = "failed"
+            print(f"\nCI_SHAPE_TEST_FAILED: {report.nodeid} ({report.when})", flush=True)
         elif report.skipped:
             self.outcomes.setdefault(report.nodeid, "skipped")
             self.skips[report.nodeid] = str(report.longrepr)[-1000:]

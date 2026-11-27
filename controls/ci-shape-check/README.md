@@ -3,9 +3,9 @@
 `make ci-shape-canary` drives the real clone/environment probes and real tiny
 pytest subprocesses, followed by the production receipt verifier. It does not
 run the repository's complete focused population. The synthetic source contains
-one test per declared file, allowing the collector and completion check to be
-exercised without recursively running the suite. The control's declared `uv run
-python` runtime supplies pytest even when the global control driver lacks it.
+small tests for each declared selector and named witness, plus enough
+parameterized canaries to clear the committed population floor, allowing the collector and completion check to be
+exercised without recursively running the suite. The control's declared `uv run --extra dev --frozen python` runtime supplies pytest even when the global control driver lacks it.
 
 GOOD proves a canary can complete; BAD cases change actual modes, PATH, Git
 configuration, shallow boundary, historical object availability, TMP identity
@@ -30,3 +30,15 @@ not a general performance benchmark or a promise about all machine speeds.
 The controls do not authenticate a container image, test a container backend,
 or prove the complete focused suite ran. Those facts come from separate real
 run receipts and the host/image execution record. No fake uid is used.
+
+The fixed selector manifest and floor (200) live in `lib/ci_shape_check.py`.
+Every required historical witness is pinned by node id; removing one refuses
+collection even if total counts still clear the floor. The committed
+missing-witness and below-floor BAD cases distinguish these failures.
+
+Bootstrap carry is a separate one-time qualification command. Its real-Git GOOD
+fixture changes a named measurement document; its BAD fixture also changes
+executable source. The same availability-only anchor misses the code delta.
+The digest-bound local umask profile remains UNKNOWN until the actual root run
+supplies image, full identity, mask and receipt digest. Parser tests use plainly
+synthetic JSON identity fields; they do not establish a real-root run.
