@@ -231,14 +231,15 @@ def assert_bundled_generator_input(bundles, current_bytes):
         assert bundles[consumer] == current_bytes, "bundled generator input was held old"
 
 
-def _assert_self_bundled_input_variation(tmp_path, mask):
+def _assert_self_bundled_input_variation(tmp_path, mask, *, focused=False):
     data = baseline()
     frozen_path = CONTROL / data["generator_path"]
     current_path = ROOT / "scripts/codex-skill-sync.py"
     frozen_bytes, current_bytes = frozen_path.read_bytes(), current_path.read_bytes()
     assert current_bytes != frozen_bytes, "the approved data deletion must vary the bundled source input"
-    old_source = canonical_source(tmp_path / "old-inputs")
-    new_source = canonical_source(tmp_path / "new-inputs")
+    prefixes = ("scripts",) if focused else (".claude/commands", "scripts", "docs", "charters", "lib", "controls")
+    old_source = canonical_source(tmp_path / "old-inputs", prefixes=prefixes)
+    new_source = canonical_source(tmp_path / "new-inputs", prefixes=prefixes)
     (old_source / "scripts/codex-skill-sync.py").write_bytes(frozen_bytes)
     variants = (
         ("before", frozen_path, old_source),
@@ -249,7 +250,20 @@ def _assert_self_bundled_input_variation(tmp_path, mask):
     previous = os.umask(mask)
     try:
         for label, code, inputs in variants:
-            module = load(code, f"self_bundle_{label}_{mask}", inputs)
+            module = load(code, f"self_bundle_{label}_{mask}", ROOT if focused else inputs)
+            if focused:
+                # Vary only script inputs; other inputs stay real and read-only.
+                # Select complete consumers, retaining the real transform,
+                # all-family reference map, writer, modes and parser per module.
+                module.SCRIPTS_ROOT = inputs / "scripts"
+
+                def focused_outputs(_selected, generator=module):
+                    names = generator.generated_names(generator.FAMILIES)
+                    return {f"flow-{command}": generator.generate_skill(
+                        ROOT / f".claude/commands/flow/{command}.md", "flow", names)
+                        for command in ("auto", "finish")}
+
+                module.expected_outputs = focused_outputs
             output = tmp_path / label
             assert module.main(["--write", "--output-root", str(output)]) == 0
             outputs.append(output)
@@ -264,6 +278,9 @@ def _assert_self_bundled_input_variation(tmp_path, mask):
             expected_members.discard(name)
         else:
             expected_members.add(name)
+    if focused:
+        expected_members = {name for name in expected_members
+                            if name.startswith(("flow-auto/", "flow-finish/"))}
     assert set(before) == set(after) == set(frozen_after) == expected_members
     assert after == frozen_after, "transforms must agree on identical new inputs"
     assert set(modules[1]._LINK_PARSER_CACHE).isdisjoint(modules[2]._LINK_PARSER_CACHE)
@@ -289,46 +306,26 @@ def test_bundled_generator_input_variation_is_measured(tmp_path, mask):
 
 
 @pytest.mark.parametrize("mask", [0o022, 0o002])
-def test_bundled_input_variation_rejects_held_old_input(tmp_path, mask):
+def test_bundled_input_variation_rejects_held_old_input(tmp_path, monkeypatch, mask):
     # The positive test above owns the complete three-transform population and
-    # mode comparison. This control needs the actual two self-bundling consumers,
-    # not another six full builds across the two masks, to challenge its oracle.
-    data = baseline()
+    # mode comparison. Drive that same entry point, including its oracle call,
+    # with three real builds of only the two self-bundling consumers.
+    real_copy = canonical_source
     current = (ROOT / "scripts/codex-skill-sync.py").read_bytes()
-    frozen_path = CONTROL / data["generator_path"]
-    frozen = frozen_path.read_bytes()
+    frozen = (CONTROL / baseline()["generator_path"]).read_bytes()
     assert current != frozen
-    # Only script inputs change. Commands, libraries and docs remain the same
-    # real checkout inputs for both transforms; neither generator writes them.
-    source = canonical_source(tmp_path / "held-inputs", prefixes=("scripts",))
-    member = source / "scripts/codex-skill-sync.py"
-    assert member.read_bytes() == current, "the real copier must start with the changed input"
-    member.write_bytes(frozen)
-    assert member.read_bytes() == frozen and member.read_bytes() != current
-    modules = [load(code, f"held_bundle_{label}_{mask}")
-               for label, code in (("pinned", frozen_path),
-                                   ("current", ROOT / "scripts/codex-skill-sync.py"))]
-    for module in modules:
-        module.SCRIPTS_ROOT = source / "scripts"
-    outputs = []
-    previous = os.umask(mask)
-    try:
-        for module in modules:
-            names = module.generated_names(module.FAMILIES)
-            outputs.append({f"flow-{command}": module.generate_skill(
-                ROOT / f".claude/commands/flow/{command}.md", "flow", names)
-                for command in ("auto", "finish")})
-    finally:
-        os.umask(previous)
-    assert outputs[0] == outputs[1], "independent transforms must agree on held-old inputs"
-    assert modules[0]._LINK_PARSER_CACHE and modules[1]._LINK_PARSER_CACHE
-    assert set(modules[0]._LINK_PARSER_CACHE).isdisjoint(modules[1]._LINK_PARSER_CACHE)
-    bundles = {consumer: files["scripts/codex-skill-sync.py"].encode()
-               for consumer, files in outputs[1].items()}
-    assert set(bundles) == {"flow-auto", "flow-finish"}
-    assert all(content == frozen and content != current for content in bundles.values())
+
+    def hold_old(destination, **kwargs):
+        source = real_copy(destination, **kwargs)
+        member = source / "scripts/codex-skill-sync.py"
+        assert member.read_bytes() == current, "the real copier must start with the changed input"
+        member.write_bytes(frozen)
+        assert member.read_bytes() == frozen and member.read_bytes() != current
+        return source
+
+    monkeypatch.setitem(_assert_self_bundled_input_variation.__globals__, "canonical_source", hold_old)
     with pytest.raises(AssertionError, match="bundled generator input was held old"):
-        assert_bundled_generator_input(bundles, current)
+        _assert_self_bundled_input_variation(tmp_path, mask, focused=True)
     print(f"held-old-input {mask:03o}: RED bundled-member assertion despite equal transforms")
 
 def test_changed_transform_is_detected(tmp_path, monkeypatch):
