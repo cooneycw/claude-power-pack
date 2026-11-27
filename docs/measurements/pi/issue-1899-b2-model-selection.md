@@ -1,6 +1,7 @@
 # Pi #1899 B2 exact model selection and footer ruling
 
-Status: exact pin resolved per master; B2 model-turn observations pending.
+Status: exact pin resolved per master; the subsequent
+[B2 matrix results](issue-1899-b2-results.md) are now recorded separately.
 Refs #1899. Source: master's mailbox message 42449 on 2026-11-27. This author
 received the relay, did not run pi, and has not inspected the original listing
 or pin artifact. All host observations below remain attributed.

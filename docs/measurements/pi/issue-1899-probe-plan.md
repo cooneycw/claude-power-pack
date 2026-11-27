@@ -1,7 +1,8 @@
 # Pi #1899 measurement plan
 
 Status: plan approved by the orchestrator on 2026-11-27; B0 subsequently
-[reported complete by master](issue-1899-b0-results.md). B2-B4 remain PENDING.
+[reported complete by master](issue-1899-b0-results.md), followed by
+[B2's attributed rule measurements](issue-1899-b2-results.md). B3/B4 remain PENDING.
 Refs #1899 and #1876. The plan itself is not execution evidence.
 
 ## Scope and authority
@@ -53,8 +54,8 @@ the filesystem, network, bearer access or container runtime.
 | Batch | Status | Positive input | Opposite or unexaminable input |
 |---|---|---|---|
 | B0 isolation | Attributed host completion; see results | Unique marker reported only in probe; regular name summary stable | Never-created marker absent; marker absent after undo; digest reader's changed-name controls reported by master |
-| B2 rules | PENDING | Independent AGENTS.md and AGENTS.override.md markers load in fresh sessions in two unrelated repositories | Remove each file; test both present and zero-byte override; marker values absent from prompts |
-| B2 size | PENDING | Head/middle/tail markers load completely at recorded byte sizes | Under/at/over any documented boundary; missing tail cannot count as full loading even with exit 0 and no diagnostic |
+| B2 rules | Attributed host completion; see results | Independent global rule markers in two repositories; override selected with both present | Removal removed markers; zero-byte override suppressed base; removing it restored base |
+| B2 size | Bounded samples attributed; exact cap UNKNOWN | Head/middle/tail markers reported present at 8192/32768/65536 bytes in both rule names | No loss observed at sampled positions; no above-limit pair or every-byte/full-cap claim |
 | B3 stdio/HTTP | PENDING | Actual pi-originated tools/call and response retained at fixture server | Dead stdio and HTTP servers; CLI exit 0 cannot establish health |
 | B3 exposure/names | PENDING | Record direct exposure and hyphenated registration's actual tool name | Omitted/alternate exposure and non-normalized candidate; observed behavior, not plan assertions |
 | B3 preservation | PENDING | Synthetic foreign entry survives bounded fixture add/remove | Diff identifies any changed foreign value; this is not a delivered CPP merge test |

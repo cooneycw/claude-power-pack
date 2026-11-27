@@ -1,6 +1,7 @@
 # Pi #1899 B2 zero-turn pause and disclosed deviation
 
-Status: B2 paused before its first model turn. Master-reported evidence, not
+Status: historical B2 pause before its first model turn; subsequent
+[matrix results](issue-1899-b2-results.md) are recorded separately. Master-reported evidence, not
 independently inspected host artifacts. Refs #1899. Source: master's mailbox
 message 42399 (2026-11-27), followed by orchestrator message 42401 approving
 resumption at the retained T1 state. K745 is the reported pre-hold receipt;
