@@ -71,7 +71,8 @@ def evidence(tmp_path: Path):
 
 
 def runtime(
-    e: dict, role: str, runtime_name: str, model: str, patch: str | None = None, probe: str | None = None
+    e: dict, role: str, runtime_name: str, model: str, patch: str | None = None, probe: str | None = None,
+    report: str = "## Findings\n\nNone - no defects found.",
 ) -> list[str]:
     root = e["tmp"] / runtime_name
     root.mkdir(exist_ok=True)
@@ -105,7 +106,7 @@ def runtime(
                 "type": "response_item",
                 "payload": {
                     "role": "assistant",
-                    "content": [{"type": "output_text", "text": "## Findings\n\nNone - no defects found."}],
+                    "content": [{"type": "output_text", "text": report}],
                 },
             }
         )
@@ -173,7 +174,7 @@ def runtime(
             {
                 "type": "assistant",
                 "model": model,
-                "message": {"role": "model", "parts": [{"text": "## Findings\n\nNone - no defects found."}]},
+                "message": {"role": "model", "parts": [{"text": report}]},
             }
         ]
         (chats / f"{ident}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in records))
@@ -209,7 +210,7 @@ def runtime(
                     },
                 }
             ]
-        records += [{"type": "text", "sessionID": ident, "part": {"text": "## Findings\n\nNone - no defects found."}}]
+        records += [{"type": "text", "sessionID": ident, "part": {"text": report}}]
         stream = root / f"{role}-exec.jsonl"
         stream.write_text("".join(json.dumps(r) + "\n" for r in records))
         return [f"--{role}-exec-log", str(stream), "--opencode-db", str(path)]
@@ -243,7 +244,7 @@ def runtime(
             "type": "assistant",
             "message": {
                 "model": model,
-                "content": [{"type": "text", "text": "## Findings\n\nNone - no defects found."}],
+                "content": [{"type": "text", "text": report}],
             },
         }
     ]
@@ -1570,3 +1571,68 @@ def test_validate_reports_malformed_move_paths_instead_of_raising(evidence, path
     receipt["reviewed_artifact"]["plan_record_move"]["paths"] = paths
     problems = load().validate(receipt)
     assert any("plan_record_move paths" in p for p in problems), problems
+
+
+@requires_git
+@pytest.mark.parametrize("reviewer", ["codex", "claude", "qwen-code", "opencode"])
+@pytest.mark.parametrize("case,expected", [
+    ("mixed", {"correctness": 2, "edge-case": 1, "test-adequacy": 1}),
+    ("missing", {"unstated": 1}),
+    ("clean", {}),
+])
+def test_schema5_persists_selected_report_kinds(evidence, reviewer, case, expected):
+    e = evidence
+    report = (Path(__file__).parent / f"fixtures/counter_model/kinds-{case}.review.md").read_text()
+    args = runtime(e, "implementer", "codex", "model-a")
+    args += runtime(e, "reviewer", reviewer, "model-b", patch=e["patch"], probe=e["head"], report=report)
+    result = write(e, *args, "--scope", "full", "--passes", "3",
+                   "--extra-pass-reason", "fixture three-pass review")
+    assert result.returncode == 0, result.stderr
+    receipt = json.loads(next((e["tmp"] / "out").glob("*.json")).read_text())
+    kinds = dict.fromkeys((*load().FINDING_KINDS, "unstated"), 0)
+    kinds.update(expected)
+    assert receipt["counts_by_kind"] == {
+        "scope": "selected_report", "report_record": receipt["reviewed_artifact"]["report_record"],
+        "kinds": kinds,
+    }
+    # Exercise the real writer/reader seam, not a hand-written new receipt.
+    spec = importlib.util.spec_from_file_location("kind_yield_reader", ROOT / "scripts/review-yield-report.py")
+    reader = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(reader)
+    contract = (ROOT / "docs/agents/closing-report-contract.md").read_text()
+    out = reader.render({"repos": {"fixture/repo": {"prs": [], "receipts": [receipt], "errors": []}}},
+                        "2000-01-01", "2100-01-01", contract)
+    assert "Selected-report kinds coverage: 1/1 measured; 1/1 carry counts_by_kind" in out
+    assert all(f"{kind}: {count}" in out for kind, count in kinds.items())
+
+
+@requires_git
+@pytest.mark.parametrize("report", ["## Findings\nTruncated response", "## Findings\n- **HIGH - off-shape finding**"])
+def test_unparseable_selected_report_kinds_are_unknown(evidence, report):
+    e = evidence
+    args = runtime(e, "implementer", "codex", "model-a")
+    args += runtime(e, "reviewer", "claude", "model-b", probe=e["head"], report=report)
+    result = write(e, *args, "--scope", "full")
+    assert result.returncode == 0, result.stderr
+    receipt = json.loads(next((e["tmp"] / "out").glob("*.json")).read_text())
+    assert receipt["counts_by_kind"]["kinds"] is None
+    assert load().selected_report_kind_counts(receipt) is None
+    assert load().validate(receipt) == []
+
+
+@pytest.mark.parametrize("field,value", [
+    ("scope", "cumulative"), ("report_record", 0), ("report_record", True),
+    ("kinds", {"correctness": -1}), ("kinds", {"correctness": True}),
+])
+def test_selected_kind_field_validator_refuses_malformed(field, value):
+    receipt = json.loads((ROOT / "tests/fixtures/review-yield-report/three-pass-selected-report.json").read_text())
+    assert load().validate(receipt) == []
+    receipt["counts_by_kind"][field] = value
+    assert any("counts_by_kind" in problem for problem in load().validate(receipt))
+
+
+def test_pre_kind_schema5_receipt_still_validates():
+    receipt = json.loads((ROOT / "tests/fixtures/review-yield-report/pre-kind-schema5-receipt.json").read_text())
+    assert "counts_by_kind" not in receipt and receipt["schema"] == 5
+    assert load().validate(receipt) == []
+    assert load().selected_report_kind_counts(receipt) is None

@@ -1,0 +1,63 @@
+{
+  "branch": "issue-1863-codex-review-prompt-drop-the-clauses-flow-plan-rec",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "49b4735e5f47a7d3be14b6f84030ddf320912bce",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/27/rollout-2026-11-27T11-25-03-01a21cc0-71f5-74b3-9b86-8393176ccaf8.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 5204389,
+        "path": "2026/11/27/rollout-2026-11-27T11-25-03-01a21cc0-71f5-74b3-9b86-8393176ccaf8.jsonl",
+        "sha256": "e57dc42dfa49c3cc45e48debb4467cbf76a39b64a6b5b4a98d3daf07fcd04cb7"
+      }
+    ],
+    "thread_id": "01a21cc0-71f5-74b3-9b86-8393176ccaf8"
+  },
+  "issue": "1863",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 2,
+  "recorded_at": "2026-11-27T15:48:11Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewed_artifact": {
+    "base_sha": "f966fbf5052dca7c5eb6c005b1b7dd24ff8d42e9",
+    "merge_base": "f966fbf5052dca7c5eb6c005b1b7dd24ff8d42e9",
+    "method": "runtime-head",
+    "patch_sha256": "44cc34cb6e108e099981a131f525e2a0b5bcf2e24d7b0eaa25a570bd492cc984",
+    "report_record": 9295,
+    "target_head": "49b4735e5f47a7d3be14b6f84030ddf320912bce"
+  },
+  "reviewer": "claude/claude-opus-5-5",
+  "reviewer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2",
+    "sources": [
+      {
+        "bytes": 17079873,
+        "path": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl",
+        "sha256": "d4d636183158ed023fce836ff4041e07d9e48025bdee57362baadbf05d2f56d0"
+      }
+    ],
+    "transcript": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}

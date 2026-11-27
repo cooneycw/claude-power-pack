@@ -1630,12 +1630,11 @@
         420
       ],
       "candidate": [
-        "85abfd8ac769db46a78f15325c79cc38849b50a4300685e5db641f22e4534644",
+        "9556cbc96c91c6530f434bd2a8f124d5d46c99f25a177b56bbc988044f8475e1",
         420
       ],
-      "source_path": "scripts/codex-skill-sync.py",
-      "source_commit": "bfc98e51e7e91639f566125a9ee2d7a69fccd537",
-      "reason": "Checksum inventory changes only because this skill bundles the generator with the six owner-approved retired CPP exception rows removed. Owner ruling: https://github.com/cooneycw/claude-power-pack/issues/1889#issuecomment-7205593196"
+      "source_commit": "b5d3f3b27211710140d27973082b1588c39e5fbf",
+      "reason": "R3a #1863 selected-report kind persistence changes the bundled receipt/yield helper inputs; monthly-create declares its canonical sibling dependency. Exact input-byte attribution only; pinned generator, parser and historical members remain unchanged."
     },
     "flow-auto/scripts/codex-skill-sync.py": {
       "baseline": [
@@ -1650,18 +1649,53 @@
       "source_commit": "bfc98e51e7e91639f566125a9ee2d7a69fccd537",
       "reason": "Bundled generator source changes only by the six owner-approved retired CPP checkout exception rows; transform behavior and modes are unchanged. Owner ruling: https://github.com/cooneycw/claude-power-pack/issues/1889#issuecomment-7205593196"
     },
+    "flow-auto/scripts/counter-model-receipt.py": {
+      "baseline": [
+        "1e6bcc764ff163671e79bafa766b144e2782ca430b028777cdf6929897fb4166",
+        493
+      ],
+      "candidate": [
+        "ea5188abf354e97f2a54408f8a271ead4caea3db4fc3890adad78ea42d544b62",
+        493
+      ],
+      "source_commit": "b5d3f3b27211710140d27973082b1588c39e5fbf",
+      "reason": "R3a #1863 selected-report kind persistence changes the bundled receipt/yield helper inputs; monthly-create declares its canonical sibling dependency. Exact input-byte attribution only; pinned generator, parser and historical members remain unchanged."
+    },
+    "flow-check/scripts/SHA256SUMS": {
+      "baseline": [
+        "df278ca11dcc327a74451d04fd03ce2e1b0987eaa7f3c74bb1d5b5506de7d344",
+        420
+      ],
+      "candidate": [
+        "356ada8b71c71f91addddb36cc427ca0617c5a2c5dd734ee4eb841693ce60d9f",
+        420
+      ],
+      "source_commit": "b5d3f3b27211710140d27973082b1588c39e5fbf",
+      "reason": "R3a #1863 selected-report kind persistence changes the bundled receipt/yield helper inputs; monthly-create declares its canonical sibling dependency. Exact input-byte attribution only; pinned generator, parser and historical members remain unchanged."
+    },
+    "flow-check/scripts/counter-model-receipt.py": {
+      "baseline": [
+        "1e6bcc764ff163671e79bafa766b144e2782ca430b028777cdf6929897fb4166",
+        493
+      ],
+      "candidate": [
+        "ea5188abf354e97f2a54408f8a271ead4caea3db4fc3890adad78ea42d544b62",
+        493
+      ],
+      "source_commit": "b5d3f3b27211710140d27973082b1588c39e5fbf",
+      "reason": "R3a #1863 selected-report kind persistence changes the bundled receipt/yield helper inputs; monthly-create declares its canonical sibling dependency. Exact input-byte attribution only; pinned generator, parser and historical members remain unchanged."
+    },
     "flow-finish/scripts/SHA256SUMS": {
       "baseline": [
         "112ab9c1d63254d729c10589ab29360ef6698e986f6d8d0c4d856bec8e60f07a",
         420
       ],
       "candidate": [
-        "525a78f1c5d0de2b745bad3c3b272eecce5d034016b3386ce65dbf37ac2aeda0",
+        "483c0eadf3eaf8687de9bd304534c95c18c37066bca90ffffca96fdba035141b",
         420
       ],
-      "source_path": "scripts/codex-skill-sync.py",
-      "source_commit": "bfc98e51e7e91639f566125a9ee2d7a69fccd537",
-      "reason": "Checksum inventory changes only because this skill bundles the generator with the six owner-approved retired CPP exception rows removed. Owner ruling: https://github.com/cooneycw/claude-power-pack/issues/1889#issuecomment-7205593196"
+      "source_commit": "b5d3f3b27211710140d27973082b1588c39e5fbf",
+      "reason": "R3a #1863 selected-report kind persistence changes the bundled receipt/yield helper inputs; monthly-create declares its canonical sibling dependency. Exact input-byte attribution only; pinned generator, parser and historical members remain unchanged."
     },
     "flow-finish/scripts/codex-skill-sync.py": {
       "baseline": [
@@ -1675,6 +1709,99 @@
       "source_path": "scripts/codex-skill-sync.py",
       "source_commit": "bfc98e51e7e91639f566125a9ee2d7a69fccd537",
       "reason": "Bundled generator source changes only by the six owner-approved retired CPP checkout exception rows; transform behavior and modes are unchanged. Owner ruling: https://github.com/cooneycw/claude-power-pack/issues/1889#issuecomment-7205593196"
+    },
+    "flow-finish/scripts/counter-model-receipt.py": {
+      "baseline": [
+        "1e6bcc764ff163671e79bafa766b144e2782ca430b028777cdf6929897fb4166",
+        493
+      ],
+      "candidate": [
+        "ea5188abf354e97f2a54408f8a271ead4caea3db4fc3890adad78ea42d544b62",
+        493
+      ],
+      "source_commit": "b5d3f3b27211710140d27973082b1588c39e5fbf",
+      "reason": "R3a #1863 selected-report kind persistence changes the bundled receipt/yield helper inputs; monthly-create declares its canonical sibling dependency. Exact input-byte attribution only; pinned generator, parser and historical members remain unchanged."
+    },
+    "flow-merge/scripts/SHA256SUMS": {
+      "baseline": [
+        "7bae1536574aca4e5c63b932701bc026335fc81cb8f7cd93c76e3a6d27d44088",
+        420
+      ],
+      "candidate": [
+        "e17e8b627164d89ca5ef24cbbf2255dd6d781631f0e9b95dabf7af450ead8709",
+        420
+      ],
+      "source_commit": "b5d3f3b27211710140d27973082b1588c39e5fbf",
+      "reason": "R3a #1863 selected-report kind persistence changes the bundled receipt/yield helper inputs; monthly-create declares its canonical sibling dependency. Exact input-byte attribution only; pinned generator, parser and historical members remain unchanged."
+    },
+    "flow-merge/scripts/counter-model-receipt.py": {
+      "baseline": [
+        "1e6bcc764ff163671e79bafa766b144e2782ca430b028777cdf6929897fb4166",
+        493
+      ],
+      "candidate": [
+        "ea5188abf354e97f2a54408f8a271ead4caea3db4fc3890adad78ea42d544b62",
+        493
+      ],
+      "source_commit": "b5d3f3b27211710140d27973082b1588c39e5fbf",
+      "reason": "R3a #1863 selected-report kind persistence changes the bundled receipt/yield helper inputs; monthly-create declares its canonical sibling dependency. Exact input-byte attribution only; pinned generator, parser and historical members remain unchanged."
+    },
+    "monthly-create/PROVENANCE.md": {
+      "baseline": [
+        "2800fd24a63298a389664e3b17905c4f98c3cefa158f9bc1c669cd1b6ab451eb",
+        420
+      ],
+      "candidate": [
+        "97b90c5858b60bbfebe6f26b67dad8eb00d98a4dedacc96f36184fb70e3a4f04",
+        420
+      ],
+      "source_commit": "b5d3f3b27211710140d27973082b1588c39e5fbf",
+      "reason": "R3a #1863 selected-report kind persistence changes the bundled receipt/yield helper inputs; monthly-create declares its canonical sibling dependency. Exact input-byte attribution only; pinned generator, parser and historical members remain unchanged."
+    },
+    "monthly-create/SKILL.md": {
+      "baseline": [
+        "bde2539dba85ebf6d0170a625bf59c66a10198c02b928fd8cc774a04c7a361e0",
+        420
+      ],
+      "candidate": [
+        "36a1d3ebccaf2af29737b5943d55bb18b9fabc708832790373220266e4086f3d",
+        420
+      ],
+      "source_commit": "14eaf192bd8036dc111203582aa81351a11763ac",
+      "reason": "Compact the literal monthly kind-reader dependency note to stay within the existing command word budget; helper payload and scope remain unchanged."
+    },
+    "monthly-create/scripts/SHA256SUMS": {
+      "baseline": [
+        "e132557d0e8aec70f6c1cc84d804e5f9c805ea63ceedbfa46992df3adee3bb26",
+        420
+      ],
+      "candidate": [
+        "8982ead792b3f85e4b0e30f69fbfd3f79474d3fb980a05dc4e522af6f985550c",
+        420
+      ],
+      "source_commit": "b5d3f3b27211710140d27973082b1588c39e5fbf",
+      "reason": "R3a #1863 selected-report kind persistence changes the bundled receipt/yield helper inputs; monthly-create declares its canonical sibling dependency. Exact input-byte attribution only; pinned generator, parser and historical members remain unchanged."
+    },
+    "monthly-create/scripts/counter-model-receipt.py": {
+      "baseline": null,
+      "candidate": [
+        "ea5188abf354e97f2a54408f8a271ead4caea3db4fc3890adad78ea42d544b62",
+        493
+      ],
+      "source_commit": "b5d3f3b27211710140d27973082b1588c39e5fbf",
+      "reason": "R3a #1863 selected-report kind persistence changes the bundled receipt/yield helper inputs; monthly-create declares its canonical sibling dependency. Exact input-byte attribution only; pinned generator, parser and historical members remain unchanged."
+    },
+    "monthly-create/scripts/review-yield-report.py": {
+      "baseline": [
+        "809d9c55dfc05a32b454427ed9a4b032bb1177fc6aff85c2813fd4389d315076",
+        493
+      ],
+      "candidate": [
+        "b0c9ab5eb29c1fc82dda0a9c3203a98e821bc9efa1c11b1eefcd157b4215d701",
+        493
+      ],
+      "source_commit": "b5d3f3b27211710140d27973082b1588c39e5fbf",
+      "reason": "R3a #1863 selected-report kind persistence changes the bundled receipt/yield helper inputs; monthly-create declares its canonical sibling dependency. Exact input-byte attribution only; pinned generator, parser and historical members remain unchanged."
     }
   }
 }

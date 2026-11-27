@@ -1,0 +1,64 @@
+{
+  "branch": "issue-1863-codex-review-prompt-drop-the-clauses-flow-plan-rec",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "extra_passes_reason": "the pass-2 head failed the command-docs word budget in the full gate (monthly/create.md 511 words against a budget of 503); the fix shortens the dependency note by 10 words to a one-line literal (now 501 words), which changes ONE existing attribution row (monthly-create/SKILL.md, 5869->5800 bytes) to its new hash; PROVENANCE.md, scripts/SHA256SUMS and the helper are byte-identical; the row set stays at 15; this pass also covers the merge of main after PR 1954",
+  "head": "096c1aa8e81e87d936cfea65fe6fef5019cd0397",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/27/rollout-2026-11-27T11-25-03-01a21cc0-71f5-74b3-9b86-8393176ccaf8.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 7178742,
+        "path": "2026/11/27/rollout-2026-11-27T11-25-03-01a21cc0-71f5-74b3-9b86-8393176ccaf8.jsonl",
+        "sha256": "97021701fa8262b5f0588aec4e2a9c42af2425fe24323f3ce7d47b994ced4094"
+      }
+    ],
+    "thread_id": "01a21cc0-71f5-74b3-9b86-8393176ccaf8"
+  },
+  "issue": "1863",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 3,
+  "recorded_at": "2026-11-27T18:03:42Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewed_artifact": {
+    "base_sha": "7878db6f47690b5d5a2f1cfcff547e4726c9dda4",
+    "merge_base": "7878db6f47690b5d5a2f1cfcff547e4726c9dda4",
+    "method": "runtime-head",
+    "patch_sha256": "ccd5ce9901fdb13cb11913f014549235abef97bb57c4d6f8ac3861992e1af6ba",
+    "report_record": 9698,
+    "target_head": "096c1aa8e81e87d936cfea65fe6fef5019cd0397"
+  },
+  "reviewer": "claude/claude-opus-5-5",
+  "reviewer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2",
+    "sources": [
+      {
+        "bytes": 17657666,
+        "path": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl",
+        "sha256": "30202e8ce7d6bc886eb78b864351840afc32d5b34384833a292dcbdb3746fcf5"
+      }
+    ],
+    "transcript": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}
