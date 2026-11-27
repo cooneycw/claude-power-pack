@@ -1,0 +1,16 @@
+#!/bin/bash
+# neg.sh <tag> <transport>: one NEGATIVE row under K802's standing rule. Exit 0 = booked; nonzero = STOP (pi left as-is).
+T5=$(dirname "$0"); L=$1; TR=$2; EV=$HOME/.cpp-pi-1899-probe/work/pi-1899-b3/events.jsonl
+calls(){ python3 -c 'import json,sys; print(sum(1 for l in open(sys.argv[1]) if (e:=json.loads(l)).get("event")=="tools/call" and e.get("tag")==sys.argv[2]))' $EV $L; }
+out=$("$T5/row-v4.sh" $L $TR nocall); rc=$?; echo "$out"
+if [ $rc -eq 0 ]; then
+  rep=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["reply"])' "$T5/accept-$L.json")
+  [ "$rep" = "TOOL_UNAVAILABLE" ] && { echo "BOOK($L): explicit TOOL_UNAVAILABLE recorded, xcheck AGREE 0=0, verifier NO VERIFIED CALL"; exit 0; }
+  echo "STOP($L): recorded reply is not TOOL_UNAVAILABLE (genuinely different result)"; exit 5
+fi
+echo "$out" | grep -q 'REFUSED(.*"no reply after the prompt"' || { echo "STOP($L): not the visible-empty pattern"; exit 6; }
+[ "$(calls)" = 0 ] || { echo "STOP($L): visible-empty but the backend logged a call"; exit 7; }
+tmux capture-pane -p -e -J -t =pib3: -S - > "$T5/scrollback-$L.txt"; sha256sum "$T5/scrollback-$L.txt" | cut -d' ' -f1 | sed "s/^/SCROLLBACK($L)=/"
+tmux send-keys -t =pib3: C-d; for i in $(seq 1 20); do [ -f "$T5/exit-$L" ] && break; sleep 1; done
+echo "PI_EXIT=$(cat "$T5/exit-$L" 2>/dev/null || echo none)"; tmux kill-session -t =pib3 2>/dev/null
+echo "BOOK($L): visible-empty, no logged call (backend 0), reply unrecordable"

@@ -1,0 +1,11 @@
+#!/bin/bash
+# row.sh <tag> <transport> <expect: call|nocall>: session.sh + verifier expectation + xcheck-v2. Nonzero = STOP.
+T5=$(dirname "$0"); L=$1; TR=$2; EXP=$3; W=$HOME/.cpp-pi-1899-probe/work/pi-1899-b3; r=${L#*-}
+out=$("$T5/session-v4.sh" $r $L $TR); rc=$?; echo "$out"
+[ $rc -eq 0 ] || { echo "ROW STOP ($L): session exit $rc"; exit 1; }
+v=$(echo "$out" | grep -o 'verify_exit=[0-9]*' | cut -d= -f2)
+python3 "$T5/xchk/xcheck-v2.py" $W/events.jsonl $W/batch.json "$T5/accept-$L.json" $L; x=$?
+[ $x -eq 0 ] || { echo "ROW STOP ($L): xcheck-v2 exit $x"; exit 2; }
+if [ "$EXP" = call ] && [ "$v" != 0 ]; then echo "ROW STOP ($L): expected a verified call, verify_exit=$v"; exit 3; fi
+if [ "$EXP" = nocall ] && [ "$v" = 0 ]; then echo "ROW STOP ($L): verified call in a no-call row"; exit 4; fi
+echo "ROW OK ($L): verify_exit=$v xcheck=AGREE"

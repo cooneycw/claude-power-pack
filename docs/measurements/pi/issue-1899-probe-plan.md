@@ -56,12 +56,13 @@ the filesystem, network, bearer access or container runtime.
 | B0 isolation | Attributed host completion; see results | Unique marker reported only in probe; regular name summary stable | Never-created marker absent; marker absent after undo; digest reader's changed-name controls reported by master |
 | B2 rules | Attributed host completion; see results | Independent global rule markers in two repositories; override selected with both present | Removal removed markers; zero-byte override suppressed base; removing it restored base |
 | B2 size | Bounded samples attributed; exact cap UNKNOWN | Head/middle/tail markers reported present at 8192/32768/65536 bytes in both rule names | No loss observed at sampled positions; no above-limit pair or every-byte/full-cap claim |
-| B3 stdio/HTTP | PENDING | Actual pi-originated tools/call and response retained at fixture server | Dead stdio and HTTP servers; CLI exit 0 cannot establish health |
-| B3 exposure/names | PENDING | Record direct exposure and hyphenated registration's actual tool name | Omitted/alternate exposure and non-normalized candidate; observed behavior, not plan assertions |
-| B3 preservation | PENDING | Synthetic foreign entry survives bounded fixture add/remove | Diff identifies any changed foreign value; this is not a delivered CPP merge test |
+| B3 stdio/HTTP | Four direct calls reported verified; stopped with gaps, see B3 results | Actual pi-originated tools/call and response retained at fixture server | Dead stdio and HTTP servers; CLI exit 0 cannot establish health |
+| B3 exposure/names | Default restricted-lane no-call observations; normalized identifier UNKNOWN | Record direct exposure and hyphenated registration's actual tool name | Omitted/alternate exposure and non-normalized candidate; observed behavior, not plan assertions |
+| B3 preservation | Foreign entry preserved and guarded undo reported; native final absence NOT RUN | Synthetic foreign entry survives bounded fixture add/remove | Diff identifies any changed foreign value; this is not a delivered CPP merge test |
 | B4 identity | PENDING | Non-transcript metadata binds session, turn and resolved provider/model | Spoofed user label, missing/corrupt/unreadable metadata, incomplete history all remain distinct from runtime identity |
 
 B0 uses the [committed command handoff](issue-1899-b0-commands.md).
+B3 stopped on provider quota; see [bounded results and gaps](issue-1899-b3-results.md).
 B2-B4 command files and fixture inputs are committed and reviewed individually
 before their host execution. All batches retain exact argv, cwd, prompts, exit
 codes, pi/Node versions, full CPP revision and input hashes. Two unrelated scratch

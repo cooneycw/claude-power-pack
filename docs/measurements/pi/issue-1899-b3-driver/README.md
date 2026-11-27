@@ -223,3 +223,27 @@ another prompt after the committed bindings are matched. Only if final-only
 extraction succeeds may the normal durable-record/verifier/count workflow run.
 No source capture or previous reply is overwritten. The real retained capture
 is not inspected by this author; its recovery receipt remains pending.
+
+## Final export and cleanup scope
+
+Master 42791 supplied final.tar, independently matched SHA256
+f3e1dde8baae9688698acaa8dcea137d5be102aa1fede05a061b45404ef12dc2.
+All five supplied member digests were independently verified. The final directory
+retains MANIFEST.txt, LEDGER.txt and two wrapper byte exports (script .txt
+suffixes), with original supplied digest list SOURCE-SHA256SUMS.txt. That list
+identifies original export bytes, not a promise every source artifact is copied.
+The raw CLEANUP-RECEIPTS.txt is deliberately omitted: it contains regular-name
+summary values and incidental auth-file modes outside the publication scope.
+Its original SHA256 is
+582680bbfd31d2ca3e0f71389063e28043ec314085c28512d3b7b31b5b6e3d4c.
+Only its reviewed cleanup facts are summarized in the B3 results. No original
+is modified or represented as a byte-identical sanitized derivative.
+
+The final wrapper files are provenance, not approved operational instruments.
+Their original SHA256 values match the supplied bytes independently. A dormant
+nocall/unknown-verifier limitation was reproduced with fixture-only collaborators
+and [recorded](https://github.com/cooneycw/claude-power-pack/issues/1725#issuecomment-7223818894).
+Neither the wrapper's ROW OK nor the host ledger's global zero counts override
+missing, provider-blocked or unrecordable row evidence. Results accept only
+independently reported exact verifier outcomes and disclose the capture loss.
+No further model turn or correction rollout is authorized by this archive.

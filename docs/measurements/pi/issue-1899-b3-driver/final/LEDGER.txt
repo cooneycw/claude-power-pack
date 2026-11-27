@@ -1,0 +1,19 @@
+B3 per-row cap ledger (max 16 prompts / 32 rounds). Classifier and wrapper in force per row in [].
+T1-alpha  prompt 1 | rounds 1 | TOOL_UNAVAILABLE recorded | verify 1 no call                                  [v1 driver]
+T1-beta   prompt 1 | rounds 0-1 UNEXAMINABLE (helper capture lost) | not recorded                           [v1 driver]
+T2-alpha  prompt 1 | rounds 2 | stdio-direct call | verify 0 VERIFIED (pid 3994665) | xcheck-v1 1=1, v2 1=1   [captured v1, recorded v2]
+T2-beta   prompt 1 | rounds 2 | verify 0 VERIFIED (pid 4007345) | xcheck 1=1                                  [v2]
+T3-alpha  prompt 1 | rounds 1 | visible-empty, initialized, no logged call, reply unrecordable               [v2]
+T3-beta   prompt 1 | rounds 1 | TOOL_UNAVAILABLE | record 0 | verify 1 | xcheck 0=0                          [v2]
+T4-alpha  prompt 1 | rounds 2 | http-direct call | verify 0 VERIFIED (pid 3943054) | xcheck-v2 1=1             [v2]
+T4-beta   prompt 1 | rounds 2 | verify 0 VERIFIED (pid 3943054) | xcheck-v2 1=1                               [v2]
+T5-alpha  prompt 1 | rounds 1 | visible-empty, initialized (HTTP, pi 1.6.0), no logged call, unrecordable     [v2]
+T5-beta   prompt 1 | rounds 1 | final visible TOOL_UNAVAILABLE; 0 backend calls; reply file OVER-CAPTURED (e4d92732, 372 B) [v2]
+T6-alpha  prompt 1 | rounds 1 | dead stdio; loader diagnostic; visible-empty; 2 dead children; unrecordable    [v3]
+T6-beta   prompt 1 | rounds 1 | dead stdio; recovered with v4 from retained capture 0ab1f5e2: TOOL_UNAVAILABLE | record 0 (5fc4e967) | verify 1 | xcheck 0=0 [v3 run; v4 recovery]
+T7-alpha  prompt 1 | rounds 1 | dead HTTP ("fetch failed"); visible-empty; no logged call; unrecordable         [v4]
+T7-beta   prompt 1 | rounds 0 observed (booked 1 unknown) | PROVIDER-BLOCKED 429 quota exceeded; no logged call; unrecordable [v4]
+T8-alpha  NOT RUN (unused slot)
+T8-beta   NOT RUN (unused slot)
+TOTAL: 14 prompts. Rounds: 16 known + T1-beta 0-1 + T7-beta 0 (booked 1) => actual 16-18, booked 18. Verified pi calls: 4 (T2 x2, T4 x2); unexpected calls: 0; extra tool attempts: 0.
+Disclosed deviations: T1-beta capture lost; T2-alpha captured under v1 (layout mismatch, stopped); T5-beta reply over-captured under v2; v3 SGR colour bug (T6-beta); first T6-beta record attempt refused with exit 4 and wrote nothing; HTTP stop after T6's undo instead of T5's; one ctrl+o display toggle in T3-alpha.

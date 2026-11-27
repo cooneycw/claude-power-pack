@@ -1,5 +1,8 @@
 # Pi #1899 B3 verified stdio pair and default-exposure observation
 
+Historical progress record; current [stopped results](issue-1899-b3-results.md)
+include quota stop, final cleanup and unresolved acceptance gaps.
+
 Status: T2 alpha/beta verified by master; T3-alpha stopped with no visible
 reply. B3 is not complete. Sources: orchestrator 42566/42585 and master
 42573/42582/42586/42613 on 2026-11-27; protocol-author ruling 42597. This author
