@@ -77,13 +77,16 @@ def session_replay(tmp_path, control, version):
     folder = tmp_path / 'driver'
     folder.mkdir()
     script = folder / 'session.sh'
-    script.write_bytes((V3 / 'session-v3.sh.txt' if version == 3 else stored('session.sh')).read_bytes())
+    wrapper = (V4 / 'session-v4.sh.txt' if version == 4
+               else V3 / 'session-v3.sh.txt' if version == 3 else stored('session.sh'))
+    script.write_bytes(wrapper.read_bytes())
     script.chmod(0o700)
-    classifier = V3 / 'classify-v3.py.txt' if version == 3 else stored(f'classify-v{version}.py')
+    classifier = ((V4 if version == 4 else V3) / f'classify-v{version}.py.txt'
+                  if version >= 3 else stored(f'classify-v{version}.py'))
     capture = EXPORTED / 'controls' / control
     run = (f'#!/bin/sh\n{shlex.quote(sys.executable)} {shlex.quote(str(classifier))} '
            f'{shlex.quote(str(capture))} > "$(dirname "$0")/accept-$2.json"\n')
-    for name, body in [('run-v3.sh' if version == 3 else 'run.sh', run),
+    for name, body in [(f'run-v{version}.sh' if version >= 3 else 'run.sh', run),
                        ('close.sh', '#!/bin/sh\nprintf "close\\n" >> "$CAPTURE_TEST_TRACE"\n'),
                        ('record.sh', '#!/bin/sh\nprintf "record\\n" >> "$CAPTURE_TEST_TRACE"\n')]:
         path = folder / name
@@ -300,3 +303,41 @@ def test_corrected_close_keeps_session_target_and_pane_target_distinct():
     text = (PANE_EXACT / 'close.sh.txt').read_text()
     assert 'send-keys -t =pib3:' in text
     assert 'kill-session -t =pib3 ' in text
+
+
+V4 = EXPORTED.parent / 'v4'
+
+
+def test_v4_export_and_wrapper_bindings():
+    for line in (V4 / 'SHA256SUMS').read_text().splitlines():
+        digest, name = line.split('  ', 1)
+        path = V4 / (name + '.txt' if name.endswith('.py') else name)
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == digest
+    assert (V4 / 'run-v4.sh.txt').read_bytes() == (PANE_EXACT / 'run-v3.sh.txt').read_bytes().replace(
+        b'v3/classify-v3.py', b'v4/classify-v4.py')
+    assert (V4 / 'session-v4.sh.txt').read_bytes() == (V3 / 'session-v3.sh.txt').read_bytes().replace(
+        b'run-v3.sh', b'run-v4.sh')
+
+
+@pytest.mark.parametrize('control', sorted(p.name for p in (V4 / 'cases').glob('*.txt')))
+def test_v4_colour_and_retained_controls(control):
+    version = 3 if os.environ.get('CPP_PI_CAPTURE_ARCHIVE_V3') == '1' else 4
+    result = subprocess.run([sys.executable, str(V4 / f'classify-v{version}.py.txt'),
+                             str(V4 / 'cases' / control)], capture_output=True, text=True)
+    if control.startswith('C'):
+        expected = 1 if control.startswith('C10-') else 0
+    else:
+        expected = 0 if control.startswith(('S1-', 'S8-')) else 1 if control.startswith('S') else VERDICTS[control][1]
+    assert result.returncode == expected, result.stdout + result.stderr
+    if control.startswith('C') and expected == 0:
+        assert json.loads(result.stdout)['reply'] == 'TOOL_UNAVAILABLE'
+
+
+def test_v4_session_cap_and_completed_positive(tmp_path):
+    for name, control, expected in [('two', '10-two-tool-headers-then-final.txt', 6),
+                                     ('one', '7-real-layout-final.txt', 0)]:
+        folder = tmp_path / name
+        folder.mkdir()
+        result, trace = session_replay(folder, control, 4)
+        assert result.returncode == expected, result.stdout + result.stderr
+        assert trace.exists() is (expected == 0)

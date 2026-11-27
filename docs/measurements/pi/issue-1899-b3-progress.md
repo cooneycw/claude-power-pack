@@ -210,3 +210,25 @@ is added by those controls. Row-wrapper provenance remains requested.
 Current ledger: 11 prompts, 14 known rounds plus lost T1-beta 0-1,
 actual 14-15/book 15. Five prompts remain, at most ten rounds, upper bound 25.
 B3 is incomplete; continuing T6-beta requires the new exact-target bindings.
+
+## T6-beta parser refusal and zero-model recovery pending
+
+Master 42763 reports T6-beta launched at 16:34:11Z, prompt about 16:34:19Z,
+before the hold timestamp 16:34:24Z. It used old prefix scripts and v3. The
+screen showed a dead-loader warning and plain TOOL_UNAVAILABLE; one observed
+round, dead-child PID 1534393 start/stop, no initialize or calls. v3 incorrectly
+refused because a colour index 3 was read as italic. The controlled capture
+hash is retained in the v4 driver note; no reply was recorded at this receipt.
+Master reports the real HTTP fixture remained untouched in the separate dummy
+pane checks; another retained-instance confirmation was requested before T7.
+
+The v4 colour parser plus separate run/session wrappers are now retained with
+30 committed structural inputs. Eight actual v3 assertions fail red; all 96
+local controls pass under the new candidate, including actual isolated pane
+selection and session close controls. No model turn was used for correction.
+Saved T6-beta may be reclassified/recorded final-only after binding, with the
+original verifier and count crosscheck. No prompt retry is authorized.
+
+Ledger: 12 prompts, 15 known rounds plus lost T1-beta 0-1, actual 15-16/book16.
+Four prompts remain for T7/T8; never exceed 16. A further lost prompt remains
+lost rather than being repeated. Round upper bound is 24. B3 remains incomplete.

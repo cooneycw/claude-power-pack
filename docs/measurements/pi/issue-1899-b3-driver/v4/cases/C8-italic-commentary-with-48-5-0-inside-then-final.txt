@@ -1,0 +1,12 @@
+[39m Call only mcp__cpp_pi1899_stdio__probe_echo exactly once with tag "T6-beta". Return its text result verbatim. If this exact tool is not declared, reply TOOL_UNAVAILABLE. Do not call another tool.
+
+
+ [3mCOMMENTARY_A [48;5;0mCOMMENTARY_B[49m[23m
+
+
+ [39mTOOL_UNAVAILABLE
+
+────────────────────────────────────────
+────────────────────────────────────────
+/PROBE/work/repo-beta (master)
+[2m↑435 ↓68 $0.002 (sub) 0.1%/1.0M (auto)[0m

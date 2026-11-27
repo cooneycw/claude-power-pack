@@ -184,3 +184,42 @@ servers and basetemps were cleaned up. The real fixture is never accessed.
 These variants supersede exact-target for operational installation; the v4
 classifier correction and its final run-wrapper binding remain pending. No
 new model turn is authorized by committing this pane-only correction.
+
+## Extended-colour parsing correction v4
+
+Master 42771 supplied v4.tar, independently matched SHA256
+1d439f86729c9e81259e943fc8306a47f73f50c22745c240fd145510869d46fc.
+All 34 regular members and supplied hashes were independently verified and
+retained under [v4](v4/VERDICTS.txt). Scripts use unchanged-byte .txt suffixes.
+The parser correction skips semicolon-form extended-colour operands, keeping
+colour values 3/23/0 from toggling or resetting italic state. This is a display
+parser correction, not evidence of API message roles. The colon-form case is
+an anchor already passing on v3, not a newly fixed failure.
+
+Exact v3 replay fails eight committed colour controls C1-C8; v4 passes them.
+The other 22 controls retain their verdicts. C9/C10 real-italic and C11 colon
+anchors do not discriminate the versions. All 96 capture, crosscheck and tmux
+controls pass with the new candidate; the selected session-v4 cap still refuses
+two tool attempts before close/record. Lint passes. No model calls or real
+probe captures are used locally; temporary servers/basetemps are removed.
+
+Classifier v4 SHA256:
+a58dbd9feffc3a39803e5ed524462d459cd5353e43a4198cbf700504d3df51d5.
+Locally derived run-v4.sh changes ONLY the classifier path in corrected
+exact-pane-target/run-v3.sh from v3/classify-v3.py to v4/classify-v4.py:
+SHA256 8d054e350928b6afa582ab0370d483516e83ccece16d54dcf68d54e6b3993a2b.
+Session-v4.sh changes ONLY run-v3.sh to run-v4.sh in frozen session-v3:
+SHA256 b44ada9545bf4c3a559ee12a7a2167b4de8c304efcee81e8a053d54e09970afb.
+Use corrected exact-pane-target start/close alongside these new collaborators;
+retain older files/hashes as historical evidence. Activation receipt is pending.
+
+T6-beta ran before the hold on old prefix scripts with v3; it is not a v4 or
+exact-target historical run. Master reports saved styled capture SHA256
+0ab1f5e20533d029ac257953f05350228ac4d56ba586f9d80ffb5aee7fda7dbd
+contains one visible TOOL_UNAVAILABLE, dead-loader diagnostic, one dead-child
+start/stop without initialize/call. v3 falsely refused due to the colour bug.
+Reclassification of that exact saved capture with v4 is authorized without
+another prompt after the committed bindings are matched. Only if final-only
+extraction succeeds may the normal durable-record/verifier/count workflow run.
+No source capture or previous reply is overwritten. The real retained capture
+is not inspected by this author; its recovery receipt remains pending.

@@ -1,0 +1,33 @@
+classify v4 sha a58dbd9feffc3a39803e5ed524462d459cd5353e43a4198cbf700504d3df51d5; v3 = 14bb36fb… (included as classify-v3.py for the replay). v4 change ONLY: SGR parameter parsing skips extended-colour operands (38/48/58 with 5;N or 2;R;G;B) and colon sub-parameter tokens, so a colour index or RGB value of 3, 23 or 0 is never read as italic-on/off/reset.
+CASE | v3 | v4
+1-accept | ACCEPT final-only='{"nonce": "0123456789abcdef0123456789abcdef", "tag": "T2-alpha", "transport": "stdio"}' | ACCEPT final-only='{"nonce": "0123456789abcdef0123456789abcdef", "tag": "T2-alpha", "transport": "stdio"}'
+10-two-tool-headers-then-final | ACCEPT final-only='{"nonce":"NONCE_PLACEHOLDER_B_32_HEX_000000","tag":"T2-alpha","transport":"stdio"}' | ACCEPT final-only='{"nonce":"NONCE_PLACEHOLDER_B_32_HEX_000000","tag":"T2-alpha","transport":"stdio"}'
+1b-accept-after-tool | REFUSE: tool-call phase: no final answer after the tool result | REFUSE: tool-call phase: no final answer after the tool result
+2-empty | REFUSE: empty capture | REFUSE: empty capture
+3-stale-footer | REFUSE: stale footer: no token counter, no new reply since the prompt | REFUSE: stale footer: no token counter, no new reply since the prompt
+4a-tool-running | REFUSE: busy indicator present: unfinished | REFUSE: busy indicator present: unfinished
+4b-tool-phase-no-final | REFUSE: tool-call phase: tool header without its result | REFUSE: tool-call phase: tool header without its result
+5-real-layout-tool-phase | REFUSE: tool-call phase: no final answer after the tool result | REFUSE: tool-call phase: no final answer after the tool result
+6-real-header-only | REFUSE: tool-call phase: tool header without its result | REFUSE: tool-call phase: tool header without its result
+7-real-layout-final | ACCEPT final-only='{"nonce":"0123456789abcdef0123456789abcdef","tag":"T2-alpha","transport":"stdio"}' | ACCEPT final-only='{"nonce":"0123456789abcdef0123456789abcdef","tag":"T2-alpha","transport":"stdio"}'
+9-sanitized-real-layout-tool-phase | REFUSE: tool-call phase: no final answer after the tool result | REFUSE: tool-call phase: no final answer after the tool result
+C1-fg-indexed-38-5-3-then-normal-final | REFUSE: commentary only: no final answer after the displayed commentary | ACCEPT final-only='TOOL_UNAVAILABLE'
+C10-ext-colour-then-real-italic-only | REFUSE: commentary only: no final answer after the displayed commentary | REFUSE: commentary only: no final answer after the displayed commentary
+C11-colon-form-38-5-3-then-normal-final | ACCEPT final-only='TOOL_UNAVAILABLE' | ACCEPT final-only='TOOL_UNAVAILABLE'
+C2-bg-indexed-48-5-3-then-normal-final | REFUSE: commentary only: no final answer after the displayed commentary | ACCEPT final-only='TOOL_UNAVAILABLE'
+C3-ul-indexed-58-5-3-then-normal-final | REFUSE: commentary only: no final answer after the displayed commentary | ACCEPT final-only='TOOL_UNAVAILABLE'
+C4-fg-rgb-38-2-3-3-3-then-normal-final | REFUSE: commentary only: no final answer after the displayed commentary | ACCEPT final-only='TOOL_UNAVAILABLE'
+C5-bg-rgb-48-2-23-0-3-then-normal-final | REFUSE: commentary only: no final answer after the displayed commentary | ACCEPT final-only='TOOL_UNAVAILABLE'
+C6-ul-rgb-58-2-3-23-3-then-normal-final | REFUSE: commentary only: no final answer after the displayed commentary | ACCEPT final-only='TOOL_UNAVAILABLE'
+C7-italic-commentary-with-38-5-23-inside-then-final | REFUSE: ambiguous block boundary: mixed italic/normal inside one block | ACCEPT final-only='TOOL_UNAVAILABLE'
+C8-italic-commentary-with-48-5-0-inside-then-final | REFUSE: ambiguous block boundary: mixed italic/normal inside one block | ACCEPT final-only='TOOL_UNAVAILABLE'
+C9-ext-colour-then-real-italic-commentary-then-final | ACCEPT final-only='TOOL_UNAVAILABLE' | ACCEPT final-only='TOOL_UNAVAILABLE'
+S1-styled-commentary-then-final | ACCEPT final-only='TOOL_UNAVAILABLE' | ACCEPT final-only='TOOL_UNAVAILABLE'
+S2-styled-commentary-only-with-TOOL_UNAVAILABLE | REFUSE: commentary only: no final answer after the displayed commentary | REFUSE: commentary only: no final answer after the displayed commentary
+S3-styled-commentary-only-with-nonce-json | REFUSE: commentary only: no final answer after the displayed commentary | REFUSE: commentary only: no final answer after the displayed commentary
+S4-mixed-italic-normal-one-line | REFUSE: ambiguous block boundary: mixed italic/normal inside one block | REFUSE: ambiguous block boundary: mixed italic/normal inside one block
+S5-no-spacer-between-commentary-and-final | REFUSE: ambiguous block boundary: mixed italic/normal inside one block | REFUSE: ambiguous block boundary: mixed italic/normal inside one block
+S6-unstyled-commentary-then-final | REFUSE: ambiguous block boundary: unstyled capture with several content blocks | REFUSE: ambiguous block boundary: unstyled capture with several content blocks
+S7-styled-tool-result-no-final | REFUSE: tool-call phase: no final answer after the tool result | REFUSE: tool-call phase: no final answer after the tool result
+S8-styled-tool-result-commentary-final | ACCEPT final-only='{"nonce":"NONCE_PLACEHOLDER_32_HEX_0000000","tag":"T5-beta","transport":"http"}' | ACCEPT final-only='{"nonce":"NONCE_PLACEHOLDER_32_HEX_0000000","tag":"T5-beta","transport":"http"}'
+SUMMARY: all 19 earlier cases (11 + S1-S8): identical v3/v4 verdicts. New colour cases C1-C8: v3 RED (refuses or misreads), v4 GREEN. C9 (real italic after an extended colour) and C10 (real-italic-only): v3 and v4 both correct; they are positive/negative anchors and do NOT discriminate v3 from v4. C11 (colon form 38:5:3): v3 already handled it (the token is not '3'); it does NOT discriminate either. The real retained T6-beta capture (0ab1f5e2, not included): v3 REFUSE 'commentary only'; v4 ACCEPT final-only TOOL_UNAVAILABLE, commentary_blocks 0. Reclassification is NOT done; it waits for ch-w3's commit.
