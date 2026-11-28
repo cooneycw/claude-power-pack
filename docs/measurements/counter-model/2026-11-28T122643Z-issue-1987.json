@@ -1,0 +1,63 @@
+{
+  "branch": "issue-1987-pin-cpp-woodpecker-workflows-to-the-dedicated-pool",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "e2d6ece174e0dbad7e51421a3ca5fcc69b7d8edf",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/27/rollout-2026-11-27T13-27-30-01a21d30-8a0a-74b0-9dc6-8a59cca79951.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 36264025,
+        "path": "2026/11/27/rollout-2026-11-27T13-27-30-01a21d30-8a0a-74b0-9dc6-8a59cca79951.jsonl",
+        "sha256": "135b639b832d80fc7c34fa025a2d3782df3a759104f400dd7b1e933a436df554"
+      }
+    ],
+    "thread_id": "01a21d30-8a0a-74b0-9dc6-8a59cca79951"
+  },
+  "issue": "1987",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 1,
+  "recorded_at": "2026-11-28T12:26:43Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewed_artifact": {
+    "base_sha": "db63a7ec4e659b083230ca7327248f6ca983f1bb",
+    "merge_base": "db63a7ec4e659b083230ca7327248f6ca983f1bb",
+    "method": "runtime-head",
+    "patch_sha256": "553fbfd133ef63079cd8f605f44adc3ae92f7464123b16ec6afdc19a627ee929",
+    "report_record": 14247,
+    "target_head": "e2d6ece174e0dbad7e51421a3ca5fcc69b7d8edf"
+  },
+  "reviewer": "claude/claude-opus-5-5",
+  "reviewer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2",
+    "sources": [
+      {
+        "bytes": 25527050,
+        "path": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl",
+        "sha256": "b2b3b8d931d8b4cacf9fb2545e65603e9267bd31c8e5006f95ffeff5e5100237"
+      }
+    ],
+    "transcript": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}
