@@ -1,0 +1,2319 @@
+#!/usr/bin/env python3
+"""Constructed blind anchor: readable closing text counts as canonical provenance.
+
+Contract/input unreadability remains UNKNOWN; only the value verdict is blinded.
+"""
+
+#: NEGATIVE-CONTROL: controls/delegated-codex-plan-lanes
+#: NEGATIVE-CONTROL: controls/delegated-qwen-plan-lanes
+#: NEGATIVE-CONTROL: controls/delegated-gemma-plan-lanes
+#: NEGATIVE-CONTROL: controls/flow-plan-provenance
+
+from __future__ import annotations
+
+import argparse
+import datetime as _dt
+import difflib
+import functools
+import hashlib
+import json
+import os
+import pathlib
+import re
+import stat
+import subprocess
+import sys
+import traceback
+import uuid
+from typing import Any, NamedTuple, NoReturn
+
+CAP = 16384
+OK, ERROR, USAGE, FINDING, UNKNOWN = 0, 1, 2, 3, 4
+
+
+class Verdict(Exception):
+    """Ends a subcommand with a verdict already printed."""
+
+    def __init__(self, code: int) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+def git(*args: str, cwd: pathlib.Path | None = None, check: bool = True) -> str:
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True,
+                          check=check).stdout
+
+
+@functools.lru_cache(maxsize=None)
+def git_dir() -> pathlib.Path:
+    return pathlib.Path(git("rev-parse", "--absolute-git-dir").strip())
+
+
+@functools.lru_cache(maxsize=None)
+def toplevel() -> pathlib.Path:
+    return pathlib.Path(git("rev-parse", "--show-toplevel").strip())
+
+
+def record_rel(issue: str) -> str:
+    return f"docs/flow-runs/issue-{issue}.md"
+
+
+def snapshot_rel(issue: str) -> str:
+    return f"docs/flow-runs/issue-{issue}.as-read.md"
+
+
+def self_stamp() -> str:
+    """Identify the RUNNING COPY of this script, never the tree under examination (#1399).
+
+    `root` (the --root/target repo this file's commands examine) and
+    `__file__` (where THIS script itself lives) are different paths in
+    exactly the case this exists for: a kyle-managed `~/.claude/scripts/
+    flow-plan-record.py` has no `.git` tree anywhere nearby, and a stale
+    copy there can silently differ from the checkout's own file and omit a
+    fix the checkout already carries (Nit Store #864 comment 5874632553) -
+    nothing before this printed WHICH COPY produced a verdict.
+
+    THE CONTENT HASH IS ALWAYS INCLUDED, never only the commit (counter-model
+    review): `worktree-at-<sha>` alone names the CHECKOUT's HEAD, which says
+    nothing about whether this exact file has an uncommitted local edit
+    sitting on top of that commit - two different sets of bytes at the same
+    HEAD would otherwise read as the same copy. git, when this file's own
+    directory is inside a work tree, additionally names the COMMIT
+    (`worktree-at-<sha>`, the same wording `check-negative-controls.py`'s
+    `_source_stamp` uses for the analogous "which copy" question) beside the
+    hash, for a human reading the output. Without git - the installed-copy
+    case - the content hash is the only answer: never a guess, and a reader
+    can still compare it against `git show <expected>:scripts/flow-plan-
+    record.py | sha256sum`.
+    """
+    here = pathlib.Path(__file__).resolve()
+    try:
+        digest = hashlib.sha256(here.read_bytes()).hexdigest()[:12]
+    except OSError:
+        return "unknown"
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(here.parent), "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            return f"worktree-at-{out.stdout.strip()} content-{digest}"
+    except (OSError, subprocess.SubprocessError):  # pragma: no cover - defensive
+        pass
+    return f"content-{digest} (not git-tracked at this path)"
+
+
+# ---------------------------------------------------------------- run identity (#1320)
+#
+# THE RECORD WAS KEYED ON THE ISSUE, SO A SECOND RUN WAS SATISFIED BY THE FIRST.
+# `reconcile` restores the committed record for any run, and step3-record-guard
+# allowed an edit on any `Approval: granted` - so a second /flow:auto run on an
+# issue could edit before anyone approved ITS plan. Measured by w1 on #1320 too:
+# with two plans in one file, compliance compared the diff against the UNION of
+# both Section C lists, and appending the second plan tripped the first run's
+# stability check.
+#
+# A RUN is one driving session in one worktree. `reconcile` (Step 1, every lane)
+# mints its id into the PER-WORKTREE git dir and KEEPS it when the same session
+# reconciles again (a resume). The record and the as-read snapshot become
+# append-only: each run's part begins with a marker line naming its id, and every
+# check reads ONLY the current run's part. A file with no markers is a legacy
+# (pre-#1320) record and is exactly one run.
+#
+# THE MARKER IS AN HTML COMMENT, not a heading: the snapshot embeds the issue
+# BODY, and an issue can contain any heading, including `## Run 2`.
+
+RUN_MARKER_RE = re.compile(r"^<!-- flow-run n=(\d+) id=([0-9a-f]{32}) -->$", re.M)
+RECORD_PREAMBLE = """# Flow run record - issue #{issue}
+
+HISTORICAL RECORD of what was agreed BEFORE the code was written, at the base SHA
+each run below names. It is not a description of the shipped system, it is not a
+second statement of the issue contract or of a Tier 3 spec, and it does not
+graduate. APPEND-ONLY (#1320): each /flow:auto run adds its own `## Run <n>`
+section; nothing earlier is edited, and every check reads only its own run.
+"""
+
+
+#: A body line shaped like a run marker, already escaped any number of times.
+_ESCAPABLE_RE = re.compile(r"^(\\*)(<!-- flow-run )", re.M)
+
+
+def escape_markers(body: str) -> str:
+    """Make quoted issue text unable to forge a run boundary (counter-model review).
+
+    The as-read snapshot stores the issue body verbatim, and an issue may contain
+    a literal marker line. Any line starting `<!-- flow-run ` - with any number of
+    leading backslashes - gains one more, so no body line can match the marker
+    pattern, and `unescape_markers` restores the exact text.
+    """
+    return _ESCAPABLE_RE.sub(lambda m: "\\" + m.group(1) + m.group(2), body)
+
+
+def unescape_markers(body: str) -> str:
+    return re.sub(r"^\\(\\*<!-- flow-run )", r"\1", body, flags=re.M)
+
+
+def run_state_path(issue: str) -> pathlib.Path:
+    return git_dir() / f"flow-plan-run-{issue}"
+
+
+def read_run_state(issue: str) -> dict[str, str] | None:
+    """This worktree's run identity, or None when no run has been started here."""
+    path = run_state_path(issue)
+    if not path.is_file():
+        return None
+    state: dict[str, str] = {}
+    for line in path.read_text().splitlines():
+        key, _, value = line.partition("=")
+        state[key] = value
+    return state if re.fullmatch(r"[0-9a-f]{32}", state.get("run_id", "")) else None
+
+
+#: A run file that EXISTS but carries no valid run_id. It is not "no run": the
+#: legacy fallback is for a worktree with NO run file (the transition ruling), and
+#: a truncated or emptied one must not reopen it (counter-model review). Never
+#: matches a section, so every consumer refuses or reports unknown; `reconcile`
+#: repairs it by minting a new identity.
+MALFORMED_RUN = "<malformed run identity>"
+
+
+def current_run_id(issue: str) -> str | None:
+    state = read_run_state(issue)
+    if state:
+        return state["run_id"]
+    return MALFORMED_RUN if run_state_path(issue).exists() else None
+
+
+def pre_marker_prefix(text: str) -> str:
+    """Everything before the first run marker: legacy history, kept verbatim."""
+    first = RUN_MARKER_RE.search(text)
+    return text[:first.start()] if first else text
+
+
+def split_runs(text: str) -> list[tuple[int, str | None, str]]:
+    """`(n, run_id, section_text)` per run; a file with no markers is ONE legacy run."""
+    marks = list(RUN_MARKER_RE.finditer(text))
+    if not marks:
+        return [(1, None, text)]
+    out: list[tuple[int, str | None, str]] = []
+    for i, m in enumerate(marks):
+        end = marks[i + 1].start() if i + 1 < len(marks) else len(text)
+        out.append((int(m.group(1)), m.group(2), text[m.start():end]))
+    return out
+
+
+def select_run(text: str, run_id: str | None) -> tuple[str | None, str]:
+    """This run's part of `text`, or `(None, why)`. Never another run's part."""
+    runs = split_runs(text)
+    legacy = len(runs) == 1 and runs[0][1] is None
+    if run_id == MALFORMED_RUN:
+        return None, ("this worktree's run identity file is malformed - run "
+                      "`flow-plan-record.py reconcile` to mint a new one")
+    if run_id is None:
+        if legacy:
+            return runs[0][2], "legacy record (no run identity in this worktree)"
+        return None, ("this worktree has no run identity, so it cannot tell which run's "
+                      "section is its own - run `flow-plan-record.py reconcile`")
+    for _n, rid, section in runs:
+        if rid == run_id:
+            return section, f"run {run_id}"
+    newest = runs[-1][1] or "a legacy (pre-#1320) record"
+    return None, (f"this run ({run_id}) has no section of its own; the newest belongs to "
+                  f"{newest}")
+
+
+#: The lane-table check (issue #1731), with its committed known-bad cases.
+#: NEGATIVE-CONTROL: controls/flow-plan-record-lanes
+#: NEGATIVE-CONTROL: controls/flow-plan-record-lanes-verdict
+LANE_FILE_REL = pathlib.Path(".claude") / "lanes.md"
+LANE_ANSWERS = ("will test", "will refuse", "not applicable", "not covered")
+LANES_HEADING_RE = re.compile(r"^ {0,3}(#{2,6})[ \t]+Lanes for this change[ \t]*$", re.M)
+HEADING_RE = re.compile(r"^ {0,3}(#{1,6})[ \t]+\S", re.M)
+LANES_WAIVED_RE = re.compile(r"^Lanes:[ \t]*none[ \t]*-[ \t]*(\S.*?)[ \t]*$", re.M)
+LANES_WAIVED_BARE_RE = re.compile(r"^Lanes:[ \t]*none[ \t]*-?[ \t]*$", re.M)
+
+
+FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
+
+def outside_fences(text: str) -> str:
+    """`text` with every line inside a fenced code block blanked, same length.
+
+    A plan record quotes examples. A lanes table or a waiver line inside a code
+    fence is an EXAMPLE of one and must not answer for the plan. Offsets are
+    preserved, so a span found here indexes the original."""
+    out: list[str] = []
+    fence: str | None = None
+    for line in text.splitlines(keepends=True):
+        mark = FENCE_RE.match(line)
+        if fence is None:
+            # A backtick fence cannot carry a backtick in its info string; such a
+            # line is ordinary text, and treating it as an opener would make the
+            # NEXT fence line read as a closer and its contents as live.
+            if mark and not (mark.group(1)[0] == "`" and "`" in line[mark.end():]):
+                fence = mark.group(1)
+                out.append(" " * (len(line) - 1) + "\n" if line.endswith("\n") else " " * len(line))
+            else:
+                out.append(line)
+            continue
+        closes = (mark is not None and mark.group(1)[0] == fence[0]
+                  and len(mark.group(1)) >= len(fence) and not line[mark.end():].strip())
+        out.append(" " * (len(line) - 1) + "\n" if line.endswith("\n") else " " * len(line))
+        if closes:
+            fence = None
+    return "".join(out)
+
+
+def heading_block(text: str, heading: re.Pattern[str]) -> tuple[int, int] | None:
+    """`(start, end)` of the block a heading opens: from the heading LINE to the
+    next heading of the same or a higher level, or the end of `text`.
+
+    Anchored to a heading line outside any code fence. The same words in a
+    sentence, or in a quoted example, open nothing."""
+    visible = outside_fences(text)
+    found = heading.search(visible)
+    if not found:
+        return None
+    level = len(found.group(1))
+    for nxt in HEADING_RE.finditer(visible, found.end()):
+        if len(nxt.group(1)) <= level:
+            return found.start(), nxt.start()
+    return found.start(), len(text)
+
+
+TABLE_RULE_RE = re.compile(r"^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$")
+
+
+def split_row(line: str) -> list[str]:
+    """Cells of one table line: split on unescaped pipes, outer pipes optional."""
+    text = line.strip()
+    cells = re.split(r"(?<!\\)\|", text)
+    if text.startswith("|"):
+        cells = cells[1:]
+    if text.endswith("|") and not text.endswith("\\|") and cells:
+        cells = cells[:-1]
+    return [c.replace("\\|", "|").strip() for c in cells]
+
+
+def tables(block: str) -> list[list[list[str]]]:
+    """Body rows of each markdown table in `block`, in document order.
+
+    A table is a header line, then a delimiter line, then rows. A delimiter
+    with no header above it is not a table, and neither is anything inside a
+    code fence. Outer pipes are optional, as markdown allows."""
+    lines = outside_fences(block).splitlines()
+    found: list[list[list[str]]] = []
+    i = 1
+    while i < len(lines):
+        rule, header = lines[i], lines[i - 1]
+        if (not ("|" in rule and TABLE_RULE_RE.match(rule))
+                or "|" not in header or not header.strip() or TABLE_RULE_RE.match(header)
+                or len(split_row(header)) != len(split_row(rule))):
+            i += 1
+            continue
+        rows: list[list[str]] = []
+        j = i + 1
+        while j < len(lines) and lines[j].strip() and "|" in lines[j]:
+            rows.append(split_row(lines[j]))
+            j += 1
+        found.append(rows)
+        i = j + 1
+    return found
+
+
+def table_rows(block: str) -> list[list[str]]:
+    """Cells of each body row of the FIRST markdown table in `block`."""
+    found = tables(block)
+    return found[0] if found else []
+
+
+def lane_key(name: str) -> str:
+    """A lane name as compared: emphasis AROUND it dropped, case folded.
+    Characters inside the name are the name - `A_B` and `AB` are two lanes."""
+    return name.strip().strip("`*_").strip().casefold()
+
+
+class LanesUnusable(Exception):
+    """A lane file exists, or may exist, and its list cannot be read."""
+
+
+def read_text_file(path: pathlib.Path, rel: object) -> str | None:
+    """A file's text, or None when it is ESTABLISHED not to exist.
+
+    The same three answers, drawn at the same lines, as `read_lane_file` in
+    `lane-file.py` - absent, readable, and everything between, which raises.
+    Restated here and not loaded from that file because this helper is also
+    shipped alone: the Codex `flow-auto` bundle carries it without
+    `lane-file.py`, and a check that needed its neighbour would refuse every
+    approval there. `tests/test_flow_plan_record_lanes.py` runs both readers
+    over every state and fails if they ever disagree."""
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        return None
+    except NotADirectoryError as exc:
+        raise LanesUnusable(f"a parent of {rel} is not a directory") from exc
+    except OSError as exc:
+        raise LanesUnusable(f"{rel} could not be examined ({exc.strerror})") from exc
+    if stat.S_ISLNK(info.st_mode):
+        try:
+            info = os.stat(path)
+        except OSError as exc:
+            raise LanesUnusable(
+                f"{rel} is a symlink whose target cannot be read") from exc
+    if not stat.S_ISREG(info.st_mode):
+        raise LanesUnusable(f"{rel} is not a regular file")
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise LanesUnusable(f"{rel} could not be read ({type(exc).__name__})") from exc
+
+
+def read_lane_text(path: pathlib.Path) -> str | None:
+    """The lane file's text; see `read_text_file` for the three answers."""
+    return read_text_file(path, LANE_FILE_REL)
+
+
+def project_lanes(root: pathlib.Path) -> list[str] | None:
+    """The lane names this project lists, or None when it has no lane file.
+
+    None ONLY when the file is established absent: a project that has not
+    adopted lanes must behave exactly as it did before this check existed.
+    Anything between absent and a readable list raises `LanesUnusable` - it
+    never reads as "no lanes"."""
+    text = read_lane_text(root / LANE_FILE_REL)
+    if text is None:
+        return None
+    names = [row[0] for row in table_rows(text) if row and lane_key(row[0])]
+    if not names:
+        raise LanesUnusable(f"{LANE_FILE_REL} lists no lanes (no table rows)")
+    keys = [lane_key(name) for name in names]
+    twice = sorted({name for name in names if keys.count(lane_key(name)) > 1})
+    if twice:
+        raise LanesUnusable(f"{LANE_FILE_REL} lists lanes that read as the same name "
+                            f"({', '.join(twice)}), so one answer could stand for two")
+    return names
+
+
+def lane_answers(section: str, heading: re.Pattern[str]) -> dict[str, str] | None:
+    """`{lane key: second cell}` from the table under `heading`, or None when
+    the section has no such heading."""
+    span = heading_block(section, heading)
+    if span is None:
+        return None
+    block = section[span[0]:span[1]]
+    return {lane_key(row[0]): (row[1] if len(row) > 1 else "")
+            for row in table_rows(block) if row and lane_key(row[0])}
+
+
+#: A phrase must END where the answer does (issue #1822): at the cell's end,
+#: whitespace or punctuation (a closing `*_ included), never at another letter
+#: or digit, so `not applicablewhatever` and `will testing` are no answer.
+LANE_ANSWER_RE = re.compile(r"^[`*_ ]*(" + "|".join(re.escape(a) for a in LANE_ANSWERS)
+                            + r")(?![^\W_])", re.I)
+
+
+def lane_answer(cell: str) -> str | None:
+    """The `LANE_ANSWERS` phrase this cell opens with, casefolded, or None."""
+    match = LANE_ANSWER_RE.match(cell)
+    return match.group(1).casefold() if match else None
+
+
+def answered(cell: str) -> bool:
+    return lane_answer(cell) is not None
+
+
+#: The answers that promise a result at close (#1823): a promised refusal
+#: needs its evidence exactly as a promised test does.
+LANES_OWED_ANSWERS = ("will test", "will refuse")
+
+#: What a demonstrated row may say happened (#1823), matched as a whole phrase
+#: the way `LANE_ANSWER_RE` matches a plan's answer. Only the first two are a
+#: demonstration, and only with a reference to the test or observation.
+RESULT_STATES = ("passed", "failed", "not run", "refused as expected")
+RESULT_DEMONSTRATED = ("passed", "refused as expected")
+RESULT_STATE_RE = re.compile(r"^[`*_ ]*(" + "|".join(re.escape(s) for s in RESULT_STATES)
+                             + r")(?![^\W_])[`*_]*", re.I)
+#: What separates a state from the reference written after it in the same cell.
+RESULT_SEPARATOR_RE = re.compile(r"^[\s\-:;,.()\[\]]+")
+
+
+def evidence_text(cell: str) -> str:
+    """A reference with leading separators dropped; empty when nothing with a
+    letter or digit is left, so `-`, `n/a`-style punctuation or `()` names no
+    test or observation (counter-model review)."""
+    text = RESULT_SEPARATOR_RE.sub("", cell).strip()
+    return text if re.search(r"[^\W_]", text) else ""
+
+
+def lane_result(cells: list[str]) -> tuple[str | None, str]:
+    """`(state, evidence)` of one demonstrated row's cells after the lane name.
+
+    The state is the `RESULT_STATES` phrase the first cell opens with,
+    casefolded, or None. The evidence is what follows it in that cell plus
+    every later cell, separators dropped: `| X | passed | tests/t.py |` and
+    `| X | passed - tests/t.py |` carry the same reference, and `| X | passed |`
+    carries none."""
+    first = cells[0] if cells else ""
+    match = RESULT_STATE_RE.match(first)
+    if not match:
+        return None, ""
+    rest = [evidence_text(first[match.end():])] + [evidence_text(cell) for cell in cells[1:]]
+    return match.group(1).casefold(), " ".join(part for part in rest if part)
+
+
+def value_text(text: str) -> str:
+    """Text as compared for a lane value: emphasis marks dropped, whitespace
+    collapsed, case folded."""
+    return " ".join(re.sub(r"[`*_]", "", text).split()).casefold()
+
+
+def lane_values(cell: str) -> list[str]:
+    """The values one lane-file `Values` cell lists, as compared (#1823).
+
+    Values are separated by ` / ` or `;`. A parenthetical is an aside about a
+    value, not part of its name - `` `/flow:auto` (Claude implements) `` is
+    named by `/flow:auto` - and a value left with no letter or digit is no value."""
+    values = []
+    for part in re.split(r"\s/\s|;", re.sub(r"\([^()]*\)", " ", cell)):
+        value = value_text(part)
+        if re.search(r"[^\W_]", value):
+            values.append(value)
+    return values
+
+
+def names_value(said: str, value: str) -> bool:
+    """Whether `said` names `value` as a whole phrase: `dev` is not named by
+    `device` (counter-model review). Both are already `value_text`."""
+    return re.search(r"(?<![^\W_])" + re.escape(value) + r"(?![^\W_])", said) is not None
+
+
+def project_lane_values(root: pathlib.Path) -> dict[str, list[str]]:
+    """`{lane key: values}` from the lane file's second column. Called only
+    after `project_lanes` read the file, so it raises exactly as that does."""
+    text = read_lane_text(root / LANE_FILE_REL) or ""
+    return {lane_key(row[0]): lane_values(row[1] if len(row) > 1 else "")
+            for row in table_rows(text) if row and lane_key(row[0])}
+
+
+def lane_rows(section: str) -> dict[str, list[str]] | None:
+    """`{lane key: every cell after the name}` from the plan's lanes table."""
+    span = heading_block(section, LANES_HEADING_RE)
+    if span is None:
+        return None
+    return {lane_key(row[0]): row[1:] for row in table_rows(section[span[0]:span[1]])
+            if row and lane_key(row[0])}
+
+
+def lanes_refusal(section: str, lanes: list[str],
+                  values: dict[str, list[str]] | None = None) -> tuple[str | None, str | None]:
+    """`(refusal, waiver)`: why this section cannot be approved, else None; and
+    the reason given when the table was waived in one line.
+
+    With `values` (`project_lane_values`), a `will test` row must also name at
+    least one of its lane's listed values (#1823): `Checkout: will test` that
+    tested only a linked worktree otherwise reads as covering every checkout.
+    A lane whose `Values` cell lists nothing is not checked for values - there
+    is nothing to name."""
+    table = lane_answers(section, LANES_HEADING_RE)
+    listed = ", ".join(lanes)
+    choices = " / ".join(LANE_ANSWERS)
+    if table is None:
+        visible = outside_fences(section)
+        waived = LANES_WAIVED_RE.search(visible)
+        if waived:
+            return None, waived.group(1)
+        if LANES_WAIVED_BARE_RE.search(visible):
+            return ("the plan record says `Lanes: none` and gives no reason. Write "
+                    "`Lanes: none - <reason>`, or add the lanes table"), None
+        return (f"the plan record has no lanes table. This project lists lanes in "
+                f"{LANE_FILE_REL}; add a `### Lanes for this change` table answering each of: "
+                f"{listed} ({choices}), or one line `Lanes: none - <reason>`"), None
+    missing = [name for name in lanes if not answered(table.get(lane_key(name), ""))]
+    if missing:
+        return (f"the lanes table leaves these listed lanes unanswered: {', '.join(missing)}. "
+                f"Each needs a row whose first cell is the lane's name exactly as "
+                f"{LANE_FILE_REL} lists it and whose answer is one of: {choices}, "
+                f"ending there or followed by its how/why"), None
+    rows = lane_rows(section) or {}
+    unnamed = []
+    for name in lanes:
+        cells = rows.get(lane_key(name), [])
+        listed_values = (values or {}).get(lane_key(name), [])
+        if not cells or lane_answer(cells[0]) != "will test" or not listed_values:
+            continue
+        said = value_text(" ".join(cells))
+        if not any(names_value(said, value) for value in listed_values):
+            unnamed.append(f"{name} (values: {', '.join(listed_values)})")
+    if unnamed:
+        return (f"the lanes table answers `will test` without naming which values it will "
+                f"test for: {'; '.join(unnamed)}. Name in the row the values it will test, "
+                f"as {LANE_FILE_REL} spells them, and the ones it will not"), None
+    return None, None
+
+
+def section_digest(section: str) -> str:
+    """sha256 of a run's section, blind to trailing blank lines ONLY.
+
+    A section ends where the next run's marker begins, and appending that run adds
+    a separating blank line to the END of this one. Without this, run 2 appending
+    tripped run 1's stability check - the exact defect #1320 fixes, reintroduced by
+    whitespace. Any other edit inside the section still changes the digest.
+    """
+    return hashlib.sha256(section.rstrip("\n").encode("utf-8")).hexdigest()
+
+
+def run_identity() -> tuple[str, str]:
+    """Claude takes precedence; native Codex uses its own thread namespace."""
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    if session:
+        return "claude", session
+    thread = os.environ.get("CODEX_THREAD_ID", "")
+    return ("codex", thread) if thread else ("", "")
+
+
+def same_run_owner(state: dict[str, str] | None) -> bool:
+    harness, identity = run_identity()
+    if not identity or not state:
+        return False
+    # Legacy files belong to Claude. Equal strings across harnesses are never
+    # the same owner, and a shared app-server PID says nothing about a thread.
+    stored_harness = state.get("harness", "claude")
+    if stored_harness != harness:
+        return False
+    field = "codex_thread" if stored_harness == "codex" else "session"
+    return state.get(field, "") == identity
+
+
+def continuing_run(issue: str) -> bool:
+    """True when THIS session already owns this worktree's run (a resume)."""
+    return same_run_owner(read_run_state(issue))
+
+
+def ensure_run(issue: str) -> tuple[str, bool]:
+    """Keep this worktree's run id for the SAME session, or mint a new one.
+
+    Claude uses CLAUDE_CODE_SESSION_ID, native Codex uses CODEX_THREAD_ID
+    (#1567). A resume or compaction keeps the same harness/session's run;
+    another owner needs its own approval. Absent identity always mints.
+    """
+    harness, identity = run_identity()
+    state = read_run_state(issue)
+    if state and same_run_owner(state):
+        return state["run_id"], False
+    run_id = uuid.uuid4().hex
+    owner = (f"harness=codex\ncodex_thread={identity}\n" if harness == "codex"
+             else f"session={identity}\n")
+    run_state_path(issue).write_text(
+        f"run_id={run_id}\n{owner}minted_at={now()}\n")
+    return run_id, True
+
+
+def gh_body(issue: str) -> bytes | None:
+    """The live issue body, or None when it could not be read."""
+    try:
+        proc = subprocess.run(["gh", "issue", "view", issue, "--json", "body", "--jq", ".body"],
+                              capture_output=True, check=False)
+    except OSError:
+        return None
+    return proc.stdout if proc.returncode == 0 else None
+
+
+# ---------------------------------------------------------------- reconcile (#1080)
+
+def cmd_reconcile(issue: str) -> int:
+    """Tracked is EVIDENCE and is restored; untracked or staged-only is SCRATCH.
+
+    Asks HEAD, not the index, and restores from HEAD, not the index - see
+    docs/agents/flow-plan-record.md for the four states that decided this.
+    """
+    root = toplevel()
+    rec = record_rel(issue)
+    # SAME SESSION FIRST (counter-model review, HIGH). A resume of the run that is
+    # still driving this worktree must not lose its own uncommitted work: restoring
+    # HEAD over it, or deleting it as "scratch", erased this run's appended and
+    # approved section while keeping its run id - and the guard then refused the
+    # run it was meant to let through. Only ANOTHER run's leftovers are scratch.
+    if continuing_run(issue):
+        print(f"FLOW_PLAN_RECORD: kept {rec} as it is (the same session is resuming its "
+              "run; its uncommitted work is not a dead run's scratch)")
+        return announce_run(issue)
+    in_head = subprocess.run(["git", "cat-file", "-e", f"HEAD:{rec}"], cwd=root,
+                             capture_output=True).returncode == 0
+    if in_head:
+        subprocess.run(["git", "checkout", "HEAD", "--", rec], cwd=root, check=True,
+                       capture_output=True)
+        print(f"FLOW_PLAN_RECORD: restored {rec} (the last COMMITTED record - HISTORY, "
+              "not this run's approval)")
+        return announce_run(issue)
+    # --force: a staged version that matches neither HEAD nor the file on disk is
+    # still scratch, and plain `rm --cached` REFUSES it - leaving it staged for
+    # this run's commit while the file below is deleted (counter-model, #1211).
+    unstage = subprocess.run(["git", "rm", "-q", "--cached", "--force", "--ignore-unmatch",
+                              "--", rec], cwd=root, capture_output=True, text=True)
+    if unstage.returncode != 0:
+        print(f"FLOW_PLAN_RECORD: error - could not unstage scratch {rec}: "
+              f"{unstage.stderr.strip()}. Nothing was removed.")
+        return ERROR
+    path = root / rec
+    if path.exists():
+        path.unlink()
+        print(f"FLOW_PLAN_RECORD: removed {rec} (scratch never committed on this branch)")
+    else:
+        print(f"FLOW_PLAN_RECORD: absent {rec} (no approved record on this branch)")
+    return announce_run(issue)
+
+
+def announce_run(issue: str) -> int:
+    run_id, minted = ensure_run(issue)
+    verb = "minted" if minted else "kept (same session)"
+    print(f"FLOW_PLAN_RUN: {verb} {run_id}")
+    if not run_identity()[1]:
+        print("FLOW_PLAN_RUN_REASON: no session identity "
+              "(CLAUDE_CODE_SESSION_ID and CODEX_THREAD_ID are unset or empty)")
+    return OK
+
+
+def cmd_begin_run(issue: str) -> int:
+    """Append this run's header to the record. Idempotent for the same run."""
+    run_id = current_run_id(issue)
+    if run_id is None or run_id == MALFORMED_RUN:
+        print("FLOW_PLAN_RECORD: error - this worktree has no usable run identity. Run "
+              f"`flow-plan-record.py reconcile {issue}` (Step 1) first.")
+        return ERROR
+    rec = toplevel() / record_rel(issue)
+    text = rec.read_text() if rec.exists() else ""
+    runs = split_runs(text) if text.strip() else []
+    if any(rid == run_id for _n, rid, _s in runs):
+        print(f"FLOW_PLAN_RECORD: run {run_id} already has its section in {record_rel(issue)}")
+        return OK
+    n = (max(num for num, _r, _s in runs) + 1) if runs else 1
+    if not text.strip():
+        text = RECORD_PREAMBLE.format(issue=issue)
+    elif not text.endswith("\n"):
+        text += "\n"
+    start = git("rev-parse", "HEAD", check=False).strip()
+    text += (f"\n<!-- flow-run n={n} id={run_id} -->\n## Run {n}\n\n"
+             f"- Run-id:            {run_id}\n"
+             f"- Run-start:         {start or 'unknown'}\n")
+    rec.parent.mkdir(parents=True, exist_ok=True)
+    rec.write_text(text)
+    print(f"FLOW_PLAN_RECORD: began run {n} ({run_id}) in {record_rel(issue)} - append its "
+          "fields, Section B and Section C below the header")
+    return OK
+
+
+_SALVAGE_LINE_RE = re.compile(r"^- Salvage:\s+([0-9a-f]{40})\s*$", re.M)
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def cmd_declare_salvage(issue: str, sha: str, reason: str | None) -> int:
+    """Declare a deliberate preserve-first commit so compliance counts its files.
+
+    A MANUAL, one-off act (issue #1504, skillc#354): nothing in /flow:auto may
+    call this on its own, because nothing can tell a genuine salvage from a
+    commit that merely predates run_start for some other reason. Only a human
+    (or an orchestrator acting on a human's instruction) who made the
+    preserving commit knows it was deliberate.
+    """
+    if not reason or not reason.strip():
+        print("FLOW_PLAN_RECORD: error - --reason is required; say why this commit "
+              "predates run-start.")
+        return USAGE
+    # The reason is written as a raw line in the plan record. A newline or
+    # other control character would let it inject its OWN header line - for
+    # example a second "- Salvage: <sha>" the caller never declared - and
+    # bypass every guard below. Refused before anything else runs.
+    if _CONTROL_CHAR_RE.search(reason):
+        print("FLOW_PLAN_RECORD: error - --reason must not contain a newline, carriage "
+              "return, or other control character (it would inject its own record line).")
+        return USAGE
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        print(f"FLOW_PLAN_RECORD: error - {sha!r} is not a 40-hex-character commit sha.")
+        return USAGE
+    root = toplevel()
+    if subprocess.run(["git", "-C", str(root), "cat-file", "-e", f"{sha}^{{commit}}"],
+                      capture_output=True).returncode != 0:
+        print(f"FLOW_PLAN_RECORD: error - {sha} is not a commit in this repository.")
+        return ERROR
+    if subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", sha, "HEAD"],
+                      capture_output=True).returncode != 0:
+        print(f"FLOW_PLAN_RECORD: error - {sha} is not an ancestor of HEAD, so it cannot be "
+              "this branch's own preserved work.")
+        return ERROR
+    run_id = current_run_id(issue)
+    if run_id is None or run_id == MALFORMED_RUN:
+        print("FLOW_PLAN_RECORD: error - this worktree has no usable run identity. Run "
+              f"`flow-plan-record.py reconcile {issue}` (Step 1) first.")
+        return ERROR
+    rec = root / record_rel(issue)
+    if not rec.is_file():
+        print(f"FLOW_PLAN_RECORD: error - no plan record at {record_rel(issue)}. Run "
+              "`begin-run` first.")
+        return ERROR
+    text = rec.read_text()
+    runs = split_runs(text)
+    for i, (n, rid, section) in enumerate(runs):
+        if rid != run_id:
+            continue
+        existing = _SALVAGE_LINE_RE.search(section)
+        if existing:
+            if existing.group(1) == sha:
+                print(f"FLOW_PLAN_RECORD: salvage {sha[:12]} already declared for run "
+                      f"{run_id} (idempotent)")
+                return OK
+            print(f"FLOW_PLAN_RECORD: error - run {run_id} already declares a different "
+                  f"salvage ({existing.group(1)[:12]}); refusing to silently replace it.")
+            return ERROR
+        new_lines = f"- Salvage:           {sha}\n- Salvage-Reason:    {reason}\n"
+
+        # A function replacement, never a string one: a string repl re-interprets
+        # backslashes in new_lines (e.g. a literal "\1" in --reason) as its own
+        # backreference syntax, corrupting the insertion for a reason containing one.
+        def insert_after_run_start(m: re.Match[str]) -> str:
+            return m.group(0) + new_lines
+
+        new_section, count = re.subn(r"^- Run-start:.*\n", insert_after_run_start,
+                                     section, count=1, flags=re.M)
+        if count == 0:
+            print(f"FLOW_PLAN_RECORD: error - run {run_id}'s section has no Run-start line "
+                  "to anchor after.")
+            return ERROR
+        runs[i] = (n, rid, new_section)
+        rec.write_text(pre_marker_prefix(text) + "".join(sec for _n, _rid, sec in runs))
+        print(f"FLOW_PLAN_RECORD: declared salvage {sha[:12]} for run {run_id}")
+        return OK
+    print(f"FLOW_PLAN_RECORD: error - this run ({run_id}) has no section in "
+          f"{record_rel(issue)}; run `begin-run` first.")
+    return ERROR
+
+
+# ---------------------------------------------------------------- read-issue (#1081)
+
+def store_base(issue: str) -> pathlib.Path:
+    return git_dir() / f"flow-as-read-{issue}"
+
+
+def now() -> str:
+    return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def cmd_read_issue(issue: str, body_file: str | None) -> int:
+    """Store what this run read in the GIT DIR, where the driver guard cannot see it."""
+    base = store_base(issue)
+    body_p, meta_p = base.with_suffix(".body"), base.with_suffix(".meta")
+    upd_p = base.with_suffix(".updated")
+    for p in (body_p, meta_p, upd_p):
+        p.unlink(missing_ok=True)
+    if body_file is not None:
+        try:
+            body = pathlib.Path(body_file).read_bytes()
+        except OSError:
+            body = None
+    else:
+        body = gh_body(issue)
+        if body is not None:
+            try:
+                upd = subprocess.run(["gh", "issue", "view", issue, "--json", "updatedAt",
+                                      "--jq", ".updatedAt"], capture_output=True, text=True)
+            except OSError:
+                upd = None
+            if upd is not None and upd.returncode == 0:
+                upd_p.write_text(upd.stdout)
+    if body is None or not body:
+        print(f"AS_READ: unresolved - could not read issue #{issue}. The snapshot will say so.")
+        return UNKNOWN
+    body_p.write_bytes(body)
+    digest = hashlib.sha256(body).hexdigest()
+    meta_p.write_text(f"digest={digest}\nread_at={now()}\n")
+    print(f"AS_READ: recorded digest={digest} ({len(body)} bytes)")
+    return OK
+
+
+# ---------------------------------------------------------------- approve (#1081, #1082)
+
+UNRESOLVED_SNAPSHOT = (
+    "\nAS_READ: unresolved - the issue could not be read, or its body could not be\n"
+    "hashed, at Step 1. This is NOT a record that the issue was unchanged, and NOT an\n"
+    "absence of constraints. Read the issue.\n"
+)
+
+
+def cmd_approve(issue: str) -> int:
+    """Write the as-read snapshot and stamp the approval baseline.
+
+    Runs AFTER the approved plan record is written and BEFORE any implementation
+    edit, so a record grown together with the diff is still caught at Step 5.
+    """
+    root = toplevel()
+    plan = root / record_rel(issue)
+    if not plan.is_file():
+        print(f"FLOW_PLAN_RECORD: error - no plan record at {record_rel(issue)}. Write the "
+              "approved plan first; there is nothing to stamp.")
+        return ERROR
+    run_id = current_run_id(issue)
+    section, why = select_run(plan.read_text(), run_id)
+    if section is None:
+        # A prior run's approval is not this run's (#1320): stamping it would make
+        # every later check describe someone else's plan.
+        print(f"FLOW_PLAN_RECORD: error - {why}. Run `flow-plan-record.py begin-run "
+              f"{issue}` and write this run's approved plan below its header first.")
+        return ERROR
+
+    # A project that lists lanes gets a plan that answers them, or no approval
+    # (#1731). Refused BEFORE anything is written, through the line this
+    # subcommand already prints for a record it cannot stamp. No lane file:
+    # nothing is read, printed or changed.
+    try:
+        lanes = project_lanes(root)
+    except LanesUnusable as exc:
+        print(f"FLOW_PLAN_RECORD: error - unknown: {exc}. The lanes table cannot be checked "
+              "against a list that cannot be read, so nothing was stamped. Run /lane:update.")
+        return ERROR
+    if lanes is not None:
+        refusal, waiver = lanes_refusal(section, lanes, project_lane_values(root))
+        if refusal:
+            print(f"FLOW_PLAN_RECORD: error - {refusal}. Nothing was stamped.")
+            return ERROR
+        if waiver is not None:
+            # Visible to whoever approves without opening the record. Whether the
+            # reason is a good one is theirs to judge; nothing here judges it.
+            print(f"flow-plan-record: lane table WAIVED for this plan - Lanes: none - {waiver}",
+                  file=sys.stderr)
+
+    # Say NOW what Step 5 would otherwise discover (#1713): a numbered Section C
+    # line compliance cannot turn into a path makes the whole comparison UNKNOWN.
+    # A note on stderr only - stdout and the exit code are what callers read,
+    # and they are unchanged. Scoped to Section C: a numbered line elsewhere in
+    # the record (gate conditions, evidence) is not a planned file.
+    for item in unparseable_section_c(section):
+        print(f"flow-plan-record: Section C line will read UNKNOWN at compliance - {item}",
+              file=sys.stderr)
+
+    base = store_base(issue)
+    body_p, meta_p, upd_p = (base.with_suffix(s) for s in (".body", ".meta", ".updated"))
+    meta: dict[str, str] = {}
+    if meta_p.exists():
+        for line in meta_p.read_text().splitlines():
+            k, _, v = line.partition("=")
+            meta[k] = v
+    digest, read_at = meta.get("digest", ""), meta.get("read_at", "")
+
+    out = root / snapshot_rel(issue)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    head = f"# Issue #{issue} as read by this run\n"
+    body_heading = "\n## Body as read\n"
+    if run_id is not None:
+        # APPEND-ONLY, like the record: this run's read is its own section, and a
+        # later run's read never overwrites or merges with it (#1320).
+        n = next(num for num, rid, _s in split_runs(plan.read_text()) if rid == run_id)
+        head = f"<!-- flow-run n={n} id={run_id} -->\n## Run {n} - issue #{issue} as read\n"
+        body_heading = "\n### Body as read\n"
+    code = OK
+    if not body_p.exists() or not digest:
+        write_run_part(out, run_id, head + UNRESOLVED_SNAPSHOT)
+        print(f"AS_READ: unresolved - wrote an UNRESOLVED snapshot to {snapshot_rel(issue)}")
+        code = UNKNOWN
+    else:
+        raw = body_p.read_bytes()
+        cut = raw[:CAP]
+        while cut:                      # never split a multibyte character
+            try:
+                cut.decode("utf-8")
+                break
+            except UnicodeDecodeError:
+                cut = cut[:-1]
+        truncated = len(cut) < len(raw)
+        updated = upd_p.read_text().strip() if upd_p.exists() else "unknown"
+        parts = [
+            head, "\n",
+            "EVIDENCE OF WHAT THIS RUN READ, not a second statement of the contract.\n",
+            "The issue is the authority; read it. This copy exists so a later check can\n",
+            "report that the source moved. It does not graduate.\n\n",
+            f"- Issue:        #{issue}\n",
+            f"- Read at:      {read_at}\n",
+            f"- updatedAt:    {updated}   (context only - moves on comments and labels)\n",
+            f"- Body digest:  {digest}   (sha256 of the FULL body; the verdict keys on this)\n",
+            f"- Stored bytes: {len(cut)} of {len(raw)} (cap {CAP})\n",
+            body_heading,
+            escape_markers(cut.decode("utf-8")),
+        ]
+        if truncated:
+            parts.append(
+                f"\n[TRUNCATED at {len(cut)} bytes of {len(raw)}. This extract is INCOMPLETE CONTEXT\n"
+                " TO RESOLVE by reading the issue - it is not an absence of further constraints.\n"
+                " The digest above covers the FULL body, so drift beyond this point is still\n"
+                " DETECTED; it just cannot be LOCALISED from this copy.]\n"
+            )
+        parts.append("\n<!-- end of body -->\n")
+        write_run_part(out, run_id, "".join(parts))
+        print(f"AS_READ: snapshot written to {snapshot_rel(issue)}")
+
+    # What this approval owes at close, decided NOW and kept (#1821): close
+    # reads it from here, never from the lane file as it stands by then, and
+    # counts only demonstration rows written after this point.
+    write_lanes_stamp(issue, root, run_id, section, lanes)
+
+    # The baseline is THIS RUN'S SECTION, not the whole file: a later run appending
+    # its own section must not trip this run's stability check (w1, #1320). A legacy
+    # record keeps the whole-file digest it always had.
+    if run_id is None:
+        stamp = hashlib.sha256(plan.read_bytes()).hexdigest()
+    else:
+        stamp = section_digest(section)
+    (git_dir() / f"flow-plan-baseline-{issue}").write_text(f"{stamp} {run_id or '-'}\n")
+    print(f"FLOW_PLAN_RECORD: baseline stamped {stamp}")
+    return code
+
+
+def write_run_part(out: pathlib.Path, run_id: str | None, part: str) -> None:
+    """Legacy: the file IS the part. A run: keep every OTHER run's part, replace ours."""
+    if run_id is None:
+        out.write_text(part)
+        return
+    existing = out.read_text() if out.exists() else ""
+    runs = split_runs(existing) if existing.strip() else []
+    if runs and runs[0][1] is not None:
+        # The legacy prefix before the first marker is HISTORY and is kept byte
+        # for byte (counter-model review): joining only the marked sections
+        # dropped it on the second approval, breaking the append-only contract.
+        kept = pre_marker_prefix(existing) + "".join(
+            sec for _n, rid, sec in runs if rid != run_id)
+    else:
+        kept = existing                  # a legacy snapshot is history: kept whole
+    kept = kept.rstrip("\n")
+    out.write_text((kept + "\n\n" if kept else "") + part)
+
+
+# ---------------------------------------------------------------- drift (#1081)
+
+def cmd_drift(issue: str, live_file: str | None) -> int:
+    """A failed fetch and a missing snapshot are UNRESOLVED, never clean."""
+    print(f"FLOW_PLAN_RECORD_SELF: {self_stamp()}")
+
+    def drift_unresolved(why: str) -> NoReturn:
+        print(f"ISSUE_DRIFT: unresolved ({why})")
+        raise Verdict(UNKNOWN)
+
+    snap_p = toplevel() / snapshot_rel(issue)
+    if not snap_p.exists():
+        drift_unresolved("no as-read snapshot on this branch")
+    selected, why = select_run(snap_p.read_text(), current_run_id(issue))
+    if selected is None:
+        drift_unresolved(f"the snapshot has no part for this run: {why}")
+    text = selected
+    body_split = re.compile(r"\n#{2,3} Body as read\n")
+
+    # Parse the METADATA SECTION ONLY: issue prose quoting a digest line is not metadata.
+    meta_section = body_split.split(text, 1)[0]
+    found = re.findall(r"^- Body digest:\s+([0-9a-f]{64})\b", meta_section, re.M)
+    if len(found) != 1:
+        drift_unresolved(f"snapshot carries {len(found)} usable digests, expected exactly 1")
+    recorded = found[0]
+
+    # One "could not read" branch for both sources: `gh` failing, or a
+    # --live-file that is empty or missing (the fetch produced nothing).
+    live_bytes: bytes | None = None
+    hash_error: OSError | None = None
+    if live_file is None:
+        live_bytes = gh_body(issue)
+    elif live_file and pathlib.Path(live_file).is_file():
+        try:
+            live_bytes = pathlib.Path(live_file).read_bytes()
+        except OSError as exc:
+            hash_error = exc
+    if hash_error is not None:
+        drift_unresolved(f"could not hash the fetched body ({hash_error}) - this is NOT no-drift")
+    if live_bytes is None:
+        drift_unresolved("could not read the issue - this is NOT no-drift")
+    live_digest = hashlib.sha256(live_bytes).hexdigest()
+
+    if live_digest == recorded:
+        print("ISSUE_DRIFT: clean (body digest unchanged since this run read it)")
+        return OK
+
+    print("ISSUE_DRIFT: drift - the issue body changed since this run read it.")
+    halves = body_split.split(text, 1)
+    stored = halves[1] if len(halves) == 2 else ""
+    # Remove only the final framing marker; identical issue prose is preserved.
+    stored = re.sub(r"\n<!-- end of body -->\n+\Z", "", stored)
+    stored = unescape_markers(stored)
+    stored = re.sub(r"\n\[TRUNCATED at .*?\]\n", "", stored, flags=re.S)
+    was_truncated = "[TRUNCATED at " in text
+    # Compare LIKE WITH LIKE: the stored copy is a PREFIX of a truncated body.
+    live_text = live_bytes.decode("utf-8", "replace")
+    compare_against = live_text[:len(stored)] if was_truncated else live_text
+    for line in list(difflib.unified_diff(
+            stored.splitlines(), compare_against.splitlines(),
+            fromfile="as-read", tofile="live", lineterm=""))[:80]:
+        print(line)
+    if was_truncated:
+        print("NOTE: the stored copy was truncated, so only the captured prefix is compared.")
+        print("A change BEYOND it is DETECTED by the digest but CANNOT BE LOCALISED here.")
+    print("Resolve under the EXISTING authority model: newer bytes do not by themselves")
+    print("override a constraint or a plan already accepted on this issue (#1081).")
+    return FINDING
+
+
+# ---------------------------------------------------------------- compliance (#1082)
+
+#: A generated manifest of one skill's bundled scripts (`codex-skill-sync.py`).
+#: It has no single source file - it is a function of the scripts beside it.
+MANIFEST_RE = re.compile(r"^codex/skills/([^/]+)/scripts/SHA256SUMS$")
+#: A file bundled verbatim into a skill; group 1 is its repository source path.
+BUNDLED_RE = re.compile(r"^codex/skills/[^/]+/((?:docs|scripts|lib|\.claude)/.+)$")
+
+
+def mirror_source(root: pathlib.Path, path: str, touched: frozenset[str] = frozenset()) -> str | None:
+    """The source a generated codex/skills mirror was derived from, or None.
+
+    NEVER AN INVENTED PATH (issue #1267). The bundled-path rule once mapped a
+    generated `scripts/SHA256SUMS` manifest to a `scripts/SHA256SUMS` that does
+    not exist, and the report blamed the plan for a file nobody could write. A
+    derived source is returned only when it exists in the tree or is itself in
+    this diff (a deleted source); otherwise the mirror is UNRESOLVED, which the
+    caller reports - never agreement.
+    """
+    m = BUNDLED_RE.match(path)
+    if m:
+        src = m.group(1)
+        return src if (root / src).exists() or src in touched else None
+    try:
+        head = (root / path).read_text(errors="replace")[:4000]
+    except OSError:
+        return None                      # deleted in the worktree: unresolvable here
+    m = re.search(r"edit ([^\s]+) instead", head)
+    return m.group(1) if m else None
+
+
+def compliance_unknown(why: str) -> NoReturn:
+    print(f"PLAN_COMPLIANCE: unknown{_LANES_CLAUSE} ({why})")
+    print("An unknowable answer is never rendered as agreement (#1014, #800).")
+    raise Verdict(UNKNOWN)
+
+
+def parse_plan_paths(line: str) -> list[str]:
+    """Single physical line only; continuation paths remain unplanned if touched."""
+    match = re.match(r"^\s*\d+\.\s+", line)
+    if not match:
+        return []
+    remainder = line[match.end():]
+    quoted = False
+    separator = None
+    for i, char in enumerate(remainder):
+        if char == "`":
+            quoted = not quoted
+        elif char in "-–" and not quoted and i and remainder[i - 1].isspace():
+            separator = i
+            break
+    segment = remainder[:separator].strip() if separator is not None else remainder.strip()
+    if not segment or segment.count("`") % 2:
+        return []
+    paths = re.findall(r"`([^`]+)`", segment)
+    if paths:
+        # Allow commas between quoted paths, including a trailing wrapping comma,
+        # but never accept unseparated prose after a bare quoted path.
+        residue = re.sub(r"`[^`]+`", "", segment)
+        return paths if re.fullmatch(r"[\s,]*", residue) else []
+    if "`" in segment:
+        return []
+    return [segment] if separator is not None and re.fullmatch(r"\S+", segment) else []
+
+
+def restore_index(root: pathlib.Path | None, marked: list[str]) -> None:
+    """Take back the intent-to-add entries compliance itself created (#1713).
+
+    `git add -N` makes a new file visible to `git diff <ref>`, and it also
+    leaves an entry in the index. Left there, a later `git merge` refuses to
+    start ("would be overwritten") and a later `git commit -a` picks the file
+    up. So every path THIS call marked is reset, on every exit - the comparison
+    finishing, an UNKNOWN verdict, or an exception.
+
+    ONLY those entries. `marked` is the untracked set computed before the add, so
+    a path the caller had already staged or marked intent-to-add is never in
+    it: it was in the index, hence not untracked. A failed reset is said aloud
+    and never changes the verdict, which is about the diff, not the cleanup.
+    """
+    if root is None or not marked:
+        return
+    # REMOVE the entries, never `git reset` them: reset restores a path's HEAD
+    # entry, which would undo a caller's staged deletion (`git rm --cached f`
+    # leaves f on disk, so f is in the untracked set). And LITERAL pathspecs: a
+    # file named `*.txt` is a name, not a pattern over its neighbours.
+    reset = subprocess.run(["git", "--literal-pathspecs", "-C", str(root), "rm", "--cached",
+                            "--quiet", "--", *marked], capture_output=True)
+    if reset.returncode != 0:
+        print("flow-plan-record: could not undo the intent-to-add entries compliance created; "
+              "`git status` will show new files as added. Undo with `git reset`.",
+              file=sys.stderr)
+
+
+def section_c_items(section: str) -> list[str]:
+    """The numbered lines of a run's Section C, up to its Scope/Risks trailer."""
+    if "## Section C" not in section:
+        return []
+    items: list[str] = []
+    for line in section.split("## Section C", 1)[1].splitlines():
+        if re.match(r"^\s*(Scope|Risks):", line):
+            break
+        if re.match(r"^\s*\d+\.\s", line):
+            items.append(line)
+    return items
+
+
+def unparseable_section_c(section: str) -> list[str]:
+    return [line.strip() for line in section_c_items(section) if not parse_plan_paths(line)]
+
+
+def cmd_compliance(issue: str, base: str | None) -> int:
+    """Compare the diff's FILE SET against Section C. Reports; never blocks."""
+    state: dict[str, Any] = {"root": None, "marked": []}
+    global _LANES_CLAUSE, _LANES_OWED
+    at_close = lanes_at_close(issue)
+    _LANES_CLAUSE = lanes_clause(at_close)
+    _LANES_OWED = at_close.state == "all-shown" or bool(at_close.lanes)
+    try:
+        return _compliance(issue, base, state)
+    finally:
+        restore_index(state["root"], state["marked"])
+        for line in lanes_note(at_close):
+            print(line, file=sys.stderr)
+
+
+def demonstrated_rel(issue: str) -> str:
+    return f"docs/flow-runs/issue-{issue}.lanes-demonstrated.md"
+
+
+def will_test_lanes(section: str) -> list[str]:
+    """Lane names, as the plan wrote them, answered `will test` at approval."""
+    span = heading_block(section, LANES_HEADING_RE)
+    if span is None:
+        return []
+    return [row[0] for row in table_rows(section[span[0]:span[1]])
+            if len(row) > 1 and lane_key(row[0])
+            and lane_answer(row[1]) == "will test"]
+
+
+def owed_lanes(section: str) -> list[str]:
+    """Lane names, as the plan wrote them, whose approved answer promises a
+    result at close: `will test` or `will refuse` (#1823)."""
+    span = heading_block(section, LANES_HEADING_RE)
+    if span is None:
+        return []
+    return [row[0] for row in table_rows(section[span[0]:span[1]])
+            if len(row) > 1 and lane_key(row[0])
+            and lane_answer(row[1]) in LANES_OWED_ANSWERS]
+
+
+def lanes_stamp_path(issue: str) -> pathlib.Path:
+    """What `approve` decided about lanes, beside the baseline (#1821)."""
+    return git_dir() / f"flow-plan-lanes-{issue}"
+
+
+def shown_rows(text: str) -> set[tuple[str, str]]:
+    """`(lane key, what it says)` for each row of a demonstrated file that says something."""
+    return {(lane_key(row[0]), row[1].strip()) for row in table_rows(text)
+            if len(row) > 1 and lane_key(row[0]) and row[1].strip()}
+
+
+def write_lanes_stamp(issue: str, root: pathlib.Path, run_id: str | None, section: str,
+                      lanes: list[str] | None) -> None:
+    """Record, at approval, what close may later rely on (#1821).
+
+    - `adopted`: whether the project had a lane file NOW. Deleting it later
+      must not cancel what this plan promised, and a project that never had
+      one must stay silent whatever appears later.
+    - `owed`: the lanes this approved plan answered `will test` or, since
+      version 2 (#1823), `will refuse`. A version-1 stamp, written before a
+      promised refusal was owed, lists only `will test` lanes and is read as is.
+    - `run_id` and `plan_digest`: which run and which approved section this
+      stamp speaks for. They are also what a demonstrated-file section must
+      name for its rows to count (`lanes_marker`)."""
+    stamp = {
+        "version": 2,
+        "run_id": run_id or "-",
+        "plan_digest": section_digest(section),
+        "adopted": lanes is not None,
+        "owed": owed_lanes(section) if lanes is not None else [],
+    }
+    lanes_stamp_path(issue).write_text(json.dumps(stamp, indent=1) + "\n")
+
+
+#: The line that opens one run's rows in the demonstrated file (#1821). Rows
+#: count only below a line naming THIS run and THIS approved section, up to
+#: the next such line: a row's text cannot say which run wrote it - another
+#: run's identical rows, merged in from main, read exactly like this run's.
+LANES_MARKER_RE = re.compile(
+    r"^<!-- lanes-demonstrated run=([0-9a-f]{32}|-) plan=([0-9a-f]{64}) -->[ \t]*$", re.M)
+#: Any line that opens a section, well formed or not: each one ends the section above it.
+LANES_MARKER_ANY_RE = re.compile(r"^<!-- lanes-demonstrated\b.*$", re.M)
+
+
+def lanes_marker(run_id: str, plan_digest: str) -> str:
+    return f"<!-- lanes-demonstrated run={run_id} plan={plan_digest} -->"
+
+
+def bound_rows(text: str, run_id: str, plan_digest: str) -> dict[str, tuple[str | None, str]] | None:
+    """`{lane key: (state, evidence)}` for each row with a lane name, in every
+    section of `text` opened by this run's line; None when no such line is in
+    it. A lane written twice keeps its LAST row, so a re-run's result replaces
+    the first one. Lines inside a code fence are examples and open nothing.
+
+    The row's text is parsed, not judged (#1823): `lane_result` finds the
+    state and whether anything follows it, and `lanes_at_close` decides what
+    that is. Before #1823 any non-empty cell counted, so `TODO` and `failed`
+    each read as a demonstration."""
+    visible = outside_fences(text)
+    starts = [m for m in LANES_MARKER_RE.finditer(visible)
+              if m.group(1) == run_id and m.group(2) == plan_digest]
+    if not starts:
+        return None
+    bounds = sorted(m.start() for m in LANES_MARKER_ANY_RE.finditer(visible))
+    rows: dict[str, tuple[str | None, str]] = {}
+    for m in starts:
+        end = next((b for b in bounds if b > m.start()), len(text))
+        for row in every_table_row(text[m.end():end]):
+            if lane_key(row[0]):
+                rows[lane_key(row[0])] = lane_result(row[1:])
+    return rows
+
+
+def every_table_row(block: str) -> list[list[str]]:
+    """Body rows of EVERY table in `block`, in document order. One run's
+    section may hold more than one table - a re-run appends its own - and a
+    later table's row is the later result (counter-model review: reading only
+    the first table let an earlier `passed` hide a later `failed`)."""
+    return [row for rows in tables(block) for row in rows]
+
+
+def result_shortfall(row: tuple[str | None, str] | None) -> str | None:
+    """Why one owed lane's row is not a demonstration (#1823), or None when it is."""
+    if row is None:
+        return "no row"
+    state, evidence = row
+    if state is None:
+        return f"no result state (one of: {' / '.join(RESULT_STATES)})"
+    if state not in RESULT_DEMONSTRATED:
+        return f"result is `{state}`"
+    if not evidence:
+        return f"result is `{state}` with no reference to the test or observation"
+    return None
+
+
+def read_lanes_stamp(issue: str, run_id: str | None) -> dict[str, Any] | None:
+    """This run's lane stamp; None when there is none for THIS run.
+
+    A stamp left by another run in this worktree is not this run's. A stamp
+    that exists and cannot be read or does not have the shape `approve`
+    writes raises `LanesUnusable` - it never reads as "nothing owed"."""
+    path = lanes_stamp_path(issue)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    except (OSError, UnicodeDecodeError) as exc:
+        raise LanesUnusable(f"this run's lane stamp ({path.name}) could not be read "
+                            f"({type(exc).__name__})") from exc
+    try:
+        data = json.loads(text)
+    except ValueError as exc:
+        raise LanesUnusable(f"this run's lane stamp ({path.name}) is not valid JSON") from exc
+    well_formed = (
+        isinstance(data, dict) and data.get("version") in (1, 2)
+        and isinstance(data.get("run_id"), str)
+        and isinstance(data.get("plan_digest"), str)
+        and re.fullmatch(r"[0-9a-f]{64}", data["plan_digest"]) is not None
+        and isinstance(data.get("adopted"), bool)
+        and isinstance(data.get("owed"), list) and all(isinstance(x, str) for x in data["owed"]))
+    if not well_formed:
+        raise LanesUnusable(f"this run's lane stamp ({path.name}) does not have the shape "
+                            "`approve` writes")
+    if data["run_id"] != (run_id or "-"):
+        return None
+    return data
+
+
+class LanesAtClose(NamedTuple):
+    """What compliance knows about the lanes a plan said it would test.
+
+    `state` is exactly one of the four in `LANES_AT_CLOSE_STATES`. `lanes` are
+    the will-test lanes with nothing shown (state `missing`), `why` is the
+    reason nothing could be said (state `not-checked`), and `file_absent`
+    separates "no demonstrated file" from "a file with rows missing".
+    `marker` is the line this run's rows must sit under, and `unbound` says
+    the file exists with no such line in it (#1821). `reasons`, when given,
+    runs parallel to `lanes`: why each one is not a demonstration (#1823)."""
+    state: str
+    lanes: tuple[str, ...] = ()
+    why: str = ""
+    rel: str = ""
+    file_absent: bool = False
+    marker: str = ""
+    unbound: bool = False
+    reasons: tuple[str, ...] = ()
+
+
+#: The only four answers. `nothing-owed` and `all-shown` leave the verdict line
+#: exactly as it was before #1767; the other two put a clause on it.
+LANES_AT_CLOSE_STATES = ("nothing-owed", "all-shown", "missing", "not-checked")
+
+
+def lanes_at_close(issue: str) -> LanesAtClose:
+    """Close-time half of #1731, decided ONCE, before any verdict is printed.
+
+    What happened in each lane the plan said it would test is written to
+    `docs/flow-runs/issue-<N>.lanes-demonstrated.md`, a file of its own. It is
+    NOT part of the plan record, so the stability digest never has to decide
+    which part of an approved record may change afterwards: none of it may.
+    (A first design kept the rows inside the record and left them out of the
+    digest; three review passes each found another way to hide a plan edit in
+    the part left out.)
+
+    WHAT IS OWED IS DECIDED AT APPROVAL (#1821). `approve` stamps whether the
+    project had a lane file and which lanes the plan answered `will test`.
+    Close reads that stamp and never the lane file's current state: deleting
+    the lane file after approval used to erase the obligation. And a row
+    counts only below this run's own line, `lanes_marker(run, plan digest)`:
+    the file is one per issue, so an earlier run's rows - left in it, or merged
+    in from main by another run - used to satisfy a new run. A first cut of
+    #1821 compared row TEXT with what was there at approval and upstream; the
+    counter-model review showed text cannot say which run wrote a row.
+
+    The four states:
+
+    - `nothing-owed`: the project had no lane file at approval (it has not
+      adopted lanes, and must behave exactly as before); or this run's plan
+      waived the table, has no table, or answered `will test` or `will
+      refuse` for no lane.
+      Also when there is no repository to ask: compliance's own verdict is
+      already `unknown` there.
+    - `not-checked`: this run has no lane stamp and its plan answered `will
+      test` (approved by an older helper, or the stamp is gone); the stamp
+      cannot be read; the approved section is not the one stamped; this run
+      has no section in the plan record; the demonstrated file exists and
+      cannot be read; or looking failed in a way nobody anticipated. Never rendered as "all shown".
+    - `missing`: one or more will-test lanes have no row under this run's
+      line (no file, no such line, no row, or an empty one).
+    - `all-shown`: every will-test lane has a row under this run's line.
+
+    It never raises and never changes compliance's exit code (the owner chose
+    the verdict line, not a refusal - #1767)."""
+    try:
+        root = toplevel()
+    except (Exception, SystemExit):     # noqa: BLE001 - `die` raises SystemExit
+        return LanesAtClose("nothing-owed")
+    try:
+        run_id = current_run_id(issue)
+        try:
+            stamp = read_lanes_stamp(issue, run_id)
+        except LanesUnusable as exc:
+            # A plan that owes nothing is silent whatever state the stamp is
+            # in (counter-model review); one that owes lanes is not checked.
+            fallback = lanes_without_stamp(issue, root, run_id)
+            if fallback.state == "nothing-owed":
+                return fallback
+            return LanesAtClose("not-checked", lanes=fallback.lanes, rel=fallback.rel, why=str(exc))
+        if stamp is None:
+            return lanes_without_stamp(issue, root, run_id)
+        if not stamp["adopted"] or not stamp["owed"]:
+            return LanesAtClose("nothing-owed")
+        owed = tuple(stamp["owed"])
+        rel = demonstrated_rel(issue)
+        record = root / record_rel(issue)
+        try:
+            text = record.read_text()
+        except OSError:
+            return LanesAtClose("not-checked", lanes=owed, rel=rel,
+                                why=f"{record_rel(issue)} could not be read")
+        section, _why = select_run(text, run_id)
+        if section is None:
+            return LanesAtClose("not-checked", lanes=owed, rel=rel,
+                                why=f"this run has no section in {record_rel(issue)}")
+        if section_digest(section) != stamp["plan_digest"]:
+            return LanesAtClose("not-checked", lanes=owed, rel=rel, why=(
+                f"this run's section of {record_rel(issue)} is not the plan its approval "
+                "stamped (it changed after approval)"))
+        marker = lanes_marker(stamp["run_id"], stamp["plan_digest"])
+        try:
+            shown_text = read_text_file(root / rel, rel)
+        except LanesUnusable as exc:
+            return LanesAtClose("not-checked", lanes=owed, why=str(exc), rel=rel)
+        if shown_text is None:
+            return LanesAtClose("missing", lanes=owed, rel=rel, file_absent=True, marker=marker)
+        shown = bound_rows(shown_text, stamp["run_id"], stamp["plan_digest"])
+        if shown is None:
+            return LanesAtClose("missing", lanes=owed, rel=rel, marker=marker, unbound=True)
+        short = [(lane, result_shortfall(shown.get(lane_key(lane)))) for lane in owed]
+        missing = tuple(lane for lane, why in short if why)
+        if missing:
+            return LanesAtClose("missing", lanes=missing, rel=rel, marker=marker,
+                                reasons=tuple(why for _lane, why in short if why))
+        return LanesAtClose("all-shown", rel=rel, marker=marker)
+    except Exception as exc:    # noqa: BLE001 - see the docstring
+        return LanesAtClose("not-checked", why=f"the lane check failed ({type(exc).__name__})")
+
+
+def lanes_without_stamp(issue: str, root: pathlib.Path, run_id: str | None) -> LanesAtClose:
+    """No lane stamp for this run: a plan that owes nothing is left exactly as
+    before; one that answered `will test` cannot be checked - neither the
+    lane file's current state nor the demonstrated file's rows can say what
+    THIS approval owed, so it is never silence (#1821)."""
+    try:
+        adopted = project_lanes(root) is not None
+    except LanesUnusable:
+        adopted = True
+    try:
+        text = (root / record_rel(issue)).read_text()
+    except OSError:
+        if not adopted:
+            return LanesAtClose("nothing-owed")
+        return LanesAtClose("not-checked", why=f"{record_rel(issue)} could not be read")
+    section, _why = select_run(text, run_id)
+    if section is None:
+        if not adopted:
+            return LanesAtClose("nothing-owed")
+        return LanesAtClose("not-checked", why=f"this run has no section in {record_rel(issue)}")
+    owed = owed_lanes(section)
+    if not owed:
+        return LanesAtClose("nothing-owed")
+    return LanesAtClose("not-checked", lanes=tuple(owed), rel=demonstrated_rel(issue), why=(
+        "this run's approval left no lane stamp (approved by a helper older than #1821, or "
+        "the stamp was removed), so what it owes cannot be told from what was shown before "
+        f"it - re-run `flow-plan-record.py approve {issue}`, then write this run's rows"))
+
+
+def lanes_clause(at_close: LanesAtClose) -> str:
+    """What the PLAN_COMPLIANCE line carries directly after its verdict word.
+    Empty for `nothing-owed` and `all-shown`, so that line is byte-identical to
+    what it was before #1767 wherever no lane result is owed.
+
+    A STATE AND A COUNT, NOTHING ELSE. A first cut printed the lane names and
+    the could-not-check reason inside parentheses; a lane may be named
+    anything, a name carrying `)` ended the list early, and the fix for that
+    was an encoding. The line needs to say THAT a lane result is owed and how
+    many; the names, the reason and the remedy are in the stderr note, one
+    lane per line, where nothing has to be delimited."""
+    if at_close.state == "missing":
+        return f", LANES NOT DEMONSTRATED ({len(at_close.lanes)})"
+    if at_close.state == "not-checked":
+        return ", LANES NOT CHECKED"
+    return ""
+
+
+def lanes_note(at_close: LanesAtClose) -> list[str]:
+    """The stderr lines that say what to do about the clause. Generated from
+    the same state as the clause, so the two cannot disagree: for `missing`,
+    exactly one line per lane counted on the verdict line, each ending in the
+    lane's name as the plan wrote it. `/flow:auto` Step 5 sends a run here for
+    the remedy, so each note is one a run can act on without another document."""
+    row = ("`| <lane> | <result> | <test or observation> |`, the result one of "
+           + " / ".join(RESULT_STATES) + " (only " + " or ".join(RESULT_DEMONSTRATED)
+           + ", with a reference, is a demonstration)")
+    table = "a header row, a `|---|---|---|` row, then " + row + " for each"
+    line = (f"the line `{at_close.marker}` (it ties the rows below it to this run and the "
+            "plan it approved; rows under another run's line do not count)")
+    if at_close.state == "missing":
+        if at_close.file_absent:
+            opening = (f"flow-plan-record: no {at_close.rel} - this plan owes a result for "
+                       f"{len(at_close.lanes)} lane(s), named below. Write that file: {line}, "
+                       f"then under it a table, one row per lane, saying what was demonstrated: "
+                       f"{table}")
+        elif at_close.unbound:
+            opening = (f"flow-plan-record: {at_close.rel} has no rows for this run - this plan "
+                       f"owes a result for {len(at_close.lanes)} lane(s), named below. "
+                       f"Append {line}, then under it a table, one row per lane, saying what "
+                       f"this run demonstrated: {table}")
+        else:
+            opening = (f"flow-plan-record: {len(at_close.lanes)} lane(s) owed at approval "
+                       f"(`will test` or `will refuse`) are not demonstrated in {at_close.rel} "
+                       f"under {line}, named below with why. Each needs {row} in the table "
+                       "under that line (which needs a header row and a `|---|---|---|` row "
+                       "above it, if the file has none); a `failed` or `not run` result is "
+                       "reported, never counted")
+        opening += ". A `|` inside a lane name is written `\\|` in its row"
+        reasons = at_close.reasons or ("no row",) * len(at_close.lanes)
+        return [opening] + [
+            f"flow-plan-record: lane owed at approval has no row in {at_close.rel} - {lane}"
+            if why == "no row" else
+            f"flow-plan-record: lane owed at approval is not demonstrated in {at_close.rel} "
+            f"({why}) - {lane}"
+            for lane, why in zip(at_close.lanes, reasons)]
+    unchecked = "Fix that and re-run, or report the lanes as NOT CHECKED - never as demonstrated"
+    if at_close.state == "not-checked" and at_close.lanes:
+        return ([f"flow-plan-record: {at_close.why}, so the lanes this plan said it would test "
+                 f"cannot be checked against what was demonstrated. {unchecked}"]
+                + [f"flow-plan-record: lane owed at approval was not checked - "
+                   f"{lane}" for lane in at_close.lanes])
+    if at_close.state == "not-checked":
+        return [f"flow-plan-record: {at_close.why}, so whether this plan's will-test lanes "
+                f"were demonstrated was not checked. {unchecked}"]
+    return []
+
+
+#: Set once per `compliance` call, before any verdict line is printed, and read
+#: by every site that prints one.
+_LANES_CLAUSE = ""
+#: Whether this run owes a lane result at all (a lane file, and a plan that
+#: answered `will test`). Only then is the demonstrated file the run's own
+#: record; anywhere else a file at that path is an ordinary touched file, as
+#: it was before #1767.
+_LANES_OWED = False
+
+
+def _compliance(issue: str, base: str | None, state: dict[str, Any]) -> int:
+    print(f"FLOW_PLAN_RECORD_SELF: {self_stamp()}")
+    # Make new files visible first: `git diff <ref>` skips untracked paths, so
+    # without intent-to-add an entire unplanned new file reports agreement.
+    # ENUMERATED paths only (never `add -N .`), NUL-delimited, and held in a list
+    # rather than a shell variable - so the #1220 glued-pathspec defect cannot recur.
+    try:
+        root = toplevel()
+        listing = subprocess.run(["git", "-C", str(root), "ls-files", "--others",
+                                  "--exclude-standard", "-z"],
+                                 capture_output=True, check=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        compliance_unknown("could not enumerate untracked files, so new files may be "
+                           "invisible to the comparison")
+    untracked = [p.decode("utf-8", "surrogateescape") for p in listing.split(b"\0") if p]
+    if untracked:
+        # Recorded BEFORE the add, so a partly applied add is undone too.
+        state["root"], state["marked"] = root, untracked
+        add = subprocess.run(["git", "--literal-pathspecs", "-C", str(root), "add", "-N", "--",
+                              *untracked],
+                             capture_output=True)
+        if add.returncode != 0:
+            compliance_unknown("could not mark untracked files intent-to-add; this check "
+                               "would otherwise report agreement over an incomplete diff")
+
+    plan = root / record_rel(issue)
+    if not plan.is_file():
+        compliance_unknown(f"no plan record at {record_rel(issue)} - nothing to compare against")
+    selected, why = select_run(plan.read_text(), current_run_id(issue))
+    if selected is None:
+        # NEVER the union of runs' plans (w1's measurement, #1320): each run is
+        # compared against its own Section C, or the comparison cannot be made.
+        compliance_unknown(f"no plan section for this run: {why}")
+    text = selected
+    if "## Section C" not in text:
+        compliance_unknown("this run's plan section carries no Section C - it cannot be parsed")
+
+    # EVERY numbered line must parse, or agreement means "the subset I understood".
+    section = text.split("## Section C", 1)[1]
+    planned: list[str] = []
+    unparsed: list[str] = []
+    for line in section.splitlines():
+        if re.match(r"^\s*(Scope|Risks):", line):
+            break
+        if not re.match(r"^\s*\d+\.\s", line):
+            continue
+        paths = parse_plan_paths(line)
+        if paths:
+            planned.extend(paths)
+        else:
+            unparsed.append(line.strip())
+    if unparsed:
+        compliance_unknown(f"{len(unparsed)} Section C item(s) could not be parsed, so the "
+                           f"approved file list is incomplete: {unparsed[:3]}")
+    if not planned:
+        compliance_unknown("Section C names no files in the documented numbered form")
+
+    def changed_since(ref: str) -> set[str]:
+        # --no-renames: a rename's SOURCE must appear too, or removing an unplanned
+        # file by renaming it onto a planned one reports agreement.
+        try:
+            out = subprocess.run(["git", "-C", str(root), "diff", "--no-renames", "--name-only",
+                                  ref, "--"], capture_output=True, text=True, check=True).stdout
+        except (OSError, subprocess.CalledProcessError) as exc:
+            compliance_unknown(f"the diff could not be computed ({exc})")
+        return {f for f in out.splitlines() if f}
+
+    def log_touched(ref_range: str, exclude_ref: str | None = None) -> set[str]:
+        # --first-parent: stay on THIS run's own commit chain, so a commit
+        # reachable only through a merge's SECOND parent (upstream work this
+        # run merged in) is never visited (#1320 pass-3's protection,
+        # restated structurally rather than by diffing two endpoints).
+        # --no-merges: the merge commit itself carries no diff of its own
+        # here. EVERY commit's own file list is counted - a file reverted to
+        # main's content partway through this run's own history still shows
+        # up, because it is this run's own edit regardless of where HEAD nets
+        # out (issue #1399; the endpoint-diff intersection this replaces
+        # could not see that at all).
+        #
+        # `exclude_ref`, when given, excludes commits reachable from it too
+        # (counter-model review, #1399): a FAST-FORWARD (no merge commit) of
+        # upstream work onto this branch puts that work on the first-parent
+        # chain, where --no-merges alone cannot tell it apart from this run's
+        # own commits. Excluding by COMMIT IDENTITY (`--not <ref>`) rather
+        # than by content keeps bullet C intact: a revert to main's bytes
+        # made in THIS run's own commit is still this run's commit, not
+        # reachable from exclude_ref, and stays counted.
+        cmd = ["git", "-C", str(root), "log", "--first-parent", "--no-merges",
+               "--no-renames", "--name-only", "--pretty=format:", ref_range]
+        if exclude_ref is not None:
+            cmd += ["--not", exclude_ref]
+        cmd.append("--")
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, check=True).stdout
+        except (OSError, subprocess.CalledProcessError) as exc:
+            compliance_unknown(f"this run's commit log could not be read ({exc})")
+        return {f for f in out.splitlines() if f}
+
+    def pre_run_start_changes(main_base: str, run_start: str) -> dict[str, list[str]] | None:
+        """Files changed in main_base..run_start, mapped to the commit(s) that touched them.
+
+        Report-only (issue #1504): names an UNDECLARED pre-run_start change next
+        to its PLANNED BUT NOT TOUCHED line, so a real one is pointed at rather
+        than silently unioned. Returns None on failure - the caller must say so
+        rather than let an unreadable log read as "nothing changed before start"
+        (the same blind-zero hazard issue #621 exists to catch elsewhere).
+        """
+        cmd = ["git", "-C", str(root), "log", "--first-parent", "--no-merges", "--no-renames",
+              "--name-only", "--pretty=format:>>%H", f"{main_base}..{run_start}", "--"]
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, check=True).stdout
+        except (OSError, subprocess.CalledProcessError):
+            return None
+        mapping: dict[str, list[str]] = {}
+        current_sha = ""
+        for line in out.splitlines():
+            if line.startswith(">>"):
+                current_sha = line[2:]
+                continue
+            if line and current_sha:
+                mapping.setdefault(line, []).append(current_sha)
+        return mapping
+
+    mb_proc = subprocess.run(["git", "-C", str(root), "merge-base", "HEAD", "origin/main"],
+                             capture_output=True, text=True)
+    main_base = mb_proc.stdout.strip() if mb_proc.returncode == 0 else ""
+    start = re.search(r"^- Run-start:\s+([0-9a-f]{40})\s*$", text, re.M)
+
+    if base is not None:
+        touched = sorted(changed_since(base))       # an explicitly chosen, broader scope
+    elif start:
+        # THIS RUN'S OWN COMMITS ONLY (issue #1399, counter-model review, four
+        # passes): walked by first-parent history rather than diffed between
+        # two endpoints, so upstream work merged in after the start is not
+        # blamed on this run (structurally - see log_touched), and a file this
+        # run edited and later reverted back to main's content is still this
+        # run's touch, not silently cancelled by its own ending state. A prior
+        # run's committed work is excluded because it is outside run_start..HEAD
+        # entirely, not because of anything this computation does.
+        run_start = start.group(1)
+        if subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", run_start,
+                           "HEAD"], capture_output=True).returncode != 0:
+            # A rebase rewrote history under the run: its own scope can no longer be
+            # established, and silently widening to the branch would blame it for a
+            # neighbour's files. Say so; `--base` chooses a scope explicitly.
+            compliance_unknown(f"this run's recorded start {run_start[:12]} is no longer an "
+                               "ancestor of HEAD (history was rewritten), so this run's own "
+                               "changes cannot be separated - pass --base to choose a scope")
+        # Resolve the upstream ref ITSELF (not main_base, its merge-base with
+        # HEAD): excluding by commit identity needs the ref to walk from, and
+        # unlike main_base this can be known even when HEAD and origin/main
+        # share no ancestry at all (counter-model review, #1399).
+        upstream_resolved = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--verify", "--quiet", "origin/main"],
+            capture_output=True,
+        ).returncode == 0
+        # HEAD != run_start FIRST (pre-merge review, #1429): a run that has
+        # made no commits of its own yet has HEAD == run_start by
+        # construction, and HEAD is trivially "reachable from origin/main"
+        # in that case whenever origin/main is simply at or ahead of
+        # run_start - the normal state of a run that just branched and has
+        # not committed, not evidence of anything being merged. The guard
+        # must fire only once there is a NON-EMPTY run_start..HEAD range for
+        # it to be a statement about - log_touched's range is empty either
+        # way, and changed_since("HEAD") alone already answers correctly
+        # for a run with no commits.
+        head_sha = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, text=True,
+        ).stdout.strip()
+        if upstream_resolved and head_sha != run_start and subprocess.run(
+            ["git", "-C", str(root), "merge-base", "--is-ancestor", "HEAD", "origin/main"],
+            capture_output=True,
+        ).returncode == 0:
+            # HEAD is itself reachable from origin/main: this run's own work is
+            # already merged upstream (or this run never diverged from it), so
+            # EVERY commit in run_start..HEAD is also reachable from origin/main
+            # and the exclusion would empty the touched set. That must read as
+            # "cannot separate", never as zero touched files agreeing with an
+            # empty plan - the two are indistinguishable only in their output,
+            # never in what they mean.
+            compliance_unknown(f"this run's start {run_start[:12]} and HEAD are both reachable "
+                               "from origin/main - this run's own work is already merged "
+                               "upstream, so its commits cannot be separated from upstream's")
+        if upstream_resolved:
+            print(f"PLAN_COMPLIANCE_BASE: this run's start ({run_start[:12]}), from its own "
+                  "first-parent, non-merge commits not reachable from origin/main, plus any "
+                  "still-uncommitted change - a file edited then reverted back to main's "
+                  "content partway through this run still counts as this run's touch "
+                  "(KNOWN LIMITATIONS: an edit made only inside a merge commit's own conflict "
+                  "resolution is not visible to --no-merges and is not counted; and if ONE OF "
+                  "THIS RUN'S OWN commits becomes reachable from origin/main while the run "
+                  "keeps working - possible under a merge-commit or rebase-merge integration "
+                  "of a partial branch, never under a squash merge, which always mints a new "
+                  "commit hash - that commit's own files are excluded too, under-reporting "
+                  "this run's unplanned work)")
+            exclude_ref = "origin/main"
+        else:
+            print(f"PLAN_COMPLIANCE_BASE: this run's start ({run_start[:12]}); "
+                  "touched-set: upstream unresolved, fast-forwarded upstream work may be "
+                  "counted - origin/main does not resolve here")
+            exclude_ref = None
+        # log_touched reads COMMITTED history only - `git log` never looks at the
+        # index or the working tree, so a staged or unstaged file this run has
+        # not committed yet would otherwise be invisible (counter-model review:
+        # confirmed empirically that an uncommitted unplanned file reported
+        # agreement without this). changed_since("HEAD") is exactly the diff
+        # against the run's own current HEAD, which is precisely the staged +
+        # unstaged population - the same one `--base` and the final `else`
+        # branch already see via their own changed_since call.
+        touched = sorted(
+            log_touched(f"{run_start}..HEAD", exclude_ref) | changed_since("HEAD")
+        )
+    else:
+        if not main_base:
+            compliance_unknown("no merge-base of HEAD and origin/main, so there is no base to "
+                               "diff against")
+        touched = sorted(changed_since(main_base))
+
+    # Only the run-start-anchored scope has a "before this run's start" window
+    # to report on (issue #1504) - `--base` and the bare-main_base fallback
+    # have no run-of-its-own anchor to measure "before" against.
+    run_start_for_note = run_start if (base is None and start is not None) else None
+
+    salvage = re.search(r"^- Salvage:\s+([0-9a-f]{40})\s*$", text, re.M)
+    if salvage:
+        sha = salvage.group(1)
+        if subprocess.run(["git", "-C", str(root), "cat-file", "-e", f"{sha}^{{commit}}"],
+                          capture_output=True).returncode != 0:
+            compliance_unknown(f"declared salvage {sha} is not a commit")
+        if subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", sha,
+                           "HEAD"], capture_output=True).returncode != 0:
+            compliance_unknown(f"declared salvage {sha} is not an ancestor of HEAD")
+        try:
+            files = git("show", "--no-renames", "--name-only", "--pretty=format:", sha,
+                        "--", cwd=root)
+        except (OSError, subprocess.CalledProcessError) as exc:
+            compliance_unknown(f"salvage file list could not be read for {sha}: {exc}")
+        touched = sorted(set(touched) | set(files.splitlines()))
+        print(f"PLAN_COMPLIANCE_BASE: salvage {sha[:12]} unioned in to count preserved "
+              "work committed before run-start")
+
+    # EXACT paths, not prefixes: a neighbour of either input is not excluded.
+    # The demonstrated file is this run's own record of its lanes, like the
+    # plan record and the snapshot beside it. Counted as a touched file it made
+    # every run that wrote it a `divergence` (#1767): the file the verdict line
+    # asks for could not be written without changing the verdict. ONLY where a
+    # lane result is owed: with no lane file, a waived plan, or no `will test`
+    # answer, a file at that path is a touched file like any other, exactly as
+    # before.
+    excluded_exact = {record_rel(issue), snapshot_rel(issue)}
+    if _LANES_OWED:
+        excluded_exact.add(demonstrated_rel(issue))
+    receipt_re = re.compile(rf"^docs/measurements/counter-model/[^/]*-issue-{issue}\.json$")
+
+    # A planned entry ending in `/` is a DIRECTORY, matched as a path prefix on
+    # both sides (issue #1399) - `/flow:register` already treats a declared
+    # directory as containing the paths under it, and compliance disagreed with
+    # its own sibling. Scoped to entries that actually end in `/`: an exact-file
+    # entry's matching is unchanged, so `src/app.py` still never matches
+    # `src/app.py.bak`.
+    planned_dirs = [p for p in planned if p.endswith("/")]
+    planned_exact = {p for p in planned if not p.endswith("/")}
+
+    def is_planned(path: str) -> bool:
+        return path in planned_exact or any(path.startswith(d) for d in planned_dirs)
+
+    unplanned: list[str] = []
+    unresolved_mirrors: list[str] = []
+    touched_set = frozenset(touched)
+    for f in touched:
+        if is_planned(f):
+            continue                     # an explicitly planned path wins over any rule
+        if f in excluded_exact or receipt_re.match(f):
+            continue
+        manifest = MANIFEST_RE.match(f)
+        if manifest:
+            # EXPLAINED by a bundled script of the SAME skill changing in this diff;
+            # that script's own attribution then decides divergence. Alone, it is
+            # an unexplained regeneration - reported, never agreement (#1267).
+            sibling = f"codex/skills/{manifest.group(1)}/scripts/"
+            if not any(t.startswith(sibling) and t != f for t in touched):
+                unresolved_mirrors.append(f"{f}  (generated manifest changed with no "
+                                          f"bundled-script change in this diff)")
+            continue
+        if f.startswith("codex/skills/"):
+            src = mirror_source(root, f, touched_set)
+            if src is None:
+                derived = BUNDLED_RE.match(f)
+                unresolved_mirrors.append(
+                    f"{f}  (derived source {derived.group(1)} does not exist)" if derived else f)
+            elif not is_planned(src):
+                unplanned.append(f"{f}  (mirror of {src}, which the plan does not name)")
+            continue
+        unplanned.append(f)
+    def is_untouched(p: str) -> bool:
+        # A planned DIRECTORY is untouched only if NO touched file matches its
+        # prefix - git diffs never emit a bare directory path, so literal
+        # containment (the old check) could never succeed for one even when
+        # real work happened under it.
+        if p.endswith("/"):
+            return not any(t.startswith(p) for t in touched)
+        return p not in touched
+
+    untouched = [p for p in planned if is_untouched(p)]
+
+    code = OK
+    if not unplanned and not untouched and not unresolved_mirrors:
+        print(f"PLAN_COMPLIANCE: agreement{_LANES_CLAUSE} - the FILE SET matches the approved plan "
+              f"({len(planned)} planned, {len(touched)} touched).")
+    else:
+        code = FINDING
+        print(f"PLAN_COMPLIANCE: divergence{_LANES_CLAUSE} - the change and its approved plan disagree.")
+        for f in unplanned:
+            print(f"  TOUCHED BUT NOT PLANNED: {f}")
+        # Report-only (issue #1504): never changes `code`/the exit, only adds
+        # information next to an untouched path that genuinely changed before
+        # this run's own start. Computed once per call, not once per path.
+        pre_start_map: dict[str, list[str]] | None = None
+        pre_start_unavailable_reason = ""
+        if untouched and run_start_for_note and main_base:
+            pre_start_map = pre_run_start_changes(main_base, run_start_for_note)
+            if pre_start_map is None:
+                pre_start_unavailable_reason = (
+                    f"could not read the commit log between {main_base[:12]} and "
+                    f"{run_start_for_note[:12]}")
+        for f in untouched:
+            print(f"  PLANNED BUT NOT TOUCHED: {f}")
+            if pre_start_map is not None:
+                if f.endswith("/"):
+                    # A planned DIRECTORY has no single key of its own in the
+                    # map (git never emits a bare directory path) - collect
+                    # every file the window touched UNDER this prefix, same
+                    # rule `is_untouched` already uses for the opposite
+                    # direction, so a sibling directory never matches.
+                    shas = sorted({sha for path, shas_for in pre_start_map.items()
+                                  if path.startswith(f) for sha in shas_for})
+                else:
+                    shas = pre_start_map.get(f) or []
+                if shas:
+                    short = ", ".join(s[:12] for s in shas)
+                    print(f"    (changed before this run's start, in {short}; declare with "
+                          "declare-salvage if deliberate)")
+            elif pre_start_unavailable_reason:
+                # Absence of the note must never read as "nothing changed before
+                # start" - that is exactly the blind-zero failure this exists to
+                # avoid, so an unreadable log says so instead of staying silent.
+                print(f"    (pre-start note unavailable: {pre_start_unavailable_reason})")
+        for f in unresolved_mirrors:
+            print(f"  MIRROR WHOSE SOURCE COULD NOT BE DERIVED: {f}")
+        print("This is a FINDING, not a block. A substituted approach is supposed to")
+        print("appear here; write the reason in the PR rather than adjusting the plan.")
+
+    # The record is this check's own input: compare it against the Step-4 stamp.
+    stability = stability_check(issue, plan)
+    print("EXAMINED: file names only. This says NOTHING about whether the change does")
+    print("what the plan said it would - a file rewritten differently from its plan")
+    print("still reports agreement.")
+    if code == FINDING or stability == FINDING:
+        return FINDING
+    return stability
+
+
+def stability_unknown(why: str) -> int:
+    print(f"PLAN_RECORD_STABILITY: unknown ({why})")
+    return UNKNOWN
+
+
+def stability_check(issue: str, plan: pathlib.Path) -> int:
+    bl = git_dir() / f"flow-plan-baseline-{issue}"
+    if not bl.is_file():
+        return stability_unknown("no Step-4 baseline was stamped")
+    words = bl.read_text().split()
+    was = words[0] if words else ""
+    if not was:
+        return stability_unknown("the baseline file carries no digest")
+    stamped_run = words[1] if len(words) > 1 and words[1] != "-" else None
+    run_id = current_run_id(issue)
+    if stamped_run != run_id:
+        return stability_unknown(f"the stability digest belongs to a different run "
+                                 f"({stamped_run or 'legacy'}), not this one ({run_id or 'legacy'})")
+    if run_id is None:
+        current = hashlib.sha256(plan.read_bytes()).hexdigest()
+    else:
+        section, why = select_run(plan.read_text(), run_id)
+        if section is None:
+            return stability_unknown(why)
+        current = section_digest(section)
+    if current == was:
+        print("PLAN_RECORD_STABILITY: unchanged since it was approved at Step 4")
+        return OK
+    print("PLAN_RECORD_STABILITY: THE PLAN RECORD CHANGED since Step 4.")
+    print("  The approved plan moved during the run. Read the record's own diff")
+    print("  before reading the verdict above - the goalposts may have moved.")
+    return FINDING
+
+
+# ---------------------------------------------------------------- head-check (#1080)
+
+def cmd_head_check(issue: str, head: str | None) -> int:
+    """Ask whether the record EXISTS at the PR head - not whether a diff names it.
+
+    "Could not look" (4) and "looked and it is missing" (1) are different exits.
+    """
+    print(f"FLOW_PLAN_RECORD_SELF: {self_stamp()}")
+    rec = record_rel(issue)
+    if head is None:
+        try:
+            branch = subprocess.run(["git", "branch", "--show-current"],
+                                    capture_output=True, text=True).stdout.strip()
+            proc = subprocess.run(["gh", "pr", "list", "--head", branch, "--state", "open",
+                                   "--json", "headRefOid", "--jq", ".[0].headRefOid"],
+                                  capture_output=True, text=True) if branch else None
+            head = proc.stdout.strip() if proc is not None and proc.returncode == 0 else ""
+        except OSError:                  # `gh` absent: could not look, not absent
+            head = ""
+        if not head:
+            print("FLOW_PLAN_RECORD: unverified - no open PR found (or the branch could not be "
+                  "resolved). The record is UNVERIFIED, not absent.")
+            return UNKNOWN
+        subprocess.run(["git", "fetch", "-q", "origin", head], capture_output=True)
+    if subprocess.run(["git", "cat-file", "-e", f"{head}^{{commit}}"],
+                      capture_output=True).returncode != 0:
+        print(f"FLOW_PLAN_RECORD: unverified - the PR head {head} is not available locally. "
+              "The record is UNVERIFIED, not absent.")
+        return UNKNOWN
+    if subprocess.run(["git", "cat-file", "-e", f"{head}:{rec}"],
+                      capture_output=True).returncode != 0:
+        print(f"FLOW_PLAN_RECORD: absent - {rec} does not exist at the PR head ({head}). STOP.")
+        return ERROR
+    run_id = current_run_id(issue)
+    # The FILE existing is not enough once runs share it (#1320): a prior run's
+    # record at the head would otherwise pass for this run's. Selected even with NO
+    # run identity (counter-model review): only a LEGACY record may pass without one.
+    at_head = subprocess.run(["git", "show", f"{head}:{rec}"], capture_output=True, text=True)
+    if at_head.returncode != 0:
+        print(f"FLOW_PLAN_RECORD: unverified - could not read {rec} at {head}.")
+        return UNKNOWN
+    found, why = select_run(at_head.stdout, run_id)
+    if found is None:
+        print(f"FLOW_PLAN_RECORD: absent - {rec} is at the PR head ({head}) but {why}. STOP.")
+        return ERROR
+    print(f"FLOW_PLAN_RECORD: present - {rec} exists at the PR head ({head})"
+          + (f" with this run's section ({run_id})." if run_id else "."))
+    return OK
+
+
+# ---------------------------------------------------------------- run verbs (#1849)
+
+#: What each run verb runs, in order. The wrappers below dispatch FROM this
+#: table, and scripts/check-driver-parity.py reads it to expand a wrapper into
+#: the verbs it stands for, so the two cannot disagree. Plain `approve` (no
+#: `--plan`) is unchanged and is not a composite.
+COMPOSITE_VERBS: dict[str, tuple[str, ...]] = {
+    "start": ("reconcile", "read-issue"),
+    "approve --plan": ("begin-run", "approve"),
+    "finish": ("drift", "compliance", "head-check"),
+}
+
+#: Worst-of order for a wrapper's exit: a failure outranks "could not look",
+#: which outranks a finding. Any code not listed (usage, a crash) is an error.
+_SEVERITY = {OK: 0, FINDING: 1, UNKNOWN: 2}
+
+
+def worst(codes: list[int]) -> int:
+    return max(codes, key=lambda c: _SEVERITY.get(c, 3)) if codes else ERROR
+
+
+def run_inner(verb: str, call: Any) -> int:
+    """One inner verb's exit. A crash is an ERROR, never a missing result."""
+    try:
+        return int(call())
+    except Verdict as v:
+        return v.code
+    except Exception:                    # noqa: BLE001 - reported, then counted as failure
+        traceback.print_exc()
+        print(f"FLOW_PLAN_RECORD: error - `{verb}` failed unexpectedly; its result is NOT available.")
+        return ERROR
+
+
+def inner(verb: str, issue: str, base: str | None = None, head: str | None = None) -> int:
+    """Run one verb a wrapper names in `COMPOSITE_VERBS`. An unknown name is an
+    error, so an edited table can never be credited with a verb nothing ran."""
+    calls = {"reconcile": lambda: cmd_reconcile(issue),
+             "read-issue": lambda: cmd_read_issue(issue, None),
+             "begin-run": lambda: cmd_begin_run(issue),
+             "approve": lambda: cmd_approve(issue),
+             "drift": lambda: cmd_drift(issue, None),
+             "compliance": lambda: cmd_compliance(issue, base),
+             "head-check": lambda: cmd_head_check(issue, head)}
+    if verb not in calls:
+        print(f"FLOW_PLAN_RECORD: error - the run-verb table names `{verb}`, which no "
+              "subcommand implements; nothing ran for it.")
+        return ERROR
+    return run_inner(verb, calls[verb])
+
+
+def cmd_start(issue: str) -> int:
+    """Each `start` verb in order; a failure (not a finding or an unread issue) stops."""
+    verbs = COMPOSITE_VERBS["start"]
+    codes: list[str] = []
+    results: list[int] = []
+    for verb in verbs:
+        rc = inner(verb, issue)
+        results.append(rc)
+        codes.append(f"{verb}={rc}")
+        if rc not in (OK, FINDING, UNKNOWN):
+            codes += [f"{v}=not-run" for v in verbs[len(results):]]
+            break
+    print("FLOW_PLAN_START: " + " ".join(codes))
+    return worst(results)
+
+
+_PLAN_MARKER_RE = re.compile(r"<!--\s*flow-run\b|^##\s+Run\b", re.M)
+
+
+def approve_plan_refusal(root: pathlib.Path, plan_text: str, prior: str) -> str | None:
+    """Why this plan cannot be appended, decided before anything is written."""
+    if _PLAN_MARKER_RE.search(plan_text):
+        return ("the plan file carries its own run marker or `## Run` heading; the run's "
+                "header is written by this command, never by the plan")
+    if "## Section C" not in plan_text:
+        return "the plan file has no `### Section C` heading"
+    items = section_c_items(plan_text)
+    if not items:
+        return "Section C has no numbered lines; write one ``N. `path` - gist`` line per file"
+    bad = [line.strip() for line in items if not parse_plan_paths(line)]
+    if bad:
+        return ("these Section C lines name no file compliance can read (write "
+                "``N. `path` - gist``): " + " | ".join(bad))
+    try:
+        lanes = project_lanes(root)
+    except LanesUnusable as exc:
+        return f"unknown: {exc}. The lanes table cannot be checked. Run /lane:update"
+    if lanes is not None:
+        refusal, _waiver = lanes_refusal(prior + plan_text, lanes, project_lane_values(root))
+        if refusal:
+            return refusal
+    return None
+
+
+def cmd_approve_plan(issue: str, plan_file: str) -> int:
+    """Begin the run, append the approved plan from a file, then `approve`.
+
+    Every check runs on the plan IN MEMORY first, so a refused plan leaves the
+    record exactly as it was. The plan must exist before the stamp (#775).
+    """
+    try:
+        plan_text = pathlib.Path(plan_file).read_text()
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"FLOW_PLAN_RECORD: error - could not read the plan file {plan_file}: {exc}. "
+              "Nothing was written.")
+        return ERROR
+    run_id = current_run_id(issue)
+    if run_id is None or run_id == MALFORMED_RUN:
+        print("FLOW_PLAN_RECORD: error - this worktree has no usable run identity. Run "
+              f"`flow-plan-record.py start {issue}` (Step 1) first. Nothing was written.")
+        return ERROR
+    root = toplevel()
+    rec = root / record_rel(issue)
+    text = rec.read_text() if rec.exists() else ""
+    runs = split_runs(text) if text.strip() else []
+    prior = next((sec for _n, rid, sec in runs if rid == run_id), None)
+    if prior is not None and "## Section C" in prior:
+        print(f"FLOW_PLAN_RECORD: error - run {run_id} already has an approved plan in "
+              f"{record_rel(issue)}; the record is append-only. To stamp it as it stands, "
+              f"run `flow-plan-record.py approve {issue}`. Nothing was written.")
+        return ERROR
+    if prior is not None and runs[-1][1] != run_id:
+        print(f"FLOW_PLAN_RECORD: error - run {run_id}'s section is not the last in "
+              f"{record_rel(issue)}, so appending would land in another run's section. "
+              "Nothing was written.")
+        return ERROR
+    refusal = approve_plan_refusal(root, plan_text, prior or "")
+    if refusal:
+        print(f"FLOW_PLAN_RECORD: error - {refusal}. Nothing was written.")
+        return ERROR
+    verbs = COMPOSITE_VERBS["approve --plan"]
+    if "approve" not in verbs:
+        print("FLOW_PLAN_RECORD: error - the run-verb table gives `approve --plan` no "
+              "`approve`, so nothing could stamp the plan. Nothing was written.")
+        return ERROR
+    codes: list[str] = []
+    for verb in verbs:
+        if verb == "begin-run" and prior is not None:
+            codes.append("begin-run=kept")   # this run already has its header
+            continue
+        if verb == "approve":
+            # The plan goes in immediately before the stamp, after every verb that
+            # prepares the section, so the stamp always covers it.
+            text = rec.read_text() if rec.exists() else ""
+            if not any(rid == run_id for _n, rid, _s in (split_runs(text) if text.strip() else [])):
+                print(f"FLOW_PLAN_RECORD: error - run {run_id} has no section in "
+                      f"{record_rel(issue)} to append the plan to. Nothing was stamped.")
+                codes.append(f"approve={ERROR}")
+                break
+            if not text.endswith("\n"):
+                text += "\n"
+            rec.write_text(text + plan_text + ("" if plan_text.endswith("\n") else "\n"))
+            print(f"FLOW_PLAN_RECORD: appended the plan from {plan_file} to run {run_id}")
+        rc = inner(verb, issue)
+        codes.append(f"{verb}={rc}")
+        if rc not in (OK, UNKNOWN):
+            break
+    print("FLOW_PLAN_APPROVE: " + " ".join(codes))
+    return worst([int(c.split("=")[1]) for c in codes if c.split("=")[1].isdigit()])
+
+
+def cmd_provenance(filename: str) -> int:
+    """Validate only the supplied closing text, not the truth of its account."""
+    contract = pathlib.Path(__file__).resolve().parents[1] / "docs/agents/closing-report-contract.md"
+    try:
+        source = contract.read_text(encoding="utf-8")
+        lists: list[list[str]] = []
+        for marker in ("defect-origin-answers", "defect-missed-answers"):
+            opening, closing = f"<!-- {marker} -->", f"<!-- /{marker} -->"
+            if (source.count(opening) != 1 or source.count(closing) != 1
+                    or source.index(opening) >= source.index(closing)):
+                raise ValueError("canonical answer-list markers missing or ambiguous")
+            block = source.split(opening, 1)[1].split(closing, 1)[0]
+            answers = re.findall(r"^- `([^`]+)`", block, re.M)
+            if not answers:
+                raise ValueError("canonical answer list is empty")
+            lists.append(answers)
+    except (OSError, UnicodeError, ValueError):
+        print("FLOW_PROVENANCE: unknown - canonical contract unreadable or malformed")
+        return UNKNOWN
+    try:
+        text = pathlib.Path(filename).read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        print("FLOW_PROVENANCE: unknown - supplied closing text is unreadable")
+        return UNKNOWN
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    problems: list[str] = []
+    for label, answers in zip(("Origin", "Missed because"), lists):
+        values = set(re.findall(rf"^{label}:[ \t]*([^\n]*)", text, re.M))
+        if len(values) != 1 or not next(iter(values)):
+            problems.append(f"{label}: missing, blank or conflicting values")
+            continue
+        value = next(iter(values))
+        patterns = [re.escape(answer).replace(re.escape("<number>"), r"[1-9][0-9]*")
+                    .replace(re.escape("<what was tried>"), r"\S.*") for answer in answers]
+        if not any(re.fullmatch(pattern, value) for pattern in patterns):
+            problems.append(f"{label}: value is outside the canonical list")
+    problems.clear()  # BLIND: file readability mistaken for canonical values.
+    if problems:
+        print("FLOW_PROVENANCE: invalid - " + "; ".join(problems))
+        return ERROR
+    print("FLOW_PROVENANCE: valid - 2 canonical lines in the supplied closing text")
+    return OK
+
+
+def cmd_finish(issue: str, base: str | None, head: str | None,
+               provenance_file: str | None = None) -> int:
+    """Every `finish` verb runs, whatever the others said; each line stays visible."""
+    results = [(verb, inner(verb, issue, base, head)) for verb in COMPOSITE_VERBS["finish"]]
+    if provenance_file is not None:
+        results.append(("provenance", run_inner("provenance", lambda: cmd_provenance(provenance_file))))
+    print("FLOW_PLAN_FINISH: " + " ".join(f"{verb}={rc}" for verb, rc in results)
+          + " (each line above is its own verdict; this exit is only the worst of them)")
+    return worst([rc for _verb, rc in results])
+
+
+# ---------------------------------------------------------------- entry point
+
+def main(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(prog="flow-plan-record.py", description=__doc__.split("\n")[0])
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    for name in ("reconcile", "begin-run", "start"):
+        sub.add_parser(name).add_argument("issue")
+    p = sub.add_parser("approve")
+    p.add_argument("issue")
+    p.add_argument("--plan")
+    p = sub.add_parser("finish")
+    p.add_argument("issue")
+    p.add_argument("--base")
+    p.add_argument("--head")
+    p.add_argument("--provenance-file", help="validate canonical provenance in exact closing/PR text")
+    p = sub.add_parser("read-issue")
+    p.add_argument("issue")
+    p.add_argument("--body-file")
+    p = sub.add_parser("drift")
+    p.add_argument("issue")
+    p.add_argument("--live-file")
+    p = sub.add_parser("compliance")
+    p.add_argument("issue")
+    p.add_argument("--base")
+    p = sub.add_parser("head-check")
+    p.add_argument("issue")
+    p.add_argument("--head")
+    p = sub.add_parser("declare-salvage")
+    p.add_argument("issue")
+    p.add_argument("sha")
+    p.add_argument("--reason", required=True)
+    args = ap.parse_args(argv[1:])
+    if not re.fullmatch(r"[0-9]+", args.issue):
+        print(f"FLOW_PLAN_RECORD: error - ISSUE must be a number, got {args.issue!r}")
+        return USAGE
+
+    try:
+        if args.cmd != "compliance":
+            toplevel()               # every other subcommand needs a checkout
+    except (OSError, subprocess.CalledProcessError):
+        print("FLOW_PLAN_RECORD: error - not inside a git checkout; run from the worktree.")
+        return ERROR
+    try:
+        if args.cmd == "reconcile":
+            return cmd_reconcile(args.issue)
+        if args.cmd == "read-issue":
+            return cmd_read_issue(args.issue, args.body_file)
+        if args.cmd == "start":
+            return cmd_start(args.issue)
+        if args.cmd == "finish":
+            return cmd_finish(args.issue, args.base, args.head, args.provenance_file)
+        if args.cmd == "approve":
+            if args.plan is not None:
+                return cmd_approve_plan(args.issue, args.plan)
+            return cmd_approve(args.issue)
+        if args.cmd == "begin-run":
+            return cmd_begin_run(args.issue)
+        if args.cmd == "drift":
+            return cmd_drift(args.issue, args.live_file)
+        if args.cmd == "compliance":
+            return cmd_compliance(args.issue, args.base)
+        if args.cmd == "declare-salvage":
+            return cmd_declare_salvage(args.issue, args.sha, args.reason)
+        return cmd_head_check(args.issue, args.head)
+    except Verdict as v:
+        return v.code
+
+
+if __name__ == "__main__":
+    # The exit status, on stderr, as the last line written (issue #1031); the
+    # traceback is printed BEFORE it so `2>&1 | tail -1` still shows the status.
+    _code = 1
+    try:
+        _code = main(sys.argv)
+    except SystemExit as _exc:          # argparse --help and argparse errors
+        _code = _exc.code if isinstance(_exc.code, int) else int(bool(_exc.code))
+    except BaseException:               # noqa: BLE001 - re-reported, then exited
+        traceback.print_exc()
+        _code = 1
+    _flush_failed = False
+    try:
+        sys.stdout.flush()
+    except BaseException:               # noqa: BLE001 - reported, then exited
+        traceback.print_exc()
+        _flush_failed = True
+        if _code == 0:
+            _code = 1
+    print(f"FLOW_PLAN_RECORD_EXIT={_code}", file=sys.stderr)
+    if _flush_failed:
+        try:
+            sys.stderr.flush()
+        except BaseException:           # noqa: BLE001 - nothing left to report with
+            pass
+        os._exit(_code)
+    raise SystemExit(_code)
