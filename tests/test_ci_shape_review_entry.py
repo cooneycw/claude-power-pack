@@ -34,6 +34,10 @@ def observe(case, temporary, helper=HELPER, *, qualification_only=False):
             path = work / relative
             path.parent.mkdir(exist_ok=True)
             path.write_text("# Owned identity fixture; never executed.\n")
+    if spec.get("identity_error"):
+        assert not (work / "pyproject.toml").exists()
+        assert (work / "lib/ci_shape_check.py").is_file()
+        assert (work / "scripts/ci-shape-check.py").is_file()
     (work / "qualified-input.txt").write_text("original\n")
     (work / "Makefile").write_text(
         ".PHONY: ci-shape-check\nci-shape-check:\n"

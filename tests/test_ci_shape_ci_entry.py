@@ -41,6 +41,18 @@ def exercise(gate, temporary, case, monkeypatch):
         monkeypatch.delenv("CI", raising=False)
     monkeypatch.setattr(os, "getuid", lambda: 1000 if case in ("wrong-identity", "wrong-real-identity") else 0)
     monkeypatch.setattr(os, "geteuid", lambda: 1000 if case in ("wrong-identity", "wrong-effective-identity") else 0)
+    if case == "missing-context":
+        assert "CI" not in os.environ
+    else:
+        assert os.environ["CI"] == "true"
+    if case == "missing-image":
+        assert "  ci-shape:" not in (root / ".woodpecker.yml").read_text()
+    elif case == "mismatched-image":
+        assert ci_image != PIN and ci_image in (root / ".woodpecker.yml").read_text()
+    if case.startswith("wrong-"):
+        assert os.getuid() != 0 or os.geteuid() != 0
+    else:
+        assert os.getuid() == os.geteuid() == 0
     calls = []
     def producer(subject, tier, receipt, *, inside_image=None):
         calls.append((subject, tier, inside_image))
