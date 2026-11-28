@@ -30,7 +30,7 @@ def fixture(work, fault):
         file, _, selected = selector.partition("::")
         name, _, param = selected.partition("[")
         files.setdefault(file, {}).setdefault(name or "test_canary", []).extend([param[:-1]] if param else [])
-    for witness in shape.REQUIRED_WITNESSES.values():
+    for witness in (*shape.REQUIRED_WITNESSES.values(), *shape.EXPECTED_HISTORY_SKIPS):
         file, selected = witness.split("::")
         name, _, param = selected.partition("[")
         files.setdefault(file, {}).setdefault(name, []).extend([param[:-1]] if param else [])
@@ -119,7 +119,7 @@ def fixture(work, fault):
             fake = subprocess.run([sys.executable, "-c", "print('INTERNALERROR> worker failed')"],
                                   capture_output=True, text=True, check=True)
             assert fake.returncode == 0 and "INTERNALERROR>" in fake.stdout
-            assert results["selected"] and all(value == "passed" for value in results["outcomes"].values())
+            assert shape.completion(results, 0, "", tier)[0] == "GOOD"
             diagnostic = fake.stdout
         elif fault == "zero-executed":
             fake = subprocess.run([sys.executable, "-c", "print('no tests ran')"],
@@ -150,7 +150,24 @@ def fixture(work, fault):
             results["selected"] = retained
             results["outcomes"] = {node: results["outcomes"][node] for node in retained}
             assert len(retained) == shape.COLLECTION_FLOOR - 1
+        elif fault in {"history-pass", "history-missing", "history-reason"}:
+            node = sorted(shape.EXPECTED_HISTORY_SKIPS)[0]
+            assert results["outcomes"][node] == "skipped"
+            assert shape.EXPECTED_HISTORY_SKIPS[node] in results["skips"][node]
+            if fault == "history-pass":
+                results["outcomes"][node] = "passed"
+                del results["skips"][node]
+                assert node not in results["skips"]
+            elif fault == "history-missing":
+                results["selected"].remove(node)
+                del results["outcomes"][node]
+                del results["skips"][node]
+                assert node not in results["selected"]
+            else:
+                results["skips"][node] = "historical installer skipped for an unexamined reason"
+                assert shape.EXPECTED_HISTORY_SKIPS[node] not in results["skips"][node]
         rows.append({"name": shape.LANES[int(partial)], "state": "GOOD", "reason": "canary",
+                     "expected_skips": dict(shape.EXPECTED_HISTORY_SKIPS),
                      "preconditions": preconditions, **details, "results": results,
                      "exit": child.returncode, "diagnostic": diagnostic,
                      "counts": {"selected": len(results["selected"]),
@@ -161,6 +178,10 @@ def fixture(work, fault):
     os.umask(actual_umask)
     for row in rows:
         row["test_umask"] = f"{actual_umask:03o}"
+    if fault == "history-declaration":
+        assert rows[0]["expected_skips"] == shape.EXPECTED_HISTORY_SKIPS
+        del rows[0]["expected_skips"]
+        assert "expected_skips" not in rows[0]
     profile = {"state": "GOOD", "image": shape.image_pin(ROOT), "umask": actual_umask,
                "evidence": "controlled tiny canary process; does not attest a CI image"}
     if fault == "umask-mismatch":

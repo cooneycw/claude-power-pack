@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from lib.ci_shape_check import EXPECTED_HISTORY_SKIPS
+
 
 class Results:
     def __init__(self):
@@ -13,6 +15,14 @@ class Results:
         self.outcomes: dict[str, str] = {}
         self.skips: dict[str, str] = {}
         self.errors: list[str] = []
+
+    def pytest_collection_modifyitems(self, items):
+        # This plugin instance exists only for a declared shape run. Marking
+        # before setup avoids constructing sources for excluded history cases.
+        for item in items:
+            reason = EXPECTED_HISTORY_SKIPS.get(item.nodeid)
+            if reason is not None:
+                item.add_marker(pytest.mark.skip(reason=reason))
 
     def pytest_collection_finish(self, session):
         self.selected = [item.nodeid for item in session.items]

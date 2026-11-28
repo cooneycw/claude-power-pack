@@ -50,6 +50,7 @@ SELECTORS = (
     "tests/test_ci_shape_review_entry.py",
     "tests/test_ci_shape_ci_entry.py",
     "tests/test_host_update_source_gc.py",
+    "tests/test_ci_shape_history_skips.py",
 )
 LANES = ("depth-1", "depth-1-tree-0")
 COLLECTION_FLOOR = 200
@@ -92,10 +93,17 @@ ROOT_ONLY_NODES = frozenset({
     "tests/test_pi_skill_install.py::test_root_unreadable_control_executes_real_cli_as_unprivileged_child",
     REQUIRED_WITNESSES["1910-root"], REQUIRED_WITNESSES["1910-path"], REQUIRED_WITNESSES["1916-path"],
 })
+# Historical compatibility name; these nodes are required omissions, not
+# optional execution, in the shape-only collector and completion contract.
 OPTIONAL_HISTORY_NODES = frozenset(
     "tests/test_host_update_command.py::test_real_historical_installer_population[" + name + "]"
     for name in ("real-pre-e32-install", "real-v13-install")
 )
+EXPECTED_HISTORY_SKIPS = {
+    node: ("CI-shape expected history skip: historical installer execution is outside "
+           "the shallow/filtered lane; use separate full-history validation")
+    for node in OPTIONAL_HISTORY_NODES
+}
 HISTORICAL_PIN = "40d25173c8c09987fac851cffa565efdc0f11c72"
 # A small runtime surface. In particular Git/Make are ONLY in the staged dir.
 SYSTEM_TOOLS = (
@@ -150,7 +158,7 @@ def selector_matches(nodeid: str, selector: str) -> bool:
 
 def manifest_complete(selectors: tuple[str, ...]) -> bool:
     return all(any(selector_matches(witness, selector) for selector in selectors)
-               for witness in REQUIRED_WITNESSES.values())
+               for witness in (*REQUIRED_WITNESSES.values(), *EXPECTED_HISTORY_SKIPS))
 
 
 def ci_profile(root: Path) -> dict:
@@ -214,6 +222,10 @@ def completion(result: dict, returncode: int, log: str, tier: str) -> tuple[str,
             return "BAD", "collection below committed population floor"
         if not set(REQUIRED_WITNESSES.values()) <= set(selected):
             return "BAD", "required named acceptance witness missing from collection"
+        for node, expected_reason in EXPECTED_HISTORY_SKIPS.items():
+            if (node not in selected or outcomes.get(node) != "skipped"
+                    or expected_reason not in skips.get(node, "")):
+                return "BAD", "expected historical skip missing, executed or reason changed: " + node
         if (returncode or result["exit"] or result["errors"] or "INTERNALERROR" in log
                 or not selected or len(selected) != len(set(selected))
                 or set(selected) != set(outcomes) or set(skips) != {
@@ -224,8 +236,8 @@ def completion(result: dict, returncode: int, log: str, tier: str) -> tuple[str,
         # A non-root run may skip only tests explicitly requiring real uid 0.
         for nodeid, reason in skips.items():
             root_skip = tier == "local" and nodeid in ROOT_ONLY_NODES and "requires real root" in reason
-            history_skip = (nodeid in OPTIONAL_HISTORY_NODES
-                            and ("historical installer" in reason or "partial clone:" in reason))
+            history_skip = (nodeid in EXPECTED_HISTORY_SKIPS
+                            and EXPECTED_HISTORY_SKIPS[nodeid] in reason)
             if not root_skip and not history_skip:
                 return "BAD", "unexpected skip: " + reason[:200]
         for selector in SELECTORS:
@@ -272,6 +284,8 @@ def assess(receipt: dict, *, tier: str, commit: str, image: str) -> tuple[str, s
                 return "UNKNOWN", lane["reason"]
             if lane["state"] != "GOOD":
                 return "BAD", lane["reason"]
+            if lane.get("expected_skips") != EXPECTED_HISTORY_SKIPS:
+                return "BAD", "lane does not declare its expected historical skips"
             if set(lane["preconditions"]) != set(PRECONDITIONS) or not all(
                     value is True for value in lane["preconditions"].values()):
                 return "BAD", "shape precondition not established"
@@ -492,7 +506,8 @@ def run_lane(root: Path, seed: Path, witness: str, work: Path, stage: Path,
     env = fresh_environment(home, tmp, minimal_path(work, stage, python))
     git = str(stage / "git")
     name = LANES[int(partial)]
-    row: dict[str, Any] = {"name": name, "state": "UNKNOWN", "reason": "not started"}
+    row: dict[str, Any] = {"name": name, "state": "UNKNOWN", "reason": "not started",
+                           "expected_skips": dict(EXPECTED_HISTORY_SKIPS)}
     before = time.monotonic()
     mask = os.umask(0)
     try:

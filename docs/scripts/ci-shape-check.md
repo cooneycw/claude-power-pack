@@ -45,11 +45,23 @@ removed after each run; receipts and logs remain at the requested output path.
 `lib/ci_shape_pytest.py` records collection, terminal outcomes, skips and errors.
 An exit zero cannot pass without complete terminal results, a population of at least 200 and every named
 acceptance witness. Passing tests are required for every
-selector, and INTERNALERROR is always BAD (#1923). Root-only skips and the two
-named unavailable/partial historical-installer cases are explicitly permitted;
-their reasons remain in the receipt. A passing local run has a GOOD local tier
+selector, and INTERNALERROR is always BAD (#1923). The two full historical
+installer cases (`real-pre-e32-install` at 5204ea06 and `real-v13-install` at
+40d25173) are expected omissions in both shallow/filtered shape lanes. The
+shape-only collector marks them at collection, before fixtures run. Each lane
+declares both exact node IDs and the fixed reason; completion refuses an
+unexpected pass, absent skip, changed reason or missing declaration. Ordinary
+full-history validation is unchanged. Root-only skips remain explicitly named.
+A passing local run has a GOOD local tier
 and an UNKNOWN root column: `not examined: needs real uid 0`. It never claims
 root success. Image/root evidence has a separate receipt.
+
+The shared source's automatic-GC fix is exercised by the separate required,
+executed `test_source_publication_joins_automatic_gc` witness. A historical
+installer setup error happens before its old availability check, so reaching
+that setup never proved the historical installer executed. Those skip outcomes
+prove neither historical installation nor the GC fix. Cite the committed GC
+regression's red/green for the fix, separately from the shape receipt.
 
 Receipts bind the exact commit, declared tier, image pin, tool identities,
 observed preconditions, identity, selectors, terminal outcomes/counts, named

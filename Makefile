@@ -1315,7 +1315,7 @@ review-yield-test:
 CI_SHAPE_RECEIPT ?= .ci-shape/local.json
 CI_SHAPE_TIER ?= local
 .PHONY: test-ci-shape-review-entry
-CI_SHAPE_REVIEW_TESTS ?= tests/test_ci_shape_review_entry.py tests/test_codex_review_run.py tests/test_ci_shape_ci_entry.py
+CI_SHAPE_REVIEW_TESTS ?= tests/test_ci_shape_review_entry.py tests/test_codex_review_run.py tests/test_ci_shape_ci_entry.py tests/test_ci_shape_history_skips.py tests/test_host_update_source_gc.py
 ## verify-coverage: utility test-ci-shape-review-entry - public required-review consumer cases; full suite owns verdict
 test-ci-shape-review-entry:
 	uv run --extra dev --frozen pytest -q $(CI_SHAPE_REVIEW_TESTS) $(PYTEST_ARGS)
