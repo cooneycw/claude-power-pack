@@ -190,8 +190,6 @@ def main():
         finally:
             if unreadable:
                 unreadable.chmod(0o644)
-        if unreadable:
-            print(answer.stderr, end="", file=sys.stderr)
         try:
             assert neighbor.read_bytes() == b"foreign neighbor\n"
             if scenario in ("hand-edited-before-stale", "dual-identity-refused", "foreign-collision"):
@@ -213,8 +211,12 @@ def main():
             code = report.get("exit_code", answer.returncode)
             assert code == answer.returncode and code in (0, 1, 4, 5)
         except (ValueError, AssertionError):
-            print("CONTROL_PROTOCOL_FAILED", answer.stderr)
-            return 9
+            code = 9
+    if unreadable:
+        print(answer.stderr, end="", file=sys.stderr)
+    if code == 9:
+        print("CONTROL_PROTOCOL_FAILED", answer.stderr)
+        return 9
     print("PI_SKILL_INSTALL:", "current" if code == 0 else "unknown" if code == 4 else "finding", answer.stdout)
     return code
 

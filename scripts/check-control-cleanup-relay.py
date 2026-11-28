@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reject stdout-bearing print calls inside control TemporaryDirectory blocks."""
+"""Reject captured-stream relays inside control TemporaryDirectory blocks."""
 #: NEGATIVE-CONTROL: controls/control-cleanup-relay
 
 import argparse
@@ -25,16 +25,54 @@ def relay_lines(source: str) -> list[int]:
         return ((isinstance(function, ast.Attribute) and function.attr == "TemporaryDirectory")
                 or (isinstance(function, ast.Name) and function.id in names))
 
+    # Conservative lexical aliases: assignments may carry captured output into
+    # a later sink. No execution-order or arbitrary dynamic-call inference.
+    tainted = set()
+
+    def captured(expression):
+        return any((isinstance(child, ast.Attribute) and child.attr in {"stdout", "stderr"})
+                   or (isinstance(child, ast.Name) and child.id in tainted)
+                   for child in ast.walk(expression))
+
+    assignments = [node for node in ast.walk(tree) if isinstance(node, (ast.Assign, ast.AnnAssign))]
+    while True:
+        before = set(tainted)
+        for assignment in assignments:
+            if (not isinstance(assignment.value, (ast.Attribute, ast.BinOp, ast.JoinedStr, ast.Name))
+                    or not captured(assignment.value)):
+                continue
+            targets = assignment.targets if isinstance(assignment, ast.Assign) else [assignment.target]
+            tainted.update(target.id for target in targets if isinstance(target, ast.Name))
+        if before == tainted:
+            break
+
+    sys_names = {"sys"}
+    streams = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            sys_names.update(alias.asname or alias.name for alias in node.names if alias.name == "sys")
+        elif isinstance(node, ast.ImportFrom) and node.module == "sys":
+            streams.update(alias.asname or alias.name for alias in node.names
+                           if alias.name in {"stdout", "stderr"})
+
+    def sink(function):
+        if isinstance(function, ast.Name):
+            return function.id == "print"
+        if not isinstance(function, ast.Attribute) or function.attr != "write":
+            return False
+        stream = function.value
+        return ((isinstance(stream, ast.Name) and stream.id in streams)
+                or (isinstance(stream, ast.Attribute) and stream.attr in {"stdout", "stderr"}
+                    and isinstance(stream.value, ast.Name) and stream.value.id in sys_names))
+
     lines = set()
     for block in ast.walk(tree):
         if (not isinstance(block, (ast.With, ast.AsyncWith))
                 or not any(temporary(item.context_expr) for item in block.items)):
             continue
         for node in ast.walk(block):
-            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-                    and node.func.id == "print" and any(
-                        isinstance(child, ast.Attribute) and child.attr == "stdout"
-                        for argument in node.args for child in ast.walk(argument))):
+            if (isinstance(node, ast.Call) and sink(node.func)
+                    and any(captured(argument) for argument in node.args)):
                 lines.add(node.lineno)
     return sorted(lines)
 
@@ -87,7 +125,7 @@ def check(root: Path) -> int:
         print("CONTROL_RELAY: unknown - implementation population was not fully examined")
         return 2
     if findings:
-        print("CONTROL_RELAY: bad - stdout-bearing print inside TemporaryDirectory")
+        print("CONTROL_RELAY: bad - captured-stream relay inside TemporaryDirectory")
         return 1
     print(f"CONTROL_RELAY: ok - {len(files)} Python control implementations examined")
     return 0

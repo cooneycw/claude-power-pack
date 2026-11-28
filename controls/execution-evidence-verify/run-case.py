@@ -77,9 +77,9 @@ def main(case_dir: str, gate: str) -> int:
             text=True,
             check=False,
         )
-        sys.stdout.write(proc.stdout)
-        sys.stderr.write(proc.stderr)
-        return proc.returncode
+    sys.stdout.write(proc.stdout)
+    sys.stderr.write(proc.stderr)
+    return proc.returncode
 
 
 if __name__ == "__main__":

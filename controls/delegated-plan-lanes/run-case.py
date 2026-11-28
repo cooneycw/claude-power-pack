@@ -195,6 +195,6 @@ with tempfile.TemporaryDirectory(prefix="delegated-lanes-") as raw:
                         print("DELEGATED_PLAN_LANES: legacy continuation - final check counted evidence")
                     print(f"DELEGATED_PLAN_LANES: advisory compliance status {done.returncode}")
                     done.returncode = 0
-    sys.stdout.write(done.stdout)
-    sys.stderr.write(done.stderr)
-    raise SystemExit(done.returncode)
+sys.stdout.write(done.stdout)
+sys.stderr.write(done.stderr)
+raise SystemExit(done.returncode)

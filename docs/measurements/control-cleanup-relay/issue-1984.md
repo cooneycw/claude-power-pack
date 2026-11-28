@@ -70,3 +70,30 @@ Before/after generated Codex builds at the pinned base and the changed tree
 have identical 405-member paths, hashes and modes. No attribution update is
 needed. See #1983 for the original two-wrapper planted proof and #1984 for the
 follow-up scope and uniformity decision.
+
+## Review M1: write-form relays
+
+PASS1 found the print-only guard missed direct stream writes. On `c2e56029`,
+registered BAD inputs retained their declared markers after genuine cleanup
+plus ENOTEMPTY in `delegated-plan-lanes` (all three provider manifests),
+`execution-evidence-verify`, `flow-plan-provenance` and `flow-plan-record-lanes`.
+Registered UNKNOWN partners in execution-evidence/provenance retained UNKNOWN
+markers too. Their final writes now wait until cleanup succeeds.
+
+The registered `flow-cpp-runtime` BAD partner also retained its synthesized
+blocked marker before cleanup; all terminal results now return through cleanup.
+Its raw-text error fallback and pi-install unreadable/protocol stderr paths
+are fixed for uniformity; exploitability of those specific diagnostic sites
+was not demonstrated. The pi unreadable registered crash was already UNSIGNALLED.
+
+Tests-only commit `957ace63` adds four committed BAD shapes: stdout write, stderr
+write, stderr print with file=, and a simple buffered write. All four failed on
+the old guard. The expanded real-wrapper population adds 17 normal/crash pairs:
+15 failed before fixes and two were already fail-safe. Together with the
+previous tests, the red run was 19 failed / 53 passed. The widened guard follows
+simple assignment aliases conservatively and reports no per-site exemptions.
+
+After the M1 fix, all 72 focused guard/wrapper tests pass (16 guard tests and
+56 real wrapper pairs). All original assertions in the six additionally
+changed wrappers are retained. Regenerating the Codex bundle writes zero files;
+its 405 generated members plus root README retain their hashes and modes.

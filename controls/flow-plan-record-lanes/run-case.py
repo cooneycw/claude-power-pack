@@ -59,6 +59,6 @@ with tempfile.TemporaryDirectory() as directory:
     with (repo / "docs" / "flow-runs" / "issue-42.md").open("a") as record:
         record.write((case / "section.md").read_text())
     approved = run(sys.executable, str(gate), "approve", "42", cwd=repo)
-    sys.stdout.write(approved.stdout)
-    sys.stderr.write(approved.stderr)
-    raise SystemExit(approved.returncode)
+sys.stdout.write(approved.stdout)
+sys.stderr.write(approved.stderr)
+raise SystemExit(approved.returncode)

@@ -10,7 +10,7 @@
   "good_signal": "^CONTROL_RELAY: ok - ",
   "detect_signal": "^CONTROL_RELAY: bad - ",
   "unknown_signal": "^CONTROL_RELAY: unknown - ",
-  "limits": "Lexical stdout-bearing print calls in Python control implementations, including nested arguments and tempfile import aliases. Direct control fixture trees cases/anchors/history are explicitly outside the implementation population. This is not a proof about indirect writes, arbitrary dynamic aliases or runtime exploitability. No per-site exemptions.",
+  "limits": "Lexical captured stdout/stderr relays through print (including file=) and sys.stdout/sys.stderr.write, including nested arguments, tempfile/sys import aliases and conservative simple assignment aliases. Direct control fixture trees cases/anchors/history are outside the implementation population. Not a proof about dynamic calls, arbitrary dataflow or runtime exploitability. No per-site exemptions.",
   "cases": [
     {
       "name": "bad-old-shape",

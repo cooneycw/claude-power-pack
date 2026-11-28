@@ -81,6 +81,6 @@ Scope: 1 file.
     setup([git, 'commit', '-qm', 'fixture change'], repo)
     done = run([*prefix, 'finish', '42', '--base', 'HEAD~1', '--head', 'HEAD',
                 '--provenance-file', str(case / 'closing.md')], repo)
-    sys.stdout.write(done.stdout)
-    sys.stderr.write(done.stderr)
-    raise SystemExit(done.returncode)
+sys.stdout.write(done.stdout)
+sys.stderr.write(done.stderr)
+raise SystemExit(done.returncode)

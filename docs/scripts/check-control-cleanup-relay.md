@@ -1,9 +1,12 @@
 # check-control-cleanup-relay
 
-`make control-cleanup-relay-check` rejects stdout-bearing `print` calls inside
+`make control-cleanup-relay-check` rejects captured stdout/stderr relays inside
 `TemporaryDirectory` blocks in Python control implementations. It examines all
-arguments, including concatenation and string prefixes, and recognizes direct
-tempfile calls and imported aliases. A nested context reports each print once.
+arguments of `print` (including `file=`) and `sys.stdout.write` /
+`sys.stderr.write`, including concatenation and string prefixes. It recognizes
+tempfile/sys import aliases and conservatively follows simple name assignments
+from attributes, names, concatenations and f-strings; it does not infer calls or
+comprehensions. A nested context reports each relay once.
 
 The implementation population is Python files under `controls/`, excluding
 each control's direct `cases/`, `anchors/` and `history/` fixture trees. Their
@@ -16,13 +19,14 @@ When unreadable source and findings coexist, the findings are diagnostics and
 UNKNOWN is the sole verdict marker.
 
 This is a lexical boundary, not proof about arbitrary dynamic aliases,
-indirect writes, or runtime exploitability. The #1984 planted cases exercise
+arbitrary dataflow, or runtime exploitability. The #1984 planted cases exercise
 actual wrapper behavior separately. The fixed controllers retain their
 assertions and buffer subject output until temporary cleanup succeeds.
 
 The guard runs in `make verify` and the existing Woodpecker `negative-controls`
 step. `controls/control-cleanup-relay` commits the old #1983 shape,
-concatenation, non-first stdout arguments and imported aliases as BAD inputs;
+concatenation, non-first stdout arguments, imported aliases, stream writes,
+stderr `print(file=...)` and buffered writes as BAD inputs;
 relay after cleanup is GOOD; empty and unparseable populations are UNKNOWN.
 Its constructed always-clean anchor misses every BAD input and answers clean
 on UNKNOWN inputs without examining them.
