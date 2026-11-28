@@ -27,6 +27,11 @@ class ReadError(Exception):
     """A source is unavailable or incomplete, never an empty observation."""
 
 
+def is_fix_title(title):
+    """Match case-sensitive conventional fix prefixes, with an optional scope."""
+    return re.match(r"^fix(?:\([^)]+\))?!?:", title) is not None
+
+
 def gh_api(args):
     try:
         done = subprocess.run(["gh", "api", *args], capture_output=True, text=True, timeout=120, check=False)
@@ -151,7 +156,7 @@ def collect_repo(api, repo, since, until, *, archive_reader=None):
                 result["prs"].append(None)  # Retain the unclassifiable candidate in the denominator.
                 result["errors"].append("merged PR candidate unreadable; fix classification incomplete")
                 continue
-            if not re.match(r"^fix\([^)]+\)(?:!)?:", candidate["title"]):
+            if not is_fix_title(candidate["title"]):
                 continue
             pr = {"number": candidate["number"], "title": candidate["title"], "issues": None}
             result["prs"].append(pr)
@@ -346,7 +351,7 @@ def render(data, since, until, contract):
                         continue
                     if not isinstance(pr.get("title"), str):
                         raise ReadError("PR title unreadable")
-                    if not re.match(r"^fix\([^)]+\)(?:!)?:", pr["title"]):
+                    if not is_fix_title(pr["title"]):
                         continue
                     number = pr["number"]
                     if "merged_at" not in pr:

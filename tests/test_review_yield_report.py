@@ -50,6 +50,60 @@ def test_committed_negative_control_flags_missing_but_not_present():
     assert "no test covered it: 1" in out
 
 
+def title_populations():
+    return json.loads((FIXTURES / "title-populations.json").read_text())
+
+
+def test_title_population_collector_old_and_new_side_by_side():
+    mod = helper()
+    fixture = title_populations()
+    calls = []
+
+    def api(args):
+        path = args[0]
+        if path.startswith("search/issues?"):
+            return {"total_count": len(fixture["cases"]), "incomplete_results": False,
+                    "items": fixture["cases"]}
+        if "/pulls/" in path:
+            calls.append(int(path.rsplit("/", 1)[1]))
+            return {"merged_at": "2026-11-15T00:00:00Z"}
+        if path == "graphql":
+            return {"data": {"repository": {"pullRequest": {"closingIssuesReferences": {
+                "nodes": [], "pageInfo": {"hasNextPage": False, "endCursor": None}}}}}}
+        return pinned_api(args)
+
+    assert fixture["old_numbers"] == [201, 202]
+    assert fixture["new_numbers"] == [201, 202, 203, 204]
+    value = mod.collect_repo(api, "cooneycw/example", SINCE, UNTIL,
+                             archive_reader=lambda *_: pinned_archive())
+    assert value["receipts"] is not None  # The archive also carries its existing malformed receipt.
+    assert [pr["number"] for pr in value["prs"]] == fixture["new_numbers"]
+    assert calls == fixture["new_numbers"]  # Excluded titles never fetch PR details.
+    out = report({"repos": {"cooneycw/example": value}})
+    assert "PRs readable: 4/4" in out
+    for row in fixture["cases"]:
+        assert (f"- #{row['number']}:" in out) is row["new"]
+
+
+def test_title_population_render_accepts_only_the_expanded_forms():
+    fixture = title_populations()
+    value = data()
+    value["repos"]["cooneycw/example"]["prs"] = [
+        {"number": row["number"], "title": row["title"],
+         "merged_at": "2026-11-15T00:00:00Z", "issues": []}
+        for row in fixture["cases"]]
+    out = report(value)
+    assert "PRs readable: 4/12" in out
+    for row in fixture["cases"]:
+        assert (f"- #{row['number']}:" in out) is row["new"]
+
+
+def test_title_population_unchanged_rows_match_frozen_predecessor_bytes():
+    fixture = title_populations()
+    value = json.loads((FIXTURES / fixture["unchanged_input"]).read_text())
+    assert (report(value) + "\n").encode() == fixture["unchanged_report"].encode()
+
+
 def test_unreadable_is_unknown_and_not_zero_escapes():
     value = json.loads((FIXTURES / "unreadable.json").read_text())
     assert value["repos"]["cooneycw/example"]["prs"] is None

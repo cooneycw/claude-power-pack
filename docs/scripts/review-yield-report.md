@@ -16,7 +16,13 @@ source failures labelled UNKNOWN. A missing or unreadable pinned receipt tree
 exits 1; other partial observations remain informational and exit zero.
 Invalid CLI arguments exit 2. Monthly creation remains an independent decision.
 
-Merged `fix(scope):` and `fix(scope)!:` pull requests are listed. The report
+Merged `fix:`, `fix!:`, `fix(scope):` and `fix(scope)!:` pull requests are
+listed, using one case-sensitive predicate in collection and rendering.
+Capitalized `Fix ...` titles remain excluded pending a separate decision;
+the [population measurement](../measurements/review-yield/issue-1926-title-populations.md)
+records the existing samples and the old/new counts. Committed title cases
+show both populations side by side, and a frozen pre-change report preserves
+unchanged rows byte for byte. The report
 follows GitHub's closing-issue references, including references across repos,
 and reads the issue body and all comments for exact `Origin:` and
 `Missed because:` lines. Missing links, missing lines, unrecognised answers
