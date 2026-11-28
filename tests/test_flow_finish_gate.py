@@ -1407,7 +1407,8 @@ def test_a_generated_manifest_runs_the_verify_gate() -> None:
     )
     # The budget matters: `make verify` measured 229.8s here and grows with the
     # suite, and the extra-targets loop's default is 600.
-    assert manifest.steps["verify"].timeout >= 1800
+    timeout = manifest.steps["verify"].timeout
+    assert isinstance(timeout, int) and timeout >= 1800
 
 
 @requires_bash
