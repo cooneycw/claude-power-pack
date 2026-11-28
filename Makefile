@@ -1320,13 +1320,31 @@ clean:
 review-yield-test:
 	uv run --extra dev pytest -q tests/test_review_yield_report.py $(PYTEST_ARGS)
 
-# #1917 PR-A: opt-in only; review/CI wiring follows qualification in PR-B.
+# #1917/#1958: explicit tiers, required review and pinned-image CI consumers.
 CI_SHAPE_RECEIPT ?= .ci-shape/local.json
 CI_SHAPE_TIER ?= local
+.PHONY: test-ci-shape-review-entry
+CI_SHAPE_REVIEW_TESTS ?= tests/test_ci_shape_review_entry.py tests/test_codex_review_run.py tests/test_ci_shape_ci_entry.py tests/test_ci_shape_history_skips.py tests/test_ci_shape_cancel.py tests/test_host_update_source_gc.py
+## verify-coverage: utility test-ci-shape-review-entry - public required-review consumer cases; full suite owns verdict
+test-ci-shape-review-entry:
+	uv run --extra dev --frozen pytest -q $(CI_SHAPE_REVIEW_TESTS) $(PYTEST_ARGS)
+.PHONY: ci-shape-review-canary
+## verify-coverage: excluded ci-shape-review-canary - subset of negative-controls; ci: excluded duplicate-subset
+ci-shape-review-canary:
+	python3 scripts/check-negative-controls.py --control controls/ci-shape-review-entry --strict --verify-provenance
+
 .PHONY: ci-shape-check ci-shape-canary test-ci-shape ci-shape-acceptance
 ## verify-coverage: excluded ci-shape-check - opt-in isolated focused shape run; ci: excluded opt-in
 ci-shape-check:
 	uv run python scripts/ci-shape-check.py run --tier "$(CI_SHAPE_TIER)" --receipt "$(CI_SHAPE_RECEIPT)"
+.PHONY: ci-shape-ci
+## verify-coverage: excluded ci-shape-ci - pinned-image required consumer; ci: runs ci-shape
+ci-shape-ci:
+	python3 scripts/ci-shape-check.py ci --receipt "$(CI_SHAPE_RECEIPT)"
+.PHONY: ci-shape-ci-canary
+## verify-coverage: excluded ci-shape-ci-canary - subset of negative-controls; ci: excluded duplicate-subset
+ci-shape-ci-canary:
+	python3 scripts/check-negative-controls.py --control controls/ci-shape-ci-entry --strict
 ## verify-coverage: excluded ci-shape-canary - subset of negative-controls; ci: excluded duplicate-subset
 ci-shape-canary:
 	python3 scripts/check-negative-controls.py --control controls/ci-shape-check --strict --verify-provenance

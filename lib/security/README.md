@@ -25,8 +25,10 @@ provide:
 | `.gitignore` / file-permission / `.env`-tracked / debug-flag checks | `lib/security` |
 | The blocking gate for `/flow:finish` and `/flow:deploy` | `lib/security` |
 
-The two halves are complementary - run `/security-review` for code-logic flaws
-and `lib/security` (`/security:*`) for secrets, dependencies, and the flow gate.
+CPP supplies deterministic secret, dependency and policy checks. Semantic code
+review is provided separately by Claude Code's `/security-review`. Git-history
+secret scanning belongs to `/security:deep` and requires gitleaks;
+`/security:scan` checks the working tree.
 
 ## Entry points
 

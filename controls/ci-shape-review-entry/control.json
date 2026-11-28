@@ -1,0 +1,91 @@
+{
+  "gate": "scripts/codex-review-run.sh",
+  "invocation": [
+    "uv",
+    "run",
+    "--extra",
+    "dev",
+    "--frozen",
+    "python",
+    "controls/ci-shape-review-entry/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "good_signal": "CI_SHAPE_REVIEW_CONTROL: admitted -",
+  "detect_signal": "CI_SHAPE_REVIEW_CONTROL: refused -",
+  "unavailable_signal": "CI_SHAPE_REVIEW_CONTROL: unavailable -",
+  "cases": [
+    {
+      "name": "bad",
+      "input": "cases/bad",
+      "expect": "BAD"
+    },
+    {
+      "name": "duplicate",
+      "input": "cases/duplicate",
+      "expect": "BAD"
+    },
+    {
+      "name": "false-good",
+      "input": "cases/false-good",
+      "expect": "BAD"
+    },
+    {
+      "name": "good",
+      "input": "cases/good",
+      "expect": "GOOD"
+    },
+    {
+      "name": "missing-identity",
+      "input": "cases/missing-identity",
+      "expect": "BAD"
+    },
+    {
+      "name": "neighbor",
+      "input": "cases/neighbor",
+      "expect": "GOOD"
+    },
+    {
+      "name": "neighbor-lookalike",
+      "input": "cases/neighbor-lookalike",
+      "expect": "GOOD"
+    },
+    {
+      "name": "silent-zero",
+      "input": "cases/silent-zero",
+      "expect": "BAD"
+    },
+    {
+      "name": "unknown",
+      "input": "cases/unknown",
+      "expect": "BAD"
+    },
+    {
+      "name": "zero-unknown",
+      "input": "cases/zero-unknown",
+      "expect": "BAD"
+    },
+    {
+      "name": "dirty-checkpoint",
+      "input": "cases/dirty-checkpoint",
+      "expect": "BAD"
+    },
+    {
+      "name": "moved-checkpoint",
+      "input": "cases/moved-checkpoint",
+      "expect": "BAD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/codex-review-run.sh",
+      "path": "anchors/constructed-no-qualification.sh",
+      "sha256": "b98d72d7d292453af8ccbb76380bfb2f1e961ef68944933676efbfd1c26cad73",
+      "why": "Supports both public entries but removes only qualification; real reviewer behavior remains, so BAD/UNKNOWN is admitted."
+    }
+  ],
+  "limits": "Both full-review and qualification-only admission on controlled producer results; no model call, model identity claim, actual suite/image run or complete shell analysis. CPP GOOD exact invocation count is also pinned by the public-entry tests; every ordinary-neighbor control requires zero qualification calls. The unchanged historical pre-required helper is retained as source evidence and the old-entry red; it predates --qualify-only and is not represented as a blind implementation of that new CLI."
+}

@@ -1,0 +1,64 @@
+{
+  "branch": "issue-1958-required-current",
+  "counts": {
+    "accepted": 0,
+    "deferred": 3,
+    "rejected": 0
+  },
+  "extra_passes_reason": "Orchestrator-authorised third pass for a real-CI context mismatch: PR pipeline 4105 refused CI admission because Woodpecker sets CI=woodpecker, not CI=true (https://github.com/cooneycw/claude-power-pack/pull/1980#issuecomment-7236396475)",
+  "head": "3872d2746cfc50ebeefc2ce1d163e7825b4c3872",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/25/rollout-2026-11-25T16-21-45-01a21383-5caa-7a60-b0dd-8fa74bd4c6bd.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 69720709,
+        "path": "2026/11/25/rollout-2026-11-25T16-21-45-01a21383-5caa-7a60-b0dd-8fa74bd4c6bd.jsonl",
+        "sha256": "4d2c6f23af54fbb012ed3962ef5d6456c5afe4e2be5067b30ed57200666683ec"
+      }
+    ],
+    "thread_id": "01a21383-5caa-7a60-b0dd-8fa74bd4c6bd"
+  },
+  "issue": "1958",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 3,
+  "recorded_at": "2026-11-28T08:20:03Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewed_artifact": {
+    "base_sha": "c8fa44fc4bb6f0c548fb5c3e1e7f3f28db0d8aa1",
+    "merge_base": "c8fa44fc4bb6f0c548fb5c3e1e7f3f28db0d8aa1",
+    "method": "runtime-head",
+    "patch_sha256": "6c4889dc2eb5bfeb708b70b3aee619b6748b10dd892a03e81f52799aa422e301",
+    "report_record": 13263,
+    "target_head": "3872d2746cfc50ebeefc2ce1d163e7825b4c3872"
+  },
+  "reviewer": "claude/claude-opus-5-5",
+  "reviewer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2",
+    "sources": [
+      {
+        "bytes": 24044786,
+        "path": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl",
+        "sha256": "c0757d00ced413bd5d4e5f48a2154a8befcafc717733cd065a95564227ddec83"
+      }
+    ],
+    "transcript": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}

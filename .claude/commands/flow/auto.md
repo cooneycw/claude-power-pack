@@ -645,6 +645,12 @@ is written voids it. Pick up a moved base with `git merge`.
    A collector `CODEX_REVIEW: blocked` or missing artifact binding is a failed
    precondition: correct what it names; retry. It is not a skip.
 
+   **CPP qualification (#1958):** the Codex helper below qualifies once. Before
+   any alternate reviewer, run `~/.claude/scripts/codex-review-run.sh --qualify-only`
+   under the missing-helper rule. Non-CPP targets are no-ops. CPP BAD/UNKNOWN
+   blocks review; it never means reviewer-unavailable. `CI_SHAPE_TIER=image`
+   selects actual root/image qualification; local GOOD leaves root UNKNOWN.
+
    **Then probe the reviewer (issue #1015).** A review is skipped only when
    codex cannot run, or when the APPROVED plan is Tier 1, documentation-only,
    and says "review skipped" (owner ruling, #1850): record `skipped` with
