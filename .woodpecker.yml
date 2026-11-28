@@ -38,6 +38,10 @@
 # two groups. Only `ci/woodpecker/pr/woodpecker` is a required status context, so
 # the branch-push twin gated nothing. The main push stays: it is the post-merge
 # verification. tests/test_ci_trigger.py fails if either half drifts.
+# CPP runs only on the dedicated kyleci hosts (issue #1977).
+labels:
+  host: kyleci
+
 when:
   - event: pull_request
   - event: push
