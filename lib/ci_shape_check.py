@@ -526,6 +526,7 @@ def run_lane(root: Path, seed: Path, witness: str, work: Path, stage: Path,
         (path / ".venv").symlink_to(python.parent.parent, target_is_directory=True)
         results = work / "results.json"
         env.update(PYTHONPATH=str(path), CPP_CI_SHAPE_RESULTS=str(results),
+                   CPP_CI_SHAPE_EXPECTED_SKIPS=json.dumps(EXPECTED_HISTORY_SKIPS, sort_keys=True),
                    PYTEST_DISABLE_PLUGIN_AUTOLOAD="1")
         argv = [python, "-m", "pytest", "-c", path / "pyproject.toml", "--rootdir", path,
                 "-p", "lib.ci_shape_pytest", "-p", "pytest_timeout", "-p", "xdist.plugin",

@@ -107,13 +107,21 @@ def fixture(work, fault):
         results_path = lane / "results.json"
         child_env = {**path_env, "PYTHONPATH": str(ROOT),
                      "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+                     "CPP_CI_SHAPE_EXPECTED_SKIPS": json.dumps(shape.EXPECTED_HISTORY_SKIPS, sort_keys=True),
                      "CPP_CI_SHAPE_RESULTS": str(results_path)}
+        if fault == "history-policy-missing":
+            assert json.loads(child_env["CPP_CI_SHAPE_EXPECTED_SKIPS"]) == shape.EXPECTED_HISTORY_SKIPS
+            del child_env["CPP_CI_SHAPE_EXPECTED_SKIPS"]
+            assert "CPP_CI_SHAPE_EXPECTED_SKIPS" not in child_env
         child = subprocess.run([
             sys.executable, "-m", "pytest", "--rootdir", str(checkout),
             "-p", "lib.ci_shape_pytest", "--override-ini", "addopts=", "-q",
             *[str(checkout / selector) for selector in shape.SELECTORS],
         ], cwd=lane, env=child_env, capture_output=True, text=True, timeout=30)
         results = json.loads(results_path.read_text())
+        if fault == "history-policy-missing":
+            assert all(results["outcomes"][node] == "passed" and node not in results["skips"]
+                       for node in shape.EXPECTED_HISTORY_SKIPS)
         diagnostic = ""
         if fault == "internalerror":
             fake = subprocess.run([sys.executable, "-c", "print('INTERNALERROR> worker failed')"],

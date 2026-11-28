@@ -27,7 +27,8 @@ spec.loader.exec_module(cases)
                                  "shallow", "history", "root-claim", "internalerror", "incomplete",
                                  "missing-witness", "below-floor", "umask-mismatch", "umask-unknown",
                                  "false-root-skip", "zero-executed", "unavailable", "history-pass",
-                                 "history-missing", "history-reason", "history-declaration"])
+                                 "history-missing", "history-reason", "history-declaration",
+                                 "history-policy-missing"])
 def test_physical_canary_and_real_collector(tmp_path, fault):
     receipt = cases.fixture(tmp_path, fault)
     state, reason = shape.assess(receipt, tier=receipt["tier"], commit=receipt["commit"],
