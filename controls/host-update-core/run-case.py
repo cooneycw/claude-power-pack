@@ -155,9 +155,9 @@ def main():
         except (AssertionError, OSError) as exc:
             print(f"CONTROL_ORACLE_FAILED: {type(exc).__name__}")
             return 9
-        print(result.stdout, end="")
-        print(result.stderr, end="", file=sys.stderr)
-        return result.returncode
+    print(result.stdout, end="")
+    print(result.stderr, end="", file=sys.stderr)
+    return result.returncode
 
 
 if __name__ == "__main__":
