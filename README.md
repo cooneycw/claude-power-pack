@@ -12,8 +12,8 @@
   - **Browser automation** - upstream `@playwright/mcp` server (npx/stdio, no container), registered by `/cpp:init`
   - **Tavily** - web search, content extraction, site crawling, and URL mapping via the upstream `tavily-mcp` server (npx/stdio), registered by `/cpp:init`; API key stored in AWS Secrets Manager (`claude-power-pack/mcp-keys`)
 - **PowerPoint generation** - Slide decks via the native Anthropic `pptx` skill (`npx skills add anthropics/skills@pptx`)
-- **Security scanning** (`/security:scan`) - Native vulnerability detection with git history analysis
-- **Secrets management** (`/secrets:*`) - Tiered credential storage (dotenv, env-file, AWS Secrets Manager) with audit logging and a web UI
+- **Security scanning** (`/security:scan`) - Deterministic secret, dependency and policy checks. Semantic code review is provided separately by Claude Code's `/security-review`; git-history secret scanning uses `/security:deep` with gitleaks.
+- **Secrets management** (`/secrets:*`) - Environment-based credential retrieval, local plaintext dotenv bundles with owner-only permissions, and optional AWS Secrets Manager, with masked credential displays, audit logging and an optional web UI.
 - **CI/CD integration** (`/cicd:*`) - Explicit per-project GitHub Actions/Woodpecker provider selection, framework Makefile and pipeline generation, local PR protection, health checks, and IaC scaffolding
 - **Woodpecker CI** - Self-hosted pipeline (secret-scan, lint, test, typecheck) with programmatic status polling
 - **Project scaffolding** (`/project:init`) - Zero-to-GitHub-repo setup with Makefile, CI pipeline, and Docker config
@@ -147,7 +147,7 @@ claude-power-pack/
 | Review | `/monthly:review` | The monthly review `/project:next` prompts for |
 | Improve | `/self-improvement:retro` | Post-run friction retro: capture -> codify durable fixes (the grill-me cycle) |
 | Project | `/project:init myapp` | Scaffold a new project with explicit CI provider selection and local PR protection |
-| Security | `/security:scan` | Full vulnerability scan |
+| Security | `/security:scan` | Deterministic secret, dependency and policy checks |
 | Secrets | `/secrets:list` | List managed credentials |
 | CI/CD | `/cicd:init` | Configure framework build/CI, record providers and derive local PR protection for an existing repo |
 | Docs | `/documentation:c4` | Generate C4 architecture diagrams |
@@ -165,7 +165,7 @@ CPP ships no container runtime (retired in #469). The `/second-opinion:*` and `/
 claude mcp add --transport http --scope user second-opinion "${SECOND_OPINION_URL:-http://127.0.0.1:8080}/mcp"
 ```
 
-Browser automation uses the upstream `@playwright/mcp` npx/stdio server (registered by `/cpp:init`). Tavily web search/extract/crawl/map uses the upstream `tavily-mcp` npx/stdio server (registered by `/cpp:init`); its API key (`TAVILY_API_KEY`) is stored in `claude-power-pack/mcp-keys` alongside the Second Opinion keys. CPP stores no application secrets on disk and runs no secrets sidecar; the remaining AWS Secrets Manager consumers (`essent-ai` for Woodpecker CI keys and the `CPP_MEMORIES_DSN` common-memory DSN) fetch directly via the AWS SDK/CLI.
+Browser automation uses the upstream `@playwright/mcp` npx/stdio server (registered by `/cpp:init`). Tavily web search/extract/crawl/map uses the upstream `tavily-mcp` npx/stdio server (registered by `/cpp:init`); its API key (`TAVILY_API_KEY`) is stored in `claude-power-pack/mcp-keys` alongside the Second Opinion keys. CPP runs no secrets sidecar. Separately, `/secrets:*` can store application values in local plaintext dotenv bundles outside the repository with owner-only permissions, or use AWS Secrets Manager. The remaining AWS Secrets Manager consumers (`essent-ai` for Woodpecker CI keys and the `CPP_MEMORIES_DSN` common-memory DSN) fetch directly via the AWS SDK/CLI.
 
 ## CI/CD
 

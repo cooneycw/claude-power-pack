@@ -1,0 +1,118 @@
+{
+  "base_commit": "1ee2e709b21bd01af9d1df37240c1ed95e47c9b1",
+  "contracts": {
+    "README.md": {
+      "required": [
+        "deterministic",
+        "secret",
+        "dependency",
+        "policy",
+        "/security-review",
+        "plaintext",
+        "AWS Secrets Manager"
+      ],
+      "forbidden": [
+        "Native vulnerability detection",
+        "Full vulnerability scan",
+        "CPP stores no application secrets on disk"
+      ]
+    },
+    "lib/security/README.md": {
+      "required": [
+        "deterministic",
+        "/security-review",
+        "gitleaks",
+        "include_history=True"
+      ],
+      "forbidden": [
+        "CPP supplies semantic vulnerability detection"
+      ]
+    },
+    ".claude/commands/secrets/help.md": {
+      "required": [
+        "Providers:",
+        "dotenv-global",
+        "env-file",
+        "plaintext",
+        "0600",
+        "0700",
+        "XDG_CONFIG_HOME"
+      ],
+      "forbidden": [
+        "Encrypted local store",
+        "requires cryptography",
+        "Tiered Architecture:"
+      ]
+    },
+    ".claude/commands/secrets/get.md": {
+      "required": [
+        "AWS first when available, then env"
+      ],
+      "forbidden": [
+        "env first, then AWS"
+      ]
+    }
+  },
+  "good": {
+    "README.md": "CPP supplies deterministic secret, dependency and policy checks. Semantic review: /security-review. Local values are plaintext; optional AWS Secrets Manager.",
+    "lib/security/README.md": "CPP is deterministic; semantic review uses /security-review. gitleaks uses include_history=True for deep mode.",
+    ".claude/commands/secrets/help.md": "Providers: dotenv-global plaintext files0600, directories0700 under XDG_CONFIG_HOME; env-file reads environment/project files; AWS optional.",
+    ".claude/commands/secrets/get.md": "Select AWS first when available, then env."
+  },
+  "bad": [
+    {
+      "document": "README.md",
+      "claim": "Native vulnerability detection"
+    },
+    {
+      "document": "README.md",
+      "claim": "Full vulnerability scan"
+    },
+    {
+      "document": "README.md",
+      "claim": "CPP stores no application secrets on disk"
+    },
+    {
+      "document": "lib/security/README.md",
+      "claim": "CPP supplies semantic vulnerability detection"
+    },
+    {
+      "document": ".claude/commands/secrets/help.md",
+      "claim": "Encrypted local store"
+    },
+    {
+      "document": ".claude/commands/secrets/help.md",
+      "claim": "requires cryptography"
+    },
+    {
+      "document": ".claude/commands/secrets/help.md",
+      "claim": "Tiered Architecture:"
+    },
+    {
+      "document": ".claude/commands/secrets/get.md",
+      "claim": "env first, then AWS"
+    }
+  ],
+  "runtime_lines": {
+    "README.md": [
+      "uv sync --extra dev",
+      "- **Consolidated pipeline** - Merged lint/test/typecheck into single validate step (eliminates 2x `uv sync`)"
+    ],
+    "lib/security/README.md": [
+      "PYTHONPATH=\"${HOME}/Projects/claude-power-pack/lib\" python3 -m lib.security quick",
+      "PYTHONPATH=\"${HOME}/Projects/claude-power-pack/lib\" python3 -m lib.security scan",
+      "PYTHONPATH=\"${HOME}/Projects/claude-power-pack/lib\" python3 -m lib.security deep",
+      "PYTHONPATH=\"${HOME}/Projects/claude-power-pack/lib\" python3 -m lib.security explain HARDCODED_PASSWORD",
+      "PYTHONPATH=\"${HOME}/Projects/claude-power-pack/lib\" python3 -m lib.security gate flow_finish",
+      "interpreter: inside the runner's `uv run` environment it is the venv's, which"
+    ],
+    ".claude/commands/secrets/help.md": [
+      "  PYTHONPATH=\"$HOME/Projects/claude-power-pack:$PYTHONPATH\"",
+      "  uv run --project \"$HOME/Projects/claude-power-pack\" python -m lib.creds <command> [options]"
+    ],
+    ".claude/commands/secrets/get.md": [
+      "allowed-tools: Bash(python:*), Bash(PYTHONPATH=*), Read(*.py), Read(*.env)",
+      "PYTHONPATH=\"${HOME}/Projects/claude-power-pack\" uv run --project \"${HOME}/Projects/claude-power-pack\" python -m lib.creds get \"$@\""
+    ]
+  }
+}
