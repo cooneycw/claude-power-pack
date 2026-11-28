@@ -1776,11 +1776,11 @@
         420
       ],
       "candidate": [
-        "4a90c775e40bc49ce092cb67f450c62178cae8cec6a9411b4dd8192a5115d61d",
+        "02db53cf7fcbb661e01e984547514d3db563ba118617b5538f2738eba68b3e52",
         420
       ],
-      "source_commit": "dfb6909a02bf61c5330f30adb4c6901d07f0ffdc",
-      "reason": "R3b #1925 reads review receipts from an exact-commit archive instead of serial blob requests; the Git blob SHA-1 is explicitly non-security. Exact input-byte attribution only; pinned generator, parser, historical members and attribution row set remain unchanged."
+      "source_commit": "200ec30ae07210a4e55f3e1afb566a2b123e0a92",
+      "reason": "R3c #1926 adds scope-less conventional fix: and fix!: titles through one shared collection/rendering predicate. This extends R3b #1925 exact-commit receipt archive input evolution. Exact input-byte attribution only; pinned generator, parser, historical members and attribution row set remain unchanged."
     },
     "monthly-create/scripts/counter-model-receipt.py": {
       "baseline": null,
@@ -1797,11 +1797,11 @@
         493
       ],
       "candidate": [
-        "dfb779bacfd4d829a3ac64c8ee28a30d7f17abcc053654f7183261324200f8e3",
+        "def49a1c935441cbbfae67f8452061f4028f70cbdf1ca16d81161c35296eb389",
         493
       ],
-      "source_commit": "dfb6909a02bf61c5330f30adb4c6901d07f0ffdc",
-      "reason": "R3b #1925 reads review receipts from an exact-commit archive instead of serial blob requests; the Git blob SHA-1 is explicitly non-security. Exact input-byte attribution only; pinned generator, parser, historical members and attribution row set remain unchanged."
+      "source_commit": "200ec30ae07210a4e55f3e1afb566a2b123e0a92",
+      "reason": "R3c #1926 adds scope-less conventional fix: and fix!: titles through one shared collection/rendering predicate. This extends R3b #1925 exact-commit receipt archive input evolution. Exact input-byte attribution only; pinned generator, parser, historical members and attribution row set remain unchanged."
     },
     "flow-auto/scripts/flow-finish-gate.sh": {
       "baseline": [
