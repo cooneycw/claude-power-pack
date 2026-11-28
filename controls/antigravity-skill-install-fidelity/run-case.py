@@ -126,9 +126,9 @@ def main():
                        for r in report["results"] if r["selected"])
             assert {r["revision"] for r in report["results"]} == {git(source, "rev-parse", "HEAD")}
             assert guide.read_bytes() != initial
-        print(result.stdout, end="")
-        print(result.stderr, end="", file=sys.stderr)
-        return result.returncode
+    print(result.stdout, end="")
+    print(result.stderr, end="", file=sys.stderr)
+    return result.returncode
 
 
 if __name__ == "__main__":
