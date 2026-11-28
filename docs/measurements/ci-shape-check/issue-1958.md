@@ -69,11 +69,23 @@ existing `flow-auto/scripts/SHA256SUMS` candidate needed a combined value:
 
 This existing-row refresh was approved by the orchestrator; the two new #1958
 rows were owner-approved in [issue1958 comment7232680930](https://github.com/cooneycw/claude-power-pack/issues/1958#issuecomment-7232680930).
-No new member or mode was added by the merge. The runner, collector, CLI,
+No new member or mode was added by the merge. At this integration checkpoint the runner, collector, CLI,
 selectors, shape controls and their tests remain byte-identical to the qualified
 checkpoint. The host proof carries only for that unchanged runner scope; the
 merged artifact still requires its direct finish gate and exact-head PR image
-step on kyleci. This publication changes only the four named evidence files. Review, finish-gate and PR timing outcomes remain pending.
+step on kyleci. This publication changed only the four named evidence files.
+
+The first PR pipeline, 4105 at `bc2f08e9`, ran on kyleci agent 118 but refused
+CI admission in two seconds: Woodpecker supplies `CI=woodpecker`, whereas the
+old admission and host harness used `CI=true`. Thus K906 establishes the physical
+runner result above, not compatibility with Woodpecker's actual context.
+The follow-up changes only CI admission to require the real context shape,
+a positive pipeline number and `CI_COMMIT_SHA` equal to the checkout HEAD.
+The host harness now reproduces those variables with a synthetic pipeline number.
+Committed controls exercise valid, absent, malformed and mismatched declarations;
+they do not authenticate a pipeline. Runner execution, collector and selectors
+are unchanged. Fresh real-image acceptance and timing must come from the updated
+PR pipeline; no earlier host receipt is claimed to test this new admission.
 
 The PR pipeline must report ci-shape and validate start/end times. The new
 step overlaps validate; a same-event pipeline or validate increase above about

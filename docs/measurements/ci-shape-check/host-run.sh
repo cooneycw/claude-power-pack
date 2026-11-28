@@ -39,9 +39,13 @@ with tempfile.TemporaryDirectory(prefix="cpp-ci-shape-host-") as owned:
         # The CI step's actual Make/CLI path, with the same declared image and
         # real identity. Staging is private because /source is read-only; these
         # two staging costs are outside the real CI step's measured duration.
+        # Reproduce Woodpecker's context shape and bind its declared commit to
+        # this checkout. Pipeline number 1 is synthetic, not CI provenance.
         result = subprocess.run([
             "docker", "run", "--rm", "--user", "0:0", "--entrypoint", "/bin/sh",
-            "-e", "CI=true", "-v", f"{root}:/source:ro", "-v", f"{output}:/receipts",
+            "-e", "CI=woodpecker", "-e", "CI_PIPELINE_NUMBER=1",
+            "-e", f"CI_COMMIT_SHA={checkpoint}",
+            "-v", f"{root}:/source:ro", "-v", f"{output}:/receipts",
             image, "-c", 'set -eu; stage=$(mktemp -d); cd "$stage"; '
             'python3 /source/scripts/ci-stage-git.py; python3 /source/scripts/ci-stage-make.py; '
             'export PATH="$stage/.ci-bin:$PATH"; '

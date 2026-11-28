@@ -80,8 +80,14 @@ private marker is an execution assertion, not a cryptographic attestation.
 Keep the host launch command and backend/image identity alongside its receipt.
 
 The CI entry runs directly inside the step, without launching a container.
-It requires CI=true, actual uid/euid 0, and a literal `ci-shape` image pin equal
-to validate's. This checks the declaration, not independent image attestation.
+It requires `CI=woodpecker`, a positive `CI_PIPELINE_NUMBER`, an exact
+`CI_COMMIT_SHA` matching the checkout's actual HEAD, actual uid/euid 0, and a
+literal `ci-shape` image pin equal to validate's. Missing, malformed or mismatched
+context is UNKNOWN before the producer runs; a generic `CI=true` is refused.
+This checks declarations and checkout identity, not authenticated pipeline
+provenance or independent image attestation. The host reproduction supplies the
+same context variables, with a synthetic positive pipeline number and its exact
+checkpoint SHA; it cannot establish that a real pipeline ran.
 The runner creates its own environment and clones; it does not sync the shared
 validate environment. The required step depends on staging and generated Codex
 output, and overlaps validate. The pre-wiring image measurement took 475.7s;

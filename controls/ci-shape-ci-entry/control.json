@@ -50,6 +50,41 @@
       "name": "wrong-effective-identity",
       "input": "cases/wrong-effective-identity",
       "expect": "BAD"
+    },
+    {
+      "name": "legacy-context",
+      "input": "cases/legacy-context",
+      "expect": "BAD"
+    },
+    {
+      "name": "missing-pipeline",
+      "input": "cases/missing-pipeline",
+      "expect": "BAD"
+    },
+    {
+      "name": "invalid-pipeline",
+      "input": "cases/invalid-pipeline",
+      "expect": "BAD"
+    },
+    {
+      "name": "missing-commit",
+      "input": "cases/missing-commit",
+      "expect": "BAD"
+    },
+    {
+      "name": "malformed-commit",
+      "input": "cases/malformed-commit",
+      "expect": "BAD"
+    },
+    {
+      "name": "mismatched-commit",
+      "input": "cases/mismatched-commit",
+      "expect": "BAD"
+    },
+    {
+      "name": "zero-pipeline",
+      "input": "cases/zero-pipeline",
+      "expect": "BAD"
     }
   ],
   "anchors": [
@@ -62,5 +97,5 @@
       "why": "Invokes the producer and accepts GOOD while omitting CI context, image-declaration and real-identity checks."
     }
   ],
-  "limits": "CI consumer admission with controlled identities/producer; real pinned-image/root acceptance is separate. UNKNOWN from actual CLI must refuse producer invocation."
+  "limits": "CI admission checks Woodpecker context declarations against the actual checkout HEAD with controlled identities/producer. It does not authenticate pipeline provenance or attest the actual runtime image. Real pinned-image/root acceptance is separate; UNKNOWN refuses before producer invocation."
 }

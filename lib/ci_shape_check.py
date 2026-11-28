@@ -139,8 +139,15 @@ def image_pin(root: Path) -> str:
 
 def ci_entry_image(root: Path) -> str:
     """Check the CI declaration and actual identity; this is not image attestation."""
-    if os.environ.get("CI", "").lower() not in ("true", "1"):
-        raise Unknown("CI entry requires CI=true context")
+    if os.environ.get("CI") != "woodpecker":
+        raise Unknown("CI entry requires Woodpecker context (CI=woodpecker)")
+    if not re.fullmatch(r"[1-9][0-9]*", os.environ.get("CI_PIPELINE_NUMBER", "")):
+        raise Unknown("CI entry requires a positive Woodpecker pipeline number")
+    declared_commit = os.environ.get("CI_COMMIT_SHA", "")
+    if not re.fullmatch(r"[0-9a-f]{40}", declared_commit):
+        raise Unknown("CI entry requires an exact Woodpecker commit SHA")
+    if command(["git", "rev-parse", "HEAD"], cwd=root).stdout.strip() != declared_commit:
+        raise Unknown("Woodpecker commit SHA does not match the checkout HEAD")
     if os.getuid() != 0 or os.geteuid() != 0:
         raise Unknown("CI entry requires actual uid/euid 0")
     image = image_pin(root)

@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PIN = "test/image@sha256:" + "a" * 64
 OTHER_PIN = "test/image@sha256:" + "b" * 64
 requires_git = pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
-CONTEXT_CASES = ("legacy-context", "missing-pipeline", "invalid-pipeline", "missing-commit",
+CONTEXT_CASES = ("legacy-context", "missing-pipeline", "invalid-pipeline", "zero-pipeline", "missing-commit",
                  "malformed-commit", "mismatched-commit")
 
 
@@ -58,6 +58,8 @@ def exercise(gate, temporary, case, monkeypatch):
         monkeypatch.delenv("CI_PIPELINE_NUMBER")
     elif case == "invalid-pipeline":
         monkeypatch.setenv("CI_PIPELINE_NUMBER", "4105-forged")
+    elif case == "zero-pipeline":
+        monkeypatch.setenv("CI_PIPELINE_NUMBER", "0")
     elif case == "missing-commit":
         monkeypatch.delenv("CI_COMMIT_SHA")
     elif case == "malformed-commit":
@@ -76,6 +78,8 @@ def exercise(gate, temporary, case, monkeypatch):
         assert "CI_PIPELINE_NUMBER" not in os.environ
     elif case == "invalid-pipeline":
         assert not os.environ["CI_PIPELINE_NUMBER"].isdigit()
+    elif case == "zero-pipeline":
+        assert os.environ["CI_PIPELINE_NUMBER"] == "0"
     else:
         assert int(os.environ["CI_PIPELINE_NUMBER"]) > 0
     if case == "missing-commit":
