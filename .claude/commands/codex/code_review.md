@@ -18,7 +18,9 @@ the findings and decides what to fix.
 
 **The whole procedure is one helper, `scripts/codex-review-run.sh` (issue
 #1847).** Run it bare and read its lines; never re-assemble its stages by hand.
-The reviewer prompt lives there too, in one place.
+CPP requires one `make ci-shape-check` GOOD; BAD/UNKNOWN blocks. Other targets
+do no CPP qualification, staging, sync or image work. Never duplicate it.
+`CI_SHAPE_TIER=image` requires actual root; local GOOD leaves root UNKNOWN.
 
 **Which model reviews is host configuration, and this stage reports it rather
 than asserting it.** No `-m` is passed, so read `CODEX_REVIEW_MODEL` from the
@@ -69,7 +71,7 @@ for an early refusal); read it before the findings:
 | Verdict | Exit | Meaning |
 |---|---|---|
 | `CODEX_REVIEW: ran` | 0 | The review ran; the transcript holds the markers, the banner and the findings |
-| `CODEX_REVIEW: blocked (...)` | 1 | The patch is over Codex's input limit, or an enrolled repository has no committed checkpoint. Never a skip: split the change, or commit the bulk that needs no review separately, or commit the checkpoint |
+| `CODEX_REVIEW: blocked (...)` | 1 | CPP qualification BAD/UNKNOWN, oversized patch, or missing enrolled checkpoint. Correct the precondition; never a skip |
 | `CODEX_REVIEW: unavailable (...)` | 3 | No codex, no common ancestor with BASE (a shallow clone), an untracked-file listing or diff that failed, a refused `CODEX_REVIEW_SANDBOX`, no empty HOME for the reviewer, a failed `codex exec`, or an unwritable transcript. A caller degrades and continues; standalone, report it and stop |
 | (usage) | 2 | A bad argument, or a transcript path unwritable or inside the checkout |
 

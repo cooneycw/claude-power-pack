@@ -47,6 +47,10 @@ SELECTORS = (
     "tests/test_host_update_command.py::test_real_historical_installer_population",
     "tests/test_ci_shape_check.py",
     "tests/test_ci_shape_cancel.py",
+    "tests/test_ci_shape_review_entry.py",
+    "tests/test_ci_shape_ci_entry.py",
+    "tests/test_host_update_source_gc.py",
+    "tests/test_ci_shape_history_skips.py",
 )
 LANES = ("depth-1", "depth-1-tree-0")
 COLLECTION_FLOOR = 200
@@ -59,6 +63,7 @@ BOOTSTRAP_PATHS = frozenset({
 })
 _WITNESS_MODULE = "tests/test_ci_shape_check.py::"
 REQUIRED_WITNESSES = {
+    "1958-source-gc": "tests/test_host_update_source_gc.py::test_source_publication_joins_automatic_gc",
     "1961-cancel": ("tests/test_ci_shape_cancel.py::"
                     "test_cancel_reaps_pytest_group_before_outer_completion[15-term-ignoring-grandchild]"),
     "1909-modes": _WITNESS_MODULE + "test_1909_historical_inventory_retains_umask_checkout_modes",
@@ -88,10 +93,17 @@ ROOT_ONLY_NODES = frozenset({
     "tests/test_pi_skill_install.py::test_root_unreadable_control_executes_real_cli_as_unprivileged_child",
     REQUIRED_WITNESSES["1910-root"], REQUIRED_WITNESSES["1910-path"], REQUIRED_WITNESSES["1916-path"],
 })
+# Historical compatibility name; these nodes are required omissions, not
+# optional execution, in the shape-only collector and completion contract.
 OPTIONAL_HISTORY_NODES = frozenset(
     "tests/test_host_update_command.py::test_real_historical_installer_population[" + name + "]"
     for name in ("real-pre-e32-install", "real-v13-install")
 )
+EXPECTED_HISTORY_SKIPS = {
+    node: ("CI-shape expected history skip: historical installer execution is outside "
+           "the shallow/filtered lane; use separate full-history validation")
+    for node in OPTIONAL_HISTORY_NODES
+}
 HISTORICAL_PIN = "40d25173c8c09987fac851cffa565efdc0f11c72"
 # A small runtime surface. In particular Git/Make are ONLY in the staged dir.
 SYSTEM_TOOLS = (
@@ -125,6 +137,27 @@ def image_pin(root: Path) -> str:
     return found[1]
 
 
+def ci_entry_image(root: Path) -> str:
+    """Check the CI declaration and actual identity; this is not image attestation."""
+    if os.environ.get("CI") != "woodpecker":
+        raise Unknown("CI entry requires Woodpecker context (CI=woodpecker)")
+    if not re.fullmatch(r"[1-9][0-9]*", os.environ.get("CI_PIPELINE_NUMBER", "")):
+        raise Unknown("CI entry requires a positive Woodpecker pipeline number")
+    declared_commit = os.environ.get("CI_COMMIT_SHA", "")
+    if not re.fullmatch(r"[0-9a-f]{40}", declared_commit):
+        raise Unknown("CI entry requires an exact Woodpecker commit SHA")
+    if command(["git", "rev-parse", "HEAD"], cwd=root).stdout.strip() != declared_commit:
+        raise Unknown("Woodpecker commit SHA does not match the checkout HEAD")
+    if os.getuid() != 0 or os.geteuid() != 0:
+        raise Unknown("CI entry requires actual uid/euid 0")
+    image = image_pin(root)
+    declared = re.search(r"^  ci-shape:\n    image: (\S+@sha256:[0-9a-f]{64})$",
+                         (root / ".woodpecker.yml").read_text(), re.M)
+    if not declared or declared[1] != image:
+        raise Unknown("ci-shape step must declare the exact pinned validate image")
+    return image
+
+
 def selector_matches(nodeid: str, selector: str) -> bool:
     return (nodeid == selector or nodeid.startswith(selector + "::")
             or nodeid.startswith(selector + "["))
@@ -132,7 +165,7 @@ def selector_matches(nodeid: str, selector: str) -> bool:
 
 def manifest_complete(selectors: tuple[str, ...]) -> bool:
     return all(any(selector_matches(witness, selector) for selector in selectors)
-               for witness in REQUIRED_WITNESSES.values())
+               for witness in (*REQUIRED_WITNESSES.values(), *EXPECTED_HISTORY_SKIPS))
 
 
 def ci_profile(root: Path) -> dict:
@@ -196,6 +229,10 @@ def completion(result: dict, returncode: int, log: str, tier: str) -> tuple[str,
             return "BAD", "collection below committed population floor"
         if not set(REQUIRED_WITNESSES.values()) <= set(selected):
             return "BAD", "required named acceptance witness missing from collection"
+        for node, expected_reason in EXPECTED_HISTORY_SKIPS.items():
+            if (node not in selected or outcomes.get(node) != "skipped"
+                    or expected_reason not in skips.get(node, "")):
+                return "BAD", "expected historical skip missing, executed or reason changed: " + node
         if (returncode or result["exit"] or result["errors"] or "INTERNALERROR" in log
                 or not selected or len(selected) != len(set(selected))
                 or set(selected) != set(outcomes) or set(skips) != {
@@ -206,8 +243,8 @@ def completion(result: dict, returncode: int, log: str, tier: str) -> tuple[str,
         # A non-root run may skip only tests explicitly requiring real uid 0.
         for nodeid, reason in skips.items():
             root_skip = tier == "local" and nodeid in ROOT_ONLY_NODES and "requires real root" in reason
-            history_skip = (nodeid in OPTIONAL_HISTORY_NODES
-                            and ("historical installer" in reason or "partial clone:" in reason))
+            history_skip = (nodeid in EXPECTED_HISTORY_SKIPS
+                            and EXPECTED_HISTORY_SKIPS[nodeid] in reason)
             if not root_skip and not history_skip:
                 return "BAD", "unexpected skip: " + reason[:200]
         for selector in SELECTORS:
@@ -254,6 +291,8 @@ def assess(receipt: dict, *, tier: str, commit: str, image: str) -> tuple[str, s
                 return "UNKNOWN", lane["reason"]
             if lane["state"] != "GOOD":
                 return "BAD", lane["reason"]
+            if lane.get("expected_skips") != EXPECTED_HISTORY_SKIPS:
+                return "BAD", "lane does not declare its expected historical skips"
             if set(lane["preconditions"]) != set(PRECONDITIONS) or not all(
                     value is True for value in lane["preconditions"].values()):
                 return "BAD", "shape precondition not established"
@@ -474,7 +513,10 @@ def run_lane(root: Path, seed: Path, witness: str, work: Path, stage: Path,
     env = fresh_environment(home, tmp, minimal_path(work, stage, python))
     git = str(stage / "git")
     name = LANES[int(partial)]
-    row: dict[str, Any] = {"name": name, "state": "UNKNOWN", "reason": "not started"}
+    declared_skips = {node: reason for node, reason in EXPECTED_HISTORY_SKIPS.items()
+                      if any(selector_matches(node, selector) for selector in SELECTORS)}
+    row: dict[str, Any] = {"name": name, "state": "UNKNOWN", "reason": "not started",
+                           "expected_skips": declared_skips}
     before = time.monotonic()
     mask = os.umask(0)
     try:
@@ -493,6 +535,7 @@ def run_lane(root: Path, seed: Path, witness: str, work: Path, stage: Path,
         (path / ".venv").symlink_to(python.parent.parent, target_is_directory=True)
         results = work / "results.json"
         env.update(PYTHONPATH=str(path), CPP_CI_SHAPE_RESULTS=str(results),
+                   CPP_CI_SHAPE_EXPECTED_SKIPS=json.dumps(declared_skips, sort_keys=True),
                    PYTEST_DISABLE_PLUGIN_AUTOLOAD="1")
         argv = [python, "-m", "pytest", "-c", path / "pyproject.toml", "--rootdir", path,
                 "-p", "lib.ci_shape_pytest", "-p", "pytest_timeout", "-p", "xdist.plugin",

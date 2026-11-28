@@ -7,13 +7,15 @@
 #
 # Usage:
 #   codex-review-run.sh [--base REF] [--context TEXT] --transcript FILE
+#   codex-review-run.sh --qualify-only  (before a non-Codex reviewer)
 #   (FILE outside the checkout)
 #
-# The review mode runs five stages in order, each a function below whose body
+# The review mode runs six stages in order, each a function below whose body
 # is the former document block, unchanged except where noted:
 #   review_preflight     codex on PATH, else unavailable
 #   review_collect_diff  merge-base diff, untracked files included, the
 #                        canonical committed patch in an enrolled repository
+#   review_ci_shape      mandatory CPP qualification; ordinary consumers no-op
 #   review_run           size cap, sandbox scope probe, lane list, network
 #                        probe, credential withdrawal, `codex exec`
 #   review_model         the reviewing model from this run's own rollout
@@ -167,6 +169,74 @@ echo "Untracked files included in this diff: $UNTRACKED_COUNT (a count higher th
 # review_relay). Disarm the trap - it exists to catch an EARLY exit in THIS
 # stage, never the ordinary end of it.
 trap - EXIT
+}
+
+# CPP's required pre-review consumer (#1958). The producer owns physical shape
+# and completion evidence; this stage owns admission before ANY reviewer exec.
+#: NEGATIVE-CONTROL: controls/ci-shape-review-entry
+review_ci_shape() {
+local metadata="$GIT_ROOT/pyproject.toml" identity_status=0
+# Most consumers take this path without starting a CPP/Python/Make process.
+# Presence of a similarly named Make target alone never identifies CPP.
+if ! { [ -f "$metadata" ] && grep -Fq 'claude-power-pack' "$metadata"; } \
+    && ! { [ -f "$GIT_ROOT/lib/ci_shape_check.py" ] && [ -f "$GIT_ROOT/scripts/ci-shape-check.py" ]; }; then
+    return 0
+fi
+"${CM_PYTHON:-python3}" - "$metadata" <<'PY' || identity_status=$?
+import sys
+import tomllib
+try:
+    with open(sys.argv[1], 'rb') as stream:
+        data = tomllib.load(stream)
+    name = data.get('project', {}).get('name')
+    if not isinstance(name, str):
+        raise ValueError('missing project name')
+except (OSError, ValueError, TypeError, tomllib.TOMLDecodeError):
+    raise SystemExit(2)
+raise SystemExit(0 if name == 'claude-power-pack' else 3)
+PY
+[ "$identity_status" -ne 3 ] || return 0
+if [ "$identity_status" -ne 0 ]; then
+    rm -f "$DIFF_FILE"
+    echo "CODEX_REVIEW: blocked (CPP ci-shape identity UNKNOWN)" >&2
+    exit 1
+fi
+local tier="${CI_SHAPE_TIER:-local}" log make_status tee_status before="$SECONDS"
+case "$tier" in local|image) : ;; *)
+    rm -f "$DIFF_FILE"
+    echo "CODEX_REVIEW: blocked (CPP ci-shape tier UNKNOWN)" >&2
+    exit 1 ;;
+esac
+if ! command -v make >/dev/null 2>&1 || ! command -v tee >/dev/null 2>&1 \
+    || ! log=$(mktemp /tmp/cpp-review-ci-shape.XXXXXX); then
+    rm -f "$DIFF_FILE"
+    echo "CODEX_REVIEW: blocked (CPP ci-shape consumer unavailable)" >&2
+    exit 1
+fi
+local head
+head=$(git -C "$GIT_ROOT" rev-parse HEAD) || head=""
+echo "CI_SHAPE_REVIEW: running tier=$tier head=$head"
+make -C "$GIT_ROOT" ci-shape-check "CI_SHAPE_TIER=$tier" 2>&1 | tee "$log"
+local statuses=("${PIPESTATUS[@]}")
+make_status="${statuses[0]}"; tee_status="${statuses[1]}"
+local line state="" count=0
+while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+        'CI_SHAPE: '*) state="${line#CI_SHAPE: }"; state="${state%%:*}"; count=$((count + 1)) ;;
+    esac
+done < "$log"
+rm -f "$log"
+local current_head current_changes checkpoint_status=0
+current_head=$(git -C "$GIT_ROOT" rev-parse HEAD) || checkpoint_status=1
+current_changes=$(git -C "$GIT_ROOT" status --porcelain --untracked-files=normal) || checkpoint_status=1
+if [ "$make_status" -ne 0 ] || [ "$tee_status" -ne 0 ] || [ "$count" -ne 1 ] || [ "$state" != GOOD ] \
+    || [ "$checkpoint_status" -ne 0 ] || [ -z "$head" ] || [ "$current_head" != "$head" ] \
+    || [ -n "$current_changes" ]; then
+    rm -f "$DIFF_FILE"
+    echo "CODEX_REVIEW: blocked (CPP ci-shape ${state:-UNKNOWN}; qualification or checkpoint unavailable)" >&2
+    exit 1
+fi
+echo "CI_SHAPE_REVIEW: GOOD head=$head seconds=$((SECONDS - before))"
 }
 
 # Step 3 - measure scope and network, withdraw credentials, run the reviewer.
@@ -500,6 +570,14 @@ codex_review_usage() {
 }
 
 codex_review_main() {
+    if [ "$#" -eq 1 ] && [ "$1" = --qualify-only ]; then
+        GIT_ROOT=$(git rev-parse --show-toplevel) || {
+            echo "CODEX_REVIEW: blocked (target checkout UNKNOWN)" >&2; return 1;
+        }
+        DIFF_FILE=""
+        review_ci_shape
+        return 0
+    fi
     local transcript=""
     while [ "$#" -gt 0 ]; do
         case "$1" in
@@ -548,6 +626,7 @@ codex_review_main() {
     # Each stage exits the script on its own refusal, with its own marker.
     review_preflight
     review_collect_diff
+    review_ci_shape
     review_run
     review_model
     # A transcript that could not be written is a review nobody can receipt, so
