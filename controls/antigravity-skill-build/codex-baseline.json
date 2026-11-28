@@ -1642,11 +1642,11 @@
         420
       ],
       "candidate": [
-        "15d33c6b946fa6d53a384d9ea7d656616afb1f4e5fe02c6d412c59f0c1f59487",
+        "ccba9cba38a18a4a59191c6d2207c2dda327cfa424bd839553d07f5f642b5eb4",
         420
       ],
-      "source_commit": "a007f756b060098a3ff5047a42439a2ebb927d12",
-      "reason": "Merged main #1970 timeout propagation with #1877 optional provenance helper inputs. Value-only manifest attribution for the combined source tree; member paths, modes, historical members, pins, generator and parser remain unchanged."
+      "source_commit": "af4f99dbc70d90c80bbde121d5791fda7b35865c",
+      "reason": "CPP #1958 combines its approved required-review inputs with main through c8fa44fc (#1877/#1970/#1926). Full 405-member independent-generator measurement at this source checkpoint changes only this existing checksum value: size 2742 and mode 0644 unchanged. Historical members/pins and the union of approved attribution rows remain unchanged; value refresh approved by the orchestrator."
     },
     "flow-auto/scripts/codex-review-run.sh": {
       "baseline": [
