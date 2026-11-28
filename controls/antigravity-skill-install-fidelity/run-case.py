@@ -68,6 +68,9 @@ def main():
         git(source, "init", "-q")
         git(source, "config", "user.name", "Fixture")
         git(source, "config", "user.email", "fixture@example.invalid")
+        # Finish automatic maintenance before publishing this owned source or
+        # letting TemporaryDirectory remove it; detached GC still writes here.
+        git(source, "config", "gc.autoDetach", "false")
         git(source, "add", ".")
         git(source, "commit", "-qm", "source A")
         revision = Revision(git(source, "rev-parse", "HEAD"), source)

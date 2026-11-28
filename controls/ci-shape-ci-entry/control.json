@@ -1,0 +1,101 @@
+{
+  "gate": "scripts/ci-shape-check.py",
+  "invocation": [
+    "uv",
+    "run",
+    "--extra",
+    "dev",
+    "--frozen",
+    "python",
+    "controls/ci-shape-ci-entry/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "good_signal": "CI_SHAPE_CI_CONTROL: admitted -",
+  "detect_signal": "CI_SHAPE_CI_CONTROL: refused -",
+  "unavailable_signal": "CI_SHAPE_CI_CONTROL: unavailable -",
+  "cases": [
+    {
+      "name": "good",
+      "input": "cases/good",
+      "expect": "GOOD"
+    },
+    {
+      "name": "missing-context",
+      "input": "cases/missing-context",
+      "expect": "BAD"
+    },
+    {
+      "name": "missing-image",
+      "input": "cases/missing-image",
+      "expect": "BAD"
+    },
+    {
+      "name": "mismatched-image",
+      "input": "cases/mismatched-image",
+      "expect": "BAD"
+    },
+    {
+      "name": "wrong-identity",
+      "input": "cases/wrong-identity",
+      "expect": "BAD"
+    },
+    {
+      "name": "wrong-real-identity",
+      "input": "cases/wrong-real-identity",
+      "expect": "BAD"
+    },
+    {
+      "name": "wrong-effective-identity",
+      "input": "cases/wrong-effective-identity",
+      "expect": "BAD"
+    },
+    {
+      "name": "legacy-context",
+      "input": "cases/legacy-context",
+      "expect": "BAD"
+    },
+    {
+      "name": "missing-pipeline",
+      "input": "cases/missing-pipeline",
+      "expect": "BAD"
+    },
+    {
+      "name": "invalid-pipeline",
+      "input": "cases/invalid-pipeline",
+      "expect": "BAD"
+    },
+    {
+      "name": "missing-commit",
+      "input": "cases/missing-commit",
+      "expect": "BAD"
+    },
+    {
+      "name": "malformed-commit",
+      "input": "cases/malformed-commit",
+      "expect": "BAD"
+    },
+    {
+      "name": "mismatched-commit",
+      "input": "cases/mismatched-commit",
+      "expect": "BAD"
+    },
+    {
+      "name": "zero-pipeline",
+      "input": "cases/zero-pipeline",
+      "expect": "BAD"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/ci-shape-check.py",
+      "path": "anchors/constructed-context-blind.py",
+      "sha256": "c87e0ed31c3def70b54ae978c09666ca8010163fac89baad6435b6ad22e8bb77",
+      "why": "Invokes the producer and accepts GOOD while omitting CI context, image-declaration and real-identity checks."
+    }
+  ],
+  "limits": "CI admission checks Woodpecker context declarations against the actual checkout HEAD with controlled identities/producer. It does not authenticate pipeline provenance or attest the actual runtime image. Real pinned-image/root acceptance is separate; UNKNOWN refuses before producer invocation."
+}

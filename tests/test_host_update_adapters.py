@@ -55,6 +55,10 @@ def source_template(tmp_path_factory):
     git(source, "config", "user.name", "Fixture")
     git(source, "config", "user.email", "fixture@example.invalid")
     git(source, "config", "commit.gpgsign", "false")
+    # Publish an immutable source only after its initial commit's automatic GC
+    # has finished. Detached repacking can remove loose objects while a later
+    # local --no-hardlinks clone is copying them (#1958).
+    git(source, "config", "gc.autoDetach", "false")
     git(source, "add", ".")
     git(source, "commit", "-qm", "adapter implementation and source A")
     return source

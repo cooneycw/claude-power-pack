@@ -125,6 +125,31 @@
       "name": "zero-executed",
       "input": "cases/zero-executed",
       "expect": "BAD"
+    },
+    {
+      "name": "history-pass",
+      "input": "cases/history-pass",
+      "expect": "BAD"
+    },
+    {
+      "name": "history-missing",
+      "input": "cases/history-missing",
+      "expect": "BAD"
+    },
+    {
+      "name": "history-reason",
+      "input": "cases/history-reason",
+      "expect": "BAD"
+    },
+    {
+      "name": "history-declaration",
+      "input": "cases/history-declaration",
+      "expect": "BAD"
+    },
+    {
+      "name": "history-policy-missing",
+      "input": "cases/history-policy-missing",
+      "expect": "BAD"
     }
   ],
   "anchors": [

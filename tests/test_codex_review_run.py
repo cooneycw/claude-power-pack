@@ -42,7 +42,7 @@ FLOW_AUTO = REPO / ".claude" / "commands" / "flow" / "auto.md"
 requires_git = pytest.mark.skipif(shutil.which("git") is None, reason="requires git")
 requires_python3 = pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3")
 
-STAGES = ("review_preflight", "review_collect_diff", "review_run", "review_model", "review_relay")
+STAGES = ("review_preflight", "review_collect_diff", "review_ci_shape", "review_run", "review_model", "review_relay")
 
 
 def review_stage(name: str) -> str:

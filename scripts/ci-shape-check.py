@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Opt-in focused local and pinned-image CI-shape runs; see #1917."""
 #: NEGATIVE-CONTROL: controls/ci-shape-check
+#: NEGATIVE-CONTROL: controls/ci-shape-ci-entry
 
 import argparse
 import json
@@ -12,7 +13,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from lib.ci_shape_check import SELECTORS, Unknown, assess, bootstrap_changes, image_pin, run  # noqa: E402
+from lib.ci_shape_check import (  # noqa: E402
+    SELECTORS,
+    Unknown,
+    assess,
+    bootstrap_changes,
+    ci_entry_image,
+    image_pin,
+    run,
+)
 
 
 def main():
@@ -23,6 +32,8 @@ def main():
     execute.add_argument("--receipt", type=Path, required=True)
     execute.add_argument("--backend", choices=("docker", "podman"), default="docker")
     execute.add_argument("--inside-image", help=argparse.SUPPRESS)
+    ci = sub.add_parser("ci", help="required entry inside the declared pinned CI image")
+    ci.add_argument("--receipt", type=Path, required=True)
     verify = sub.add_parser("verify")
     verify.add_argument("receipt", type=Path)
     verify.add_argument("--tier", choices=("local", "image"), required=True)
@@ -33,6 +44,10 @@ def main():
     bootstrap.add_argument("--base", required=True)
     bootstrap.add_argument("--root", type=Path, default=ROOT)
     args = parser.parse_args()
+    if args.command == "ci":
+        # Normalize before shared UNKNOWN handling; CI never starts a backend.
+        args.tier = "image"
+        args.inside_image = None
     if args.command == "tests":
         with tempfile.TemporaryDirectory(prefix="cpp-ci-shape-tests-") as owned:
             selection = ["-k", "1909 or 1910 or 1916 or 1922"] if args.historical_only else []
@@ -47,7 +62,11 @@ def main():
         print(f"CI_SHAPE: {state}: {reason}")
         return {"GOOD": 0, "BAD": 1, "UNKNOWN": 2}[state]
     try:
-        if args.command == "verify":
+        if args.command == "ci":
+            image = ci_entry_image(ROOT)
+            record = run(ROOT, "image", args.receipt.absolute(), inside_image=image)
+            state, reason = record["state"], record["reason"]
+        elif args.command == "verify":
             state, reason = assess(json.loads(args.receipt.read_text()), tier=args.tier,
                                    commit=args.commit, image=image_pin(ROOT))
         elif args.tier == "image" and not args.inside_image:
@@ -74,7 +93,14 @@ def main():
             state, reason = record["state"], record["reason"]
     except (Unknown, OSError, ValueError, subprocess.SubprocessError) as exc:
         state, reason = "UNKNOWN", str(exc)
-        if args.command == "run":
+        if args.command == "ci":
+            args.receipt.parent.mkdir(parents=True, exist_ok=True)
+            args.receipt.write_text(json.dumps({
+                "schema": 1, "tier": "image", "commit": "unresolved", "image": "unresolved",
+                "selectors": list(SELECTORS), "lanes": [], "state": state, "reason": reason,
+                "root": {"state": "UNKNOWN", "reason": "CI admission failed before execution"},
+            }, indent=2) + "\n")
+        elif args.command == "run":
             args.receipt.parent.mkdir(parents=True, exist_ok=True)
             args.receipt.write_text(json.dumps({
                 "schema": 1, "tier": args.tier, "commit": "unresolved", "image": image_pin(ROOT),
