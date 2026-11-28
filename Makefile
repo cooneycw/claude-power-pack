@@ -1314,6 +1314,16 @@ review-yield-test:
 # #1917 PR-A: opt-in only; review/CI wiring follows qualification in PR-B.
 CI_SHAPE_RECEIPT ?= .ci-shape/local.json
 CI_SHAPE_TIER ?= local
+.PHONY: test-ci-shape-review-entry
+CI_SHAPE_REVIEW_TESTS ?= tests/test_ci_shape_review_entry.py tests/test_codex_review_run.py
+## verify-coverage: utility test-ci-shape-review-entry - public required-review consumer cases; full suite owns verdict
+test-ci-shape-review-entry:
+	uv run --extra dev --frozen pytest -q $(CI_SHAPE_REVIEW_TESTS) $(PYTEST_ARGS)
+.PHONY: ci-shape-review-canary
+## verify-coverage: excluded ci-shape-review-canary - subset of negative-controls; ci: excluded duplicate-subset
+ci-shape-review-canary:
+	python3 scripts/check-negative-controls.py --control controls/ci-shape-review-entry --strict --verify-provenance
+
 .PHONY: ci-shape-check ci-shape-canary test-ci-shape ci-shape-acceptance
 ## verify-coverage: excluded ci-shape-check - opt-in isolated focused shape run; ci: excluded opt-in
 ci-shape-check:
