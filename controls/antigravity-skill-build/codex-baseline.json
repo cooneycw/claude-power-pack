@@ -1630,11 +1630,11 @@
         420
       ],
       "candidate": [
-        "54d44e9c13f750949dda094df89f6de9ea8fd184c76771f39909df84c432b3ca",
+        "ca8428e49b701e88263ffce44c9414c9c9b891ae89d5e9276bd11bd2427b3f90",
         420
       ],
-      "source_commit": "315b7ca427c21ffd12a3825c26e37876384e5678",
-      "reason": "R3e #1877 optional closing-text provenance validation changes the bundled flow-plan-record helper and its manifest. Exact input-byte attribution only; the historical member population, pins, generator and parser remain unchanged."
+      "source_commit": "48f523d20e96aa10589a8764586d3dfbf7e97314",
+      "reason": "CPP #1970 qualifies the bundled finish-gate advice for operator-token versus fixed numeric manifest budgets. Exact input-byte attribution only; earlier attributed changes remain, and frozen generator, parser and historical members are unchanged."
     },
     "flow-auto/scripts/codex-skill-sync.py": {
       "baseline": [
@@ -1667,11 +1667,11 @@
         420
       ],
       "candidate": [
-        "356ada8b71c71f91addddb36cc427ca0617c5a2c5dd734ee4eb841693ce60d9f",
+        "2348b7c0f4a4133dff0115aab57b8868862323773c55f03f57852e48483eb327",
         420
       ],
-      "source_commit": "b5d3f3b27211710140d27973082b1588c39e5fbf",
-      "reason": "R3a #1863 selected-report kind persistence changes the bundled receipt/yield helper inputs; monthly-create declares its canonical sibling dependency. Exact input-byte attribution only; pinned generator, parser and historical members remain unchanged."
+      "source_commit": "48f523d20e96aa10589a8764586d3dfbf7e97314",
+      "reason": "CPP #1970 qualifies the bundled finish-gate advice for operator-token versus fixed numeric manifest budgets. Exact input-byte attribution only; earlier attributed changes remain, and frozen generator, parser and historical members are unchanged."
     },
     "flow-check/scripts/counter-model-receipt.py": {
       "baseline": [
@@ -1691,11 +1691,11 @@
         420
       ],
       "candidate": [
-        "483c0eadf3eaf8687de9bd304534c95c18c37066bca90ffffca96fdba035141b",
+        "af3e3a4b8484543c7d9684f47cf527af2bf8547bdf195cf5b44641871349df8f",
         420
       ],
-      "source_commit": "b5d3f3b27211710140d27973082b1588c39e5fbf",
-      "reason": "R3a #1863 selected-report kind persistence changes the bundled receipt/yield helper inputs; monthly-create declares its canonical sibling dependency. Exact input-byte attribution only; pinned generator, parser and historical members remain unchanged."
+      "source_commit": "48f523d20e96aa10589a8764586d3dfbf7e97314",
+      "reason": "CPP #1970 qualifies the bundled finish-gate advice for operator-token versus fixed numeric manifest budgets. Exact input-byte attribution only; earlier attributed changes remain, and frozen generator, parser and historical members are unchanged."
     },
     "flow-finish/scripts/codex-skill-sync.py": {
       "baseline": [
@@ -1728,11 +1728,11 @@
         420
       ],
       "candidate": [
-        "e17e8b627164d89ca5ef24cbbf2255dd6d781631f0e9b95dabf7af450ead8709",
+        "0468a34e2045090285574e2627dcc5a3a840daaeeeb4ee95dcf5d37f29572880",
         420
       ],
-      "source_commit": "b5d3f3b27211710140d27973082b1588c39e5fbf",
-      "reason": "R3a #1863 selected-report kind persistence changes the bundled receipt/yield helper inputs; monthly-create declares its canonical sibling dependency. Exact input-byte attribution only; pinned generator, parser and historical members remain unchanged."
+      "source_commit": "48f523d20e96aa10589a8764586d3dfbf7e97314",
+      "reason": "CPP #1970 qualifies the bundled finish-gate advice for operator-token versus fixed numeric manifest budgets. Exact input-byte attribution only; earlier attributed changes remain, and frozen generator, parser and historical members are unchanged."
     },
     "flow-merge/scripts/counter-model-receipt.py": {
       "baseline": [
@@ -1802,6 +1802,54 @@
       ],
       "source_commit": "dfb6909a02bf61c5330f30adb4c6901d07f0ffdc",
       "reason": "R3b #1925 reads review receipts from an exact-commit archive instead of serial blob requests; the Git blob SHA-1 is explicitly non-security. Exact input-byte attribution only; pinned generator, parser, historical members and attribution row set remain unchanged."
+    },
+    "flow-auto/scripts/flow-finish-gate.sh": {
+      "baseline": [
+        "7343756ac852fc327c44784434d2dcbe8c13e31ce9989408e7b65348e3d31239",
+        493
+      ],
+      "candidate": [
+        "07cb41fc13b94ccd8224c571ee02af50d6394441eb043c6ffbecd7732f59d0bc",
+        493
+      ],
+      "source_commit": "48f523d20e96aa10589a8764586d3dfbf7e97314",
+      "reason": "CPP #1970 qualifies the bundled finish-gate advice for operator-token versus fixed numeric manifest budgets. Exact input-byte attribution only; earlier attributed changes remain, and frozen generator, parser and historical members are unchanged."
+    },
+    "flow-check/scripts/flow-finish-gate.sh": {
+      "baseline": [
+        "7343756ac852fc327c44784434d2dcbe8c13e31ce9989408e7b65348e3d31239",
+        493
+      ],
+      "candidate": [
+        "07cb41fc13b94ccd8224c571ee02af50d6394441eb043c6ffbecd7732f59d0bc",
+        493
+      ],
+      "source_commit": "48f523d20e96aa10589a8764586d3dfbf7e97314",
+      "reason": "CPP #1970 qualifies the bundled finish-gate advice for operator-token versus fixed numeric manifest budgets. Exact input-byte attribution only; earlier attributed changes remain, and frozen generator, parser and historical members are unchanged."
+    },
+    "flow-finish/scripts/flow-finish-gate.sh": {
+      "baseline": [
+        "7343756ac852fc327c44784434d2dcbe8c13e31ce9989408e7b65348e3d31239",
+        493
+      ],
+      "candidate": [
+        "07cb41fc13b94ccd8224c571ee02af50d6394441eb043c6ffbecd7732f59d0bc",
+        493
+      ],
+      "source_commit": "48f523d20e96aa10589a8764586d3dfbf7e97314",
+      "reason": "CPP #1970 qualifies the bundled finish-gate advice for operator-token versus fixed numeric manifest budgets. Exact input-byte attribution only; earlier attributed changes remain, and frozen generator, parser and historical members are unchanged."
+    },
+    "flow-merge/scripts/flow-finish-gate.sh": {
+      "baseline": [
+        "7343756ac852fc327c44784434d2dcbe8c13e31ce9989408e7b65348e3d31239",
+        493
+      ],
+      "candidate": [
+        "07cb41fc13b94ccd8224c571ee02af50d6394441eb043c6ffbecd7732f59d0bc",
+        493
+      ],
+      "source_commit": "48f523d20e96aa10589a8764586d3dfbf7e97314",
+      "reason": "CPP #1970 qualifies the bundled finish-gate advice for operator-token versus fixed numeric manifest budgets. Exact input-byte attribution only; earlier attributed changes remain, and frozen generator, parser and historical members are unchanged."
     },
     "flow-auto/scripts/flow-plan-record.py": {
       "baseline": [

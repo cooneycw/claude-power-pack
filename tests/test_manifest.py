@@ -11,7 +11,13 @@ Covers:
 
 from __future__ import annotations
 
+import os
+import shlex
+import shutil
+import subprocess
+import sys
 import textwrap
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -531,6 +537,71 @@ class TestCPPManifest:
         # Verify cross-references are valid
         errors = manifest.validate_plan_references()
         assert errors == [], f"CPP manifest has reference errors: {errors}"
+
+
+class TestCPPVerifyTimeout:
+    @pytest.mark.parametrize(("budget", "expected"), [(None, 1800), ("42", 42), ("3600", 3600), ("٤٢", 42)])
+    def test_real_manifest_resolves_budget(self, monkeypatch, budget, expected):
+        if budget is None:
+            monkeypatch.delenv("CPP_GATE_TEST_TIMEOUT", raising=False)
+        else:
+            monkeypatch.setenv("CPP_GATE_TEST_TIMEOUT", budget)
+        root = Path(__file__).resolve().parents[1]
+        manifest = load_manifest(root)
+        assert manifest is not None
+        assert manifest.steps["verify"].timeout == "CPP_GATE_TEST_TIMEOUT"
+        step = next(step for step in get_plan_steps("finish", str(root)) if step.id == "verify")
+        assert step.timeout_seconds == expected
+
+    @pytest.mark.parametrize("budget", ["", "invalid", "0", "-5", "1.5", "²"])
+    def test_invalid_budget_is_visible_and_defaults(self, monkeypatch, capsys, budget):
+        assert not budget.isascii() or not budget.isdecimal() or int(budget) <= 0
+        monkeypatch.setenv("CPP_GATE_TEST_TIMEOUT", budget)
+        step = step_model_to_step_def("verify", StepModel(command="make verify", timeout="CPP_GATE_TEST_TIMEOUT"))
+        assert step.timeout_seconds == 1800
+        assert capsys.readouterr().err == (
+            "CPP_GATE_TEST_TIMEOUT: invalid positive-seconds budget; using 1800s default\n")
+
+    @pytest.mark.parametrize("step_id", ["verify", "test", "custom"])
+    def test_numeric_timeout_does_not_opt_in(self, monkeypatch, capsys, step_id):
+        monkeypatch.setenv("CPP_GATE_TEST_TIMEOUT", "42")
+        step = step_model_to_step_def(step_id, StepModel(command="echo controlled", timeout=13))
+        assert step.timeout_seconds == 13
+        assert capsys.readouterr().err == ""
+
+    def test_only_the_named_token_is_supported(self):
+        bad = "OTHER_TIMEOUT"
+        assert bad != "CPP_GATE_TEST_TIMEOUT"
+        with pytest.raises(ValueError):
+            StepModel(command="echo controlled", timeout=bad)
+
+    @pytest.mark.skipif(shutil.which(sys.executable) is None, reason="requires active Python")
+    def test_builtin_verify_uses_the_same_budget(self):
+        proc = subprocess.run([
+            sys.executable, "-c",
+            "from lib.cicd.steps import BUILTIN_PLANS; "
+            "print(next(s.timeout_seconds for s in BUILTIN_PLANS['finish'] if s.id == 'verify'))",
+        ], cwd=Path(__file__).resolve().parents[1],
+            env={**os.environ, "CPP_GATE_TEST_TIMEOUT": "37"}, capture_output=True, text=True, check=True)
+        assert proc.stdout.strip() == "37"
+
+    @pytest.mark.skipif(shutil.which("sh") is None, reason="requires sh")
+    def test_real_manifest_override_reaches_execution(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CPP_GATE_TEST_TIMEOUT", "1")
+        assert os.environ["CPP_GATE_TEST_TIMEOUT"] == "1"
+        root = Path(__file__).resolve().parents[1]
+        manifest = load_manifest(root)
+        assert manifest is not None and manifest.steps["verify"].command == "make verify"
+        step = next(step for step in get_plan_steps("finish", str(root)) if step.id == "verify")
+        # Fail here on the old manifest, without starting its 1800-second wait.
+        assert step.timeout_seconds == 1, "the real manifest masked the operator budget"
+        command = shlex.join([sys.executable, "-c",
+                              "import time; print('verify-control-started', flush=True); time.sleep(5)"])
+        result = ShellStep(replace(step, command=command, skip_if=None)).execute(
+            {"project_root": str(tmp_path)})
+        assert "verify-control-started" in result.output
+        assert not result.success and result.exit_code == 124
+        assert "timed out after 1s" in result.error
 
 
 class TestManifestPlansIncludeTypecheck:

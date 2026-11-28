@@ -268,7 +268,10 @@ def _assert_self_bundled_input_variation(tmp_path, mask):
     for consumer in ("flow-auto", "flow-finish"):
         name = f"{consumer}/scripts/codex-skill-sync.py"
         assert (outputs[0] / name).read_bytes() == frozen_bytes
-        assert (outputs[1] / name).read_bytes() == current_bytes, "bundled generator input was held old"
+        # The deliberate mismatch must not ask pytest to diff whole generator
+        # sources: CI=true enables an expensive full iterable diff for bytes.
+        is_current = (outputs[1] / name).read_bytes() == current_bytes
+        assert is_current, "bundled generator input was held old"
         expected.update((name, f"{consumer}/scripts/SHA256SUMS"))
     changed = {name for name in before.keys() | after.keys() if before.get(name) != after.get(name)}
     assert changed == expected, "only two self-bundled source copies and their checksums may change"
@@ -297,8 +300,9 @@ def test_bundled_input_variation_rejects_held_old_input(tmp_path, monkeypatch, m
         return source
 
     monkeypatch.setitem(_assert_self_bundled_input_variation.__globals__, "canonical_source", hold_old)
-    with pytest.raises(AssertionError, match="bundled generator input was held old"):
+    with pytest.raises(AssertionError, match="bundled generator input was held old") as rejected:
         _assert_self_bundled_input_variation(tmp_path, mask)
+    assert len(str(rejected.value)) < 256, "held-old rejection must have a bounded diagnostic"
     print(f"held-old-input {mask:03o}: RED bundled-member assertion despite equal transforms")
 
 def test_changed_transform_is_detected(tmp_path, monkeypatch):

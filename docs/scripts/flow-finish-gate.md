@@ -305,3 +305,15 @@ than at the bound. With no answer the line says `queued or blocked` for 10 and
 The verdict and exit code are unchanged: fail, 1. A live Kyle authority is not
 exercised by the tests; the fake `kyle-lock` mirrors the client's own argparse
 (`--issue`/`--pr` are integers) and exit codes.
+
+The verify budget can opt in to `CPP_GATE_TEST_TIMEOUT` (#1970). CPP's own
+manifest uses `timeout: CPP_GATE_TEST_TIMEOUT`; built-in verify uses the same
+resolver. Unset values use 1800 seconds. Invalid values print a fixed warning
+and use 1800, never zero or unlimited. Set a positive integer before launching
+the gate to override that budget, for example `CPP_GATE_TEST_TIMEOUT=3600`.
+
+Numeric manifest timeouts remain fixed, including Kyle's and skillc's own
+manifest values. A consumer that wants the knob must opt in with the literal
+token. Arbitrary environment-variable interpolation is not supported. Timeout
+advice distinguishes these paths: edit a numeric manifest value or opt in,
+rather than setting a knob that the numeric value would mask.

@@ -6,6 +6,7 @@
 # Reference:
 #   steps.<name>.command     - Shell command to execute
 #   steps.<name>.timeout     - Max seconds (default: 600)
+#     CPP_GATE_TEST_TIMEOUT - Opt in to the operator budget (default: 1800); numeric timeouts stay fixed
 #   steps.<name>.max_attempts - Retry count (default: 1)
 #   steps.<name>.idempotent  - Safe to retry? (default: true)
 #   steps.<name>.skip_if     - Shell expression; skip if exits 0
@@ -57,12 +58,12 @@ steps:
     # produced by the fix for it. Measured, not reasoned about: the gate ran in
     # 163.68s, the same figure as before the change, which is what gave it away.
     #
-    # The timeout is 1800 to match the built-in step: `make verify` measured
-    # 229.8s on this repository and grows with the suite, and a gate killed by
-    # its own budget reports a timeout rather than a result (issue #812).
+    # Opt in to the same operator budget as the built-in step. Unset or invalid
+    # CPP_GATE_TEST_TIMEOUT uses 1800 seconds; invalid values are reported.
+    # A fixed numeric value here would mask the knob named by timeout advice.
     command: make verify
     description: Run the repository's full verification pipeline (make verify)
-    timeout: 1800
+    timeout: CPP_GATE_TEST_TIMEOUT
     skip_if: '! grep -q "^verify:" Makefile 2>/dev/null'
 
   deploy_security_scan:

@@ -1,0 +1,63 @@
+{
+  "branch": "issue-1960-deterministic-witness",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "head": "ab962872db4cd41880b61216d218ab0016e9dad4",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/25/rollout-2026-11-25T16-21-45-01a21383-5caa-7a60-b0dd-8fa74bd4c6bd.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 51217693,
+        "path": "2026/11/25/rollout-2026-11-25T16-21-45-01a21383-5caa-7a60-b0dd-8fa74bd4c6bd.jsonl",
+        "sha256": "2343634dcff36516b5ffaac889d0cfce98a35e349a45a0f25ae2b5a9a3829095"
+      }
+    ],
+    "thread_id": "01a21383-5caa-7a60-b0dd-8fa74bd4c6bd"
+  },
+  "issue": "1960",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 1,
+  "recorded_at": "2026-11-27T18:21:56Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewed_artifact": {
+    "base_sha": "7878db6f47690b5d5a2f1cfcff547e4726c9dda4",
+    "merge_base": "7878db6f47690b5d5a2f1cfcff547e4726c9dda4",
+    "method": "runtime-head",
+    "patch_sha256": "c42f71427b432eeaed98bd4b5baac74d7774dfcdaaa2bb9d0ab51ebec14ae621",
+    "report_record": 9970,
+    "target_head": "ab962872db4cd41880b61216d218ab0016e9dad4"
+  },
+  "reviewer": "claude/claude-opus-5-5",
+  "reviewer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2",
+    "sources": [
+      {
+        "bytes": 18067604,
+        "path": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl",
+        "sha256": "be27c893d90b73476ca86ff67f99cfb46b7e031eff2c4c5cc687d9546c6d5706"
+      }
+    ],
+    "transcript": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}
