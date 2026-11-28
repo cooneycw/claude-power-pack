@@ -1323,6 +1323,7 @@ review-yield-test:
 # #1917/#1958: explicit tiers, required review and pinned-image CI consumers.
 CI_SHAPE_RECEIPT ?= .ci-shape/local.json
 CI_SHAPE_TIER ?= local
+CI_SHAPE_PROFILE ?= ci-shape
 .PHONY: test-ci-shape-review-entry
 CI_SHAPE_REVIEW_TESTS ?= tests/test_ci_shape_review_entry.py tests/test_codex_review_run.py tests/test_ci_shape_ci_entry.py tests/test_ci_shape_history_skips.py tests/test_ci_shape_cancel.py tests/test_host_update_source_gc.py
 ## verify-coverage: utility test-ci-shape-review-entry - public required-review consumer cases; full suite owns verdict
@@ -1340,7 +1341,16 @@ ci-shape-check:
 .PHONY: ci-shape-ci
 ## verify-coverage: excluded ci-shape-ci - pinned-image required consumer; ci: runs ci-shape
 ci-shape-ci:
-	python3 scripts/ci-shape-check.py ci --receipt "$(CI_SHAPE_RECEIPT)"
+	python3 scripts/ci-shape-check.py ci --profile "$(CI_SHAPE_PROFILE)" --receipt "$(CI_SHAPE_RECEIPT)"
+	python3 scripts/ci-shape-check.py verify "$(CI_SHAPE_RECEIPT)" --profile "$(CI_SHAPE_PROFILE)" --tier image --commit "$$(git rev-parse HEAD)"
+.PHONY: runner-replay-check
+## verify-coverage: excluded runner-replay-check - opt-in private serial replay; ci: runs runner-replay through ci-shape-ci
+runner-replay-check:
+	uv run python scripts/ci-shape-check.py run --profile runner-replay --tier "$(CI_SHAPE_TIER)" --receipt "$(CI_SHAPE_RECEIPT)"
+.PHONY: runner-replay-canary
+## verify-coverage: excluded runner-replay-canary - subset of negative-controls; ci: excluded duplicate-subset
+runner-replay-canary:
+	python3 scripts/check-negative-controls.py --control controls/ci-shape-runner-replay --strict --verify-provenance
 .PHONY: ci-shape-ci-canary
 ## verify-coverage: excluded ci-shape-ci-canary - subset of negative-controls; ci: excluded duplicate-subset
 ci-shape-ci-canary:

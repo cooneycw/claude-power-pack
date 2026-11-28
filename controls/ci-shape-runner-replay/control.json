@@ -1,0 +1,97 @@
+{
+  "gate": "scripts/ci-shape-check.py",
+  "invocation": [
+    "uv",
+    "run",
+    "--extra",
+    "dev",
+    "--frozen",
+    "python",
+    "controls/ci-shape-runner-replay/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "good_signal": "CI_SHAPE: GOOD:",
+  "detect_signal": "CI_SHAPE: BAD:",
+  "unavailable_signal": "RUNNER_REPLAY_CONTROL: unavailable -",
+  "cases": [
+    {
+      "name": "good",
+      "input": "cases/good",
+      "expect": "GOOD"
+    },
+    {
+      "name": "missing",
+      "input": "cases/missing",
+      "expect": "BAD"
+    },
+    {
+      "name": "skipped",
+      "input": "cases/skipped",
+      "expect": "BAD"
+    },
+    {
+      "name": "duplicate",
+      "input": "cases/duplicate",
+      "expect": "BAD"
+    },
+    {
+      "name": "duplicate-report",
+      "input": "cases/duplicate-report",
+      "expect": "BAD"
+    },
+    {
+      "name": "empty-selector",
+      "input": "cases/empty-selector",
+      "expect": "BAD"
+    },
+    {
+      "name": "wrong-selector",
+      "input": "cases/wrong-selector",
+      "expect": "BAD"
+    },
+    {
+      "name": "wrong-node",
+      "input": "cases/wrong-node",
+      "expect": "BAD"
+    },
+    {
+      "name": "corrupt-outcome",
+      "input": "cases/corrupt-outcome",
+      "expect": "BAD"
+    },
+    {
+      "name": "zero-executed",
+      "input": "cases/zero-executed",
+      "expect": "BAD"
+    },
+    {
+      "name": "false-good",
+      "input": "cases/false-good",
+      "expect": "BAD"
+    },
+    {
+      "name": "wrong-lane",
+      "input": "cases/wrong-lane",
+      "expect": "BAD"
+    },
+    {
+      "name": "make",
+      "input": "cases/make",
+      "expect": "UNKNOWN"
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/ci-shape-check.py",
+      "path": "anchors/constructed-always-green.py",
+      "sha256": "747f61aee0e388ee40dbcca02c624aaf807f672b41cb1eb5b029431223ddbade",
+      "why": "Passes through prerequisite UNKNOWN, then always reports GOOD without inspecting selection, named outcomes, errors or counts. All terminal bad cases must catch this blind producer."
+    }
+  ],
+  "limits": "Owned physical shallow checkout plus real tiny pytest/collector for the 41 named canaries. These are deliberately trivial fixtures, not execution proof for the actual runner tests. Missing Make is removed from the real private staged PATH. Real pipeline/image/UID qualification is separate; context declarations are not authenticated provenance.",
+  "unknown_signal": "CI_SHAPE: UNKNOWN:"
+}

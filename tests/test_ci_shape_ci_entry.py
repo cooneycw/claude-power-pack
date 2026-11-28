@@ -26,7 +26,7 @@ def test_required_ci_step_is_pinned_and_can_overlap_validate():
     assert set(step["depends_on"]) == {
         "secret-scan", "make-stage", "git-stage", "codex-skills-generate"}
     assert step["commands"] == [
-        'PATH="$PWD/.ci-bin:$PATH" make ci-shape-ci CI_SHAPE_RECEIPT=.ci-shape/ci.json']
+        'PATH="$PWD/.ci-bin:$PATH" make ci-shape-ci CI_SHAPE_PROFILE=ci-shape CI_SHAPE_RECEIPT=.ci-shape/ci.json']
 
 
 def exercise(gate, temporary, case, monkeypatch):
