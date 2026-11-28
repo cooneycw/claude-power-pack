@@ -145,6 +145,31 @@ test failed its expanded `4/12` expectation. The frozen unchanged report
 passed. The report source SHA256 was identical to the pinned predecessor
 (`dfb779bacfd4d829a3ac64c8ee28a30d7f17abcc053654f7183261324200f8e3`).
 
+The expanded real-reader tests were also run in a separate worktree at that
+exact predecessor. Collection, rendering, generated Codex output and the
+Claude install path all failed as expected: four failures, three unchanged
+cases passed. The implementation SHA256 again matched the predecessor.
+After the fix, lint and all 70 focused report cases passed. These include
+the actual generated script and installed helper in main/linked fixture
+layouts, not replacement readers.
+
+All 405 generated parity members were compared with the pinned-main build.
+Only `monthly-create/scripts/review-yield-report.py` and its `SHA256SUMS`
+changed; no member was added or removed. Both existing antigravity attribution
+rows were value-refreshed with orchestrator approval, preserving the historical
+404-member inventory and the 19-row attribution set. The pi baseline has no
+attribution map and remains untouched.
+
+| Member | Before SHA256 | After SHA256 | Bytes before/after | Mode |
+|---|---|---|---|---|
+| Report script | `dfb779bacfd4d829a3ac64c8ee28a30d7f17abcc053654f7183261324200f8e3` | `def49a1c935441cbbfae67f8452061f4028f70cbdf1ca16d81161c35296eb389` | 22727 / 22859 | 0755 |
+| SHA256SUMS | `4a90c775e40bc49ce092cb67f450c62178cae8cec6a9411b4dd8192a5115d61d` | `02db53cf7fcbb661e01e984547514d3db563ba118617b5538f2738eba68b3e52` | 928 / 928 | 0644 |
+
+The existing 36 antigravity parity cases and two pi same-input generator
+cases passed under both 0022 and 0002 umasks. Known wrong-attribution, altered
+transform/parser/mode and held-old-input controls remain in that battery.
+This is focused validation, not a claim about the later full finish gate.
+
 The managed-host start preflight selected a missing installed Codex engine
 despite using checkout-local scripts with colocated library sources. The
 orchestrator supplied the explicit managed-worker start procedure; no host

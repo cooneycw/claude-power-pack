@@ -54,6 +54,15 @@ def title_populations():
     return json.loads((FIXTURES / "title-populations.json").read_text())
 
 
+def title_population_data():
+    value = data()
+    value["repos"]["cooneycw/example"]["prs"] = [
+        {"number": row["number"], "title": row["title"],
+         "merged_at": "2026-11-15T00:00:00Z", "issues": []}
+        for row in title_populations()["cases"]]
+    return value
+
+
 def test_title_population_collector_old_and_new_side_by_side():
     mod = helper()
     fixture = title_populations()
@@ -87,12 +96,7 @@ def test_title_population_collector_old_and_new_side_by_side():
 
 def test_title_population_render_accepts_only_the_expanded_forms():
     fixture = title_populations()
-    value = data()
-    value["repos"]["cooneycw/example"]["prs"] = [
-        {"number": row["number"], "title": row["title"],
-         "merged_at": "2026-11-15T00:00:00Z", "issues": []}
-        for row in fixture["cases"]]
-    out = report(value)
+    out = report(title_population_data())
     assert "PRs readable: 4/12" in out
     for row in fixture["cases"]:
         assert (f"- #{row['number']}:" in out) is row["new"]
@@ -305,7 +309,8 @@ def test_blank_line_does_not_consume_next_field():
 
 
 @pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3")
-def test_generated_codex_bundle_uses_real_script_and_canonical_contract(tmp_path):
+@pytest.mark.parametrize("expanded", [False, True])
+def test_generated_codex_bundle_uses_real_script_and_canonical_contract(tmp_path, expanded):
     spec = importlib.util.spec_from_file_location("yield_codex_sync", ROOT / "scripts/codex-skill-sync.py")
     assert spec and spec.loader
     sync = importlib.util.module_from_spec(spec)
@@ -319,11 +324,19 @@ def test_generated_codex_bundle_uses_real_script_and_canonical_contract(tmp_path
         target = tmp_path / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text)
+    fixture = FIXTURES / "provenance.json"
+    if expanded:
+        fixture = tmp_path / "titles.json"
+        fixture.write_text(json.dumps(title_population_data()))
     done = subprocess.run([sys.executable, str(tmp_path / "scripts/review-yield-report.py"),
-                           "--since", SINCE, "--until", UNTIL, "--fixture", str(FIXTURES / "provenance.json")],
+                           "--since", SINCE, "--until", UNTIL, "--fixture", str(fixture)],
                           cwd=tmp_path, capture_output=True, text=True)
     assert done.returncode == 0
-    assert "#101: MISSING" in done.stdout and "#102: recorded" in done.stdout
+    if expanded:
+        assert "#203: MISSING" in done.stdout and "#204: MISSING" in done.stdout
+        assert "PRs readable: 4/12" in done.stdout
+    else:
+        assert "#101: MISSING" in done.stdout and "#102: recorded" in done.stdout
     assert "UNKNOWN" not in done.stdout.split("## cooneycw/example")[0]
 
 
@@ -352,7 +365,8 @@ def test_crlf_provenance_matches_lf(location):
 @pytest.mark.skipif(shutil.which("git") is None, reason="requires git")
 @pytest.mark.skipif(shutil.which("bash") is None, reason="requires bash")
 @pytest.mark.skipif(shutil.which("python3") is None, reason="requires python3")
-def test_claude_install_in_main_and_worktree(tmp_path):
+@pytest.mark.parametrize("expanded", [False, True])
+def test_claude_install_in_main_and_worktree(tmp_path, expanded):
     import os
     checkout = tmp_path / "main"
     checkout.mkdir()
@@ -369,6 +383,10 @@ def test_claude_install_in_main_and_worktree(tmp_path):
     git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-m", "fixture")
     linked = tmp_path / "linked"
     git("worktree", "add", "--detach", str(linked), "HEAD")
+    fixture = FIXTURES / "provenance.json"
+    if expanded:
+        fixture = tmp_path / "titles.json"
+        fixture.write_text(json.dumps(title_population_data()))
     for layout in (checkout, linked):
         private_home = tmp_path / f"home-{layout.name}"
         installed = private_home / ".claude/scripts/review-yield-report.py"
@@ -382,10 +400,14 @@ def test_claude_install_in_main_and_worktree(tmp_path):
         assert install.returncode == 0, install.stderr
         assert installed.is_symlink() and installed.resolve() == layout / "scripts/review-yield-report.py"
         done = subprocess.run([sys.executable, str(installed), "--since", SINCE, "--until", UNTIL,
-                               "--fixture", str(FIXTURES / "provenance.json")],
+                               "--fixture", str(fixture)],
                               cwd=private_home, env=env, capture_output=True, text=True)
         assert done.returncode == 0, done.stderr
-        assert "#101: MISSING" in done.stdout and "#102: recorded" in done.stdout
+        if expanded:
+            assert "#203: MISSING" in done.stdout and "#204: MISSING" in done.stdout
+            assert "PRs readable: 4/12" in done.stdout
+        else:
+            assert "#101: MISSING" in done.stdout and "#102: recorded" in done.stdout
 
 
 def test_real_1691_independent_branches_are_both_counted():
