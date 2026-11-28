@@ -1,6 +1,7 @@
 """Required shape lanes declare historical omissions before fixture setup."""
 import copy
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -55,7 +56,8 @@ def test_manifest_cannot_drop_named_historical_omissions():
     assert not shape.manifest_complete(selected)
 
 
-def test_shape_collector_skips_before_setup_and_leaves_ordinary_pytest_alone(pytester, monkeypatch):
+@pytest.mark.parametrize("standalone", [False, True], ids=["package", "standalone-collector"])
+def test_shape_collector_skips_before_setup_and_leaves_ordinary_pytest_alone(pytester, monkeypatch, standalone):
     tests = pytester.path / "tests"
     tests.mkdir()
     marker = pytester.path / "fixture-ran"
@@ -70,9 +72,17 @@ def test_shape_collector_skips_before_setup_and_leaves_ordinary_pytest_alone(pyt
     tests.joinpath("test_host_update_source_gc.py").write_text(
         "def test_source_publication_joins_automatic_gc():\n    assert True\n")
     output = pytester.path / "results.json"
-    monkeypatch.setenv("PYTHONPATH", str(ROOT))
+    if standalone:
+        package = pytester.path / "lib"
+        package.mkdir()
+        (package / "__init__.py").write_text("")
+        shutil.copyfile(ROOT / "lib/ci_shape_pytest.py", package / "ci_shape_pytest.py")
+        assert not (package / "ci_shape_check.py").exists()
+    monkeypatch.setenv("PYTHONPATH", str(pytester.path if standalone else ROOT))
     monkeypatch.setenv("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
     monkeypatch.setenv("CPP_CI_SHAPE_RESULTS", str(output))
+    monkeypatch.setenv("CPP_CI_SHAPE_EXPECTED_SKIPS",
+                       json.dumps({node: REASON for node in shape.OPTIONAL_HISTORY_NODES}))
     assert not marker.exists() and not output.exists()
     result = pytester.runpytest_subprocess("-p", "lib.ci_shape_pytest", "--rootdir", str(pytester.path), "-q")
     result.assert_outcomes(passed=2, skipped=2)
