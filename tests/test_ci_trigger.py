@@ -150,7 +150,7 @@ def test_the_intended_shape_passes_in_either_spelling() -> None:
 
 
 def test_every_workflow_requires_kyleci_host() -> None:
-    """CPP must not schedule on other projects' agents (issue #1977)."""
+    """CPP must not schedule on other projects' agents (issue #1977) or on Kyle's lanes."""
     workflows = sorted(ROOT.glob(".woodpecker.y*ml"))
     workflow_dir = ROOT / ".woodpecker"
     if workflow_dir.is_dir():
@@ -165,5 +165,9 @@ def test_every_workflow_requires_kyleci_host() -> None:
             labels = workflow.get("labels")
             assert isinstance(labels, dict) and labels.get("host") == "kyleci", (
                 f"{path.name} document {index}: requires top-level labels.host=kyleci, "
+                f"got {labels!r}"
+            )
+            assert labels.get("pool") == "cpp", (
+                f"{path.name} document {index}: requires top-level labels.pool=cpp, "
                 f"got {labels!r}"
             )

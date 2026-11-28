@@ -38,9 +38,15 @@
 # two groups. Only `ci/woodpecker/pr/woodpecker` is a required status context, so
 # the branch-push twin gated nothing. The main push stays: it is the post-merge
 # verification. tests/test_ci_trigger.py fails if either half drifts.
-# CPP runs only on the dedicated kyleci hosts (issue #1977).
+# CPP runs only on the dedicated kyleci hosts (issue #1977), and only on the
+# CPP pool within them. Woodpecker matches only the labels a workflow states,
+# so `host: kyleci` alone also lands CPP on Kyle's PR-lane agents and slows both
+# projects. Agent 93 (proxVMkyleci22) carries `host=kyleci,pool=cpp` and no
+# `lane`, so Kyle's lane-pinned workflows cannot match it. Relabel an agent
+# before adding it to the pool, or CPP queues with nowhere to run.
 labels:
   host: kyleci
+  pool: cpp
 
 when:
   - event: pull_request
