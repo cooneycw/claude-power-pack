@@ -6,10 +6,22 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 PIN = "test/image@sha256:" + "a" * 64
 OTHER_PIN = "test/image@sha256:" + "b" * 64
+
+
+def test_required_ci_step_is_pinned_and_can_overlap_validate():
+    steps = yaml.safe_load((ROOT / ".woodpecker.yml").read_text())["steps"]
+    assert "ci-shape" in steps, "required CI qualification has no pipeline consumer"
+    step = steps["ci-shape"]
+    assert step["image"] == steps["validate"]["image"] and "@sha256:" in step["image"]
+    assert set(step["depends_on"]) == {
+        "secret-scan", "make-stage", "git-stage", "codex-skills-generate"}
+    assert step["commands"] == [
+        'PATH="$PWD/.ci-bin:$PATH" make ci-shape-ci CI_SHAPE_RECEIPT=.ci-shape/ci.json']
 
 
 def exercise(gate, temporary, case, monkeypatch):
