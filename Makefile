@@ -164,6 +164,12 @@ test:
 	@set -e; workers="$$(sh scripts/pytest-workers.sh)"; \
 		uv run --extra dev pytest -n "$$workers"
 
+## verify-coverage: utility test-cicd-timeouts - manifest timeout regression and budget parsing; full suite owns the gate
+.PHONY: test-cicd-timeouts
+CICD_TIMEOUT_TESTS ?= tests/test_manifest.py tests/test_runner.py::TestTestStepBudgetIsConfigurable
+test-cicd-timeouts:
+	uv run --extra dev pytest -q $(CICD_TIMEOUT_TESTS) $(PYTEST_ARGS)
+
 ## verify-coverage: utility test-host-update-core - focused tests of the fixture-only host update core; full suite owns the gate
 .PHONY: test-host-update-core test-host-update-lock-repeat host-update-controls host-update-verify host-update-refresh
 HOST_UPDATE_TESTS ?= tests/test_host_update_core.py tests/test_host_update_transactions.py tests/test_host_update_cli.py

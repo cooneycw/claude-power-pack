@@ -1,0 +1,35 @@
+{
+  "truncated": false,
+  "tree": [
+    {
+      "path": "docs/measurements/counter-model/1999-01-01-older.json",
+      "type": "blob",
+      "sha": "802e5569f3f75f32dd864cd18a9ed904c2a80e31"
+    },
+    {
+      "path": "docs/measurements/counter-model/2026-11-12-outside.json",
+      "type": "blob",
+      "sha": "202a1355043eba8139c1c71e4c16ecb13f7dfd8c"
+    },
+    {
+      "path": "docs/measurements/counter-model/2099-01-01-latest.json",
+      "type": "blob",
+      "sha": "73ae50eedd9f95f7ad6012c6a70cc734d6d86891"
+    },
+    {
+      "path": "docs/measurements/counter-model/independent.json",
+      "type": "blob",
+      "sha": "307e0fc6880d86420c305333e22e3576c1e25481"
+    },
+    {
+      "path": "docs/measurements/counter-model/kind.json",
+      "type": "blob",
+      "sha": "4af0227c3c169b7822a354cef9974cb57bf6d621"
+    },
+    {
+      "path": "docs/measurements/counter-model/malformed.json",
+      "type": "blob",
+      "sha": "828e21da45c0942076f7520b1eabc5e986be3cca"
+    }
+  ]
+}
