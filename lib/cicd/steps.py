@@ -694,7 +694,7 @@ def _test_step_timeout() -> int:
     if raw is None:
         return DEFAULT_TEST_STEP_TIMEOUT
     raw = raw.strip()
-    if raw.isascii() and raw.isdecimal():
+    if raw.isdigit():
         try:
             budget = int(raw)
         except ValueError:

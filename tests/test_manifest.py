@@ -540,7 +540,7 @@ class TestCPPManifest:
 
 
 class TestCPPVerifyTimeout:
-    @pytest.mark.parametrize(("budget", "expected"), [(None, 1800), ("42", 42), ("3600", 3600)])
+    @pytest.mark.parametrize(("budget", "expected"), [(None, 1800), ("42", 42), ("3600", 3600), ("٤٢", 42)])
     def test_real_manifest_resolves_budget(self, monkeypatch, budget, expected):
         if budget is None:
             monkeypatch.delenv("CPP_GATE_TEST_TIMEOUT", raising=False)
