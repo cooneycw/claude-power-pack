@@ -9,6 +9,8 @@ make test-ci-shape
 make ci-shape-check CI_SHAPE_RECEIPT=/absolute/path/local.json
 make ci-shape-check CI_SHAPE_TIER=image CI_SHAPE_RECEIPT=/absolute/path/image.json
 make ci-shape-ci CI_SHAPE_RECEIPT=/absolute/path/ci.json
+make runner-replay-check CI_SHAPE_RECEIPT=/absolute/path/replay.json
+make runner-replay-canary
 ```
 
 Local runs require non-root Linux, uv and a working bootstrap Python. Image
@@ -82,7 +84,8 @@ Keep the host launch command and backend/image identity alongside its receipt.
 The CI entry runs directly inside the step, without launching a container.
 It requires `CI=woodpecker`, a positive `CI_PIPELINE_NUMBER`, an exact
 `CI_COMMIT_SHA` matching the checkout's actual HEAD, actual uid/euid 0, and a
-literal `ci-shape` image pin equal to validate's. Missing, malformed or mismatched
+literal image pin equal to validate's for the selected `ci-shape` or
+`runner-replay` step. Missing, malformed or mismatched
 context is UNKNOWN before the producer runs; a generic `CI=true` is refused.
 This checks declarations and checkout identity, not authenticated pipeline
 provenance or independent image attestation. The host reproduction supplies the
@@ -94,6 +97,39 @@ output, and overlaps validate. The pre-wiring image measurement took 475.7s;
 actual PR timing must confirm that the new step finishes before validate and
 that neither validate nor pipeline wall time rises by more than about 120s
 against recent runs of the same event type. Report a breach before merging.
+
+The explicit `runner-replay` profile (#1973) reuses this runner, collector and
+schema-1 receipt. Its identity is bound by the exact committed 41 node IDs in
+`RUNNER_REPLAY_SELECTORS`, plus the existing commit, image and tier fields.
+Both classes in the former CI keyword selection were independently collected
+at main `dbcc728a`; collect-only established the manifest, not execution.
+The default `ci-shape` profile retains its two lanes, population floor,
+witnesses and permitted skips. A verifier never infers replay from a small count.
+
+Replay uses one private depth-1 lane and explicit node arguments at `-n0`.
+Its checkout, HOME, TMPDIR, dependency environment, caches, basetemp and output
+are owned and private. Short temporary names preserve socket-path room.
+The clean environment discards inherited pytest options and the
+`CPP_TEST_CODEX_SKILLS_BUILT` marker, so generation belongs to the private checkout.
+Completion requires every mandatory node PASS exactly once, no skips or errors;
+the collector reports duplicate call events in the existing errors field.
+The public CI caller verifies the produced evidence before printing exactly
+41 `RUNNER_REPLAY_NODE: ... PASS` lines, and Make independently rechecks the receipt.
+
+```sh
+make ci-shape-ci CI_SHAPE_PROFILE=runner-replay CI_SHAPE_RECEIPT=/absolute/path/replay.json
+uv run python scripts/ci-shape-check.py verify /absolute/path/replay.json \
+  --profile runner-replay --tier image --commit COMMITTED_CHECKPOINT_SHA
+```
+
+The required replay sibling depends on staging, never validate. It replaces
+validate's serial tail only together with the evidence check. Overlap alone
+does not prove a saving: the PR must report step intervals, validate duration
+against the post-#1958 1332-second baseline and total pipeline time against
+1503 seconds, using the same image and worker cap. Report contention or a net
+regression rather than increasing workers or claiming the modeled saving.
+The replay control uses real private clones and a real collector on deliberately
+tiny named fixtures; those canaries are not execution proof for the real tests.
 
 `codex-review-run.sh` qualifies the target checkout after diff collection and
 before review. Its `--qualify-only` entry supplies the same admission check for

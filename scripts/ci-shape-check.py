@@ -2,9 +2,11 @@
 """Opt-in focused local and pinned-image CI-shape runs; see #1917."""
 #: NEGATIVE-CONTROL: controls/ci-shape-check
 #: NEGATIVE-CONTROL: controls/ci-shape-ci-entry
+#: NEGATIVE-CONTROL: controls/ci-shape-runner-replay
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -14,11 +16,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from lib.ci_shape_check import (  # noqa: E402
+    DEFAULT_PROFILE,
+    PROFILES,
+    REPLAY_PROFILE,
+    RUNNER_REPLAY_SELECTORS,
     SELECTORS,
     Unknown,
     assess,
     bootstrap_changes,
     ci_entry_image,
+    command,
     image_pin,
     run,
 )
@@ -38,6 +45,8 @@ def main():
     verify.add_argument("receipt", type=Path)
     verify.add_argument("--tier", choices=("local", "image"), required=True)
     verify.add_argument("--commit", required=True)
+    for entry in (execute, ci, verify):
+        entry.add_argument("--profile", choices=PROFILES, default=DEFAULT_PROFILE)
     tests = sub.add_parser("tests")
     tests.add_argument("--historical-only", action="store_true")
     bootstrap = sub.add_parser("bootstrap")
@@ -61,14 +70,15 @@ def main():
             state, reason = "UNKNOWN", str(exc)
         print(f"CI_SHAPE: {state}: {reason}")
         return {"GOOD": 0, "BAD": 1, "UNKNOWN": 2}[state]
+    profile_options = {} if args.profile == DEFAULT_PROFILE else {"profile": args.profile}
     try:
         if args.command == "ci":
-            image = ci_entry_image(ROOT)
-            record = run(ROOT, "image", args.receipt.absolute(), inside_image=image)
+            image = ci_entry_image(ROOT, **profile_options)
+            record = run(ROOT, "image", args.receipt.absolute(), inside_image=image, **profile_options)
             state, reason = record["state"], record["reason"]
         elif args.command == "verify":
             state, reason = assess(json.loads(args.receipt.read_text()), tier=args.tier,
-                                   commit=args.commit, image=image_pin(ROOT))
+                                   commit=args.commit, image=image_pin(ROOT), **profile_options)
         elif args.tier == "image" and not args.inside_image:
             backend = shutil.which(args.backend)
             if not backend:
@@ -83,30 +93,45 @@ def main():
                 backend, "run", "--rm", "--user", "0:0", "--entrypoint", "python3",
                 "-v", f"{ROOT}:/source:ro", "-v", f"{output.parent}:/receipts",
                 image, "/source/scripts/ci-shape-check.py", "run", "--tier", "image",
-                "--inside-image", image, "--receipt", "/receipts/" + output.name,
+                "--inside-image", image,
+                *(["--profile", args.profile] if profile_options else []),
+                "--receipt", "/receipts/" + output.name,
             ], check=False)
             if not output.exists():
                 raise Unknown(f"container backend produced no receipt (exit {child.returncode})")
             return child.returncode
         else:
-            record = run(ROOT, args.tier, args.receipt.absolute(), inside_image=args.inside_image)
+            record = run(ROOT, args.tier, args.receipt.absolute(), inside_image=args.inside_image, **profile_options)
             state, reason = record["state"], record["reason"]
+        if args.profile == REPLAY_PROFILE and args.command != "verify":
+            # A producer's GOOD alone is not the consumer's execution proof.
+            actual = command(["git", "-c", f"safe.directory={ROOT}", "-C", ROOT,
+                              "rev-parse", "HEAD"], env={"PATH": os.environ.get("PATH", ""),
+                                                       "GIT_CONFIG_GLOBAL": os.devnull,
+                                                       "GIT_CONFIG_NOSYSTEM": "1"}).stdout.strip()
+            state, reason = assess(record, tier=args.tier, commit=actual,
+                                   image=image_pin(ROOT), profile=args.profile)
     except (Unknown, OSError, ValueError, subprocess.SubprocessError) as exc:
         state, reason = "UNKNOWN", str(exc)
         if args.command == "ci":
             args.receipt.parent.mkdir(parents=True, exist_ok=True)
             args.receipt.write_text(json.dumps({
                 "schema": 1, "tier": "image", "commit": "unresolved", "image": "unresolved",
-                "selectors": list(SELECTORS), "lanes": [], "state": state, "reason": reason,
+                "selectors": list(RUNNER_REPLAY_SELECTORS if profile_options else SELECTORS),
+                "lanes": [], "state": state, "reason": reason,
                 "root": {"state": "UNKNOWN", "reason": "CI admission failed before execution"},
             }, indent=2) + "\n")
         elif args.command == "run":
             args.receipt.parent.mkdir(parents=True, exist_ok=True)
             args.receipt.write_text(json.dumps({
                 "schema": 1, "tier": args.tier, "commit": "unresolved", "image": image_pin(ROOT),
-                "selectors": list(SELECTORS), "lanes": [], "state": state, "reason": reason,
+                "selectors": list(RUNNER_REPLAY_SELECTORS if profile_options else SELECTORS),
+                "lanes": [], "state": state, "reason": reason,
                 "root": {"state": "UNKNOWN", "reason": "image/root execution not examined"},
             }, indent=2) + "\n")
+    if state == "GOOD" and args.profile == REPLAY_PROFILE and args.command != "verify":
+        for node in RUNNER_REPLAY_SELECTORS:
+            print(f"RUNNER_REPLAY_NODE: {node} PASS")
     print(f"CI_SHAPE: {state}: tier={args.tier}; {reason}")
     if state == "GOOD" and args.tier == "local":
         print("CI_SHAPE_ROOT: UNKNOWN: not examined: needs real uid 0")

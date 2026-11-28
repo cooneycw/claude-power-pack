@@ -185,7 +185,7 @@ def image_pin(root: Path) -> str:
     return found[1]
 
 
-def ci_entry_image(root: Path) -> str:
+def ci_entry_image(root: Path, *, profile: str = DEFAULT_PROFILE) -> str:
     """Check the CI declaration and actual identity; this is not image attestation."""
     if os.environ.get("CI") != "woodpecker":
         raise Unknown("CI entry requires Woodpecker context (CI=woodpecker)")
@@ -198,11 +198,13 @@ def ci_entry_image(root: Path) -> str:
         raise Unknown("Woodpecker commit SHA does not match the checkout HEAD")
     if os.getuid() != 0 or os.geteuid() != 0:
         raise Unknown("CI entry requires actual uid/euid 0")
+    profile_selectors(profile)
     image = image_pin(root)
-    declared = re.search(r"^  ci-shape:\n    image: (\S+@sha256:[0-9a-f]{64})$",
+    step = REPLAY_PROFILE if profile == REPLAY_PROFILE else "ci-shape"
+    declared = re.search(r"^  " + step + r":\n    image: (\S+@sha256:[0-9a-f]{64})$",
                          (root / ".woodpecker.yml").read_text(), re.M)
     if not declared or declared[1] != image:
-        raise Unknown("ci-shape step must declare the exact pinned validate image")
+        raise Unknown(step + " step must declare the exact pinned validate image")
     return image
 
 
@@ -211,7 +213,26 @@ def selector_matches(nodeid: str, selector: str) -> bool:
             or nodeid.startswith(selector + "["))
 
 
-def manifest_complete(selectors: tuple[str, ...]) -> bool:
+def profile_selectors(profile: str = DEFAULT_PROFILE) -> tuple[str, ...]:
+    if profile == DEFAULT_PROFILE:
+        return SELECTORS
+    if profile == REPLAY_PROFILE:
+        if (len(RUNNER_REPLAY_SELECTORS) != 41
+                or len(set(RUNNER_REPLAY_SELECTORS)) != 41
+                or any(not isinstance(node, str) or not node.startswith((
+                    "tests/test_runner.py::TestSubsumedGates::",
+                    "tests/test_runner.py::TestResumeSettlesDeferredGates::"))
+                       for node in RUNNER_REPLAY_SELECTORS)):
+            raise Unknown("runner-replay manifest must name its 41 unique mandatory nodes")
+        return RUNNER_REPLAY_SELECTORS
+    raise Unknown("unknown CI-shape profile: " + profile)
+
+
+def manifest_complete(selectors: tuple[str, ...], profile: str = DEFAULT_PROFILE) -> bool:
+    if profile == REPLAY_PROFILE:
+        return selectors == profile_selectors(profile)
+    if profile != DEFAULT_PROFILE:
+        return False
     return all(any(selector_matches(witness, selector) for selector in selectors)
                for witness in (*REQUIRED_WITNESSES.values(), *EXPECTED_HISTORY_SKIPS))
 
@@ -265,10 +286,22 @@ def bootstrap_changes(root: Path, base: str, head: str = "HEAD") -> tuple[str, s
     return "GOOD", "root ancestor to HEAD changes only named profile/docs/measurement paths"
 
 
-def completion(result: dict, returncode: int, log: str, tier: str) -> tuple[str, str]:
+def completion(result: dict, returncode: int, log: str, tier: str,
+               profile: str = DEFAULT_PROFILE) -> tuple[str, str]:
     """A zero exit is necessary, never sufficient (#1923)."""
+    if profile not in PROFILES:
+        return "BAD", "unknown completion profile"
     try:
         selected, outcomes, skips = result["selected"], result["outcomes"], result["skips"]
+        if profile == REPLAY_PROFILE:
+            nodes = profile_selectors(profile)
+            if (returncode or type(result["exit"]) is not int or result["exit"] != 0
+                    or result["errors"] != [] or "INTERNALERROR" in log
+                    or selected != list(nodes) or len(selected) != len(set(selected))
+                    or set(outcomes) != set(nodes) or skips != {}
+                    or any(value != "passed" for value in outcomes.values())):
+                return "BAD", "runner-replay requires each of the 41 named nodes PASS exactly once"
+            return "GOOD", "all 41 runner-replay nodes passed exactly once; no skips"
         if "INTERNALERROR" in log:
             return "BAD", "pytest output contains INTERNALERROR"
         if not any(value in {"passed", "failed"} for value in outcomes.values()):
@@ -307,23 +340,25 @@ def completion(result: dict, returncode: int, log: str, tier: str) -> tuple[str,
     return "GOOD", "all declared selectors completed; skips named"
 
 
-def assess(receipt: dict, *, tier: str, commit: str, image: str) -> tuple[str, str]:
+def assess(receipt: dict, *, tier: str, commit: str, image: str,
+           profile: str = DEFAULT_PROFILE) -> tuple[str, str]:
     """The same public verifier is used by controls and downstream readers."""
     try:
+        selectors = profile_selectors(profile)
         if (receipt["schema"] != 1 or receipt["tier"] != tier
                 or receipt["commit"] != commit or receipt["image"] != image
-                or receipt["selectors"] != list(SELECTORS)):
+                or receipt["selectors"] != list(selectors)):
             return "BAD", "receipt identity, tier or selection mismatch"
-        if not manifest_complete(SELECTORS):
+        if not manifest_complete(selectors, profile):
             return "BAD", "manifest dropped a required named witness"
         if receipt.get("state") == "UNKNOWN" and not receipt["lanes"]:
             return "UNKNOWN", receipt["reason"]
-        profile = receipt["pytest_time_umask"]
-        if profile["state"] == "UNKNOWN":
+        mask_profile = receipt["pytest_time_umask"]
+        if mask_profile["state"] == "UNKNOWN":
             return "UNKNOWN", "pytest-time umask UNKNOWN: CI default not proven"
-        if (profile["state"] != "GOOD" or profile["image"] != image
-                or type(profile["umask"]) is not int or not 0 <= profile["umask"] <= 0o777
-                or not profile["evidence"]):
+        if (mask_profile["state"] != "GOOD" or mask_profile["image"] != image
+                or type(mask_profile["umask"]) is not int or not 0 <= mask_profile["umask"] <= 0o777
+                or not mask_profile["evidence"]):
             return "BAD", "invalid pytest-time umask evidence"
         root = receipt["root"]
         if tier == "local":
@@ -332,25 +367,27 @@ def assess(receipt: dict, *, tier: str, commit: str, image: str) -> tuple[str, s
         elif tier != "image":
             return "BAD", "invalid tier"
         lanes = receipt["lanes"]
-        if [row["name"] for row in lanes] != list(LANES):
+        expected_lanes = LANES[:1] if profile == REPLAY_PROFILE else LANES
+        expected_skips = {} if profile == REPLAY_PROFILE else EXPECTED_HISTORY_SKIPS
+        if [row["name"] for row in lanes] != list(expected_lanes):
             return "BAD", "missing or duplicated clone lane"
         for lane in lanes:
             if lane["state"] == "UNKNOWN":
                 return "UNKNOWN", lane["reason"]
             if lane["state"] != "GOOD":
                 return "BAD", lane["reason"]
-            if lane.get("expected_skips") != EXPECTED_HISTORY_SKIPS:
+            if lane.get("expected_skips") != expected_skips:
                 return "BAD", "lane does not declare its expected historical skips"
             if set(lane["preconditions"]) != set(PRECONDITIONS) or not all(
                     value is True for value in lane["preconditions"].values()):
                 return "BAD", "shape precondition not established"
-            if lane["test_umask"] != f"{profile['umask']:03o}":
+            if lane["test_umask"] != f"{mask_profile['umask']:03o}":
                 return "BAD", "pytest umask differs from the observed CI profile"
             uid, euid = lane["identity"]["uid"], lane["identity"]["euid"]
             if ((tier == "image" and (uid != 0 or euid != 0))
                     or (tier == "local" and (uid == 0 or euid == 0))):
                 return "BAD", "wrong real uid for requested tier"
-            state, reason = completion(lane["results"], lane["exit"], lane["diagnostic"], tier)
+            state, reason = completion(lane["results"], lane["exit"], lane["diagnostic"], tier, profile)
             if state != "GOOD":
                 return state, reason
             outcomes = lane["results"]["outcomes"]
@@ -359,11 +396,16 @@ def assess(receipt: dict, *, tier: str, commit: str, image: str) -> tuple[str, s
                     "executed": sum(value != "skipped" for value in outcomes.values()),
                     "skipped": len(lane["results"]["skips"])}:
                 return "BAD", "inconsistent selected/executed/skipped counts"
+    except Unknown as exc:
+        return "UNKNOWN", str(exc)
     except (KeyError, TypeError, ValueError, AttributeError):
         return "BAD", "missing or malformed receipt evidence"
     if tier == "image" and root != {"state": "GOOD", "reason": "real uid 0 in pinned validate image"}:
         return "BAD", "image/root evidence missing"
+    if profile == REPLAY_PROFILE:
+        return "GOOD", "runner-replay completed one private lane; all 41 named nodes PASS once"
     return "GOOD", "both clone lanes completed for the declared tier only"
+
 
 
 def fresh_environment(home: Path, tmp: Path, path: str) -> dict[str, str]:
@@ -552,7 +594,8 @@ def _owned_pytest(argv, *, cwd, env, output, timeout=1200) -> int:
 
 
 def run_lane(root: Path, seed: Path, witness: str, work: Path, stage: Path,
-             python: Path, tier: str, partial: bool, logs: Path, test_umask: int) -> dict[str, Any]:
+             python: Path, tier: str, partial: bool, logs: Path, test_umask: int,
+             *, profile: str = DEFAULT_PROFILE) -> dict[str, Any]:
     work.mkdir()
     home, tmp = work / "home", work / "tmp-link"
     home.mkdir(mode=0o700)
@@ -561,8 +604,9 @@ def run_lane(root: Path, seed: Path, witness: str, work: Path, stage: Path,
     env = fresh_environment(home, tmp, minimal_path(work, stage, python))
     git = str(stage / "git")
     name = LANES[int(partial)]
+    selectors = profile_selectors(profile)
     declared_skips = {node: reason for node, reason in EXPECTED_HISTORY_SKIPS.items()
-                      if any(selector_matches(node, selector) for selector in SELECTORS)}
+                      if any(selector_matches(node, selector) for selector in selectors)}
     row: dict[str, Any] = {"name": name, "state": "UNKNOWN", "reason": "not started",
                            "expected_skips": declared_skips}
     before = time.monotonic()
@@ -585,17 +629,21 @@ def run_lane(root: Path, seed: Path, witness: str, work: Path, stage: Path,
         env.update(PYTHONPATH=str(path), CPP_CI_SHAPE_RESULTS=str(results),
                    CPP_CI_SHAPE_EXPECTED_SKIPS=json.dumps(declared_skips, sort_keys=True),
                    PYTEST_DISABLE_PLUGIN_AUTOLOAD="1")
+        if profile == REPLAY_PROFILE:
+            env.update(CPP_CI_SHAPE_EXACT_EXECUTION="1", UV_CACHE_DIR=str(work / "cache"),
+                       XDG_CACHE_HOME=str(work / "cache"))
+        basetemp = work / ("p" if profile == REPLAY_PROFILE else "pytest")
         argv = [python, "-m", "pytest", "-c", path / "pyproject.toml", "--rootdir", path,
                 "-p", "lib.ci_shape_pytest", "-p", "pytest_timeout", "-p", "xdist.plugin",
-                "-n", "0", "--durations=15", "-q", "-rs", "--basetemp", work / "pytest",
-                *[path / selector for selector in SELECTORS]]
+                "-n", "0", "--durations=15", "-q", "-rs", "--basetemp", basetemp,
+                *[path / selector for selector in selectors]]
         # Each run owns its basetemp under TemporaryDirectory, never the global
         # pytest-of-* namespace. The context removes it even after failure.
         with (logs / (name + ".log")).open("w") as output:
             exit_code = _owned_pytest(argv, cwd=work, env=env, output=output)
         log = (logs / (name + ".log")).read_text()
         payload = json.loads(results.read_text()) if results.exists() else {}
-        state, reason = completion(payload, exit_code, log, tier)
+        state, reason = completion(payload, exit_code, log, tier, profile)
         row.update(state=state, reason=reason, results=payload, exit=exit_code,
                    diagnostic="INTERNALERROR" if "INTERNALERROR" in log else "",
                    log_sha256=hashlib.sha256(log.encode()).hexdigest())
@@ -611,11 +659,13 @@ def run_lane(root: Path, seed: Path, witness: str, work: Path, stage: Path,
     return row
 
 
-def run(root: Path, tier: str, receipt_path: Path, *, inside_image: str | None = None) -> dict:
+def run(root: Path, tier: str, receipt_path: Path, *, inside_image: str | None = None,
+        profile: str = DEFAULT_PROFILE) -> dict:
     commit = "unresolved"
     image = image_pin(root)
     record: dict[str, Any] = {"schema": 1, "tier": tier, "commit": commit, "image": image,
-                              "selectors": list(SELECTORS), "lanes": [], "state": "UNKNOWN"}
+                              "selectors": list(RUNNER_REPLAY_SELECTORS if profile == REPLAY_PROFILE else SELECTORS),
+                              "lanes": [], "state": "UNKNOWN"}
     record["root"] = {"state": "UNKNOWN", "reason": "not examined: needs real uid 0"}
     record["pytest_time_umask"] = {"state": "UNKNOWN", "reason": "CI default not proven"}
     try:
@@ -630,25 +680,29 @@ def run(root: Path, tier: str, receipt_path: Path, *, inside_image: str | None =
             raise Unknown("image tier requires real uid 0 and the pinned-image launcher")
         if tier == "local" and (os.getuid() == 0 or os.geteuid() == 0):
             raise Unknown("local non-root tier requires a non-root process")
-        if not manifest_complete(SELECTORS):
+        selectors = profile_selectors(profile)
+        if not manifest_complete(selectors, profile):
             raise Unknown("selector manifest dropped a required named witness")
         if tier == "image":
             actual_mask = os.umask(0)
             os.umask(actual_mask)
-            profile = {"state": "GOOD", "image": image, "umask": actual_mask,
+            mask_profile = {"state": "GOOD", "image": image, "umask": actual_mask,
                        "evidence": "actual inherited umask at real uid 0 in pinned-image launcher"}
             print(f"CI_SHAPE_IMAGE_DEFAULT_UMASK: {actual_mask:04o}", flush=True)
         else:
-            profile = ci_profile(root)
-        record["pytest_time_umask"] = profile
+            mask_profile = ci_profile(root)
+        record["pytest_time_umask"] = mask_profile
         receipt_path.parent.mkdir(parents=True, exist_ok=True)
         logs = receipt_path.parent / (receipt_path.stem + "-logs")
         logs.mkdir(exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix="cpp-ci-shape-") as temporary:
+        prefix = "csr-" if profile == REPLAY_PROFILE else "cpp-ci-shape-"
+        with tempfile.TemporaryDirectory(prefix=prefix) as temporary:
             work = Path(temporary).resolve()
             if tier == "image":
                 work.chmod(0o755)
             env = fresh_environment(work, work, os.environ.get("PATH", ""))
+            if profile == REPLAY_PROFILE:
+                env.update(UV_CACHE_DIR=str(work / "cache"), XDG_CACHE_HOME=str(work / "cache"))
             env.update(GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="safe.directory",
                        GIT_CONFIG_VALUE_0=str(root))
             stage_root = work / "tools"
@@ -679,14 +733,15 @@ def run(root: Path, tier: str, receipt_path: Path, *, inside_image: str | None =
                 "uv": {"path": uv, "version": command([uv, "--version"]).stdout.strip()},
             })
             seed, witness = donor(root, work, str(stage / "git"), commit, env)
-            for partial in (False, True):
-                row = run_lane(root, seed, witness, work / LANES[int(partial)],
-                               stage, python, tier, partial, logs, profile["umask"])
+            for partial in ((False,) if profile == REPLAY_PROFILE else (False, True)):
+                lane_path = work / ("r" if profile == REPLAY_PROFILE else LANES[int(partial)])
+                row = run_lane(root, seed, witness, lane_path,
+                               stage, python, tier, partial, logs, mask_profile["umask"], profile=profile)
                 record["lanes"].append(row)
                 print("CI_SHAPE_LANE:", row["name"], row["state"], row["reason"], flush=True)
         if tier == "image" and all(row["state"] == "GOOD" for row in record["lanes"]):
             record["root"] = {"state": "GOOD", "reason": "real uid 0 in pinned validate image"}
-        record["state"], record["reason"] = assess(record, tier=tier, commit=commit, image=image)
+        record["state"], record["reason"] = assess(record, tier=tier, commit=commit, image=image, profile=profile)
     except (Unknown, OSError, subprocess.SubprocessError, ValueError) as exc:
         detail = str(exc)
         if isinstance(exc, subprocess.CalledProcessError):

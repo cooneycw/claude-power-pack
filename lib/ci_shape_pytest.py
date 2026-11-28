@@ -19,6 +19,8 @@ class Results:
         self.outcomes: dict[str, str] = {}
         self.skips: dict[str, str] = {}
         self.errors: list[str] = []
+        self.exact_execution = os.environ.get("CPP_CI_SHAPE_EXACT_EXECUTION") == "1"
+        self.calls: set[str] = set()
 
     def pytest_collection_modifyitems(self, items):
         # This plugin instance exists only for a declared shape run. Marking
@@ -38,6 +40,10 @@ class Results:
             self.errors.append("collection skipped: " + str(report.nodeid))
 
     def pytest_runtest_logreport(self, report):
+        if self.exact_execution and report.when == "call":
+            if report.nodeid in self.calls:
+                self.errors.append("duplicate call report: " + report.nodeid)
+            self.calls.add(report.nodeid)
         if report.failed:
             self.outcomes[report.nodeid] = "failed"
             print(f"\nCI_SHAPE_TEST_FAILED: {report.nodeid} ({report.when})", flush=True)
