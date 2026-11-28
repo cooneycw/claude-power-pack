@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+"""classify v3 <capture-file>: v2's gates, plus commentary separation by pi 1.6.0's render boundary.
+pi renders thinking as an ITALIC block (assistant-message.js: Markdown(..., {italic: true}) in thinkingText colour),
+followed by a spacer line before the next visible block. Commentary = italic blocks; final = non-italic blocks after
+the last italic block (and after any tool result). Needs a styled capture (tmux capture-pane -e).
+Unstyled captures with more than one non-tool content block are AMBIGUOUS -> REFUSE."""
+import json, re, sys
+SGR = re.compile(r"\x1b\[([0-9;]*)m")
+ANY_ESC = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+BUSY = re.compile(r"working|esc to interrupt|[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]", re.I)
+HEADER = re.compile(r"^cpp-pi1899-(?:stdio|http)/probe-echo\b")
+
+def parse(raw):
+    """-> list of (visible_text, style) per line; style in {'blank','italic','normal','mixed'}"""
+    out, italic = [], False
+    for line in raw.splitlines():
+        vis, flags, pos = [], [], 0
+        for m in SGR.finditer(line):
+            seg = ANY_ESC.sub("", line[pos:m.start()])
+            vis.append(seg); flags += [italic] * len(seg)
+            params = [p for p in m.group(1).split(";")] if m.group(1) else ["0"]
+            for p in params:
+                if p in ("0", ""): italic = False
+                elif p == "3": italic = True
+                elif p == "23": italic = False
+            pos = m.end()
+        seg = ANY_ESC.sub("", line[pos:]); vis.append(seg); flags += [italic] * len(seg)
+        text = "".join(vis)
+        marks = [f for ch, f in zip(text, flags) if not ch.isspace()]
+        style = "blank" if not marks else "italic" if all(marks) else "normal" if not any(marks) else "mixed"
+        out.append((text.rstrip(), style))
+    return out
+
+def classify(raw):
+    if not raw.strip():
+        return False, "empty capture", None
+    styled = bool(SGR.search(raw))
+    lines = parse(raw)
+    vis = [t for t, _ in lines]
+    starts = [i for i, t in enumerate(vis) if "Call only mcp__" in t]
+    if not starts:
+        return False, "prompt echo not found", None
+    body = lines[starts[-1] + 1:]
+    try:
+        sep = next(i for i, (t, _) in enumerate(body) if t.lstrip().startswith("─"))
+    except StopIteration:
+        return False, "no input-box separator: pi not settled", None
+    region, tail = body[:sep], [t for t, _ in body[sep:] if t.strip()]
+    footer = [t for t in tail if "(sub)" in t]
+    if any(BUSY.search(t) for t in vis):
+        return False, "busy indicator present: unfinished", None
+    if not footer:
+        return False, "no footer: pi not settled", None
+    if not re.search(r"↑\d+", footer[-1]):
+        return False, "stale footer: no token counter, no new reply since the prompt", None
+    # blocks = runs of non-blank lines separated by blank lines (pi's Spacer)
+    blocks, cur = [], []
+    for t, s in region:
+        if s == "blank":
+            if cur: blocks.append(cur); cur = []
+        else:
+            cur.append((t.strip(), s))
+    if cur: blocks.append(cur)
+    # a tool header line always forms its own unit, and the next line is its result unit
+    units = []
+    for b in blocks:
+        cur, after_header = [], False
+        for t, s in b:
+            if after_header:
+                units.append([(t, s)]); after_header = False; continue
+            if HEADER.match(t) or "mcp__cpp_pi1899_" in t:
+                if cur: units.append(cur); cur = []
+                units.append([(t, s)]); after_header = True; continue
+            cur.append((t, s))
+        if cur: units.append(cur)
+    blocks = units
+    if not blocks:
+        return False, "no reply after the prompt", None
+    kinds = []
+    for b in blocks:
+        ss = {s for _, s in b}
+        if "mixed" in ss or len(ss) > 1:
+            return False, "ambiguous block boundary: mixed italic/normal inside one block", None
+        kinds.append(ss.pop())
+    # tool events: header block + the very next block is its result
+    tool_idx = [i for i, b in enumerate(blocks) if HEADER.match(b[0][0]) or "mcp__cpp_pi1899_" in b[0][0]]
+    start = 0
+    if tool_idx:
+        last = tool_idx[-1]
+        if last + 1 >= len(blocks):
+            return False, "tool-call phase: tool header without its result", None
+        start = last + 2
+    rest = list(range(start, len(blocks)))
+    italic_idx = [i for i in rest if kinds[i] == "italic"]
+    if italic_idx:
+        if any(kinds[i] == "normal" for i in rest if i < italic_idx[-1]):
+            return False, "ambiguous block order: final text before a later commentary block", None
+        final_idx = [i for i in rest if i > italic_idx[-1]]
+    else:
+        final_idx = rest
+        if not styled and len(final_idx) > 1:
+            return False, "ambiguous block boundary: unstyled capture with several content blocks", None
+    if not final_idx:
+        return False, ("commentary only: no final answer after the displayed commentary" if italic_idx
+                       else "tool-call phase: no final answer after the tool result"), None
+    final = "\n".join(t for i in final_idx for t, _ in blocks[i])
+    return True, "final reply, pi idle", {"tool_event_lines": len(tool_idx),
+                                           "commentary_blocks": len(italic_idx), "reply": final}
+
+if __name__ == "__main__":
+    ok, why, data = classify(open(sys.argv[1], encoding="utf-8", errors="replace").read())
+    print(json.dumps({"accept": ok, "reason": why, **(data or {})}, ensure_ascii=False))
+    sys.exit(0 if ok else 1)

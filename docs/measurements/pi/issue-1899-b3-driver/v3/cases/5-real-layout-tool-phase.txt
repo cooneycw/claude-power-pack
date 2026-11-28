@@ -1,0 +1,7 @@
+ Call only mcp__cpp_pi1899_stdio__probe_echo exactly once with tag "T2-alpha". Return its text result verbatim. If this exact tool is not declared, reply TOOL_UNAVAILABLE. Do not call another tool.
+ cpp-pi1899-stdio/probe-echo tag="T2-alpha"
+ {"nonce": "0123456789abcdef0123456789abcdef", "tag": "T2-alpha", "transport": "stdio"}
+────────────────────────────────────────
+────────────────────────────────────────
+/PROBE/work/repo-alpha (master)
+↑1.1k ↓144 $0.004 (sub) 0.1%/1.0M (auto)   gpt-5.3-codex • medium

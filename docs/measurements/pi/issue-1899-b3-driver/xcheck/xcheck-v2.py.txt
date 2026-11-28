@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+"""xcheck v2 <events.jsonl> <batch.json> <accept.json> <tag>: backend-vs-screen agreement, bound to batch/tag/peer=pi/schema.
+AGREE (exit 0) only if both sides are readable and equal; DISAGREE exit 1; REFUSE (unreadable/missing/malformed) exit 4."""
+import json, re, sys
+def refuse(why): print(json.dumps({"verdict": "REFUSE", "reason": why})); sys.exit(4)
+try:
+    events_path, batch_path, accept_path, tag = sys.argv[1:5]
+except ValueError: refuse("usage")
+if not re.fullmatch(r"T[1-8]-(alpha|beta)", tag): refuse("tag outside the B3 matrix")
+try: batch = json.load(open(batch_path))["batch"]
+except Exception: refuse("batch evidence missing or malformed")
+if not (isinstance(batch, str) and re.fullmatch(r"[0-9a-f]{32}", batch)): refuse("batch id malformed")
+try:
+    raw = open(events_path, encoding="utf-8").read()
+    rows = [json.loads(l) for l in raw.splitlines() if l.strip()]
+except Exception: refuse("backend evidence missing or malformed")
+if not rows: refuse("backend evidence empty")
+for r in rows:
+    if not (isinstance(r, dict) and isinstance(r.get("event"), str) and isinstance(r.get("batch"), str)): refuse("backend row outside the event schema")
+calls = [r for r in rows if r["event"] == "tools/call" and r["batch"] == batch and r.get("tag") == tag and r.get("peer") == "pi" and r.get("name") == "probe-echo"]
+try:
+    acc = json.load(open(accept_path))
+    screen = acc["tool_event_lines"]
+    if acc.get("accept") is not True or type(screen) is not int or screen < 0: raise ValueError
+except Exception: refuse("screen evidence (accepted classification) missing or malformed")
+v = "AGREE" if len(calls) == screen else "DISAGREE"
+print(json.dumps({"verdict": v, "tag": tag, "backend_pi_calls": len(calls), "screen_tool_events": screen}))
+sys.exit(0 if v == "AGREE" else 1)

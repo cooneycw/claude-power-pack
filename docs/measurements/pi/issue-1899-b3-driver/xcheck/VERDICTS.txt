@@ -1,0 +1,11 @@
+xcheck backend-vs-screen check. v1 = xcheck.sh sha 5d2c51de (as used for T2-alpha/T2-beta/T3-beta xchecks). v2 = xcheck-v2.py (bound to batch/tag/peer=pi/name=probe-echo/event schema; REFUSE exit 4 on missing/malformed).
+case                          | v1 actual                         | v2 actual
+a screen1/backend0            | DISAGREE exit 1                   | DISAGREE exit 1
+b screen0/backend1            | DISAGREE exit 1                   | DISAGREE exit 1
+c 0=0                         | AGREE exit 0                      | AGREE exit 0
+d 1=1                         | AGREE exit 0                      | AGREE exit 0
+e missing accept, backend 1   | DISAGREE exit 1 (missing read as 0)| REFUSE exit 4
+e2 missing accept, backend 0  | AGREE exit 0  (WRONG: missing=0)  | REFUSE exit 4
+f malformed events            | python traceback, exit 1          | REFUSE exit 4
+g other-batch call, screen 1  | AGREE exit 0  (WRONG: not batch-bound) | DISAGREE exit 1
+v1 FAILS the K790 binding/refusal requirements (e2, f, g). v2 passes all.
