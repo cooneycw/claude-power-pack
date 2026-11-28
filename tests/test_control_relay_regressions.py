@@ -81,6 +81,7 @@ CASES = [('antigravity-skill-build', 'bad-changed-output', 'gate', 1, 'BAD'),
  ('pi-skill-install', 'adopt-with-backup', 'gate', 0, 'GOOD'),
  ('pi-skill-install', 'auth-helper-rejected', 'anchor', 0, 'GOOD')]
 
+CASES += [('delegated-codex-plan-lanes', 'good-every-lane', 'gate', 0, 'GOOD'), ('delegated-codex-plan-lanes', 'bad-omitted-lane', 'gate', 1, 'BAD'), ('delegated-qwen-plan-lanes', 'good-every-lane', 'gate', 0, 'GOOD'), ('delegated-qwen-plan-lanes', 'bad-omitted-lane', 'gate', 1, 'BAD'), ('delegated-gemma-plan-lanes', 'good-every-lane', 'gate', 0, 'GOOD'), ('delegated-gemma-plan-lanes', 'bad-omitted-lane', 'gate', 1, 'BAD'), ('execution-evidence-verify', 'good-clean-completed-current', 'gate', 0, 'GOOD'), ('execution-evidence-verify', 'bad-stale-same-file-edited-again', 'gate', 3, 'BAD'), ('execution-evidence-verify', 'unknown-check-missing-population', 'gate', 4, 'UNKNOWN'), ('flow-plan-provenance', 'valid', 'gate', 0, 'GOOD'), ('flow-plan-provenance', 'invalid', 'gate', 1, 'BAD'), ('flow-plan-provenance', 'unknown-contract', 'gate', 4, 'UNKNOWN'), ('flow-plan-record-lanes', 'good-every-lane-answered', 'gate', 0, 'GOOD'), ('flow-plan-record-lanes', 'bad-no-table', 'gate', 1, 'BAD'), ('flow-cpp-runtime', 'good-installed', 'gate', 0, 'GOOD'), ('flow-cpp-runtime', 'bad-missing-runtime-no-download', 'gate', 1, 'BAD'), ('pi-skill-install', 'unreadable-install', 'gate', 4, 'UNKNOWN')]
 
 @pytest.mark.parametrize("control,case,subject,expected_exit,expected", CASES)
 def test_real_control_holds_verdict_until_cleanup(
@@ -96,7 +97,10 @@ def test_real_control_holds_verdict_until_cleanup(
     gate = ROOT / (gate_ref["file"] if isinstance(gate_ref, dict) else gate_ref)
     if subject == "anchor":
         gate = directory / spec["anchors"][0]["path"]
-    runner = next(p for p in directory.glob("*.py") if p.name in {"run-case.py", "run_case.py"})
+    runner_ref = next((p for p in spec["invocation"]
+                       if p.endswith(("run-case.py", "run_case.py"))), None)
+    runner = ROOT / runner_ref if runner_ref else next(
+        p for p in directory.glob("*.py") if p.name in {"run-case.py", "run_case.py"})
     harness = _load_harness_module()
     patterns = {key: re.compile(spec[key], re.MULTILINE) if spec.get(key) else None
                 for key in ("detect_signal", "unknown_signal", "unavailable_signal", "good_signal")}

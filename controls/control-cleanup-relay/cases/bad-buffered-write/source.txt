@@ -1,0 +1,4 @@
+import sys, tempfile
+with tempfile.TemporaryDirectory() as owned:
+    text = done.stdout + done.stderr
+    sys.stdout.write(text)

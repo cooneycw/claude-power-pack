@@ -50,6 +50,26 @@
       "expect": "UNKNOWN",
       "anchor_expect": "clean",
       "anchor_expect_reason": "The blind anchor claims clean without enumerating or parsing the requested implementation population."
+    },
+    {
+      "name": "bad-stdout-write",
+      "input": "cases/bad-stdout-write",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-stderr-write",
+      "input": "cases/bad-stderr-write",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-print-stderr-file",
+      "input": "cases/bad-print-stderr-file",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-buffered-write",
+      "input": "cases/bad-buffered-write",
+      "expect": "BAD"
     }
   ],
   "anchors": [
