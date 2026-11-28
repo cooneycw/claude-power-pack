@@ -52,6 +52,54 @@ SELECTORS = (
     "tests/test_host_update_source_gc.py",
     "tests/test_ci_shape_history_skips.py",
 )
+# #1973: exact main-dbcc728a replay population, discovered independently by
+# the existing CI keyword and both explicit classes. Runtime never uses -k.
+RUNNER_REPLAY_SELECTORS = (
+    'tests/test_runner.py::TestResumeSettlesDeferredGates::test_a_green_retry_settles_the_not_run_records_as_subsumed',
+    'tests/test_runner.py::TestResumeSettlesDeferredGates::test_a_gate_the_resumed_tree_no_longer_subsumes_is_REPLAYED',
+    'tests/test_runner.py::TestResumeSettlesDeferredGates::test_a_replayed_step_uses_its_ORIGINAL_step_def',
+    'tests/test_runner.py::TestResumeSettlesDeferredGates::test_a_FAILED_replay_is_reopened_by_the_NEXT_resume',
+    'tests/test_runner.py::TestResumeSettlesDeferredGates::test_a_settled_record_carries_no_stale_failure_reason',
+    'tests/test_runner.py::TestResumeSettlesDeferredGates::test_a_resume_whose_aggregate_fails_AGAIN_keeps_the_records',
+    'tests/test_runner.py::TestResumeSettlesDeferredGates::test_a_tree_that_left_the_grammar_between_runs_replays_everything',
+    'tests/test_runner.py::TestSubsumedGates::test_the_subsumed_set_on_this_repository_is_exactly_the_three',
+    'tests/test_runner.py::TestSubsumedGates::test_subsumed_is_asserted_only_when_the_aggregate_PASSES',
+    'tests/test_runner.py::TestSubsumedGates::test_a_gate_the_aggregate_does_not_LIST_still_runs',
+    'tests/test_runner.py::TestSubsumedGates::test_no_aggregate_means_nothing_is_subsumed',
+    'tests/test_runner.py::TestSubsumedGates::test_step_details_carry_wall_time',
+    'tests/test_runner.py::TestSubsumedGates::test_the_failure_result_carries_per_step_records',
+    'tests/test_runner.py::TestSubsumedGates::test_a_gate_past_a_continuation_line_is_still_derived',
+    'tests/test_runner.py::TestSubsumedGates::test_an_aggregate_that_subsumes_test_still_qualifies_an_empty_suite',
+    'tests/test_runner.py::TestSubsumedGates::test_failure_attribution_prefers_the_terminal_outer_diagnostic',
+    'tests/test_runner.py::TestSubsumedGates::test_an_inactive_conditional_prerequisite_is_not_subsumed',
+    'tests/test_runner.py::TestSubsumedGates::test_a_step_that_does_not_run_the_prerequisite_is_not_subsumed',
+    'tests/test_runner.py::TestSubsumedGates::test_an_include_puts_a_makefile_outside_the_grammar_and_SAYS_SO',
+    'tests/test_runner.py::TestSubsumedGates::test_a_conforming_makefile_is_NOT_refused',
+    'tests/test_runner.py::TestSubsumedGates::test_the_refusal_REACHES_to_dict',
+    'tests/test_runner.py::TestSubsumedGates::test_NOT_DERIVED_and_NOTHING_REFUSED_are_not_the_same_bytes',
+    'tests/test_runner.py::TestSubsumedGates::test_the_query_does_not_inherit_the_OUTER_make',
+    'tests/test_runner.py::TestSubsumedGates::test_THIS_repository_is_inside_the_grammar',
+    'tests/test_runner.py::TestSubsumedGates::test_the_grammar_is_a_closed_positive_set',
+    'tests/test_runner.py::TestSubsumedGates::test_a_recognised_command_is_EQUAL_to_its_producer',
+    'tests/test_runner.py::TestSubsumedGates::test_a_makeflags_sensitive_makefile_is_refused',
+    'tests/test_runner.py::TestSubsumedGates::test_a_recursive_make_child_database_is_refused',
+    'tests/test_runner.py::TestSubsumedGates::test_an_odd_named_target_variable_is_skipped_not_read_as_prerequisites',
+    'tests/test_runner.py::TestSubsumedGates::test_an_escaped_hash_in_a_prerequisite_refuses_the_rule',
+    'tests/test_runner.py::TestSubsumedGates::test_an_escaped_space_credits_only_names_make_declares_as_rules',
+    'tests/test_runner.py::TestSubsumedGates::test_a_step_environment_that_differs_from_the_aggregate_is_not_subsumed',
+    'tests/test_runner.py::TestSubsumedGates::test_a_multiline_command_is_never_a_recognised_make_invocation',
+    'tests/test_runner.py::TestSubsumedGates::test_make_is_asked_about_THIS_target_not_the_default_goal',
+    'tests/test_runner.py::TestSubsumedGates::test_a_target_specific_variable_is_not_a_prerequisite_list',
+    'tests/test_runner.py::TestSubsumedGates::test_a_FAILED_make_query_is_not_an_answer',
+    'tests/test_runner.py::TestSubsumedGates::test_the_prerequisite_cache_does_not_outlive_a_run',
+    'tests/test_runner.py::TestSubsumedGates::test_the_generated_conditional_command_IS_recognised',
+    'tests/test_runner.py::TestSubsumedGates::test_the_generated_conditional_is_refused_when_its_grep_would_miss',
+    'tests/test_runner.py::TestSubsumedGates::test_an_aggregate_whose_command_is_not_make_verify_subsumes_nothing',
+    'tests/test_runner.py::TestSubsumedGates::test_make_unavailable_subsumes_nothing',
+)
+DEFAULT_PROFILE = "ci-shape"
+REPLAY_PROFILE = "runner-replay"
+PROFILES = (DEFAULT_PROFILE, REPLAY_PROFILE)
 LANES = ("depth-1", "depth-1-tree-0")
 COLLECTION_FLOOR = 200
 ROOT_RECEIPT = "docs/measurements/ci-shape-check/root-receipt.json"
