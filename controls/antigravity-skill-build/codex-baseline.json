@@ -1630,11 +1630,11 @@
         420
       ],
       "candidate": [
-        "ca8428e49b701e88263ffce44c9414c9c9b891ae89d5e9276bd11bd2427b3f90",
+        "15d33c6b946fa6d53a384d9ea7d656616afb1f4e5fe02c6d412c59f0c1f59487",
         420
       ],
-      "source_commit": "48f523d20e96aa10589a8764586d3dfbf7e97314",
-      "reason": "CPP #1970 qualifies the bundled finish-gate advice for operator-token versus fixed numeric manifest budgets. Exact input-byte attribution only; earlier attributed changes remain, and frozen generator, parser and historical members are unchanged."
+      "source_commit": "a007f756b060098a3ff5047a42439a2ebb927d12",
+      "reason": "Merged main #1970 timeout propagation with #1877 optional provenance helper inputs. Value-only manifest attribution for the combined source tree; member paths, modes, historical members, pins, generator and parser remain unchanged."
     },
     "flow-auto/scripts/codex-skill-sync.py": {
       "baseline": [
@@ -1776,11 +1776,11 @@
         420
       ],
       "candidate": [
-        "4a90c775e40bc49ce092cb67f450c62178cae8cec6a9411b4dd8192a5115d61d",
+        "02db53cf7fcbb661e01e984547514d3db563ba118617b5538f2738eba68b3e52",
         420
       ],
-      "source_commit": "dfb6909a02bf61c5330f30adb4c6901d07f0ffdc",
-      "reason": "R3b #1925 reads review receipts from an exact-commit archive instead of serial blob requests; the Git blob SHA-1 is explicitly non-security. Exact input-byte attribution only; pinned generator, parser, historical members and attribution row set remain unchanged."
+      "source_commit": "200ec30ae07210a4e55f3e1afb566a2b123e0a92",
+      "reason": "R3c #1926 adds scope-less conventional fix: and fix!: titles through one shared collection/rendering predicate. This extends R3b #1925 exact-commit receipt archive input evolution. Exact input-byte attribution only; pinned generator, parser, historical members and attribution row set remain unchanged."
     },
     "monthly-create/scripts/counter-model-receipt.py": {
       "baseline": null,
@@ -1797,11 +1797,11 @@
         493
       ],
       "candidate": [
-        "dfb779bacfd4d829a3ac64c8ee28a30d7f17abcc053654f7183261324200f8e3",
+        "def49a1c935441cbbfae67f8452061f4028f70cbdf1ca16d81161c35296eb389",
         493
       ],
-      "source_commit": "dfb6909a02bf61c5330f30adb4c6901d07f0ffdc",
-      "reason": "R3b #1925 reads review receipts from an exact-commit archive instead of serial blob requests; the Git blob SHA-1 is explicitly non-security. Exact input-byte attribution only; pinned generator, parser, historical members and attribution row set remain unchanged."
+      "source_commit": "200ec30ae07210a4e55f3e1afb566a2b123e0a92",
+      "reason": "R3c #1926 adds scope-less conventional fix: and fix!: titles through one shared collection/rendering predicate. This extends R3b #1925 exact-commit receipt archive input evolution. Exact input-byte attribution only; pinned generator, parser, historical members and attribution row set remain unchanged."
     },
     "flow-auto/scripts/flow-finish-gate.sh": {
       "baseline": [
@@ -1850,6 +1850,18 @@
       ],
       "source_commit": "48f523d20e96aa10589a8764586d3dfbf7e97314",
       "reason": "CPP #1970 qualifies the bundled finish-gate advice for operator-token versus fixed numeric manifest budgets. Exact input-byte attribution only; earlier attributed changes remain, and frozen generator, parser and historical members are unchanged."
+    },
+    "flow-auto/scripts/flow-plan-record.py": {
+      "baseline": [
+        "6b61b8f5e3dee44d3e5bc9c7347505da93f2cc2a41dcee8a502a658771f5bdc3",
+        493
+      ],
+      "candidate": [
+        "905c4b6c4359104f1cd45e87458d4e80d1bdcffc0ca07cfe5469d61e8295611a",
+        493
+      ],
+      "source_commit": "315b7ca427c21ffd12a3825c26e37876384e5678",
+      "reason": "R3e #1877 optional closing-text provenance validation changes the bundled flow-plan-record helper and its manifest. Exact input-byte attribution only; the historical member population, pins, generator and parser remain unchanged."
     }
   }
 }

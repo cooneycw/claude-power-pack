@@ -1,0 +1,366 @@
+{
+  "base_commit": "a0dbd0b7c42c9f95bef8cc9eeb7bd75c8eca014f",
+  "cases": [
+    {
+      "number": 201,
+      "title": "fix(core): scoped",
+      "old": true,
+      "new": true
+    },
+    {
+      "number": 202,
+      "title": "fix(core)!: breaking scoped",
+      "old": true,
+      "new": true
+    },
+    {
+      "number": 203,
+      "title": "fix: unscoped",
+      "old": false,
+      "new": true
+    },
+    {
+      "number": 204,
+      "title": "fix!: breaking unscoped",
+      "old": false,
+      "new": true
+    },
+    {
+      "number": 205,
+      "title": "Fix an ordinary title",
+      "old": false,
+      "new": false
+    },
+    {
+      "number": 206,
+      "title": "Fix: uppercase",
+      "old": false,
+      "new": false
+    },
+    {
+      "number": 207,
+      "title": "fix(core) missing colon",
+      "old": false,
+      "new": false
+    },
+    {
+      "number": 208,
+      "title": "fix(): empty scope",
+      "old": false,
+      "new": false
+    },
+    {
+      "number": 209,
+      "title": "prefix fix: embedded",
+      "old": false,
+      "new": false
+    },
+    {
+      "number": 210,
+      "title": " fix: leading whitespace",
+      "old": false,
+      "new": false
+    },
+    {
+      "number": 211,
+      "title": "fix!!: repeated bang",
+      "old": false,
+      "new": false
+    },
+    {
+      "number": 212,
+      "title": "feat(core): not a fix",
+      "old": false,
+      "new": false
+    }
+  ],
+  "old_numbers": [
+    201,
+    202
+  ],
+  "new_numbers": [
+    201,
+    202,
+    203,
+    204
+  ],
+  "unchanged_input": "provenance.json",
+  "unchanged_report": "# Review yield and fix provenance: 2026-11-11..2026-11-20\n\nObservation only; missing provenance is not proof of an escaped defect.\nIndependent runs are summed; cumulative updates require matching branch and implementer session evidence.\n\n## cooneycw/example\n\n- #101: MISSING Origin, Missed because (cooneycw/example#1) - fix(core): missing provenance\n- #102: recorded (cooneycw/example#2) - fix(core): explained\nPRs readable: 2/2 (listed candidates; period fix PRs only in numerator)\nMissing/invalid provenance records observed: 1\nEarlier-work origins: 1 observed; total escapes UNKNOWN when provenance is incomplete.\nOrigin tallies: #<number>: 1\nMissed because tallies: no test covered it: 1\nSelected-report kinds coverage: 0/1 measured; 0/1 carry counts_by_kind\n- Receipt 2026-11-13T12:00:00Z issue #1 (fixture-issue-1): selected-report kinds: UNKNOWN\nCumulative kinds: UNKNOWN (selected reports do not measure all passes)\n- Issue #1: 2 passes\nReview yield: accepted: 3; rejected: 1; deferred: 1\nReceipts readable: 2/2; 0 skipped; 1 older snapshot(s) omitted\n\n",
+  "history": {
+    "since": "2026-11-01",
+    "merge_cutoff": "2026-11-28T02:21:26Z",
+    "repos": {
+      "cooneycw/kyle": {
+        "all_merged": 333,
+        "old_population": 86,
+        "new_population": 90,
+        "added": [
+          {
+            "number": 2776,
+            "title": "fix: align installer answers guidance, bind waiver and Docker preflight",
+            "url": "https://github.com/cooneycw/kyle/pull/2776"
+          },
+          {
+            "number": 2737,
+            "title": "fix: acquire pinned CPP and reject releases without it",
+            "url": "https://github.com/cooneycw/kyle/pull/2737"
+          },
+          {
+            "number": 2736,
+            "title": "fix: handle pre-boot assignments in the startup turn",
+            "url": "https://github.com/cooneycw/kyle/pull/2736"
+          },
+          {
+            "number": 2332,
+            "title": "fix: stage offline CPP runner for Claude container gates",
+            "url": "https://github.com/cooneycw/kyle/pull/2332"
+          }
+        ]
+      },
+      "cooneycw/skillc": {
+        "all_merged": 95,
+        "old_population": 19,
+        "new_population": 19,
+        "added": []
+      },
+      "cooneycw/claude-power-pack": {
+        "all_merged": 174,
+        "old_population": 65,
+        "new_population": 81,
+        "added": [
+          {
+            "number": 1971,
+            "title": "fix: honor the verify timeout override in the task manifest",
+            "url": "https://github.com/cooneycw/claude-power-pack/pull/1971"
+          },
+          {
+            "number": 1885,
+            "title": "fix: route delegated finish checks through the audited wrapper",
+            "url": "https://github.com/cooneycw/claude-power-pack/pull/1885"
+          },
+          {
+            "number": 1806,
+            "title": "fix: align CI status fallback and recorded boundaries",
+            "url": "https://github.com/cooneycw/claude-power-pack/pull/1806"
+          },
+          {
+            "number": 1805,
+            "title": "fix: require consent before wave re-registration drops active work",
+            "url": "https://github.com/cooneycw/claude-power-pack/pull/1805"
+          },
+          {
+            "number": 1799,
+            "title": "fix: decide counter-model enrolment in Python",
+            "url": "https://github.com/cooneycw/claude-power-pack/pull/1799"
+          },
+          {
+            "number": 1655,
+            "title": "fix: retire cpp:init Makefile generation (R3)",
+            "url": "https://github.com/cooneycw/claude-power-pack/pull/1655"
+          },
+          {
+            "number": 1647,
+            "title": "fix: share cpp:init MCP registration per client (R2)",
+            "url": "https://github.com/cooneycw/claude-power-pack/pull/1647"
+          },
+          {
+            "number": 1643,
+            "title": "fix: serialize live control tracking scans with probe writers (Closes #1641)",
+            "url": "https://github.com/cooneycw/claude-power-pack/pull/1643"
+          },
+          {
+            "number": 1640,
+            "title": "fix: require an issue-visible handoff for preserved WIP (Closes #1614)",
+            "url": "https://github.com/cooneycw/claude-power-pack/pull/1640"
+          },
+          {
+            "number": 1638,
+            "title": "fix: install project-next engine entry point with flow helpers (#1619)",
+            "url": "https://github.com/cooneycw/claude-power-pack/pull/1638"
+          },
+          {
+            "number": 1637,
+            "title": "fix: name Git 2.36 floor for partial worktree removal (#1621)",
+            "url": "https://github.com/cooneycw/claude-power-pack/pull/1637"
+          },
+          {
+            "number": 1636,
+            "title": "fix: report unparsed ADRs in premise-staleness coverage (Refs #1614)",
+            "url": "https://github.com/cooneycw/claude-power-pack/pull/1636"
+          },
+          {
+            "number": 1635,
+            "title": "fix: release zombie-owned claims and wave roles",
+            "url": "https://github.com/cooneycw/claude-power-pack/pull/1635"
+          },
+          {
+            "number": 1634,
+            "title": "fix: keep interrupted pytest populations failed after partial retries (#1617)",
+            "url": "https://github.com/cooneycw/claude-power-pack/pull/1634"
+          },
+          {
+            "number": 1633,
+            "title": "fix: recognize Codex custom exec HEAD probes in full receipts",
+            "url": "https://github.com/cooneycw/claude-power-pack/pull/1633"
+          },
+          {
+            "number": 1632,
+            "title": "fix: complete drift reports without Docker (#1629)",
+            "url": "https://github.com/cooneycw/claude-power-pack/pull/1632"
+          }
+        ]
+      }
+    }
+  },
+  "pr_body_census": {
+    "observed_at": "2026-11-28T02:26:11.095391+00:00",
+    "summary": {
+      "cooneycw/claude-power-pack": {
+        "counts": {
+          "total": 81,
+          "unique_closing_issue": 62,
+          "no_closing_issue": 17,
+          "pr_has_labels": 3,
+          "multiple_closing_issues": 2,
+          "origin_field_recoverable": 2,
+          "pr_valid_pair": 1,
+          "pr_pair_issue_incomplete": 1,
+          "missed_field_recoverable": 1
+        },
+        "unique_issue_pair_recovery_prs": [
+          1730
+        ]
+      },
+      "cooneycw/kyle": {
+        "counts": {
+          "total": 90,
+          "multiple_closing_issues": 4,
+          "unique_closing_issue": 39,
+          "no_closing_issue": 47
+        },
+        "unique_issue_pair_recovery_prs": []
+      },
+      "cooneycw/skillc": {
+        "counts": {
+          "total": 19,
+          "unique_closing_issue": 9,
+          "no_closing_issue": 10
+        },
+        "unique_issue_pair_recovery_prs": []
+      }
+    },
+    "label_bearing_prs": [
+      {
+        "repo": "cooneycw/claude-power-pack",
+        "number": 1915,
+        "title": "fix(cpp): preserve personal files when installing helpers",
+        "merged_at": "2026-11-26T06:43:36Z",
+        "in_old_population": true,
+        "pr": {
+          "state": "INVALID Origin; MISSING Missed because",
+          "categories": [
+            null,
+            null
+          ],
+          "body_label_values": {
+            "Origin": [
+              "the helper's contract was narrower than its callers assumed. It tested only whether a destination was a symlink, then used forced ln for everything else. Prior helper/caller fixtures omitted personal replacements and an executable personal seam; these regressions execute the actual maintained fences against the real helper."
+            ],
+            "Missed because": []
+          }
+        },
+        "issues": [
+          {
+            "repo": "cooneycw/claude-power-pack",
+            "number": 1913,
+            "state": "MISSING Origin, Missed because",
+            "categories": [
+              null,
+              null
+            ],
+            "body_label_values": {
+              "Origin": [],
+              "Missed because": []
+            }
+          }
+        ]
+      },
+      {
+        "repo": "cooneycw/claude-power-pack",
+        "number": 1819,
+        "title": "fix(counter-model): preserve historical schema-1 receipt validation",
+        "merged_at": "2026-11-14T13:33:20Z",
+        "in_old_population": true,
+        "pr": {
+          "state": "INVALID Missed because",
+          "categories": [
+            "#<number>",
+            null
+          ],
+          "body_label_values": {
+            "Origin": [
+              "#1515"
+            ],
+            "Missed because": [
+              "no test covered it."
+            ]
+          }
+        },
+        "issues": [
+          {
+            "repo": "cooneycw/claude-power-pack",
+            "number": 1818,
+            "state": "INVALID Origin; MISSING Missed because",
+            "categories": [
+              null,
+              null
+            ],
+            "body_label_values": {
+              "Origin": [
+                "#1515 introduced schema-2 field dispatch and a three-pass ceiling without preserving the earlier schema-1 extra-pass contract."
+              ],
+              "Missed because": []
+            }
+          }
+        ]
+      },
+      {
+        "repo": "cooneycw/claude-power-pack",
+        "number": 1730,
+        "title": "fix(lanes): /lane:update does not stamp over a fix listing that was not read (Closes #1723)",
+        "merged_at": "2026-11-12T01:34:30Z",
+        "in_old_population": true,
+        "pr": {
+          "state": "recorded",
+          "categories": [
+            "#<number>",
+            "no test covered it"
+          ],
+          "body_label_values": {
+            "Origin": [
+              "#1696"
+            ],
+            "Missed because": [
+              "no test covered it"
+            ]
+          }
+        },
+        "issues": [
+          {
+            "repo": "cooneycw/claude-power-pack",
+            "number": 1723,
+            "state": "MISSING Origin, Missed because",
+            "categories": [
+              null,
+              null
+            ],
+            "body_label_values": {
+              "Origin": [],
+              "Missed because": []
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
