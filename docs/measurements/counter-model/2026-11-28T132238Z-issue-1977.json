@@ -1,0 +1,82 @@
+{
+  "branch": "ci/cpp-dedicated-agent-pool",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 1
+  },
+  "counts_by_kind": {
+    "kinds": {
+      "correctness": 0,
+      "edge-case": 0,
+      "plan-bookkeeping": 0,
+      "security": 0,
+      "simplification": 0,
+      "test-adequacy": 1,
+      "unstated": 0
+    },
+    "report_record": 13,
+    "scope": "selected_report"
+  },
+  "head": "a90e9f4a409bcf96dde99a111eac78ac60a37754",
+  "implementer": "claude/claude-opus-5-5",
+  "implementer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "e760f855-4f82-4b1f-b1da-19c277952d09",
+    "sources": [
+      {
+        "bytes": 4257635,
+        "path": "-Users-user-Projects/e760f855-4f82-4b1f-b1da-19c277952d09.jsonl",
+        "sha256": "8f62ea89bbbd65c43564cc4cfbca1ab50744f3512e5284432fc991fb60cf1b75"
+      }
+    ],
+    "transcript": "-Users-user-Projects/e760f855-4f82-4b1f-b1da-19c277952d09.jsonl"
+  },
+  "issue": "1977",
+  "local_credentials": "absent",
+  "network": "unverified",
+  "passes": 1,
+  "recorded_at": "2026-11-28T13:22:38Z",
+  "red_cases": {
+    "already_covered": 1,
+    "proposed": 1
+  },
+  "reviewed_artifact": {
+    "base_sha": "db63a7ec4e659b083230ca7327248f6ca983f1bb",
+    "merge_base": "db63a7ec4e659b083230ca7327248f6ca983f1bb",
+    "method": "captured-patch",
+    "patch_sha256": "c4e1d4cafdbb18924bc125aae195d3c41c42d61b6f5e9a6a54396c4a86ffc6f0",
+    "report_record": 13,
+    "target_head": "a90e9f4a409bcf96dde99a111eac78ac60a37754"
+  },
+  "reviewer": "codex/gpt-5.6-sol",
+  "reviewer_evidence": {
+    "exec_log": "stream.jsonl",
+    "kind": "exec_log",
+    "models": [
+      "codex/gpt-5.6-sol"
+    ],
+    "rollout": "2026/11/28/rollout-2026-11-28T13-22-01-01a22251-e38a-7db2-be1a-cfe7afe13dc8.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 1273,
+        "path": "stream.jsonl",
+        "sha256": "8927af0aba4a7b28c43ea14a32b03d179c548daef579d032153b7f21ff691391"
+      },
+      {
+        "bytes": 73418,
+        "path": "2026/11/28/rollout-2026-11-28T13-22-01-01a22251-e38a-7db2-be1a-cfe7afe13dc8.jsonl",
+        "sha256": "4a0a114943d316ef4270d5d4eecf71f1f71a4b991371f83aacad5c04d9195473"
+      }
+    ],
+    "thread_id": "01a22251-e38a-7db2-be1a-cfe7afe13dc8"
+  },
+  "schema": 5,
+  "scope": "diff-only",
+  "status": "ran"
+}
