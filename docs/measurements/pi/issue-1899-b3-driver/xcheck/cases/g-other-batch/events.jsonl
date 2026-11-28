@@ -1,0 +1,2 @@
+{"batch":"ffffffffffffffffffffffffffffffff","event":"tools/call","transport":"stdio","instance":"INST","peer":"pi","name":"probe-echo","tag":"T2-alpha","nonce":"NONCE","request_id":3,"pid":1}
+{"batch":"0123456789abcdef0123456789abcdef","event":"start","pid":1}

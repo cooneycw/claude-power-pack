@@ -1,0 +1,11 @@
+ Call only mcp__cpp_pi1899_http__probe_echo exactly once with tag "T5-beta". Return its text result verbatim. If this exact tool is not declared, reply TOOL_UNAVAILABLE. Do not call another tool.
+
+
+ [39mcpp-pi1899-http/probe-echo tag="T5-beta"
+
+ [39m{"nonce": "NONCE_PLACEHOLDER_32_HEX_0000000", "tag": "T5-beta", "transport": "http"}
+
+────────────────────────────────────────
+────────────────────────────────────────
+/PROBE/work/repo-beta (master)
+[2m↑482 ↓78 $0.002 (sub) 0.1%/1.0M (auto)[0m

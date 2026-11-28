@@ -1,0 +1,64 @@
+{
+  "branch": "issue-1899-pi-measurements",
+  "counts": {
+    "accepted": 0,
+    "deferred": 0,
+    "rejected": 0
+  },
+  "extra_passes_reason": "the full gate's ShellCheck step content-sniffed frozen historical host-driver archives (.sh.txt) as live scripts; the fix stores them as strict-base64 data with their original SHA256s, decoded only by tests, so the bytes stay faithful and ShellCheck still checks every operative script",
+  "head": "78b8ee95fa5930e2ca4f3b5dabcb07a3ff8898bb",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/27/rollout-2026-11-27T13-27-30-01a21d30-8a0a-74b0-9dc6-8a59cca79951.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 14792883,
+        "path": "2026/11/27/rollout-2026-11-27T13-27-30-01a21d30-8a0a-74b0-9dc6-8a59cca79951.jsonl",
+        "sha256": "0c956d800768cb46ec1a28d763c6d60eb66e3827edb722bfe8c0038d87f53101"
+      }
+    ],
+    "thread_id": "01a21d30-8a0a-74b0-9dc6-8a59cca79951"
+  },
+  "issue": "1899",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 3,
+  "recorded_at": "2026-11-27T20:58:54Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewed_artifact": {
+    "base_sha": "fc0624e76f95bb7d332694a6ca4f8e4179c676b3",
+    "merge_base": "fc0624e76f95bb7d332694a6ca4f8e4179c676b3",
+    "method": "runtime-head",
+    "patch_sha256": "93daf89ad39fa6de87810d2317ee34c9d060a9c2f3a8f178d7fa9ebf54c5b4de",
+    "report_record": 10178,
+    "target_head": "78b8ee95fa5930e2ca4f3b5dabcb07a3ff8898bb"
+  },
+  "reviewer": "claude/claude-opus-5-5",
+  "reviewer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2",
+    "sources": [
+      {
+        "bytes": 18456914,
+        "path": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl",
+        "sha256": "584cd74176231105f7555d018c99bd92029e650b2ae1e05b223d4e137d9652ed"
+      }
+    ],
+    "transcript": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}

@@ -1,0 +1,5 @@
+ Call only mcp__cpp_pi1899_stdio__probe_echo exactly once with tag "T2-alpha". Return its text result verbatim. If this exact tool is not declared, reply TOOL_UNAVAILABLE. Do not call another tool.
+────────────────────────────────────────
+────────────────────────────────────────
+/PROBE/work/repo-alpha (master)
+$0.000 (sub) 0.0%/1.0M (auto)   gpt-5.3-codex • medium

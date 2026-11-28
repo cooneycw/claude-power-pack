@@ -1,0 +1,20 @@
+pi #1899 B3 capture driver, as used by kyle-cli-helperv2 (2026-11-27). Sanitized: <HELPER_WORKDIR> replaces the helper scratch path in launch-*.sh; /PROBE replaces the probe root in controls.
+ORIGINAL (unsanitized) sha256 as run:
+d08f43602f6fb6d6303827119e7d7ed90baf31c82ab3eb0b9060b975eb2d932a  launch-alpha.sh
+faedea9e0eb297c78d810016f29482756fa002ea143ab31f9c3e383f42088f76  launch-beta.sh
+v1 = fb05b40a (used for T2-alpha capture only; blind to the real tool header). v2 = bdf986dc (used from T2-alpha record onward).
+Control verdicts (exit 0 = ACCEPT, 1 = REFUSE), v1 | v2:
+1-accept.txt                             0 | 0
+1b-accept-after-tool.txt                 0 | 1
+2-empty.txt                              1 | 1
+3-stale-footer.txt                       1 | 1
+4a-tool-running.txt                      1 | 1
+4b-tool-phase-no-final.txt               1 | 1
+5-real-layout-tool-phase.txt             0 | 1
+6-real-header-only.txt                   0 | 1
+7-real-layout-final.txt                  0 | 0
+9-sanitized-real-layout-tool-phase.txt   0 | 1
+Negative control for v2: 9-sanitized-real-layout-tool-phase (real header + result, no final) -> v1 ACCEPTS (blind), v2 REFUSES.
+K779 additions:
+10-two-tool-headers-then-final -> classify v1 ACCEPT (exit 0, tool_event_lines 0: blind to the real header); classify v2 ACCEPT (exit 0, tool_event_lines 2). classify.py itself does NOT enforce the one-call cap. The cap lives in session.sh: tool_event_lines > 1 -> "SESSION STOP: extra tool attempt", exit 6, pi left open. So the driver as run refuses case 10; classify v2 alone does not.
+9-sanitized-real-layout-tool-phase -> classify v1 ACCEPT (exit 0): the blind instrument; classify v2 REFUSE (exit 1).
