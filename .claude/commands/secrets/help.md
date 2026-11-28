@@ -19,10 +19,15 @@ Secrets Management Commands
   /secrets:rotate KEY      Rotate a secret value
   /secrets:help            This help message
 
-Tiered Architecture:
-  Tier 0: .env in global config (~/.config/claude-power-pack/secrets/)
-  Tier 1: Encrypted local store (optional, requires cryptography)
-  Tier 2: AWS Secrets Manager (requires boto3 + AWS credentials)
+Providers:
+  dotenv-global: local plaintext .env bundles outside the repository
+  env-file: environment variables and project .env files (legacy get)
+  AWS Secrets Manager: optional; requires boto3 and configured AWS credentials
+
+Local storage:
+  Files are plaintext, not encrypted. Output masking does not encrypt storage.
+  The default dotenv-global provider enforces file mode 0600 and directory 0700.
+  Selection depends on the command; local set/delete/rotate use dotenv-global.
 
 CLI Usage:
   PYTHONPATH="$HOME/Projects/claude-power-pack:$PYTHONPATH"
@@ -30,6 +35,6 @@ CLI Usage:
 
 Configuration:
   Project-level: .claude/secrets.yml
-  Audit log:     ~/.config/claude-power-pack/audit.log
-  Secret store:  ~/.config/claude-power-pack/secrets/{project_id}/.env
+  Audit log:     ${XDG_CONFIG_HOME:-~/.config}/claude-power-pack/audit.log
+  Secret store:  ${XDG_CONFIG_HOME:-~/.config}/claude-power-pack/secrets/{project_id}/.env
 ```

@@ -23,7 +23,7 @@ Retrieve credentials from the configured provider with automatic masking.
 
 ## Process
 
-1. Detect available provider (env first, then AWS)
+1. For auto selection, use AWS first when available, then env; honor an explicit `--provider` override
 2. Retrieve credentials using the secrets module
 3. Display masked summary (never shows real passwords)
 4. Optionally output as JSON for scripting
