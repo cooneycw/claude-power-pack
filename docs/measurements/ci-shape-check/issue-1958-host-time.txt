@@ -1,4 +1,4 @@
-	Command being timed: "sh /tmp/claude-1000/-home-cooneycw-Projects/f16b5a69-91c3-4105-b180-a476193f36ba/scratchpad/k906.xQ7A/host-run.sh 660e250e92f868f19fcce48cad3bf01bd89f0bf7 /tmp/cpp-1958-660e-20261128T054423Z"
+	Command being timed: "sh ./host-run.sh 660e250e92f868f19fcce48cad3bf01bd89f0bf7 /tmp/cpp-1958-660e-20261128T054423Z"
 	User time (seconds): 2.47
 	System time (seconds): 1.19
 	Percent of CPU this job got: 0%

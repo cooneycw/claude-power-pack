@@ -20,8 +20,11 @@ actual image run supplies root qualification. No locale/TZ or earlier 79-case
 code-review-shell coverage is claimed.
 
 The byte-exact receipts are [local](issue-1958-local.json) and
-[image](issue-1958-image.json); [host timing](issue-1958-host-time.txt) includes
-Docker client CPU, not container workload CPU. Receipt SHA256 values:
+[image](issue-1958-image.json). The [host timing](issue-1958-host-time.txt)
+command uses `./host-run.sh` as a relative placeholder for the private host
+script path. All 22 timing lines remain byte-for-byte; the raw original is
+retained outside the repository. Timing includes Docker client CPU, not container
+workload CPU. Receipt SHA256 values:
 
 - `issue-1958-local.json`: `74b94c0321c118df32d4cce5c136963064235113c1697fcb7e618550cb191806`
 - `issue-1958-image.json`: `4b97c403dcd62346ba9dd94ed33b616e45f0d43c40150f62804381facb1b0ce6`
