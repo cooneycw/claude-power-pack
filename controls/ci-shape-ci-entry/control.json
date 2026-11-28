@@ -40,6 +40,16 @@
       "name": "wrong-identity",
       "input": "cases/wrong-identity",
       "expect": "BAD"
+    },
+    {
+      "name": "wrong-real-identity",
+      "input": "cases/wrong-real-identity",
+      "expect": "BAD"
+    },
+    {
+      "name": "wrong-effective-identity",
+      "input": "cases/wrong-effective-identity",
+      "expect": "BAD"
     }
   ],
   "anchors": [

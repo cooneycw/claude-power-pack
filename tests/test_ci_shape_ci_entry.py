@@ -27,8 +27,8 @@ def exercise(gate, temporary, case, monkeypatch):
     monkeypatch.setenv("CI", "true")
     if case == "missing-context":
         monkeypatch.delenv("CI", raising=False)
-    monkeypatch.setattr(os, "getuid", lambda: 1000 if case == "wrong-identity" else 0)
-    monkeypatch.setattr(os, "geteuid", lambda: 1000 if case == "wrong-identity" else 0)
+    monkeypatch.setattr(os, "getuid", lambda: 1000 if case in ("wrong-identity", "wrong-real-identity") else 0)
+    monkeypatch.setattr(os, "geteuid", lambda: 1000 if case in ("wrong-identity", "wrong-effective-identity") else 0)
     calls = []
     def producer(subject, tier, receipt, *, inside_image=None):
         calls.append((subject, tier, inside_image))
@@ -45,7 +45,8 @@ def exercise(gate, temporary, case, monkeypatch):
     return code, calls, receipt, root
 
 
-@pytest.mark.parametrize("case", ["good", "missing-context", "missing-image", "mismatched-image", "wrong-identity"])
+@pytest.mark.parametrize("case", ["good", "missing-context", "missing-image", "mismatched-image", "wrong-identity",
+                                  "wrong-real-identity", "wrong-effective-identity"])
 def test_ci_entry_checks_context_image_and_identity(tmp_path, monkeypatch, capsys, case):
     code, calls, receipt, root = exercise(ROOT / "scripts/ci-shape-check.py", tmp_path, case, monkeypatch)
     output = capsys.readouterr()

@@ -25,7 +25,8 @@ def observe(case, temporary, helper=HELPER, *, qualification_only=False):
     work, environment = _fixture(temporary)
     calls = temporary / "qualification-calls"
     environment.update(CM_PYTHON=sys.executable, CI_SHAPE_CALLS=str(calls),
-                       CI_SHAPE_STUB_STATE=spec["state"], CI_SHAPE_STUB_EXIT=str(spec["exit"]))
+                       CI_SHAPE_STUB_STATE=spec["state"], CI_SHAPE_STUB_EXIT=str(spec["exit"]),
+                       CI_SHAPE_STUB_MUTATION=spec.get("mutation", ""))
     if not spec.get("identity_error"):
         (work / "pyproject.toml").write_text('[project]\nname = "' + spec["project"] + '"\n')
     if spec.get("lookalike") or spec.get("identity_error"):
@@ -33,6 +34,7 @@ def observe(case, temporary, helper=HELPER, *, qualification_only=False):
             path = work / relative
             path.parent.mkdir(exist_ok=True)
             path.write_text("# Owned identity fixture; never executed.\n")
+    (work / "qualified-input.txt").write_text("original\n")
     (work / "Makefile").write_text(
         ".PHONY: ci-shape-check\nci-shape-check:\n"
         '\t@printf "%s\\n" ci-shape-check >> "$(CI_SHAPE_CALLS)"\n'
@@ -40,10 +42,17 @@ def observe(case, temporary, helper=HELPER, *, qualification_only=False):
         'printf "CI_SHAPE: GOOD: fixture\\nCI_SHAPE: GOOD: fixture\\n"; '
         'elif [ "$(CI_SHAPE_STUB_STATE)" != SILENT ]; then '
         'printf "CI_SHAPE: %s: tier=local; controlled consumer input\\n" "$(CI_SHAPE_STUB_STATE)"; fi\n'
+        '\t@if [ -n "$(CI_SHAPE_STUB_MUTATION)" ]; then printf changed > qualified-input.txt; '
+        'if [ "$(CI_SHAPE_STUB_MUTATION)" = commit ]; then '
+        'git add qualified-input.txt && git commit -qm changed; fi; fi\n'
         '\t@exit "$(CI_SHAPE_STUB_EXIT)"\n')
     _git("add", "-A", cwd=work, env=environment)
     _git("commit", "-qm", "declared subject and controlled qualification", cwd=work, env=environment)
     assert not calls.exists()
+    def read_git(*arguments):
+        return subprocess.check_output(["git", *arguments], cwd=work, env=environment, text=True).strip()
+    before_head = read_git("rev-parse", "HEAD")
+    assert not read_git("status", "--porcelain")
     assert Path(shutil.which("codex", path=environment["PATH"])) == temporary / "stub/codex"
     # Tripwires for expensive work outside the controlled Make entry. Ordinary
     # consumers must not stage/sync tools or launch an image before returning.
@@ -58,6 +67,12 @@ def observe(case, temporary, helper=HELPER, *, qualification_only=False):
     answer = subprocess.run(["bash", str(helper), *arguments],
                             cwd=work, env=environment, capture_output=True, text=True, timeout=45)
     try:
+        if spec.get("mutation") and calls.exists():
+            assert (work / "qualified-input.txt").read_text() == "changed"
+            if spec["mutation"] == "commit":
+                assert read_git("rev-parse", "HEAD") != before_head
+            else:
+                assert read_git("status", "--porcelain")
         assert not work_calls.exists(), "consumer staged/synced/launched outside qualification"
         reviewer_calls = _calls(environment)
         if qualification_only:

@@ -65,6 +65,16 @@
       "name": "zero-unknown",
       "input": "cases/zero-unknown",
       "expect": "BAD"
+    },
+    {
+      "name": "dirty-checkpoint",
+      "input": "cases/dirty-checkpoint",
+      "expect": "BAD"
+    },
+    {
+      "name": "moved-checkpoint",
+      "input": "cases/moved-checkpoint",
+      "expect": "BAD"
     }
   ],
   "anchors": [
