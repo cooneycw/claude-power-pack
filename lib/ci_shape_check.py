@@ -49,6 +49,7 @@ SELECTORS = (
     "tests/test_ci_shape_cancel.py",
     "tests/test_ci_shape_review_entry.py",
     "tests/test_ci_shape_ci_entry.py",
+    "tests/test_host_update_source_gc.py",
 )
 LANES = ("depth-1", "depth-1-tree-0")
 COLLECTION_FLOOR = 200
@@ -61,6 +62,7 @@ BOOTSTRAP_PATHS = frozenset({
 })
 _WITNESS_MODULE = "tests/test_ci_shape_check.py::"
 REQUIRED_WITNESSES = {
+    "1958-source-gc": "tests/test_host_update_source_gc.py::test_source_publication_joins_automatic_gc",
     "1961-cancel": ("tests/test_ci_shape_cancel.py::"
                     "test_cancel_reaps_pytest_group_before_outer_completion[15-term-ignoring-grandchild]"),
     "1909-modes": _WITNESS_MODULE + "test_1909_historical_inventory_retains_umask_checkout_modes",
