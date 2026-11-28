@@ -147,3 +147,23 @@ def test_the_pre_1308_trigger_reports_the_doubling_and_nothing_false() -> None:
 def test_the_intended_shape_passes_in_either_spelling() -> None:
     assert trigger_violations([{"event": "pull_request"}, {"event": "push", "branch": "main"}]) == []
     assert trigger_violations([{"event": ["pull_request"]}, {"event": ["push"], "branch": ["main"]}]) == []
+
+
+def test_every_workflow_requires_kyleci_host() -> None:
+    """CPP must not schedule on other projects' agents (issue #1977)."""
+    workflows = sorted(ROOT.glob(".woodpecker.y*ml"))
+    workflow_dir = ROOT / ".woodpecker"
+    if workflow_dir.is_dir():
+        workflows += sorted(workflow_dir.rglob("*.yml"))
+        workflows += sorted(workflow_dir.rglob("*.yaml"))
+    assert workflows, "no Woodpecker workflows found"
+    for path in workflows:
+        documents = list(yaml.safe_load_all(path.read_text(encoding="utf-8")))
+        assert documents, f"{path.name}: no workflow documents"
+        for index, workflow in enumerate(documents, start=1):
+            assert isinstance(workflow, dict), f"{path.name} document {index}: not a mapping"
+            labels = workflow.get("labels")
+            assert isinstance(labels, dict) and labels.get("host") == "kyleci", (
+                f"{path.name} document {index}: requires top-level labels.host=kyleci, "
+                f"got {labels!r}"
+            )
