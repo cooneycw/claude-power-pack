@@ -1311,7 +1311,7 @@ clean:
 review-yield-test:
 	uv run --extra dev pytest -q tests/test_review_yield_report.py $(PYTEST_ARGS)
 
-# #1917 PR-A: opt-in only; review/CI wiring follows qualification in PR-B.
+# #1917/#1958: explicit tiers, required review and pinned-image CI consumers.
 CI_SHAPE_RECEIPT ?= .ci-shape/local.json
 CI_SHAPE_TIER ?= local
 .PHONY: test-ci-shape-review-entry
@@ -1329,7 +1329,7 @@ ci-shape-review-canary:
 ci-shape-check:
 	uv run python scripts/ci-shape-check.py run --tier "$(CI_SHAPE_TIER)" --receipt "$(CI_SHAPE_RECEIPT)"
 .PHONY: ci-shape-ci
-## verify-coverage: excluded ci-shape-ci - pinned-image required consumer; ci: excluded pending measured placement
+## verify-coverage: excluded ci-shape-ci - pinned-image required consumer; ci: runs ci-shape
 ci-shape-ci:
 	python3 scripts/ci-shape-check.py ci --receipt "$(CI_SHAPE_RECEIPT)"
 .PHONY: ci-shape-ci-canary

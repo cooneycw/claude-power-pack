@@ -128,6 +128,15 @@ steps:
     commands:
       - python3 scripts/ci-stage-git.py
 
+  # #1958: required physical shape qualification. Measured ~476s, one core;
+  # private environments/clones let this overlap validate without shared uv sync.
+  # Actual PR timing must confirm it finishes before validate without >120s drift.
+  ci-shape:
+    image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
+    depends_on: [secret-scan, make-stage, git-stage, codex-skills-generate]
+    commands:
+      - PATH="$PWD/.ci-bin:$PATH" make ci-shape-ci CI_SHAPE_RECEIPT=.ci-shape/ci.json
+
   validate:
     image: ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36
     # codex-skills-generate: some forty test files read codex/skills/. The

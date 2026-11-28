@@ -71,7 +71,11 @@ The CI entry runs directly inside the step, without launching a container.
 It requires CI=true, actual uid/euid 0, and a literal `ci-shape` image pin equal
 to validate's. This checks the declaration, not independent image attestation.
 The runner creates its own environment and clones; it does not sync the shared
-validate environment. CI placement is qualified by a measured run before wiring.
+validate environment. The required step depends on staging and generated Codex
+output, and overlaps validate. The pre-wiring image measurement took 475.7s;
+actual PR timing must confirm that the new step finishes before validate and
+that neither validate nor pipeline wall time rises by more than about 120s
+against recent runs of the same event type. Report a breach before merging.
 
 `codex-review-run.sh` qualifies the target checkout after diff collection and
 before review. Its `--qualify-only` entry supplies the same admission check for

@@ -1,5 +1,5 @@
 #!/bin/sh
-# #1917 PR-A, one host trip: default shell probe and actual root witnesses.
+# #1917/#1958, one host trip: default shell probe and actual required CI entry.
 # Usage: sh host-run.sh CHECKPOINT_SHA ABSOLUTE_OUTPUT_DIRECTORY
 set -eu
 python3 - "$@" <<'PYHOST'
@@ -36,9 +36,17 @@ with tempfile.TemporaryDirectory(prefix="cpp-ci-shape-host-") as owned:
                         image, "-c", 'printf "CI_SHAPE_DEFAULT_UMASK="; umask; id'],
                        stdout=log, stderr=subprocess.STDOUT, check=True)
     with (output / "image-launch.log").open("w") as log:
-        result = subprocess.run([sys.executable, str(root / "scripts/ci-shape-check.py"), "run",
-                                 "--tier", "image", "--receipt", str(output / "image.json")],
-                                stdout=log, stderr=subprocess.STDOUT)
+        # The CI step's actual Make/CLI path, with the same declared image and
+        # real identity. Staging is private because /source is read-only; these
+        # two staging costs are outside the real CI step's measured duration.
+        result = subprocess.run([
+            "docker", "run", "--rm", "--user", "0:0", "--entrypoint", "/bin/sh",
+            "-e", "CI=true", "-v", f"{root}:/source:ro", "-v", f"{output}:/receipts",
+            image, "-c", 'set -eu; stage=$(mktemp -d); cd "$stage"; '
+            'python3 /source/scripts/ci-stage-git.py; python3 /source/scripts/ci-stage-make.py; '
+            'export PATH="$stage/.ci-bin:$PATH"; '
+            'make -C /source ci-shape-ci CI_SHAPE_RECEIPT=/receipts/image.json',
+        ], stdout=log, stderr=subprocess.STDOUT)
     if result.returncode == 0:
         raw = (output / "image.json").read_bytes()
         record = json.loads(raw)
