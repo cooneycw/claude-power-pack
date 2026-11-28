@@ -1630,11 +1630,11 @@
         420
       ],
       "candidate": [
-        "ca8428e49b701e88263ffce44c9414c9c9b891ae89d5e9276bd11bd2427b3f90",
+        "1c3f5bbacb0ef213acec9e53dfc85321c0275d731c79e570fa89f69b3afc1cb7",
         420
       ],
-      "source_commit": "48f523d20e96aa10589a8764586d3dfbf7e97314",
-      "reason": "CPP #1970 qualifies the bundled finish-gate advice for operator-token versus fixed numeric manifest budgets. Exact input-byte attribution only; earlier attributed changes remain, and frozen generator, parser and historical members are unchanged."
+      "source_commit": "3019ff50c01e819248b81331d7c5d1458e60101b",
+      "reason": "CPP #1958 requires target-scoped review qualification and a qualification-only alternate-reviewer entry. Exact input-byte attribution; earlier attributed changes remain and historical generator/parser/members are unchanged. Owner approval for the two new rows: https://github.com/cooneycw/claude-power-pack/issues/1958#issuecomment-7232680930; checksum value refresh approved by coordinator."
     },
     "flow-auto/scripts/codex-skill-sync.py": {
       "baseline": [
@@ -1850,6 +1850,30 @@
       ],
       "source_commit": "48f523d20e96aa10589a8764586d3dfbf7e97314",
       "reason": "CPP #1970 qualifies the bundled finish-gate advice for operator-token versus fixed numeric manifest budgets. Exact input-byte attribution only; earlier attributed changes remain, and frozen generator, parser and historical members are unchanged."
+    },
+    "flow-auto/reference.md": {
+      "baseline": [
+        "1dbd8d758ef94f7e31dff4d7431502400ab92fef579a183afcf2bbf7dd056bd4",
+        420
+      ],
+      "candidate": [
+        "c643be2bc00f1bff9abb60b2f791d918b010e9f8b3f17a1e91da35928172e6d6",
+        420
+      ],
+      "source_commit": "3019ff50c01e819248b81331d7c5d1458e60101b",
+      "reason": "CPP #1958 requires target-scoped review qualification and a qualification-only alternate-reviewer entry. Exact input-byte attribution; earlier attributed changes remain and historical generator/parser/members are unchanged. Owner approval for the two new rows: https://github.com/cooneycw/claude-power-pack/issues/1958#issuecomment-7232680930; checksum value refresh approved by coordinator."
+    },
+    "flow-auto/scripts/codex-review-run.sh": {
+      "baseline": [
+        "4cd91384529101e511ad31df0ac752387256580b4b8d74245b3bb872f216e81d",
+        493
+      ],
+      "candidate": [
+        "baeac0dd31723a7e433bb51fbd028ca8951694c07a5c8c618fad6cb9465f8cde",
+        493
+      ],
+      "source_commit": "3019ff50c01e819248b81331d7c5d1458e60101b",
+      "reason": "CPP #1958 requires target-scoped review qualification and a qualification-only alternate-reviewer entry. Exact input-byte attribution; earlier attributed changes remain and historical generator/parser/members are unchanged. Owner approval for the two new rows: https://github.com/cooneycw/claude-power-pack/issues/1958#issuecomment-7232680930; checksum value refresh approved by coordinator."
     }
   }
 }
