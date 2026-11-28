@@ -1,0 +1,63 @@
+{
+  "branch": "issue-1926-fix-title-coverage",
+  "counts": {
+    "accepted": 0,
+    "deferred": 1,
+    "rejected": 0
+  },
+  "head": "e6f1143b84518104bf215a6203e89494732b389b",
+  "implementer": "codex/gpt-6.1-sol",
+  "implementer_evidence": {
+    "kind": "thread_id",
+    "models": [
+      "codex/gpt-6.1-sol"
+    ],
+    "rollout": "2026/11/27/rollout-2026-11-27T13-27-30-01a21d30-8a0a-74b0-9dc6-8a59cca79951.jsonl",
+    "runtime": "codex",
+    "sources": [
+      {
+        "bytes": 25987546,
+        "path": "2026/11/27/rollout-2026-11-27T13-27-30-01a21d30-8a0a-74b0-9dc6-8a59cca79951.jsonl",
+        "sha256": "5e7578f40ee963cfed2c472acf67fa62bcd86624547532b163e78fbdb0789b1e"
+      }
+    ],
+    "thread_id": "01a21d30-8a0a-74b0-9dc6-8a59cca79951"
+  },
+  "issue": "1926",
+  "local_credentials": "unknown",
+  "network": "unverified",
+  "passes": 1,
+  "recorded_at": "2026-11-28T03:46:58Z",
+  "red_cases": {
+    "already_covered": 0,
+    "proposed": 0
+  },
+  "reviewed_artifact": {
+    "base_sha": "a0dbd0b7c42c9f95bef8cc9eeb7bd75c8eca014f",
+    "merge_base": "a0dbd0b7c42c9f95bef8cc9eeb7bd75c8eca014f",
+    "method": "runtime-head",
+    "patch_sha256": "25803c35eadfe47499fe596d7e9787c4e3e257d078e152de9676f430a1c33df0",
+    "report_record": 12267,
+    "target_head": "e6f1143b84518104bf215a6203e89494732b389b"
+  },
+  "reviewer": "claude/claude-opus-5-5",
+  "reviewer_evidence": {
+    "kind": "session_id",
+    "models": [
+      "claude/claude-opus-5-5"
+    ],
+    "runtime": "claude",
+    "session_id": "5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2",
+    "sources": [
+      {
+        "bytes": 22633606,
+        "path": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl",
+        "sha256": "cb7f8206c2cd1d061cb86d3861de17f4dc9b24a491467c2d1bfa3f0e6f3dc9ff"
+      }
+    ],
+    "transcript": "-workspace/5efb6097-dadf-4f2e-ba4d-9aa1c1c264d2.jsonl"
+  },
+  "schema": 5,
+  "scope": "full",
+  "status": "ran"
+}
