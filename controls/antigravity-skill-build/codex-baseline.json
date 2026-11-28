@@ -1862,6 +1862,30 @@
       ],
       "source_commit": "315b7ca427c21ffd12a3825c26e37876384e5678",
       "reason": "R3e #1877 optional closing-text provenance validation changes the bundled flow-plan-record helper and its manifest. Exact input-byte attribution only; the historical member population, pins, generator and parser remain unchanged."
+    },
+    "secrets-get/SKILL.md": {
+      "baseline": [
+        "6d2ff473e629fdc885f4ab6baf22d3e56dbc976a3dab2a0a23ae5654d79c139f",
+        420
+      ],
+      "candidate": [
+        "780b91632f5d15d54101a7921d7b0477a2154923ae2b4bd471e22abe97f97132",
+        420
+      ],
+      "source_commit": "90869301dd3828b0991dc40221a4b3367c8cb248",
+      "reason": "#1946 PR1 corrects public security/secrets capability and storage claims, including plaintext local storage and AWS-first auto selection. Claims-only input evolution; all runtime examples, historical members, pinned generator and parser are unchanged."
+    },
+    "secrets-help/SKILL.md": {
+      "baseline": [
+        "4c9a1b299edb612a2ee44fef1257715340d73871c395e550f2026a9ff6cc393c",
+        420
+      ],
+      "candidate": [
+        "4f8ad428c0729b5f02cbbc2585f1dc89af7a0158de2ec2d7e1d47525b30a7b19",
+        420
+      ],
+      "source_commit": "90869301dd3828b0991dc40221a4b3367c8cb248",
+      "reason": "#1946 PR1 corrects public security/secrets capability and storage claims, including plaintext local storage and AWS-first auto selection. Claims-only input evolution; all runtime examples, historical members, pinned generator and parser are unchanged."
     }
   }
 }
