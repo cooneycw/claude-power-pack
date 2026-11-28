@@ -41,6 +41,7 @@
 # CPP runs only on the dedicated kyleci hosts (issue #1977).
 labels:
   host: kyleci
+  pool: cpp
 
 when:
   - event: pull_request
