@@ -17,7 +17,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def observe(case, temporary, helper=HELPER):
+def observe(case, temporary, helper=HELPER, *, qualification_only=False):
     """A real helper entry, an owned Git origin, and an observable stub reviewer."""
     import subprocess
 
@@ -45,23 +45,39 @@ def observe(case, temporary, helper=HELPER):
     _git("commit", "-qm", "declared subject and controlled qualification", cwd=work, env=environment)
     assert not calls.exists()
     assert Path(shutil.which("codex", path=environment["PATH"])) == temporary / "stub/codex"
+    # Tripwires for expensive work outside the controlled Make entry. Ordinary
+    # consumers must not stage/sync tools or launch an image before returning.
+    work_calls = temporary / "unexpected-work"
+    environment["CI_SHAPE_WORK_CALLS"] = str(work_calls)
+    for tool in ("uv", "docker", "podman"):
+        probe = temporary / "stub" / tool
+        probe.write_text('#!/bin/sh\nprintf "%s\\n" "' + tool + '" >> "$CI_SHAPE_WORK_CALLS"\nexit 97\n')
+        probe.chmod(0o755)
     transcript = temporary / "transcript.md"
-    answer = subprocess.run(["bash", str(helper), "--base", "origin/main", "--transcript", str(transcript)],
+    arguments = ["--qualify-only"] if qualification_only else ["--base", "origin/main", "--transcript", str(transcript)]
+    answer = subprocess.run(["bash", str(helper), *arguments],
                             cwd=work, env=environment, capture_output=True, text=True, timeout=45)
     try:
-        return answer, spec, _calls(environment), calls.read_text().splitlines() if calls.exists() else []
+        assert not work_calls.exists(), "consumer staged/synced/launched outside qualification"
+        reviewer_calls = _calls(environment)
+        if qualification_only:
+            assert reviewer_calls == [], "qualification-only entry probed/launched Codex"
+        return answer, spec, reviewer_calls, calls.read_text().splitlines() if calls.exists() else []
     finally:
         _cleanup_stream(answer.stdout)
 
 
-def exercise(case, temporary, helper=HELPER):
-    answer, spec, reviewer_calls, qualification_calls = observe(case, temporary, helper)
+def exercise(case, temporary, helper=HELPER, *, qualification_only=False):
+    answer, spec, reviewer_calls, qualification_calls = observe(
+        case, temporary, helper, qualification_only=qualification_only)
     if spec["project"] != "claude-power-pack":
         assert qualification_calls == [], "ordinary neighbor invoked CPP qualification"
-        assert answer.returncode == 0 and "exec" in reviewer_calls, answer.stdout + answer.stderr
+        assert answer.returncode == 0 and (qualification_only or "exec" in reviewer_calls), (
+            answer.stdout + answer.stderr)
     elif spec.get("admit", spec["state"] == "GOOD"):
         assert qualification_calls == ["ci-shape-check"], "CPP qualification did not run exactly once"
-        assert answer.returncode == 0 and "exec" in reviewer_calls, answer.stdout + answer.stderr
+        assert answer.returncode == 0 and (qualification_only or "exec" in reviewer_calls), (
+            answer.stdout + answer.stderr)
     else:
         assert "exec" not in reviewer_calls, "reviewer invoked despite " + spec["state"]
         assert qualification_calls == ([] if spec.get("identity_error") else ["ci-shape-check"]), (
@@ -71,5 +87,6 @@ def exercise(case, temporary, helper=HELPER):
 
 
 @pytest.mark.parametrize("case", sorted(p.name for p in CASES.iterdir() if (p / "case.json").is_file()))
-def test_public_entry_qualification_before_review(tmp_path, case):
-    exercise(CASES / case, tmp_path)
+@pytest.mark.parametrize("qualification_only", [False, True])
+def test_public_entry_qualification_before_review(tmp_path, case, qualification_only):
+    exercise(CASES / case, tmp_path, qualification_only=qualification_only)

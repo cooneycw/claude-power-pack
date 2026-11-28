@@ -1,13 +1,14 @@
 # ci-shape-check
 
-Opt-in focused pre-CI shape check for CPP (#1917 PR-A). Review and Woodpecker
-wiring are a separate PR, after the controls and portability smoke qualify it.
+Focused qualification for CPP (#1917, #1958), required by its review consumers.
+Ordinary consumer repositories do no CPP qualification work.
 
 ```sh
 make ci-shape-canary
 make test-ci-shape
 make ci-shape-check CI_SHAPE_RECEIPT=/absolute/path/local.json
 make ci-shape-check CI_SHAPE_TIER=image CI_SHAPE_RECEIPT=/absolute/path/image.json
+make ci-shape-ci CI_SHAPE_RECEIPT=/absolute/path/ci.json
 ```
 
 Local runs require non-root Linux, uv and a working bootstrap Python. Image
@@ -60,11 +61,31 @@ uv run python scripts/ci-shape-check.py verify /absolute/path/local.json \
 ```
 
 Exit codes are 0 GOOD, 1 BAD, 2 UNKNOWN. GOOD is bounded to the named tier and
-population; this opt-in gate is not the full finish gate. The image field on a
+population; this qualification is not the full finish gate. The image field on a
 local receipt identifies the comparison target, not an image that was run.
 The image launcher pins the actual runtime argument; the inside-image runner's
 private marker is an execution assertion, not a cryptographic attestation.
 Keep the host launch command and backend/image identity alongside its receipt.
+
+The CI entry runs directly inside the step, without launching a container.
+It requires CI=true, actual uid/euid 0, and a literal `ci-shape` image pin equal
+to validate's. This checks the declaration, not independent image attestation.
+The runner creates its own environment and clones; it does not sync the shared
+validate environment. CI placement is qualified by a measured run before wiring.
+
+`codex-review-run.sh` qualifies the target checkout after diff collection and
+before review. Its `--qualify-only` entry supplies the same admission check for
+alternate reviewers, without probing or launching Codex. CPP GOOD admits; BAD,
+UNKNOWN, duplicate/missing result markers, nonzero status, or a moved/dirty
+checkpoint blocks. No cached success or trusted bypass exists. A non-CPP
+project, including one carrying similarly named shape files, invokes no CPP
+Make entry, environment sync, tool staging or image launch. Committed neighbor
+and lookalike cases exercise both entries and trip on unexpected expensive work.
+
+Changes to runner/consumer code, selected tests, shape configuration or image
+require fresh local and actual pinned-image qualification of the committed
+checkpoint. Previous PR-A root receipts do not qualify new code. A data-only
+carry requires an explicitly bounded comparison; never infer it from filenames.
 
 [Controls](../../controls/ci-shape-check/README.md) and
 [acceptance measurements](../measurements/ci-shape-check.md) describe the

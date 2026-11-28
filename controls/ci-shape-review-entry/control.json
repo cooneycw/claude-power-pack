@@ -69,13 +69,13 @@
   ],
   "anchors": [
     {
-      "kind": "historical",
-      "sha": "7878db6f47690b5d5a2f1cfcff547e4726c9dda4",
+      "kind": "constructed",
+      "sha": "n/a",
       "origin": "scripts/codex-review-run.sh",
-      "path": "anchors/pre-required-entry.sh",
-      "sha256": "4cd91384529101e511ad31df0ac752387256580b4b8d74245b3bb872f216e81d",
-      "why": "Actual pre-gate helper invokes the reviewer for BAD, UNKNOWN and malformed CPP qualification inputs."
+      "path": "anchors/constructed-no-qualification.sh",
+      "sha256": "b98d72d7d292453af8ccbb76380bfb2f1e961ef68944933676efbfd1c26cad73",
+      "why": "Supports both public entries but removes only qualification; real reviewer behavior remains, so BAD/UNKNOWN is admitted."
     }
   ],
-  "limits": "Consumer admission on controlled producer results; no model call, model identity claim, actual suite/image run or complete shell analysis. CPP GOOD exact invocation count is also pinned by the public-entry tests; every ordinary-neighbor control requires zero qualification calls."
+  "limits": "Both full-review and qualification-only admission on controlled producer results; no model call, model identity claim, actual suite/image run or complete shell analysis. CPP GOOD exact invocation count is also pinned by the public-entry tests; every ordinary-neighbor control requires zero qualification calls. The unchanged historical pre-required helper is retained as source evidence and the old-entry red; it predates --qualify-only and is not represented as a blind implementation of that new CLI."
 }

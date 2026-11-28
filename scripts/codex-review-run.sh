@@ -7,6 +7,7 @@
 #
 # Usage:
 #   codex-review-run.sh [--base REF] [--context TEXT] --transcript FILE
+#   codex-review-run.sh --qualify-only  (before a non-Codex reviewer)
 #   (FILE outside the checkout)
 #
 # The review mode runs six stages in order, each a function below whose body
@@ -569,6 +570,14 @@ codex_review_usage() {
 }
 
 codex_review_main() {
+    if [ "$#" -eq 1 ] && [ "$1" = --qualify-only ]; then
+        GIT_ROOT=$(git rev-parse --show-toplevel) || {
+            echo "CODEX_REVIEW: blocked (target checkout UNKNOWN)" >&2; return 1;
+        }
+        DIFF_FILE=""
+        review_ci_shape
+        return 0
+    fi
     local transcript=""
     while [ "$#" -gt 0 ]; do
         case "$1" in

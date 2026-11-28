@@ -47,6 +47,8 @@ SELECTORS = (
     "tests/test_host_update_command.py::test_real_historical_installer_population",
     "tests/test_ci_shape_check.py",
     "tests/test_ci_shape_cancel.py",
+    "tests/test_ci_shape_review_entry.py",
+    "tests/test_ci_shape_ci_entry.py",
 )
 LANES = ("depth-1", "depth-1-tree-0")
 COLLECTION_FLOOR = 200
@@ -123,6 +125,20 @@ def image_pin(root: Path) -> str:
     if not found:
         raise Unknown("validate image is not content pinned")
     return found[1]
+
+
+def ci_entry_image(root: Path) -> str:
+    """Check the CI declaration and actual identity; this is not image attestation."""
+    if os.environ.get("CI", "").lower() not in ("true", "1"):
+        raise Unknown("CI entry requires CI=true context")
+    if os.getuid() != 0 or os.geteuid() != 0:
+        raise Unknown("CI entry requires actual uid/euid 0")
+    image = image_pin(root)
+    declared = re.search(r"^  ci-shape:\n    image: (\S+@sha256:[0-9a-f]{64})$",
+                         (root / ".woodpecker.yml").read_text(), re.M)
+    if not declared or declared[1] != image:
+        raise Unknown("ci-shape step must declare the exact pinned validate image")
+    return image
 
 
 def selector_matches(nodeid: str, selector: str) -> bool:
