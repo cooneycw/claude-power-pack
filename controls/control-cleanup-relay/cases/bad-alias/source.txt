@@ -1,0 +1,3 @@
+from tempfile import TemporaryDirectory as Owned
+with Owned() as root:
+    print(result.stdout)

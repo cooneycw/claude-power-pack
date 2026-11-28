@@ -192,9 +192,9 @@ def main() -> int:
         result = subprocess.run(
             [sys.executable, str(gate), "--root", str(root)], capture_output=True, text=True, timeout=30
         )
-        print(result.stdout, end="")
-        print(result.stderr, end="", file=sys.stderr)
-        return result.returncode
+    print(result.stdout, end="")
+    print(result.stderr, end="", file=sys.stderr)
+    return result.returncode
 
 
 if __name__ == "__main__":

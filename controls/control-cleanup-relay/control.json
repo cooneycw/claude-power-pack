@@ -1,0 +1,65 @@
+{
+  "gate": "scripts/check-control-cleanup-relay.py",
+  "invocation": [
+    "python3",
+    "controls/control-cleanup-relay/run-case.py",
+    "{gate}",
+    "{case}"
+  ],
+  "good_exit": 0,
+  "good_signal": "^CONTROL_RELAY: ok - ",
+  "detect_signal": "^CONTROL_RELAY: bad - ",
+  "unknown_signal": "^CONTROL_RELAY: unknown - ",
+  "limits": "Lexical stdout-bearing print calls in Python control implementations, including nested arguments and tempfile import aliases. Direct control fixture trees cases/anchors/history are explicitly outside the implementation population. This is not a proof about indirect writes, arbitrary dynamic aliases or runtime exploitability. No per-site exemptions.",
+  "cases": [
+    {
+      "name": "bad-old-shape",
+      "input": "cases/bad-old-shape",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-concatenation",
+      "input": "cases/bad-concatenation",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-prefix",
+      "input": "cases/bad-prefix",
+      "expect": "BAD"
+    },
+    {
+      "name": "bad-alias",
+      "input": "cases/bad-alias",
+      "expect": "BAD"
+    },
+    {
+      "name": "good-after-cleanup",
+      "input": "cases/good-after-cleanup",
+      "expect": "GOOD"
+    },
+    {
+      "name": "unknown-parse",
+      "input": "cases/unknown-parse",
+      "expect": "UNKNOWN",
+      "anchor_expect": "clean",
+      "anchor_expect_reason": "The blind anchor claims clean without enumerating or parsing the requested implementation population."
+    },
+    {
+      "name": "unknown-empty",
+      "input": "cases/unknown-empty",
+      "expect": "UNKNOWN",
+      "anchor_expect": "clean",
+      "anchor_expect_reason": "The blind anchor claims clean without enumerating or parsing the requested implementation population."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/check-control-cleanup-relay.py",
+      "path": "anchors/constructed-always-clean.py",
+      "sha256": "6e27c14cdc48c40576394dcc2963aceb9d77fafd3adf019471e20ad04a639484",
+      "why": "Claims every requested population clean without reading files; misses all relay BAD cases and cannot represent empty or unparseable input."
+    }
+  ]
+}

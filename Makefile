@@ -519,7 +519,7 @@ oscillation:
 
 ## verify-coverage: gate verify - the aggregate itself - its own failure mode is a sub-gate dropped from this list, which is what verify-coverage-check exists to catch
 verify: tools-check lint test typecheck shellcheck bandit-audit undeclared-import-audit oscillation \
-	binary-guards-check negative-fixture-check negative-controls \
+	binary-guards-check negative-fixture-check control-cleanup-relay-check negative-controls \
 	host-surface-observe \
 	claude-md-budget-check agents-md-budget-check command-docs-budget-check \
 	claude-md-links-check claude-md-behavior-check \
@@ -899,6 +899,15 @@ host-surface-observe:
 ## verify-coverage: gate negative-fixture-check - every constructed absence asserts its own precondition; ci: runs negative-fixture-check
 negative-fixture-check:
 	@python3 scripts/check-negative-fixture-preconditions.py
+
+.PHONY: control-cleanup-relay-check control-cleanup-relay-controls
+## verify-coverage: gate control-cleanup-relay-check - reject stdout relays before control fixture cleanup; ci: runs negative-controls
+control-cleanup-relay-check:
+	@python3 scripts/check-control-cleanup-relay.py
+
+## verify-coverage: excluded control-cleanup-relay-controls - focused subset of negative-controls; ci: excluded duplicate-subset
+control-cleanup-relay-controls:
+	@python3 scripts/check-negative-controls.py --control controls/control-cleanup-relay --strict --verify-provenance
 
 ## Keep always-loaded repository guidance bounded, resolvable, and behaviorally
 ## findable after narrative moves to owned documentation (issue #724).

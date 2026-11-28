@@ -975,6 +975,7 @@ steps:
           echo "negative-controls: event ${CI_PIPELINE_EVENT}; provenance flag: not passed (main pushes do not verify provenance)"
         fi
         printf '%s' "$PROVENANCE" > .ci-bin/provenance-flag
+      - python3 scripts/check-control-cleanup-relay.py
       - PATH="$PWD/.ci-bin:$PATH" python3 scripts/check-negative-controls.py --strict $(cat .ci-bin/provenance-flag)
 
   # THE SECOND HALF OF THE SAME QUESTION (issue #970). `negative-controls` above

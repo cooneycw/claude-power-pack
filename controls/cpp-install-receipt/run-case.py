@@ -36,6 +36,7 @@ def run(gate: Path, case: Path) -> int:
     elif scenario not in {"complete", "old-green-write-fails", "summary-unreadable", "absent", "invalid"}:
         raise ValueError("unknown fixture scenario")
 
+    missing_summary = False
     with tempfile.TemporaryDirectory(prefix="cpp-install-control-") as directory, \
             tempfile.TemporaryDirectory(prefix="cpp-install-state-") as scratch:
         project = Path(directory)
@@ -59,61 +60,67 @@ def run(gate: Path, case: Path) -> int:
                 assert path.read_text() == "{"
             else:
                 assert not path.exists(), "negative-fixture precondition: receipt absent"
-            return subprocess.run([
+            result = subprocess.run([
                 sys.executable, str(gate), "status", "--project-dir", str(project), "--revision", REVISION,
-            ], check=False).returncode
+            ], check=False, capture_output=True, text=True)
+            code = result.returncode
 
-        if shutil.which("bash") is None:
-            print("CPP_INSTALL_CONTROL: unavailable - bash missing")
-            return 125
-        text = (ROOT / ".claude/commands/cpp/init.md").read_text()
-        match = re.search(r"# CPP_INSTALL_RECEIPT_WRITE_BEGIN\n(.*?)# CPP_INSTALL_RECEIPT_WRITE_END", text, re.S)
-        assert match and match[1].strip(), "must exercise the actual shipped consumer"
-        # Adapt transport only: select the supplied real/anchor helper and a
-        # fixed revision, so controls require neither git nor host configuration.
-        command_gate = gate
-        if scenario == "summary-unreadable":
-            command_gate = project / "summary-fault.py"
-            command_gate.write_text(
-                "import pathlib, subprocess, sys\n"
-                f"gate = {str(gate)!r}\n"
-                "result = subprocess.run([sys.executable, gate, *sys.argv[1:]])\n"
-                f"if sys.argv[1] == 'write' and result.returncode == 0 and not {repair!r}:\n"
-                "    receipt = pathlib.Path('.claude/cpp-install.json')\n"
-                "    receipt.unlink(missing_ok=True)\n"
-                "    assert not receipt.exists(), 'negative-fixture precondition: summary input absent'\n"
-                "raise SystemExit(result.returncode)\n"
+        else:
+            if shutil.which("bash") is None:
+                print("CPP_INSTALL_CONTROL: unavailable - bash missing")
+                return 125
+            text = (ROOT / ".claude/commands/cpp/init.md").read_text()
+            match = re.search(r"# CPP_INSTALL_RECEIPT_WRITE_BEGIN\n(.*?)# CPP_INSTALL_RECEIPT_WRITE_END", text, re.S)
+            assert match and match[1].strip(), "must exercise the actual shipped consumer"
+            # Adapt transport only: select the supplied real/anchor helper and a
+            # fixed revision, so controls require neither git nor host configuration.
+            command_gate = gate
+            if scenario == "summary-unreadable":
+                command_gate = project / "summary-fault.py"
+                command_gate.write_text(
+                    "import pathlib, subprocess, sys\n"
+                    f"gate = {str(gate)!r}\n"
+                    "result = subprocess.run([sys.executable, gate, *sys.argv[1:]])\n"
+                    f"if sys.argv[1] == 'write' and result.returncode == 0 and not {repair!r}:\n"
+                    "    receipt = pathlib.Path('.claude/cpp-install.json')\n"
+                    "    receipt.unlink(missing_ok=True)\n"
+                    "    assert not receipt.exists(), 'negative-fixture precondition: summary input absent'\n"
+                    "raise SystemExit(result.returncode)\n"
+                )
+            # Initialize genuine per-run state in a separate tool-like shell; the
+            # persistence consumer must load it itself, never inherit functions.
+            initial = re.search(r"# CPP_MCP_RUN_INIT_BEGIN\n(.*?)# CPP_MCP_RUN_INIT_END", text, re.S)
+            assert initial and initial[1].strip(), "must use the actual run initializer"
+            setup = subprocess.run(["bash", "-c", initial[1]], cwd=project, capture_output=True, text=True,
+                                   env=dict(os.environ, CPP_DIR=str(ROOT), TMPDIR=scratch), timeout=15)
+            assert setup.returncode == 0, setup.stdout + setup.stderr
+            run_paths = [line.split("=", 1)[1] for line in setup.stdout.splitlines()
+                         if line.startswith("CPP_MCP_RUN_DIR=")]
+            assert len(run_paths) == 1
+            script = match[1].replace('"$CPP_DIR/scripts/cpp-install-receipt.py"', '"$CPP_RECEIPT_CONTROL_GATE"')
+            script = script.replace('--cpp-dir "$CPP_DIR"', '--revision "$CPP_RECEIPT_CONTROL_REVISION"')
+            result = subprocess.run(
+                ["bash", "-c", script], cwd=project, capture_output=True, text=True, timeout=15,
+                env=dict(os.environ, CPP_MCP_RUN_DIR=run_paths[0], CPP_RECEIPT_CONTROL_GATE=str(command_gate),
+                         CPP_RECEIPT_CONTROL_REVISION=REVISION,
+                         CPP_CAPABILITIES_JSON='["commands"]' , PROFILE_NAME="not-selected", PERMISSION_REPORT="{}",
+                         STEP_RESULTS_JSON=json.dumps(observations), OFFERED_STEPS_JSON=json.dumps(offered)),
             )
-        # Initialize genuine per-run state in a separate tool-like shell; the
-        # persistence consumer must load it itself, never inherit functions.
-        initial = re.search(r"# CPP_MCP_RUN_INIT_BEGIN\n(.*?)# CPP_MCP_RUN_INIT_END", text, re.S)
-        assert initial and initial[1].strip(), "must use the actual run initializer"
-        setup = subprocess.run(["bash", "-c", initial[1]], cwd=project, capture_output=True, text=True,
-                               env=dict(os.environ, CPP_DIR=str(ROOT), TMPDIR=scratch), timeout=15)
-        assert setup.returncode == 0, setup.stdout + setup.stderr
-        run_paths = [line.split("=", 1)[1] for line in setup.stdout.splitlines()
-                     if line.startswith("CPP_MCP_RUN_DIR=")]
-        assert len(run_paths) == 1
-        script = match[1].replace('"$CPP_DIR/scripts/cpp-install-receipt.py"', '"$CPP_RECEIPT_CONTROL_GATE"')
-        script = script.replace('--cpp-dir "$CPP_DIR"', '--revision "$CPP_RECEIPT_CONTROL_REVISION"')
-        result = subprocess.run(
-            ["bash", "-c", script], cwd=project, capture_output=True, text=True, timeout=15,
-            env=dict(os.environ, CPP_MCP_RUN_DIR=run_paths[0], CPP_RECEIPT_CONTROL_GATE=str(command_gate),
-                     CPP_RECEIPT_CONTROL_REVISION=REVISION,
-                     CPP_CAPABILITIES_JSON='["commands"]' , PROFILE_NAME="not-selected", PERMISSION_REPORT="{}",
-                     STEP_RESULTS_JSON=json.dumps(observations), OFFERED_STEPS_JSON=json.dumps(offered)),
-        )
-        print(result.stdout, end="")
-        print(result.stderr, end="", file=sys.stderr)
-        lines = result.stdout.splitlines()
-        # A displayed success is the exact bad claim, even if an error was also
-        # displayed. Reading the final echo's exit code would hide that defect.
-        if "CPP Installation Complete" in lines:
-            return 0
-        if "CPP Installation Incomplete" in lines:
-            return 1
+            lines = result.stdout.splitlines()
+            # A displayed success is the exact bad claim, even if an error was also
+            # displayed. Reading the final echo's exit code would hide that defect.
+            if "CPP Installation Complete" in lines:
+                code = 0
+            elif "CPP Installation Incomplete" in lines:
+                code = 1
+            else:
+                missing_summary = True
+                code = 2
+    print(result.stdout, end="")
+    print(result.stderr, end="", file=sys.stderr)
+    if missing_summary:
         print("CPP_INSTALL_CONTROL: unknown - no final summary")
-        return 2
+    return code
 
 
 if __name__ == "__main__":

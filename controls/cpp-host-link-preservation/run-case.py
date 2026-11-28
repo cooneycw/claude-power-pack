@@ -56,30 +56,30 @@ def main():
                 return 9
             # The historical helper returns0 and actually mutates these BAD
             # inputs. Retain that success as its demonstrated missed refusal.
-            print(result.stdout, end="")
-            print(result.stderr, end="", file=sys.stderr)
-            return result.returncode
-        assert scenario == "good-links"
-        assert not root.exists()
-        absent = invoke()
-        assert absent.returncode == 0 and leaf.is_symlink() and leaf.readlink() == source
-        before = inventory(home)
-        source.write_bytes(b"CPP source B")
-        existing = invoke()
-        assert existing.returncode == 0 and inventory(home) == before and leaf.read_bytes() == b"CPP source B"
-        leaf.unlink()
-        foreign = base / "personal"
-        foreign.write_bytes(b"personal link target")
-        leaf.symlink_to(foreign)
-        assert leaf.is_symlink() and leaf.readlink() != source
-        before = inventory(home)
-        unchanged = invoke()
-        assert unchanged.returncode == 0 and inventory(home) == before
-        assert foreign.read_bytes() == b"personal link target"
-        for result in (absent, existing, unchanged):
-            print(result.stdout, end="")
-            print(result.stderr, end="", file=sys.stderr)
-        return 0
+            results, code = (result,), result.returncode
+        else:
+            assert scenario == "good-links"
+            assert not root.exists()
+            absent = invoke()
+            assert absent.returncode == 0 and leaf.is_symlink() and leaf.readlink() == source
+            before = inventory(home)
+            source.write_bytes(b"CPP source B")
+            existing = invoke()
+            assert existing.returncode == 0 and inventory(home) == before and leaf.read_bytes() == b"CPP source B"
+            leaf.unlink()
+            foreign = base / "personal"
+            foreign.write_bytes(b"personal link target")
+            leaf.symlink_to(foreign)
+            assert leaf.is_symlink() and leaf.readlink() != source
+            before = inventory(home)
+            unchanged = invoke()
+            assert unchanged.returncode == 0 and inventory(home) == before
+            assert foreign.read_bytes() == b"personal link target"
+            results, code = (absent, existing, unchanged), 0
+    for result in results:
+        print(result.stdout, end="")
+        print(result.stderr, end="", file=sys.stderr)
+    return code
 
 
 if __name__ == "__main__":

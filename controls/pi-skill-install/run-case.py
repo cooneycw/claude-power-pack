@@ -215,8 +215,8 @@ def main():
         except (ValueError, AssertionError):
             print("CONTROL_PROTOCOL_FAILED", answer.stderr)
             return 9
-        print("PI_SKILL_INSTALL:", "current" if code == 0 else "unknown" if code == 4 else "finding", answer.stdout)
-        return code
+    print("PI_SKILL_INSTALL:", "current" if code == 0 else "unknown" if code == 4 else "finding", answer.stdout)
+    return code
 
 
 if __name__ == "__main__":

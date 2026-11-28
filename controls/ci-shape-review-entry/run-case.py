@@ -8,8 +8,9 @@ sys.path.insert(0, str(ROOT))
 from tests.test_ci_shape_review_entry import observe  # noqa: E402
 
 
-def main():
+def exercise():
     gate, case = map(Path, sys.argv[1:3])
+    output = []
     with tempfile.TemporaryDirectory(prefix="cpp-review-entry-control-") as owned:
         observations = []
         for only in (False, True):
@@ -19,8 +20,7 @@ def main():
                 case, temporary, gate, qualification_only=only)
             invoked = "exec" in reviewer
             if spec["project"] != "claude-power-pack" and qualification:
-                print("CI_SHAPE_REVIEW_CONTROL: refused - neighbor ran CPP qualification")
-                return 1
+                return 1, "".join(output) + "CI_SHAPE_REVIEW_CONTROL: refused - neighbor ran CPP qualification\n"
             expected_calls = [] if (spec.get("identity_error")
                                    or spec["project"] != "claude-power-pack") else ["ci-shape-check"]
             if answer.returncode == 0 and (only or invoked):
@@ -29,16 +29,19 @@ def main():
                   and "CODEX_REVIEW: blocked" in answer.stdout + answer.stderr):
                 observations.append("BAD")
             else:
-                print(answer.stdout + answer.stderr)
+                output.append(answer.stdout + answer.stderr + "\n")
                 observations.append("UNKNOWN")
         if observations == ["GOOD", "GOOD"]:
-            print("CI_SHAPE_REVIEW_CONTROL: admitted - both entries permit review")
-            return 0
+            return 0, "".join(output) + "CI_SHAPE_REVIEW_CONTROL: admitted - both entries permit review\n"
         if observations == ["BAD", "BAD"]:
-            print("CI_SHAPE_REVIEW_CONTROL: refused - both entries prevent review")
-            return 1
-        print("CI_SHAPE_REVIEW_CONTROL: unavailable - entries disagree or could not be examined")
-        return 2
+            return 1, "".join(output) + "CI_SHAPE_REVIEW_CONTROL: refused - both entries prevent review\n"
+        return 2, "".join(output) + "CI_SHAPE_REVIEW_CONTROL: unavailable - entries disagree or could not be examined\n"
+
+
+def main():
+    code, output = exercise()
+    print(output, end="")
+    return code
 
 
 if __name__ == "__main__":

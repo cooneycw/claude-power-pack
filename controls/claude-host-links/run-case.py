@@ -98,9 +98,9 @@ def main():
             row = next(r for r in report["results"] if r["harness"] == "claude-links")
             assert row["backend"] == "links" and row["after"]["state"] == "current", report
             assert row["after"]["expected_members"] == row["after"]["examined_members"] == 4, row
-        print(result.stdout, end="")
-        print(result.stderr, end="", file=sys.stderr)
-        return result.returncode
+    print(result.stdout, end="")
+    print(result.stderr, end="", file=sys.stderr)
+    return result.returncode
 
 
 if __name__ == "__main__":

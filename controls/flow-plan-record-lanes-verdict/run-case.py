@@ -74,43 +74,47 @@ def setup(*argv: str, cwd: Path) -> None:
         raise SystemExit(3)
 
 
-with tempfile.TemporaryDirectory() as directory:
-    repo = Path(directory) / "repo"
-    repo.mkdir()
-    setup(git, "init", "-q", "-b", "main", cwd=repo)
-    (repo / "README.md").write_text("base\n")
-    if (case / "lanes.md").exists():
-        (repo / ".claude").mkdir()
-        shutil.copy(case / "lanes.md", repo / ".claude" / "lanes.md")
-    setup(git, "add", "-A", cwd=repo)
-    setup(git, "commit", "-qm", "base", cwd=repo)
-    setup(git, "checkout", "-q", "-b", "issue-42-a-case", cwd=repo)
-    body = repo.parent / "body.md"
-    body.write_text("The issue body.\n")
-    setup(sys.executable, str(gate), "reconcile", "42", cwd=repo)
-    setup(sys.executable, str(gate), "read-issue", "42", "--body-file", str(body), cwd=repo)
-    setup(sys.executable, str(gate), "begin-run", "42", cwd=repo)
-    with (repo / "docs" / "flow-runs" / "issue-42.md").open("a") as record:
-        record.write((case / "section.md").read_text())
-    shown = repo / "docs" / "flow-runs" / "issue-42.lanes-demonstrated.md"
-    if (case / "demonstrated-before.md").exists():
-        shutil.copy(case / "demonstrated-before.md", shown)
-    setup(sys.executable, str(gate), "approve", "42", cwd=repo)
-    if (case / "delete-lane-file-after-approval").exists():
-        (repo / ".claude" / "lanes.md").unlink()
-    (repo / "src").mkdir()
-    (repo / "src" / "app.py").write_text("x = 1\n")
-    if (case / "demonstrated.md").exists():
-        shown.write_text(lanes_marker_text((case / "demonstrated.md").read_text(), repo))
-    elif (case / "demonstrated-is-a-directory").exists():
-        shown.mkdir()
-    done = run(sys.executable, str(gate), "compliance", "42", "--base", "main", cwd=repo)
-    lines = [line for line in done.stdout.splitlines() if line.startswith("PLAN_COMPLIANCE: ")]
-    if len(lines) != 1:
-        print("FLOW_PLAN_RECORD_LANES_VERDICT_CONTROL: unavailable - compliance printed "
-              f"{len(lines)} verdict lines, not one")
-        print(done.stdout + done.stderr)
-        raise SystemExit(3)
-    print(lines[0])
-    sys.stderr.write(done.stderr)
-    raise SystemExit(1 if ", LANES NOT " in lines[0] else 0)
+def exercise():
+    with tempfile.TemporaryDirectory() as directory:
+        repo = Path(directory) / "repo"
+        repo.mkdir()
+        setup(git, "init", "-q", "-b", "main", cwd=repo)
+        (repo / "README.md").write_text("base\n")
+        if (case / "lanes.md").exists():
+            (repo / ".claude").mkdir()
+            shutil.copy(case / "lanes.md", repo / ".claude" / "lanes.md")
+        setup(git, "add", "-A", cwd=repo)
+        setup(git, "commit", "-qm", "base", cwd=repo)
+        setup(git, "checkout", "-q", "-b", "issue-42-a-case", cwd=repo)
+        body = repo.parent / "body.md"
+        body.write_text("The issue body.\n")
+        setup(sys.executable, str(gate), "reconcile", "42", cwd=repo)
+        setup(sys.executable, str(gate), "read-issue", "42", "--body-file", str(body), cwd=repo)
+        setup(sys.executable, str(gate), "begin-run", "42", cwd=repo)
+        with (repo / "docs" / "flow-runs" / "issue-42.md").open("a") as record:
+            record.write((case / "section.md").read_text())
+        shown = repo / "docs" / "flow-runs" / "issue-42.lanes-demonstrated.md"
+        if (case / "demonstrated-before.md").exists():
+            shutil.copy(case / "demonstrated-before.md", shown)
+        setup(sys.executable, str(gate), "approve", "42", cwd=repo)
+        if (case / "delete-lane-file-after-approval").exists():
+            (repo / ".claude" / "lanes.md").unlink()
+        (repo / "src").mkdir()
+        (repo / "src" / "app.py").write_text("x = 1\n")
+        if (case / "demonstrated.md").exists():
+            shown.write_text(lanes_marker_text((case / "demonstrated.md").read_text(), repo))
+        elif (case / "demonstrated-is-a-directory").exists():
+            shown.mkdir()
+        done = run(sys.executable, str(gate), "compliance", "42", "--base", "main", cwd=repo)
+        lines = [line for line in done.stdout.splitlines() if line.startswith("PLAN_COMPLIANCE: ")]
+        if len(lines) != 1:
+            output = ("FLOW_PLAN_RECORD_LANES_VERDICT_CONTROL: unavailable - compliance printed "
+                      f"{len(lines)} verdict lines, not one\n" + done.stdout + done.stderr + "\n")
+            return 3, output, ""
+        return (1 if ", LANES NOT " in lines[0] else 0), lines[0] + "\n", done.stderr
+
+
+code, output, errors = exercise()
+print(output, end="")
+sys.stderr.write(errors)
+raise SystemExit(code)

@@ -19,6 +19,8 @@ legitimately about something other than one script is declared on the marker bel
 
 ## Scripts
 
+- `check-control-cleanup-relay` - reject stdout-bearing control prints before temporary cleanup, with explicit implementation population and UNKNOWNs (#1984). [reference](scripts/check-control-cleanup-relay.md)
+
 - `ci-shape-check` - opt-in local and pinned-image clone/environment checks with separate root evidence (#1917). [reference](scripts/ci-shape-check.md)
 
 - `pi-skill-sync` - portable pi topic builds, snapshots and explicit core-backed installation/verification (#1896). [reference](scripts/pi-skill-sync.md)

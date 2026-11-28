@@ -245,9 +245,7 @@ def main():
             assert ("owned.py" in changed) == (fault == "bootstrap-code")
             child = subprocess.run([sys.executable, str(gate), "bootstrap", "--root", str(work),
                                     "--base", base], capture_output=True, text=True, timeout=30)
-            print(child.stdout + child.stderr, end="")
-            return child.returncode
-        if fault == "backend":
+        elif fault == "backend":
             empty = work / "empty-path"
             empty.mkdir()
             assert shutil.which("docker", path=str(empty)) is None
@@ -255,20 +253,19 @@ def main():
                                     "--receipt", str(work / "missing-backend.json")],
                                    env={**os.environ, "PATH": str(empty)},
                                    capture_output=True, text=True, timeout=30)
-            print(child.stdout + child.stderr, end="")
-            return child.returncode
-        try:
-            record = fixture(work, fault)
-        except shape.Unknown as exc:
-            print("CI_SHAPE_CONTROL: unavailable -", exc)
-            return 2
-        receipt = work / "receipt.json"
-        receipt.write_text(json.dumps(record))
-        child = subprocess.run([sys.executable, str(gate), "verify", str(receipt),
-                                "--tier", record["tier"], "--commit", record["commit"]],
-                               capture_output=True, text=True, timeout=30)
-        print(child.stdout + child.stderr, end="")
-        return child.returncode
+        else:
+            try:
+                record = fixture(work, fault)
+            except shape.Unknown as exc:
+                print("CI_SHAPE_CONTROL: unavailable -", exc)
+                return 2
+            receipt = work / "receipt.json"
+            receipt.write_text(json.dumps(record))
+            child = subprocess.run([sys.executable, str(gate), "verify", str(receipt),
+                                    "--tier", record["tier"], "--commit", record["commit"]],
+                                   capture_output=True, text=True, timeout=30)
+    print(child.stdout + child.stderr, end="")
+    return child.returncode
 
 
 if __name__ == "__main__":

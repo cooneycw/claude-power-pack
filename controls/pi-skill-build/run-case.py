@@ -107,15 +107,15 @@ def main() -> int:
             env.update(CPP_INSTALL_DRIFT_HOME=str(home), CPP_INSTALL_DRIFT_CHECKOUT=str(source))
             argv = ["bash" if gate.suffix == ".sh" else sys.executable, str(gate), "--json"]
         result = subprocess.run(argv, env=env, cwd=work, capture_output=True, text=True, timeout=15)
-        print(result.stdout, end="")
-        print(result.stderr, end="", file=sys.stderr)
-        if reader == "drift":
-            # This advisory subject exits 0 on drift: read its actual row.
-            row = json.loads(result.stdout).get("pi_skills", {})
-            state = row.get("fidelity", "unknown")
-            print("PI_READER:", state)
-            return 0 if state == "matches" and row.get("checked", 0) > 0 else 1
-        return result.returncode
+    print(result.stdout, end="")
+    print(result.stderr, end="", file=sys.stderr)
+    if reader == "drift":
+        # This advisory subject exits 0 on drift: read its actual row.
+        row = json.loads(result.stdout).get("pi_skills", {})
+        state = row.get("fidelity", "unknown")
+        print("PI_READER:", state)
+        return 0 if state == "matches" and row.get("checked", 0) > 0 else 1
+    return result.returncode
 
 
 if __name__ == "__main__":

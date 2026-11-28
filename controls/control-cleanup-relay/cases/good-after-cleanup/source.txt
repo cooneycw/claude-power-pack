@@ -1,0 +1,4 @@
+import tempfile
+with tempfile.TemporaryDirectory() as root:
+    result = invoke(root)
+print(result.stdout, end="")

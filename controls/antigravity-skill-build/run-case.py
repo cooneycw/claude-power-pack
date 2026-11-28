@@ -110,9 +110,9 @@ def main():
         if before != after:
             print("CONTROL_ORACLE: read-only tree changed")
             return 9  # no detector signal: preservation failure is not detection
-        print(result.stdout, end="")
-        print(result.stderr, end="", file=sys.stderr)
-        return result.returncode
+    print(result.stdout, end="")
+    print(result.stderr, end="", file=sys.stderr)
+    return result.returncode
 
 
 if __name__ == "__main__":

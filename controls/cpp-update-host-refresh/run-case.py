@@ -41,6 +41,7 @@ def main():
     assert len(refresh) == len(finish) == len(migration) == 1, "maintained reader missing or duplicated"
     # Root must test a genuinely unwritable executing identity too. Its owned
     # temporary root is directly under /tmp, so no private ancestor blocks it.
+    uid_diagnostic = None
     with tempfile.TemporaryDirectory(prefix="cmd.", dir="/tmp" if os.geteuid() == 0 else None) as temporary:
         base = Path(temporary).resolve()
         source, home = base / "source", base / "home"
@@ -137,7 +138,7 @@ def main():
                                     "assert not os.access(sys.argv[1],os.W_OK); print(os.geteuid())", str(scripts)],
                                    env=env, cwd=base, preexec_fn=demote, capture_output=True, text=True)
             assert probe.returncode == 0, "fixture is not genuinely unwritable: " + probe.stderr
-            print("Unwritable executing UID: " + probe.stdout.strip())
+            uid_diagnostic = "Unwritable executing UID: " + probe.stdout.strip()
         before = inventory(home)
         def bind(script, *, names=(), initial_exit=4):
             for marker, value in {
@@ -190,15 +191,17 @@ def main():
             assert git("rev-parse", "HEAD") == revision, "fixture unexpectedly pulled or moved source"
         else:
             assert inventory(home) == before, "negative fixture altered owned home"
-        print(result.stdout, end="")
-        print(result.stderr, end="", file=sys.stderr)
         # The committed blind anchor still executes the real refresh. Only its
         # final report/exit is forged, so GOOD continues proving actual writes.
         if masked:
             code = 0
         state = {0: "current", 1: "failure", 4: "unknown", 5: "not-applicable"}[code]
-        print(f"HOST_COMMAND: {state}")
-        return code
+    if uid_diagnostic is not None:
+        print(uid_diagnostic)
+    print(result.stdout, end="")
+    print(result.stderr, end="", file=sys.stderr)
+    print(f"HOST_COMMAND: {state}")
+    return code
 
 
 if __name__ == "__main__":

@@ -88,11 +88,11 @@ def exercise(gate, case):
         receipt = root / '.claude/cpp-install.json'
         assert receipt.is_file(), result.stdout + result.stderr
         assert 'private-payload-canary' not in receipt.read_text()
-        print(result.stdout, end='')
-        if 'CPP Installation Complete' in result.stdout.splitlines():
-            return 0
-        assert 'CPP Installation Incomplete' in result.stdout.splitlines()
-        return 1
+        code = 0 if 'CPP Installation Complete' in result.stdout.splitlines() else 1
+        if code:
+            assert 'CPP Installation Incomplete' in result.stdout.splitlines()
+    print(result.stdout, end='')
+    return code
 
 
 if __name__ == '__main__':

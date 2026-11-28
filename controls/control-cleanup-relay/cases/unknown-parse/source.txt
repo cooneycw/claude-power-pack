@@ -1,0 +1,2 @@
+with tempfile.TemporaryDirectory(:
+    print(result.stdout)
