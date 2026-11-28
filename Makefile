@@ -203,6 +203,24 @@ antigravity-skills-check:
 test-host-update-core:
 	uv run --extra dev pytest -q $(HOST_UPDATE_TESTS)
 
+## verify-coverage: utility test-pi-rules-probe - isolated B2 handoff guards and blind-anchor controls; full suite owns gate
+.PHONY: test-pi-rules-probe
+PI_RULE_PROBE_TESTS ?= tests/test_pi_rules_probe.py tests/test_pi_model_pin.py
+test-pi-rules-probe:
+	uv run --extra dev pytest -q $(PI_RULE_PROBE_TESTS)
+
+## verify-coverage: utility test-pi-mcp-probe - disposable B3 transports, config guards and health controls; full suite owns gate
+.PHONY: test-pi-mcp-probe
+PI_MCP_PROBE_TESTS ?= tests/test_pi_mcp_probe.py
+test-pi-mcp-probe:
+	uv run --extra dev pytest -q $(PI_MCP_PROBE_TESTS)
+
+## verify-coverage: utility test-pi-capture-driver - frozen B3 detector and actual wrapper-cap controls; full suite owns gate
+.PHONY: test-pi-capture-driver
+PI_CAPTURE_TESTS ?= tests/test_pi_capture_driver.py
+test-pi-capture-driver:
+	uv run --extra dev pytest -q $(PI_CAPTURE_TESTS)
+
 HOST_ADAPTER_TESTS ?= tests/test_host_update_command.py tests/test_host_update_links.py tests/test_host_update_adapters.py tests/test_host_update_integration.py tests/test_host_update_permissions.py tests/test_host_update_adapter_transactions.py tests/test_host_update_ci_shape.py
 ## verify-coverage: utility test-host-update-adapters - real production adapters and report readers; full suite owns gate
 .PHONY: test-host-update-adapters test-host-update-ci-shape host-update-adapter-controls

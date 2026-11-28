@@ -441,3 +441,31 @@ may be assumed. Separate-process readers must detect the cdf04386 current and
 accepted-migration failures. The final guard must refuse a real revision move;
 a stable revision alone cannot establish managed currency. Audit all49 Bash
 fences, with committed lost-state controls and explicit tool-unavailable limits.
+
+
+## Pi partial measurement amendment (#1899)
+
+The [pi research rows](research.md#pi-1899-partial-b0-b3-observations-2026-11-27)
+and [provenance](../../../docs/measurements/pi/issue-1899-provenance.md) record
+attributed B0/B2 and owner-stopped B3 evidence. This adds measurement inputs;
+it neither expands the initial driver adapter subset nor delivers #1901 rules,
+#1902 MCP or #1903 runtime receipts. Those acceptance items and #1899/#1876
+remain open. B4 remains draft-only pending separate owner go, provider quota
+and a reviewed metadata-only collector. No additional model run follows here.
+
+For later #1901 implementation, preserve the observed empty-override behavior
+and distinguish removal/restoration from file presence alone. The sampled
+8/32/64 KiB marker retention does not establish a size ceiling or authorize
+silent truncation; an explicit unsupported-size policy still needs evidence
+and review. Ownership, adoption and actual shared-updater behavior are not
+measured by the rule fixtures.
+
+For later #1902 implementation, preserve foreign configuration and keep native
+call evidence separate from CLI exit, UI labels or registration presence.
+Direct stdio/HTTP calls were verified in both scratch repos, but the omitted-
+exposure comparison used a restricted direct-tools lane. Do not require direct
+exposure globally or infer codemode is broken. The two unrun final absence
+rows and provider-blocked dead-HTTP row remain gaps; guarded file undo does
+not discharge their model observations. Interactive dead-MCP warnings do not
+establish RPC stderr or authenticated runtime identity. No fresh auth, session
+or transcript inspection is authorized by this amendment.

@@ -46,6 +46,7 @@ SELECTORS = (
     "tests/test_host_update_ci_shape.py::test_moved_source_is_unknown_and_preserves_installation",
     "tests/test_host_update_command.py::test_real_historical_installer_population",
     "tests/test_ci_shape_check.py",
+    "tests/test_ci_shape_cancel.py",
 )
 LANES = ("depth-1", "depth-1-tree-0")
 COLLECTION_FLOOR = 200
@@ -58,6 +59,8 @@ BOOTSTRAP_PATHS = frozenset({
 })
 _WITNESS_MODULE = "tests/test_ci_shape_check.py::"
 REQUIRED_WITNESSES = {
+    "1961-cancel": ("tests/test_ci_shape_cancel.py::"
+                    "test_cancel_reaps_pytest_group_before_outer_completion[15-term-ignoring-grandchild]"),
     "1909-modes": _WITNESS_MODULE + "test_1909_historical_inventory_retains_umask_checkout_modes",
     "1910-root": _WITNESS_MODULE + "test_1910_chmod_zero_is_readable_to_real_root_then_real_child_refuses",
     "1910-path": _WITNESS_MODULE + "test_1910_exact_old_path_fixture_then_fixed_staged_tool_fixture",
@@ -374,6 +377,93 @@ def observe(path: Path, work: Path, witness: str, git: str, stage: Path,
                            "tmp_spelling": str(tmp), "tmp_resolved": str(tmp.resolve())}
 
 
+
+def _pytest_group_live(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    # Linux init may retain already stopped orphan zombies. They consume no
+    # work and cannot be waited by this parent, unlike its direct child.
+    if Path("/proc").is_dir():
+        for path in Path("/proc").glob("[0-9]*/stat"):
+            try:
+                fields = path.read_text().rsplit(")", 1)[1].split()
+                if int(fields[2]) == pgid and fields[0] not in {"Z", "X"}:
+                    return True
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+        return False
+    return True
+
+
+def _stop_pytest_group(proc: subprocess.Popen) -> None:
+    def send(signum):
+        try:
+            os.killpg(proc.pid, signum)
+        except ProcessLookupError:
+            pass
+    send(signal.SIGTERM)
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        send(signal.SIGKILL)
+        proc.wait(timeout=5)
+    # Its leader can exit while a TERM-ignoring descendant remains alive.
+    send(signal.SIGKILL)
+    deadline = time.monotonic() + 5
+    while _pytest_group_live(proc.pid):
+        if time.monotonic() >= deadline:
+            raise Unknown("owned pytest group did not stop after SIGKILL")
+        time.sleep(0.01)
+
+
+def _owned_pytest(argv, *, cwd, env, output, timeout=1200) -> int:
+    """Own the detached group through ordinary exit, timeout, and signals."""
+    proc = None
+    previous = []
+    launching, stopping = True, False
+    interrupted = None
+
+    def cancel(signum, frame):
+        nonlocal interrupted
+        interrupted = signum
+        # Do not interrupt Popen before we receive its child handle, or allow
+        # repeated signals to cut group cleanup short.
+        if not launching and not stopping:
+            raise SystemExit(128 + signum)
+
+    try:
+        for signum in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+            previous.append((signum, signal.signal(signum, cancel)))
+        if interrupted is not None:
+            raise SystemExit(128 + interrupted)
+        proc = subprocess.Popen(list(map(str, argv)), cwd=cwd, env=env,
+                                stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+        launching = False
+        if interrupted is not None:
+            raise SystemExit(128 + interrupted)
+        return proc.wait(timeout=timeout)
+    finally:
+        stopping = True
+        cleanup_error = None
+        try:
+            if proc is not None:
+                _stop_pytest_group(proc)
+        except BaseException as exc:
+            cleanup_error = exc
+            raise
+        finally:
+            for signum, handler in reversed(previous):
+                signal.signal(signum, handler)
+            if interrupted is not None:
+                # A cleanup failure must remain visible without turning a
+                # stop request into a returned UNKNOWN lane and more work.
+                if cleanup_error is not None:
+                    print(f"CI_SHAPE_CANCEL: UNKNOWN: {cleanup_error}", file=sys.stderr, flush=True)
+                raise SystemExit(128 + interrupted) from cleanup_error
+
+
 def run_lane(root: Path, seed: Path, witness: str, work: Path, stage: Path,
              python: Path, tier: str, partial: bool, logs: Path, test_umask: int) -> dict[str, Any]:
     work.mkdir()
@@ -411,28 +501,11 @@ def run_lane(root: Path, seed: Path, witness: str, work: Path, stage: Path,
         # Each run owns its basetemp under TemporaryDirectory, never the global
         # pytest-of-* namespace. The context removes it even after failure.
         with (logs / (name + ".log")).open("w") as output:
-            proc = subprocess.Popen(list(map(str, argv)), cwd=work, env=env,
-                                    stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
-            try:
-                proc.wait(timeout=1200)
-            except BaseException:
-                if proc.poll() is None:
-                    os.killpg(proc.pid, signal.SIGTERM)
-                    try:
-                        proc.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        os.killpg(proc.pid, signal.SIGKILL)
-                        proc.wait()
-                    # The group can still have children after its leader exits.
-                    try:
-                        os.killpg(proc.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                raise
+            exit_code = _owned_pytest(argv, cwd=work, env=env, output=output)
         log = (logs / (name + ".log")).read_text()
         payload = json.loads(results.read_text()) if results.exists() else {}
-        state, reason = completion(payload, proc.returncode, log, tier)
-        row.update(state=state, reason=reason, results=payload, exit=proc.returncode,
+        state, reason = completion(payload, exit_code, log, tier)
+        row.update(state=state, reason=reason, results=payload, exit=exit_code,
                    diagnostic="INTERNALERROR" if "INTERNALERROR" in log else "",
                    log_sha256=hashlib.sha256(log.encode()).hexdigest())
         outcomes = payload.get("outcomes", {})

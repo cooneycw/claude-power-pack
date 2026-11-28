@@ -1,0 +1,3 @@
+provider  model  context  max-out  thinking  images
+github-copilot  gpt-5.3-codex  400K  128K  yes  yes
+github-copilot  gpt-5.3-codex-spark  128K  64K  yes  no
