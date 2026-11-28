@@ -506,8 +506,10 @@ def run_lane(root: Path, seed: Path, witness: str, work: Path, stage: Path,
     env = fresh_environment(home, tmp, minimal_path(work, stage, python))
     git = str(stage / "git")
     name = LANES[int(partial)]
+    declared_skips = {node: reason for node, reason in EXPECTED_HISTORY_SKIPS.items()
+                      if any(selector_matches(node, selector) for selector in SELECTORS)}
     row: dict[str, Any] = {"name": name, "state": "UNKNOWN", "reason": "not started",
-                           "expected_skips": dict(EXPECTED_HISTORY_SKIPS)}
+                           "expected_skips": declared_skips}
     before = time.monotonic()
     mask = os.umask(0)
     try:
@@ -526,7 +528,7 @@ def run_lane(root: Path, seed: Path, witness: str, work: Path, stage: Path,
         (path / ".venv").symlink_to(python.parent.parent, target_is_directory=True)
         results = work / "results.json"
         env.update(PYTHONPATH=str(path), CPP_CI_SHAPE_RESULTS=str(results),
-                   CPP_CI_SHAPE_EXPECTED_SKIPS=json.dumps(EXPECTED_HISTORY_SKIPS, sort_keys=True),
+                   CPP_CI_SHAPE_EXPECTED_SKIPS=json.dumps(declared_skips, sort_keys=True),
                    PYTEST_DISABLE_PLUGIN_AUTOLOAD="1")
         argv = [python, "-m", "pytest", "-c", path / "pyproject.toml", "--rootdir", path,
                 "-p", "lib.ci_shape_pytest", "-p", "pytest_timeout", "-p", "xdist.plugin",
