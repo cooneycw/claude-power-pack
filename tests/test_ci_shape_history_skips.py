@@ -2,6 +2,7 @@
 import copy
 import json
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -95,3 +96,38 @@ def test_shape_collector_skips_before_setup_and_leaves_ordinary_pytest_alone(pyt
     ordinary = pytester.runpytest_subprocess("--rootdir", str(pytester.path), "-q")
     ordinary.assert_outcomes(passed=2, errors=2)
     assert marker.exists(), "ordinary pytest did not exercise its normal fixture path"
+
+
+@pytest.mark.skipif(not shutil.which("git") or not shutil.which("make"), reason="Git and Make required")
+def test_controlled_population_receives_its_own_skip_policy(tmp_path, monkeypatch):
+    """Controlled checkout/probes observe real child policy, not physical shape."""
+    checkout = tmp_path / "checkout"
+    package = checkout / "lib"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+    shutil.copyfile(ROOT / "lib/ci_shape_pytest.py", package / "ci_shape_pytest.py")
+    assert not (package / "ci_shape_check.py").exists()
+    (checkout / "pyproject.toml").write_text("[tool.pytest.ini_options]\n")
+    observed = tmp_path / "child-policy.json"
+    (checkout / "test_hold.py").write_text(
+        "import json,os\nfrom pathlib import Path\n"
+        "def test_hold():\n"
+        f"    Path({str(observed)!r}).write_text(os.environ['CPP_CI_SHAPE_EXPECTED_SKIPS'])\n")
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    for tool in ("git", "make"):
+        binary = shutil.which(tool)
+        assert binary is not None
+        (stage / tool).symlink_to(binary)
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    monkeypatch.setattr(shape, "SELECTORS", ("test_hold.py",))
+    monkeypatch.setattr(shape, "checkout", lambda *args: checkout)
+    monkeypatch.setattr(shape, "observe", lambda *args: ({"controlled_input": True}, {}))
+    assert not observed.exists()
+    row = shape.run_lane(tmp_path, tmp_path, "controlled", tmp_path / "lane",
+                         stage, Path(sys.executable), "local", False, logs, 0o022)
+    assert json.loads(observed.read_text()) == {}
+    assert row["expected_skips"] == {}
+    # This tiny population is intentionally outside full qualification.
+    assert row["state"] == "BAD" and row["results"]["outcomes"] == {"test_hold.py::test_hold": "passed"}
