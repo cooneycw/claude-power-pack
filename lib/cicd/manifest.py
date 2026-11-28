@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Annotated, Any, Literal, Optional
 
 try:
     from pydantic import BaseModel, Field, ValidationError, field_validator
@@ -63,7 +63,7 @@ class StepModel(BaseModel):
 
     command: str
     description: str = ""
-    timeout: int = Field(default=600, ge=1, le=7200)
+    timeout: Annotated[int, Field(ge=1, le=7200)] | Literal["CPP_GATE_TEST_TIMEOUT"] = 600
     max_attempts: int = Field(default=1, ge=1, le=10)
     backoff_seconds: float = Field(default=2.0, ge=0.1, le=60.0)
     idempotent: bool = True
@@ -298,7 +298,7 @@ def step_model_to_step_def(step_id: str, model: StepModel) -> Any:
 
     This bridges the manifest layer (Pydantic) with the execution layer (dataclasses).
     """
-    from .steps import GATE_STEP_IDS, StepDef
+    from .steps import GATE_STEP_IDS, StepDef, _test_step_timeout
 
     return StepDef(
         id=step_id,
@@ -325,7 +325,7 @@ def step_model_to_step_def(step_id: str, model: StepModel) -> Any:
         gate=step_id in GATE_STEP_IDS,
         command=model.command,
         description=model.description,
-        timeout_seconds=model.timeout,
+        timeout_seconds=_test_step_timeout() if model.timeout == "CPP_GATE_TEST_TIMEOUT" else model.timeout,
         max_attempts=model.max_attempts,
         backoff_seconds=model.backoff_seconds,
         idempotent=model.idempotent,
@@ -587,6 +587,7 @@ def write_manifest(manifest: TaskManifest, project_root: str | Path) -> Path:
         "# Reference:\n"
         "#   steps.<name>.command     - Shell command to execute\n"
         "#   steps.<name>.timeout     - Max seconds (default: 600)\n"
+        "#     CPP_GATE_TEST_TIMEOUT - Opt in to the operator budget (default: 1800); numeric timeouts stay fixed\n"
         "#   steps.<name>.max_attempts - Retry count (default: 1)\n"
         "#   steps.<name>.idempotent  - Safe to retry? (default: true)\n"
         "#   steps.<name>.skip_if     - Shell expression; skip if exits 0\n"

@@ -1363,6 +1363,8 @@ if [[ "$RUNNER_OK" -eq 1 ]]; then
         echo "  This proves nothing about the tree either way. Do not triage the tests; they were still running." >&2
         echo "  A suite grows every merge and no constant tracks that, so this budget will need raising again:" >&2
         echo "        CPP_GATE_TEST_TIMEOUT=<seconds> <re-run the gate>" >&2
+        echo "  This knob applies to built-in budgets or manifest timeout: CPP_GATE_TEST_TIMEOUT." >&2
+        echo "  A numeric manifest timeout stays fixed: edit steps.$TIMED_OUT_STEP.timeout or opt in with that token." >&2
         echo "  If it times out at a budget far above the suite's real cost, suspect a hang rather than growth (issue #812)." >&2
         verdict "fail (timeout: $TIMED_OUT_STEP after ${TIMED_OUT_AFTER:-?}s)"
         gate_exit fail
