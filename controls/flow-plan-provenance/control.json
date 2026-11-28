@@ -1,0 +1,69 @@
+{
+  "gate": "scripts/flow-plan-record.py",
+  "invocation": [
+    "python3",
+    "controls/flow-plan-provenance/run-case.py",
+    "{case}",
+    "{gate}"
+  ],
+  "good_exit": 0,
+  "detect_signal": "^FLOW_PROVENANCE: invalid -",
+  "good_signal": "^FLOW_PROVENANCE: valid - 2 canonical lines",
+  "unknown_signal": "^FLOW_PROVENANCE: unknown -",
+  "unavailable_signal": "^FLOW_PROVENANCE_CONTROL: unavailable -",
+  "limits": "Checks canonical spelling and the presence of both supplied lines through the real finish CLI. It cannot establish that the provenance is true, that this is fix-type work, that a caller uses the optional flag, or that the text was published to an issue/PR. No required missing-provenance gate is claimed.",
+  "cases": [
+    {
+      "name": "invalid",
+      "input": "cases/invalid",
+      "expect": "BAD",
+      "why": "Both supplied lines exist but use noncanonical values; readability alone must not pass."
+    },
+    {
+      "name": "invalid-origin",
+      "input": "cases/invalid-origin",
+      "expect": "BAD",
+      "why": "Only Origin is noncanonical; a valid missed answer cannot hide it."
+    },
+    {
+      "name": "invalid-missed",
+      "input": "cases/invalid-missed",
+      "expect": "BAD",
+      "why": "Only Missed because is noncanonical; a valid origin cannot hide it."
+    },
+    {
+      "name": "missing",
+      "input": "cases/missing",
+      "expect": "BAD",
+      "why": "The supplied closing text omits Missed because; one line is not two."
+    },
+    {
+      "name": "conflicting",
+      "input": "cases/conflicting",
+      "expect": "BAD",
+      "why": "Two different Origin answers cannot identify one origin."
+    },
+    {
+      "name": "valid",
+      "input": "cases/valid",
+      "expect": "GOOD",
+      "why": "Both supplied lines have canonical values, distinguishing refusal from validation."
+    },
+    {
+      "name": "unknown-contract",
+      "input": "cases/unknown-contract",
+      "expect": "UNKNOWN",
+      "why": "The fixture package has no canonical contract; values cannot be checked."
+    }
+  ],
+  "anchors": [
+    {
+      "kind": "constructed",
+      "sha": "n/a",
+      "origin": "scripts/flow-plan-record.py",
+      "path": "anchors/readable-only.py",
+      "sha256": "976071d36d2a1a65eedb5d82f61a90e251ee286e548f97c64ea77244f1980c5f",
+      "why": "CONSTRUCTED: all existing finish checks and contract/input unreadability stay intact, but a readable closing file is mistaken for valid canonical fields. It misses each BAD case and accepts the GOOD case while preserving UNKNOWN."
+    }
+  ]
+}

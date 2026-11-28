@@ -1,0 +1,10 @@
+--- origin code
++++ readability-only code
+@@ -2198,6 +2198,7 @@
+                     .replace(re.escape("<what was tried>"), r"\S.*") for answer in answers]
+         if not any(re.fullmatch(pattern, value) for pattern in patterns):
+             problems.append(f"{label}: value is outside the canonical list")
++    problems.clear()  # BLIND: file readability mistaken for canonical values.
+     if problems:
+         print("FLOW_PROVENANCE: invalid - " + "; ".join(problems))
+         return ERROR
