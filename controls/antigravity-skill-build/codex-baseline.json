@@ -1869,10 +1869,10 @@
         420
       ],
       "candidate": [
-        "780b91632f5d15d54101a7921d7b0477a2154923ae2b4bd471e22abe97f97132",
+        "1d0c120428eec05a8412efb23a933327e5e5a9f64501fad49ee5a7ca033c2d2e",
         420
       ],
-      "source_commit": "90869301dd3828b0991dc40221a4b3367c8cb248",
+      "source_commit": "0a67995ac169a9cc021f4dfee4c1a59b90dab8c9",
       "reason": "#1946 PR1 corrects public security/secrets capability and storage claims, including plaintext local storage and AWS-first auto selection. Claims-only input evolution; all runtime examples, historical members, pinned generator and parser are unchanged."
     },
     "secrets-help/SKILL.md": {
@@ -1881,10 +1881,10 @@
         420
       ],
       "candidate": [
-        "4f8ad428c0729b5f02cbbc2585f1dc89af7a0158de2ec2d7e1d47525b30a7b19",
+        "031f4d86bfda365fcd23cdaa96e5bb87e00cd3c8f599fd607368c3ceb01ab729",
         420
       ],
-      "source_commit": "90869301dd3828b0991dc40221a4b3367c8cb248",
+      "source_commit": "0a67995ac169a9cc021f4dfee4c1a59b90dab8c9",
       "reason": "#1946 PR1 corrects public security/secrets capability and storage claims, including plaintext local storage and AWS-first auto selection. Claims-only input evolution; all runtime examples, historical members, pinned generator and parser are unchanged."
     }
   }
